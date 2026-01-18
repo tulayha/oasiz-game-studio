@@ -15,7 +15,7 @@ It is very feasible to reach this quality level using vanilla JS, CSS, and HTML 
       - or high replay value (slowly increases in difficulty making you want to play again and again)
       - The best games have both but there are exceptions (flappy bird, etc)
 - Every interaction should feel satisfying (we call this "juice"), this includes start screen, pause menus, heads-up displays (HUD), game over screen, etc
-
+- Highly reccomend generating music using Suno and sound effects using models like Google Lyria
 ### Game Categories
 
 | Category | Description |
