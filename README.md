@@ -8,7 +8,7 @@ Welcome to the Oasiz Game Studio! This guide will help you create high-quality g
 
 - Games must be **fun** and **polished**
 - If games are **challenging**, they should increase in difficulty
-- All games need professional-grade visuals, animations, and game feel. This can mean assets (jpg, png, etc), animated sprites, glb, but assets are not requires.
+- All games need professional-grade visuals, animations, and game feel. This can mean assets (jpg, png, etc), animated sprites, glb, but assets are not required.
 It is very feasible to reach this quality level using vanilla JS, CSS, and HTML Canvas, use what you're comfortable with.
 - Games should either have:
       - depth (many levels with delightful nuance) 
