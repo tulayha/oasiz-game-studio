@@ -1045,9 +1045,26 @@
             .word { border-radius: 16px; }
             .controls { gap: 9px; }
         }
+
+        /* Scene fade for smooth transitions */
+        #sceneFade {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            pointer-events: none;
+            background: rgba(245, 240, 232, 0);
+            opacity: 0;
+            transition: opacity 260ms ease, background 260ms ease;
+        }
+
+        #sceneFade.on {
+            opacity: 1;
+            background: rgba(245, 240, 232, 1);
+        }
     </style>
 </head>
 <body>
+    <div id="sceneFade" class="fade"></div>
     <div id="app">
         <div id="hud" class="hidden">
             <div id="iconbar">

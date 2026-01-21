@@ -98,7 +98,12 @@ class AudioManager {
   updateSettings(settings: Settings): void {
     this.settings = settings;
     this.updateVolumes();
-    if (!this.settings.music) this.stopMusic();
+    if (!this.settings.music) {
+      this.stopMusic();
+    } else {
+      // If music was toggled back on, resume if nothing is playing.
+      if (!this.musicSource) this.startMusic();
+    }
   }
 
   private updateVolumes(): void {
@@ -244,6 +249,48 @@ class AudioManager {
     }
   }
 
+  levelWin(): void {
+    this.ensure();
+    if (!this.ctx || !this.fxGain || !this.settings.fx) return;
+    const now = this.ctx.currentTime;
+
+    // Short uplifting arpeggio (longer than success(), distinct from correct-group sound)
+    const seq = [392, 523.25, 659.25, 783.99]; // G4 C5 E5 G5
+    for (let i = 0; i < seq.length; i++) {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(seq[i], now + i * 0.08);
+      gain.gain.setValueAtTime(0.0001, now + i * 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.16, now + i * 0.08 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.08 + 0.22);
+      osc.connect(gain);
+      gain.connect(this.fxGain);
+      osc.start(now + i * 0.08);
+      osc.stop(now + i * 0.08 + 0.26);
+    }
+  }
+
+  levelLose(): void {
+    this.ensure();
+    if (!this.ctx || !this.fxGain || !this.settings.fx) return;
+    const now = this.ctx.currentTime;
+
+    // Low "fail" thud + downward sweep
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(70, now + 0.28);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.28, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.33);
+    osc.connect(gain);
+    gain.connect(this.fxGain);
+    osc.start(now);
+    osc.stop(now + 0.35);
+  }
+
   error(): void {
     this.ensure();
     if (!this.ctx || !this.fxGain || !this.settings.fx) return;
@@ -370,6 +417,20 @@ class ConnectionsGame {
     window.addEventListener("resize", () => this.updateHudSpacing());
   }
 
+  private async fadeScene(action: () => void): Promise<void> {
+    const fade = document.getElementById("sceneFade");
+    if (!fade) {
+      action();
+      return;
+    }
+    fade.classList.add("on");
+    await new Promise((r) => window.setTimeout(r, 260));
+    action();
+    // Let layout settle before fading out
+    await new Promise((r) => window.setTimeout(r, 40));
+    fade.classList.remove("on");
+  }
+
   private bindUI(): void {
     this.startButton.addEventListener("click", () => {
       console.log("[ConnectionsGame] Start clicked");
@@ -460,6 +521,10 @@ class ConnectionsGame {
         this.settings = { ...this.settings, [key]: !this.settings[key] };
         this.saveSettings();
         this.audio.updateSettings(this.settings);
+        if (key === "music" && this.settings.music) {
+          // Ensure music resumes immediately when toggled back on.
+          this.audio.startMusic();
+        }
         this.syncSettingsUI();
       };
       el.addEventListener("click", handler);
@@ -477,15 +542,17 @@ class ConnectionsGame {
   }
 
   private start(): void {
-    this.startScreen.classList.add("hidden");
-    this.hud.classList.remove("hidden");
-    this.settingsBtn.classList.remove("hidden");
-    this.helpBtn.classList.remove("hidden");
-    this.menuBtn.classList.remove("hidden");
-    this.topbar.classList.remove("hidden");
-    this.audio.startMusic();
-    this.startedAtMs = Date.now();
-    this.updateHudSpacing();
+    void this.fadeScene(() => {
+      this.startScreen.classList.add("hidden");
+      this.hud.classList.remove("hidden");
+      this.settingsBtn.classList.remove("hidden");
+      this.helpBtn.classList.remove("hidden");
+      this.menuBtn.classList.remove("hidden");
+      this.topbar.classList.remove("hidden");
+      this.audio.startMusic();
+      this.startedAtMs = Date.now();
+      this.updateHudSpacing();
+    });
 
     // Start interactive coach tour AFTER the game begins (Play is never part of the tutorial).
     if (this.coaching && this.coach && !this.coachStarted) {
@@ -497,31 +564,35 @@ class ConnectionsGame {
   }
 
   private restart(): void {
-    this.closeSettings();
-    this.gameOverScreen.classList.add("hidden");
-    this.levelCompleteOverlay.classList.add("hidden");
-    this.ended = false;
-    this.submitted = false;
-    this.sessionScore = 0;
-    this.levelIndex = 0;
-    this.puzzle = this.levels[this.levelIndex].puzzle;
-    this.resetStateForPuzzle();
-    this.renderAll();
-    this.start();
+    void this.fadeScene(() => {
+      this.closeSettings();
+      this.gameOverScreen.classList.add("hidden");
+      this.levelCompleteOverlay.classList.add("hidden");
+      this.ended = false;
+      this.submitted = false;
+      this.sessionScore = 0;
+      this.levelIndex = 0;
+      this.puzzle = this.levels[this.levelIndex].puzzle;
+      this.resetStateForPuzzle();
+      this.renderAll();
+      this.start();
+    });
   }
 
   private goToMainMenu(): void {
-    // Return to start screen cleanly, without leaving timers running.
-    this.stopLevelTimer();
-    this.closeSettings();
-    this.levelCompleteOverlay.classList.add("hidden");
-    this.gameOverScreen.classList.add("hidden");
-    this.hud.classList.add("hidden");
-    this.settingsBtn.classList.add("hidden");
-    this.helpBtn.classList.add("hidden");
-    this.menuBtn.classList.add("hidden");
-    this.topbar.classList.add("hidden");
-    this.startScreen.classList.remove("hidden");
+    void this.fadeScene(() => {
+      // Return to start screen cleanly, without leaving timers running.
+      this.stopLevelTimer();
+      this.closeSettings();
+      this.levelCompleteOverlay.classList.add("hidden");
+      this.gameOverScreen.classList.add("hidden");
+      this.hud.classList.add("hidden");
+      this.settingsBtn.classList.add("hidden");
+      this.helpBtn.classList.add("hidden");
+      this.menuBtn.classList.add("hidden");
+      this.topbar.classList.add("hidden");
+      this.startScreen.classList.remove("hidden");
+    });
   }
 
   private resetStateForPuzzle(): void {
@@ -1092,6 +1163,7 @@ class ConnectionsGame {
 
   private onLevelComplete(): void {
     this.stopLevelTimer();
+    this.audio.levelWin();
 
     const secLeft = Math.max(
       0,
@@ -1107,27 +1179,29 @@ class ConnectionsGame {
     // Hide any open settings during level transition
     this.closeSettings();
 
-    setTimeout(() => {
+    void this.fadeScene(() => {
       this.levelCompleteOverlay.classList.remove("hidden");
-    }, 450);
+    });
 
     this.triggerHaptic("success");
   }
 
   private advanceLevel(): void {
-    this.levelCompleteOverlay.classList.add("hidden");
-    this.levelIndex++;
+    void this.fadeScene(() => {
+      this.levelCompleteOverlay.classList.add("hidden");
+      this.levelIndex++;
 
-    if (this.levelIndex >= this.levels.length) {
-      // Run complete
-      this.end(true, "complete");
-      return;
-    }
+      if (this.levelIndex >= this.levels.length) {
+        // Run complete
+        this.end(true, "complete");
+        return;
+      }
 
-    this.puzzle = this.levels[this.levelIndex].puzzle;
-    this.resetStateForPuzzle();
-    this.renderAll();
-    this.startLevelTimer();
+      this.puzzle = this.levels[this.levelIndex].puzzle;
+      this.resetStateForPuzzle();
+      this.renderAll();
+      this.startLevelTimer();
+    });
   }
 
   private end(won: boolean, reason: "complete" | "time" | "mistakes"): void {
@@ -1137,6 +1211,13 @@ class ConnectionsGame {
     this.renderGrid();
     this.updateControls();
     this.stopLevelTimer();
+
+    // Distinct SFX for run completion vs failing a level/run
+    if (won) {
+      this.audio.levelWin();
+    } else {
+      this.audio.levelLose();
+    }
 
     const solvedLevels = won ? 15 : this.levelIndex;
     const endBonus = won ? 500 : 0;
@@ -1164,9 +1245,9 @@ class ConnectionsGame {
       (window as any).submitScore(score);
     }
 
-    setTimeout(() => {
+    void this.fadeScene(() => {
       this.gameOverScreen.classList.remove("hidden");
-    }, 450);
+    });
 
     this.triggerHaptic(won ? "success" : "error");
   }
