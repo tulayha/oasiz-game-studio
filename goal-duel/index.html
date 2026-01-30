@@ -1,0 +1,2238 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Goal Duel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Luckiest+Guy&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg0: #070b18;
+        --bg1: #0b1530;
+        --card: rgba(255, 255, 255, 0.06);
+        --card2: rgba(255, 255, 255, 0.09);
+        --stroke: rgba(255, 255, 255, 0.14);
+        --stroke2: rgba(255, 255, 255, 0.22);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.68);
+
+        --p1: #50e6ff;
+        --p1b: #08b3ff;
+        --p2: #ff6ad5;
+        --p2b: #ff3b7e;
+        --accent: #b7ff4a;
+
+        --safeTop: var(--ui-hud-top-offset, 8px);
+        --safePadX: 8px;
+        --hudGap: 6px;
+        --hudW: min(720px, calc(100vw - 16px));
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        touch-action: none;
+        background: radial-gradient(1200px 900px at 50% 30%, #152a5e 0%, var(--bg1) 40%, var(--bg0) 100%);
+        font-family: "Sora", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: var(--text);
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      /* Header / HUD */
+      #hudRoot {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 0;
+        z-index: 70;
+        pointer-events: none;
+        padding-top: 0;
+        padding-left: calc(var(--safePadX) + env(safe-area-inset-left));
+        padding-right: calc(var(--safePadX) + env(safe-area-inset-right));
+      }
+
+      .hudRow {
+        width: var(--hudW);
+        margin: 0 auto;
+        padding-top: 4px;
+        display: grid;
+        grid-template-columns: 64px 1fr 64px;
+        align-items: center;
+        gap: var(--ui-hud-spacing, var(--hudGap));
+      }
+      
+      .hudPills {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        pointer-events: none;
+        justify-self: center;
+      }
+
+      .pill {
+        pointer-events: none;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+        border: 1px solid var(--stroke);
+        box-shadow: 0 10px 35px rgba(0, 0, 0, 0.3);
+        font-size: var(--ui-hud-font-size, 10px);
+        color: var(--muted);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      .pill strong {
+        color: var(--text);
+        font-weight: 700;
+        margin-left: 6px;
+        letter-spacing: 0.2px;
+        font-size: var(--ui-hud-score-size, 16px);
+      }
+
+      .iconBtn {
+        pointer-events: auto;
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        border: 1px solid var(--stroke);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        cursor: pointer;
+        transition: transform 120ms ease, border-color 160ms ease, background 160ms ease;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        display: grid;
+        place-items: center;
+      }
+
+      .iconBtn:active {
+        transform: translateY(1px) scale(0.98);
+      }
+
+      .iconBtn svg {
+        width: 16px;
+        height: 16px;
+        fill: rgba(255, 255, 255, 0.9);
+      }
+
+      .iconBtn img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      /* Menu and Settings buttons - bigger and no background */
+      #btnMenu,
+      #btnSettings {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+
+      #btnMenu {
+        width: 64px;
+        height: 64px;
+        justify-self: start;
+      }
+
+      #btnSettings {
+        width: 64px;
+        height: 64px;
+        justify-self: end;
+      }
+
+      #btnMenu img,
+      #btnSettings img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      @media (pointer: coarse) {
+        #btnMenu {
+          width: 72px;
+          height: 72px;
+        }
+        #btnSettings {
+          width: 72px;
+          height: 72px;
+        }
+      }
+
+      /* Overlays */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      /* Menu uses assets */
+      #startOverlay {
+        background: rgba(0, 0, 0, 0.35);
+      }
+
+      .menuBg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        filter: saturate(1.05) contrast(1.02);
+        transform: scale(1.03);
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .menuShade {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(900px 700px at 25% 40%, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.62));
+        pointer-events: none;
+      }
+
+      /* "RC Car Soccer"-style menu layout (logo left, tiles right) */
+      .menuStage {
+        position: relative;
+        width: min(1180px, calc(100vw - 24px));
+        height: min(720px, calc(100vh - 24px));
+        margin: auto;
+        pointer-events: none;
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        align-items: center;
+        gap: 24px;
+        padding-top: calc(env(safe-area-inset-top) + 12px);
+        padding-bottom: calc(env(safe-area-inset-bottom) + 12px);
+      }
+
+      .menuLeft {
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 14px;
+        padding-left: 10px;
+      }
+
+      .menuLogo {
+        width: min(var(--ui-menu-logo-size, 520px), var(--ui-menu-logo-size-mobile, 62vw));
+        height: auto;
+        display: block;
+        margin: 0;
+        filter: drop-shadow(0 22px 50px rgba(0, 0, 0, 0.5));
+        transform-origin: 20% 60%;
+        will-change: transform, filter;
+        animation: menuLogoFloat 4.2s ease-in-out infinite;
+      }
+
+      .menuSubtitle {
+        max-width: 520px;
+        font-size: 14px;
+        line-height: 1.35;
+        color: rgba(255, 255, 255, 0.92);
+        text-shadow: 0 10px 22px rgba(0, 0, 0, 0.5);
+      }
+
+      .menuRight {
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 14px;
+        padding-right: 10px;
+      }
+
+      .menuControls {
+        width: min(560px, 44vw);
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: var(--ui-menu-button-gap, 10px);
+        pointer-events: none;
+      }
+
+      .menuIconButtons {
+        display: flex;
+        flex-direction: row;
+        gap: var(--ui-menu-button-gap, 10px);
+        align-items: center;
+      }
+
+      .menuBtnWide,
+      .menuBtnIcon {
+        border: none;
+        background: transparent;
+        padding: 0;
+        cursor: pointer;
+        pointer-events: auto;
+        position: relative;
+        isolation: isolate;
+        -webkit-tap-highlight-color: transparent;
+        will-change: transform, filter;
+        transition: transform 140ms ease, filter 180ms ease;
+      }
+
+      .menuBtnWide {
+        width: min(var(--ui-menu-button-wide-width, 320px), var(--ui-menu-button-wide-width-mobile, 30vw));
+        aspect-ratio: 2.55 / 1;
+        display: grid;
+        place-items: center;
+        margin-right: 38px; /* nudge left (requested) */
+        animation: ctaPulse 1.7s ease-in-out infinite;
+      }
+
+      .menuBtnWide:hover {
+        animation-play-state: paused;
+      }
+
+      .menuBtnIcon {
+        width: var(--ui-menu-icon-button-size, 76px);
+        height: var(--ui-menu-icon-button-size, 76px);
+        border-radius: 18px;
+        display: grid;
+        place-items: center;
+      }
+
+      .menuBtnWide::before,
+      .menuBtnIcon::before {
+        content: "";
+        position: absolute;
+        inset: -14px;
+        background: radial-gradient(closest-side, rgba(120, 245, 255, 0.42), rgba(120, 245, 255, 0) 70%);
+        filter: blur(14px);
+        opacity: 0.88;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .menuBtnWide::after,
+      .menuBtnIcon::after {
+        content: "";
+        position: absolute;
+        inset: -8px;
+        background: radial-gradient(closest-side, rgba(255, 214, 92, 0.22), rgba(255, 214, 92, 0) 72%);
+        filter: blur(18px);
+        opacity: 0.6;
+        z-index: 0;
+        pointer-events: none;
+        mix-blend-mode: screen;
+      }
+
+      .menuBtnWide img,
+      .menuBtnIcon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        z-index: 1;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+        filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.35));
+      }
+
+      .menuBtnIcon img {
+        width: 86%;
+        height: 86%;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .menuBtnWide:hover,
+        .menuBtnIcon:hover {
+          transform: translateY(-1px) scale(1.01);
+          filter: brightness(1.02);
+        }
+      }
+
+      .menuBtnWide:active,
+      .menuBtnIcon:active {
+        transform: translateY(1px) scale(0.99);
+        filter: brightness(0.98);
+      }
+
+      .menuBtnWide:disabled {
+        cursor: default;
+        opacity: 0.55;
+        filter: grayscale(0.25);
+        animation: none;
+      }
+
+      .menuBtnWide:disabled::before,
+      .menuBtnWide:disabled::after {
+        opacity: 0.25;
+      }
+
+      @keyframes ctaPulse {
+        0% {
+          transform: translateY(0) scale(1);
+          filter: brightness(1);
+        }
+        50% {
+          transform: translateY(-1px) scale(1.035);
+          filter: brightness(1.03);
+        }
+        100% {
+          transform: translateY(0) scale(1);
+          filter: brightness(1);
+        }
+      }
+
+      /* Country picker screen */
+      .countryStage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        z-index: 3;
+        background: rgba(0, 0, 0, 0.3);
+      }
+
+      .countryStage.hidden {
+        display: none;
+      }
+
+      .countryCard {
+        width: min(760px, calc(100vw - 28px));
+        pointer-events: auto;
+        position: relative;
+        border-radius: 18px;
+        overflow: hidden;
+        filter: drop-shadow(0 28px 80px rgba(0, 0, 0, 0.45));
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        background: rgba(8, 12, 22, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+
+      .countryInner {
+        position: relative;
+        padding: var(--ui-panel-padding, 18px);
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        z-index: 1;
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+
+      .countryTitleRow {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 10px;
+        flex-shrink: 0;
+      }
+
+      .countryTitle {
+        font-weight: 900;
+        font-size: var(--ui-title-size, 14px);
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.94);
+        text-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+        margin: 0;
+      }
+
+      .countrySub {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: var(--ui-subtitle-size, 12px);
+        text-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+        margin: 0;
+      }
+
+      .countryBack {
+        border: none;
+        background: rgba(0, 0, 0, 0.18);
+        border-radius: 14px;
+        padding: 8px 10px;
+        color: rgba(255, 255, 255, 0.92);
+        font-weight: 800;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.25);
+      }
+
+      /* Car picker screen (same plate) */
+      .carStage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        z-index: 4;
+        background: rgba(0, 0, 0, 0.3);
+      }
+
+      .carStage.hidden {
+        display: none;
+      }
+
+      .carCard {
+        width: min(760px, calc(100vw - 28px));
+        pointer-events: auto;
+        position: relative;
+        border-radius: 18px;
+        overflow: hidden;
+        filter: drop-shadow(0 28px 80px rgba(0, 0, 0, 0.45));
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        background: rgba(8, 12, 22, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        margin: 0 auto;
+      }
+
+      .carInner {
+        position: relative;
+        padding: 18px 18px 16px 18px;
+      }
+
+      .carGrid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        max-height: 500px;
+        padding-right: 4px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      .carGrid::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .carGrid::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 3px;
+      }
+
+      .carGrid::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+      }
+
+      .carGrid::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.4);
+      }
+
+      .carSkinBtn {
+        width: 100%;
+        aspect-ratio: 2.2 / 1.4;
+        max-width: 120px;
+        border: 2px solid rgba(255, 255, 255, 0.22);
+        background: rgba(0, 0, 0, 0.18);
+        border-radius: 18px;
+        padding: 8px;
+        cursor: pointer;
+        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.22);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .carSkinBtn img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+        filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.35));
+      }
+
+      .carSkinBtn.selected {
+        border-color: rgba(120, 245, 255, 0.95);
+        box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.25), 0 0 26px rgba(120, 245, 255, 0.45);
+      }
+
+      .flagGrid {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: var(--ui-flag-gap, 2px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 4px;
+        flex: 1;
+        min-height: 0;
+        margin: 0;
+        box-sizing: border-box;
+        width: 100%;
+      }
+
+      .flagGrid::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .flagGrid::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 3px;
+      }
+
+      .flagGrid::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+      }
+
+      .flagGrid::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.4);
+      }
+
+      .flagBtn {
+        width: 100%;
+        max-width: 48px;
+        aspect-ratio: 1 / 1;
+        border: none;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        padding: var(--ui-flag-padding, 2px);
+        cursor: pointer;
+        position: relative;
+        border: var(--ui-flag-border, 1.5px) solid rgba(255, 255, 255, 0.78);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
+        -webkit-tap-highlight-color: transparent;
+        box-sizing: border-box;
+        overflow: hidden;
+        margin: 0 auto;
+      }
+
+      .flagBtn img {
+        width: 100%;
+        height: 100%;
+        border-radius: 999px;
+        object-fit: cover;
+        display: block;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .flagBtn.selected::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 999px;
+        border: 3px solid rgba(160, 255, 120, 0.98);
+        box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.25), 0 0 28px rgba(160, 255, 120, 0.55);
+        pointer-events: none;
+      }
+
+      @keyframes menuLogoFloat {
+        0% {
+          transform: translateY(0) rotate(-0.2deg) scale(1);
+          filter: drop-shadow(0 22px 50px rgba(0, 0, 0, 0.5));
+        }
+        50% {
+          transform: translateY(-6px) rotate(0.25deg) scale(1.01);
+          filter: drop-shadow(0 26px 58px rgba(0, 0, 0, 0.52));
+        }
+        100% {
+          transform: translateY(0) rotate(-0.2deg) scale(1);
+          filter: drop-shadow(0 22px 50px rgba(0, 0, 0, 0.5));
+        }
+      }
+
+      .bottomRow {
+        width: min(560px, 44vw);
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 14px;
+        align-items: center;
+        pointer-events: none;
+      }
+
+      .carPicker {
+        margin-top: 0;
+      }
+
+      @media (max-width: 860px) {
+        .menuStage {
+          grid-template-columns: 1fr;
+          height: auto;
+          min-height: calc(100vh - 24px);
+          gap: 14px;
+          padding-top: calc(env(safe-area-inset-top) + 14px);
+        }
+
+        .menuLeft {
+          align-items: center;
+          text-align: center;
+          padding-left: 0;
+        }
+
+        .menuRight {
+          align-items: center;
+          padding-right: 0;
+        }
+
+        .menuControls {
+          width: 100%;
+          align-items: center;
+          gap: var(--ui-menu-button-gap-mobile, 6px);
+        }
+
+        .menuBtnWide {
+          width: min(280px, 70vw);
+          margin-right: 0;
+        }
+
+        .menuIconButtons {
+          display: flex;
+          flex-direction: row;
+          gap: var(--ui-menu-button-gap-mobile, 6px);
+          align-items: center;
+        }
+
+        .menuBtnIcon {
+          width: var(--ui-menu-icon-button-size-mobile, 90px);
+          height: var(--ui-menu-icon-button-size-mobile, 90px);
+        }
+
+        .countryCard,
+        .carCard {
+          width: min(560px, calc(100vw - 28px));
+          max-height: calc(100vh - 40px);
+          display: flex;
+          flex-direction: column;
+        }
+
+        .countryInner {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-height: 0;
+          padding: 16px;
+          overflow: hidden;
+        }
+
+        .flagGrid {
+          grid-template-columns: repeat(4, 1fr);
+          gap: var(--ui-flag-gap-mobile, 3px);
+          flex: 1;
+          min-height: 0;
+          margin: 0;
+          padding: 0 2px 0 0;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .flagBtn {
+          max-width: 56px;
+          padding: var(--ui-flag-padding-mobile, 3px);
+          border-width: var(--ui-flag-border-mobile, 1.5px);
+        }
+
+        .countryInner {
+          padding: var(--ui-panel-padding-mobile, 16px);
+        }
+
+        .menuBtnIcon {
+          width: var(--ui-button-size-mobile, 90px);
+          height: var(--ui-button-size-mobile, 90px);
+        }
+
+        .carGrid {
+          grid-template-columns: repeat(2, 1fr);
+          max-height: 400px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .carSkinBtn {
+          max-width: 140px;
+        }
+      }
+
+      .overlay .panel {
+        pointer-events: auto;
+        width: min(540px, calc(100vw - 32px));
+        border-radius: 22px;
+        background: radial-gradient(700px 450px at 30% 0%, rgba(80, 230, 255, 0.18), rgba(255, 106, 213, 0.12) 40%, rgba(255, 255, 255, 0.05) 100%);
+        border: 1px solid var(--stroke);
+        box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+        padding: 18px 18px 16px 18px;
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+      }
+
+      .menuPanel {
+        width: min(560px, calc(100vw - 28px));
+        background: rgba(8, 12, 22, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+      }
+
+      /* Legacy menu styles kept for other overlays; menuLogo is now controlled above */
+
+      .menuRow {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+        margin-top: 10px;
+      }
+
+      .soundBtn {
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(0, 0, 0, 0.25);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+        pointer-events: auto;
+        display: grid;
+        place-items: center;
+        -webkit-tap-highlight-color: transparent;
+        transition: transform 120ms ease;
+      }
+
+      .soundBtn:active {
+        transform: translateY(1px) scale(0.98);
+      }
+
+      .soundBtn img {
+        width: 38px;
+        height: 38px;
+        object-fit: contain;
+        display: block;
+        user-select: none;
+        -webkit-user-select: none;
+        pointer-events: none;
+      }
+
+      .carPicker {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 14px;
+        align-items: center;
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .carPreviewWrap {
+        width: 96px;
+        height: 96px;
+        border-radius: 22px;
+        background: rgba(0, 0, 0, 0.22);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        display: grid;
+        place-items: center;
+      }
+
+      .carPreview {
+        width: 78px;
+        height: 78px;
+        object-fit: contain;
+        display: block;
+        filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.35));
+        user-select: none;
+        -webkit-user-select: none;
+        pointer-events: none;
+      }
+
+      .imgBtn {
+        width: 100%;
+        height: 64px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        pointer-events: auto;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        -webkit-tap-highlight-color: transparent;
+        transition: transform 120ms ease, filter 160ms ease;
+      }
+
+      .imgBtn:active {
+        transform: translateY(1px) scale(0.99);
+        filter: brightness(0.98);
+      }
+
+      .imgBtn img {
+        width: min(420px, 92%);
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        user-select: none;
+        -webkit-user-select: none;
+        pointer-events: none;
+        filter: drop-shadow(0 18px 35px rgba(0, 0, 0, 0.35));
+      }
+
+      .imgBtn.small {
+        height: 56px;
+      }
+
+      .hintText {
+        color: rgba(255, 255, 255, 0.78);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .panelSmall {
+        width: min(520px, calc(100vw - 32px));
+      }
+
+      .panelTitle {
+        font-size: 18px;
+        letter-spacing: -0.2px;
+        margin-bottom: 8px;
+      }
+
+      .panelText {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 8px;
+      }
+
+      .winnerDisplay {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+
+      .winnerTitle {
+        font-family: "Luckiest Guy", cursive;
+        font-size: 64px;
+        color: #fff;
+        text-shadow: 0 0 30px rgba(183, 255, 74, 0.8), 0 0 60px rgba(183, 255, 74, 0.5);
+        letter-spacing: 2px;
+      }
+
+      .winnerInfo {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+
+      .winnerFlag {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        object-fit: cover;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      }
+
+      .winnerCar {
+        width: 120px;
+        height: auto;
+        object-fit: contain;
+        filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.4));
+      }
+
+      .endButtons {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+      }
+
+      .endImageBtn {
+        width: 100%;
+        height: 60px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        padding: 0;
+        border-radius: 12px;
+        overflow: hidden;
+        transition: transform 140ms ease, filter 160ms ease;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .endImageBtn:active {
+        transform: translateY(1px) scale(0.98);
+        filter: brightness(0.95);
+      }
+
+      .endImageBtn img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        user-select: none;
+        -webkit-user-select: none;
+        pointer-events: none;
+      }
+
+      @media (pointer: coarse) {
+        .winnerTitle {
+          font-size: 48px;
+        }
+
+        .winnerFlag {
+          width: 60px;
+          height: 60px;
+        }
+
+        .winnerCar {
+          width: 100px;
+        }
+
+        .endImageBtn {
+          height: 70px;
+        }
+      }
+
+      .panelText ul {
+        margin: 8px 0 0 18px;
+      }
+
+      .panelText li {
+        margin: 4px 0;
+      }
+
+      .titleRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .logoMark {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, rgba(80, 230, 255, 0.35), rgba(255, 106, 213, 0.28));
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .logoMark::after {
+        content: "";
+        position: absolute;
+        inset: -40% -40%;
+        background: conic-gradient(from 90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.22) 25%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, 0) 100%);
+        animation: shimmer 2.8s linear infinite;
+      }
+
+      @keyframes shimmer {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      h1 {
+        font-size: clamp(28px, 5.8vw, 44px);
+        letter-spacing: -0.6px;
+        line-height: 1;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+        margin-top: 6px;
+      }
+
+      .kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      .primaryBtn {
+        width: 100%;
+        margin-top: 14px;
+        height: 50px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: linear-gradient(180deg, rgba(183, 255, 74, 0.92), rgba(183, 255, 74, 0.7));
+        color: rgba(0, 0, 0, 0.86);
+        font-weight: 800;
+        letter-spacing: 0.2px;
+        cursor: pointer;
+        transition: transform 140ms ease, filter 160ms ease;
+      }
+
+      .primaryBtn:active {
+        transform: translateY(1px) scale(0.99);
+        filter: brightness(0.98);
+      }
+
+      .secondaryBtn {
+        width: 100%;
+        margin-top: 10px;
+        height: 44px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.07);
+        color: rgba(255, 255, 255, 0.92);
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 140ms ease, background 160ms ease;
+      }
+
+      .secondaryBtn:active {
+        transform: translateY(1px) scale(0.99);
+        background: rgba(255, 255, 255, 0.09);
+      }
+
+      .rules {
+        margin-top: 10px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(0, 0, 0, 0.18);
+        padding: 12px 12px 10px 12px;
+        color: rgba(255, 255, 255, 0.86);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .rules ul {
+        margin: 8px 0 0 18px;
+      }
+
+      .rules li {
+        margin: 4px 0;
+      }
+
+      /* Settings modal */
+      #settingsModal {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        pointer-events: none;
+      }
+
+      #settingsModal.visible {
+        display: flex;
+      }
+
+      #infoModal {
+        position: fixed;
+        inset: 0;
+        z-index: 61;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+      }
+
+      #infoModal.visible {
+        display: flex;
+      }
+
+      .settingsCard {
+        width: min(520px, calc(100vw - 32px));
+        max-height: calc(100vh - 64px);
+        border-radius: 22px;
+        background: rgba(10, 16, 36, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        pointer-events: auto;
+      }
+
+      .settingsCardContent {
+        overflow-y: auto;
+        overflow-x: hidden;
+        flex: 1;
+        padding-right: 4px;
+        margin-right: -4px;
+      }
+
+      .settingsCardContent::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .settingsCardContent::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+      }
+
+      .settingsCardContent::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+      }
+
+      .settingsCardContent::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+
+      .settingsHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .settingsHeader h2 {
+        font-size: 18px;
+        letter-spacing: -0.2px;
+      }
+
+      .toggleRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.06);
+        margin-top: 10px;
+      }
+
+      .toggleRow .label {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+
+      .toggleRow .label span {
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .toggleRow .label small {
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 12px;
+      }
+
+      .switch {
+        width: 56px;
+        height: 32px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(0, 0, 0, 0.25);
+        position: relative;
+        cursor: pointer;
+        flex: 0 0 auto;
+      }
+
+      .switch .knob {
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        background: rgba(255, 255, 255, 0.86);
+        transition: left 160ms ease, background 160ms ease;
+      }
+
+      .switch.on {
+        background: linear-gradient(180deg, rgba(183, 255, 74, 0.72), rgba(183, 255, 74, 0.42));
+        border-color: rgba(183, 255, 74, 0.6);
+      }
+
+      .switch.on .knob {
+        left: 28px;
+        background: rgba(0, 0, 0, 0.86);
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(0, 0, 0, 0.3);
+        outline: none;
+        cursor: pointer;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(183, 255, 74, 0.9);
+        border: 2px solid rgba(183, 255, 74, 0.6);
+        cursor: pointer;
+        transition: transform 0.1s ease;
+      }
+
+      input[type="range"]::-webkit-slider-thumb:hover {
+        transform: scale(1.1);
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(183, 255, 74, 0.9);
+        border: 2px solid rgba(183, 255, 74, 0.6);
+        cursor: pointer;
+        transition: transform 0.1s ease;
+      }
+
+      input[type="range"]::-moz-range-thumb:hover {
+        transform: scale(1.1);
+      }
+
+      /* Physics Settings Side Panel */
+      #physicsPanel {
+        position: fixed;
+        right: 0;
+        top: calc(var(--safeTop) + 2px);
+        bottom: 0;
+        width: 320px;
+        max-width: calc(100vw - 40px);
+        background: rgba(10, 16, 36, 0.95);
+        border-left: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+        pointer-events: auto;
+      }
+
+      #physicsPanel:not(.hidden) {
+        transform: translateX(0);
+      }
+
+      .physicsPanelHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(0, 0, 0, 0.2);
+      }
+
+      .physicsPanelHeader h3 {
+        font-size: 14px;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.95);
+        margin: 0;
+      }
+
+      .physicsPanelContent {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 12px;
+        padding-right: 8px;
+        margin-right: -4px;
+      }
+
+      .physicsPanelContent::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .physicsPanelContent::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+      }
+
+      .physicsPanelContent::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+      }
+
+      .physicsPanelContent::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+
+      .physicsToggleRow {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        margin-bottom: 8px;
+      }
+
+      .physicsToggleRow .label {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .physicsToggleRow .label span {
+        font-weight: 600;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.9);
+      }
+
+      .physicsToggleRow .label small {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 10px;
+      }
+
+      .physicsToggleRow .sliderContainer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .physicsToggleRow input[type="range"] {
+        flex: 1;
+        height: 4px;
+      }
+
+      .physicsToggleRow .value {
+        min-width: 50px;
+        text-align: right;
+        font-weight: 600;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      #btnPhysicsPanelToggle {
+        position: fixed;
+        right: 52px;
+        top: calc(var(--safeTop) + 4px);
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        background: rgba(8, 12, 22, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: rgba(255, 255, 255, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 99;
+        transition: all 0.2s ease;
+        pointer-events: auto;
+      }
+
+      #btnPhysicsPanelToggle:hover {
+        background: rgba(8, 12, 22, 1);
+        transform: scale(1.05);
+      }
+
+      #btnPhysicsPanelToggle svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      #btnPhysicsPanelToggle.hidden {
+        display: none;
+      }
+
+      @media (pointer: coarse) {
+        #physicsPanel {
+          width: 280px;
+          max-width: 85vw;
+        }
+      }
+
+      /* Mobile Controls - Default state */
+      #mobileControls {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 50;
+        pointer-events: none;
+        padding-bottom: calc(20px + env(safe-area-inset-bottom));
+        padding-left: calc(var(--safePadX) + env(safe-area-inset-left));
+        padding-right: calc(var(--safePadX) + env(safe-area-inset-right));
+        display: none;
+      }
+      
+      #mobileControls:not(.hidden) {
+        display: block;
+      }
+
+      .joystickWrap {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        width: 100px;
+        height: 100px;
+        pointer-events: auto;
+        z-index: 50;
+      }
+
+      .joyBase {
+        width: 100px;
+        height: 100px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        position: relative;
+      }
+
+      .joyStick {
+        width: 42px;
+        height: 42px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.3);
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        transition: transform 0.1s ease-out;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      }
+
+      .actionWrap {
+        position: fixed;
+        left: 20px;
+        bottom: 20px;
+        pointer-events: auto;
+        z-index: 50;
+      }
+
+      /* Player 2 Controls (top corners, only visible in LOCAL_2P mode) */
+      .joystickWrap.player2 {
+        left: 20px;
+        top: 120px;
+        right: auto;
+        bottom: auto;
+      }
+
+      .actionWrap.player2 {
+        right: 20px;
+        top: 120px;
+        left: auto;
+        bottom: auto;
+      }
+
+      /* Hide player 2 controls by default (only show in LOCAL_2P mode via JavaScript) */
+      .joystickWrap.player2,
+      .actionWrap.player2 {
+        display: none;
+      }
+
+      .actionBtn {
+        width: 100px;
+        height: 100px;
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: linear-gradient(180deg, rgba(80, 230, 255, 0.22), rgba(80, 230, 255, 0.08));
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        cursor: pointer;
+        transition: transform 120ms ease;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        display: grid;
+        place-items: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .actionBtn {
+        --boost-fill: 0%;
+      }
+
+      .actionBtn::before {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: var(--boost-fill, 0%);
+        background: linear-gradient(180deg, rgba(80, 230, 255, 0.7), rgba(80, 230, 255, 0.5));
+        transition: height 0.05s linear;
+        z-index: 0;
+      }
+
+      .actionBtn.ready::before {
+        background: linear-gradient(180deg, rgba(80, 230, 255, 0.9), rgba(80, 230, 255, 0.7));
+      }
+
+      .actionBtn svg,
+      .actionBtn img {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .actionBtn:active,
+      .actionBtn.active {
+        transform: translateY(2px) scale(0.98);
+      }
+
+      .actionBtn svg {
+        width: 24px;
+        height: 24px;
+        fill: rgba(255, 255, 255, 0.92);
+      }
+
+      @media (pointer: coarse) {
+        :root {
+          --safeTop: var(--ui-hud-top-offset-mobile, 8px);
+          --safePadX: 8px;
+        }
+
+        .pill {
+          font-size: var(--ui-hud-font-size-mobile, 9px);
+          padding: 5px 8px;
+        }
+
+        .pill strong {
+          font-size: var(--ui-hud-score-size-mobile, 14px);
+          margin-left: 4px;
+        }
+
+        .hudPills {
+          gap: 5px;
+        }
+
+        .iconBtn {
+          width: 28px;
+          height: 28px;
+        }
+
+        .iconBtn svg {
+          width: 14px;
+          height: 14px;
+        }
+
+        .hudRow {
+          grid-template-columns: auto 1fr 72px;
+          gap: var(--ui-hud-spacing-mobile, var(--hudGap));
+        }
+
+        /* Force player 1 mobile controls to be visible on mobile (not player 2) */
+        .joystickWrap:not(.player2) {
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+        
+        .actionWrap:not(.player2) {
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+        
+        /* Ensure player 2 controls respect JavaScript visibility control */
+        .joystickWrap.player2,
+        .actionWrap.player2 {
+          display: none !important;
+        }
+        
+        #mobileControls {
+          display: block !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+      }
+
+      /* Fade */
+      #fade {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0);
+        transition: background 280ms ease;
+      }
+
+      #fade.on {
+        background: rgba(0, 0, 0, 0.55);
+      }
+
+      .countdownOverlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        pointer-events: none;
+      }
+
+      .countdownOverlay.hidden {
+        display: none;
+      }
+
+      .countdownText {
+        font-family: "Luckiest Guy", cursive;
+        font-size: 120px;
+        font-weight: 400;
+        color: #fff;
+        text-shadow: 0 0 40px rgba(255, 255, 255, 0.8), 0 0 80px rgba(255, 255, 255, 0.5);
+        animation: countdownPulse 0.5s ease-out;
+      }
+
+      @keyframes countdownPulse {
+        0% { transform: scale(0.5); opacity: 0; }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); opacity: 1; }
+      }
+
+      @media (pointer: coarse) {
+        .countdownText {
+          font-size: 80px;
+        }
+      }
+
+      .btnSkipReplay {
+        position: fixed;
+        bottom: 120px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 101;
+        padding: 12px 24px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08));
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: rgba(255, 255, 255, 0.95);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        transition: transform 120ms ease, background 160ms ease;
+        pointer-events: auto;
+      }
+
+      .btnSkipReplay.hidden {
+        display: none;
+      }
+
+      .btnSkipReplay:active {
+        transform: translateX(-50%) translateY(1px) scale(0.98);
+      }
+
+      @media (pointer: coarse) {
+        .btnSkipReplay {
+          bottom: 140px;
+          padding: 14px 28px;
+          font-size: 16px;
+        }
+      }
+
+      /* HUD Flag styling - small flags in scoreboard */
+      .hudFlag {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        margin-right: 4px;
+        object-fit: cover;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        flex-shrink: 0;
+      }
+
+      .hudPills .pill {
+        display: flex;
+        align-items: center;
+      }
+
+      @media (pointer: coarse) {
+        .hudFlag {
+          width: 14px;
+          height: 14px;
+          margin-right: 3px;
+        }
+      }
+
+      /* Searching for opponent screen */
+      .searchingOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.85);
+        pointer-events: none;
+      }
+
+      .searchingOverlay.hidden {
+        display: none;
+      }
+
+      .searchingContent {
+        width: min(600px, 90vw);
+        text-align: center;
+        pointer-events: auto;
+      }
+
+      .searchingTitle {
+        font-size: 32px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+        margin-bottom: 40px;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      }
+
+      .searchingScroller {
+        display: flex;
+        gap: 40px;
+        justify-content: center;
+        align-items: center;
+        height: 200px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .scrollerLeft,
+      .scrollerRight {
+        width: 120px;
+        height: 120px;
+        position: relative;
+        overflow: hidden;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .scrollerItem {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.3s ease-out;
+      }
+
+      .scrollerItem img {
+        max-width: 70%;
+        max-height: 70%;
+        object-fit: contain;
+      }
+
+      .searchingResult {
+        margin-top: 30px;
+        display: flex;
+        gap: 30px;
+        justify-content: center;
+        align-items: center;
+        animation: fadeIn 0.5s ease-out;
+      }
+
+      .searchingResult.hidden {
+        display: none;
+      }
+
+      .resultFlag,
+      .resultCar {
+        width: 80px;
+        height: 80px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      .resultFlag img,
+      .resultCar img {
+        max-width: 85%;
+        max-height: 85%;
+        object-fit: contain;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (pointer: coarse) {
+        .searchingTitle {
+          font-size: 24px;
+          margin-bottom: 30px;
+        }
+
+        .searchingScroller {
+          height: 150px;
+          gap: 30px;
+        }
+
+        .scrollerLeft,
+        .scrollerRight {
+          width: 100px;
+          height: 100px;
+        }
+
+        .resultFlag,
+        .resultCar {
+          width: 60px;
+          height: 60px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game" aria-label="Goal Duel"></canvas>
+
+    <!-- Physics Settings Side Panel -->
+    <div id="physicsPanel" class="hidden">
+      <div class="physicsPanelHeader">
+        <h3>Physics Settings</h3>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="btnCopyPhysicsSettings" class="iconBtn" aria-label="Copy physics settings" style="width: 32px; height: 32px;" title="Copy settings to clipboard">
+            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px;">
+              <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor" />
+            </svg>
+          </button>
+          <button id="btnTogglePhysicsPanel" class="iconBtn" aria-label="Close physics panel" style="width: 32px; height: 32px;">
+            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px;">
+              <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="physicsPanelContent" id="physicsPanelContent">
+        <!-- Physics sliders will be populated here -->
+      </div>
+    </div>
+
+
+    <!-- UI Settings Panel -->
+    <div id="uiPanel" class="hidden" style="position: fixed; top: 0; right: 0; width: 320px; max-width: 85vw; height: 100vh; background: rgba(8, 12, 22, 0.98); border-left: 1px solid rgba(255, 255, 255, 0.1); z-index: 100; display: flex; flex-direction: column; box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5); overflow: hidden;">
+      <div class="physicsPanelHeader">
+        <h3>UI Settings</h3>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="btnCopyUISettings" class="iconBtn" aria-label="Copy UI settings" style="width: 32px; height: 32px;" title="Copy settings to clipboard">
+            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px;">
+              <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor" />
+            </svg>
+          </button>
+          <button id="btnToggleUIPanel" class="iconBtn" aria-label="Close UI panel" style="width: 32px; height: 32px;">
+            <svg viewBox="0 0 24 24" style="width: 16px; height: 16px;">
+              <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="physicsPanelContent" id="uiPanelContent">
+        <!-- UI sliders will be populated here -->
+      </div>
+    </div>
+
+
+    <!-- HUD -->
+    <div id="hudRoot" class="hidden">
+      <div class="hudRow">
+        <button id="btnMenu" class="iconBtn" aria-label="Main Menu">
+          <img src="" alt="Back to Menu" id="imgMenuBtn" />
+        </button>
+
+        <div class="hudPills" id="hudPills">
+          <div class="pill">
+            <img id="hudPlayerFlag" class="hudFlag" src="" alt="" />
+            <strong id="hudYou">0</strong>
+          </div>
+          <div class="pill">
+            <img id="hudBotFlag" class="hudFlag" src="" alt="" />
+            <strong id="hudBot">0</strong>
+          </div>
+          <div class="pill">Time <strong id="hudTime">0:00</strong></div>
+        </div>
+
+        <button id="btnSettings" class="iconBtn" aria-label="Settings">
+<img src="" alt="Settings" id="imgSettingsBtn" />
+        </button>
+      </div>
+    </div>
+
+    <!-- Countdown Overlay -->
+      <div id="searchingOverlay" class="searchingOverlay hidden">
+        <div class="searchingContent">
+          <h2 class="searchingTitle">Searching for Opponent...</h2>
+          <div class="searchingScroller">
+            <div class="scrollerLeft" id="scrollerLeft">
+              <!-- Flags will be dynamically added -->
+            </div>
+            <div class="scrollerRight" id="scrollerRight">
+              <!-- Cars will be dynamically added -->
+            </div>
+          </div>
+          <div class="searchingResult hidden" id="searchingResult">
+            <div class="resultFlag" id="resultFlag"></div>
+            <div class="resultCar" id="resultCar"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="countdownOverlay" class="countdownOverlay hidden">
+        <div id="countdownText" class="countdownText">3</div>
+      </div>
+
+    <!-- Replay Skip Button -->
+    <button id="btnSkipReplay" class="btnSkipReplay hidden" aria-label="Skip replay">
+      Skip Replay
+    </button>
+
+    <!-- Start Screen -->
+    <div id="startOverlay" class="overlay">
+      <img id="menuBg" class="menuBg" alt="" />
+      <div class="menuShade" aria-hidden="true"></div>
+
+      <div class="menuStage">
+        <div class="menuLeft">
+          <img id="menuLogo" class="menuLogo" alt="RC Car Soccer" />
+        </div>
+
+        <div class="menuRight">
+          <div class="menuControls">
+            <button id="btnQuick" class="menuBtnWide" aria-label="Quick Match">
+              <img id="imgQuick" alt="" />
+            </button>
+            <button id="btnLocal" class="menuBtnWide" aria-label="Local 2 Players">
+              <img id="imgLocal" alt="" />
+            </button>
+            <div class="menuIconButtons">
+              <button id="btnSound" class="menuBtnIcon" aria-label="Toggle music">
+                <img id="imgSound" alt="" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Country Picker (shown after Quick Match) -->
+      <div id="countryStage" class="countryStage hidden" aria-label="Choose country">
+        <div class="countryCard">
+          <img id="countryPanelBg" class="countryPanelBg" alt="" />
+          <div class="countryInner">
+            <div class="countryTitleRow">
+              <div>
+                <div class="countryTitle">Choose your country</div>
+                <div class="countrySub">Tap a flag to continue</div>
+              </div>
+              <button id="btnCountryBack" class="countryBack" type="button">Back</button>
+            </div>
+            <div id="countryGrid" class="flagGrid" aria-label="Country picker"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Car Picker (shown after country) -->
+      <div id="carStage" class="carStage hidden" aria-label="Choose car">
+        <div class="carCard">
+          <div class="carInner">
+            <div class="countryTitleRow">
+              <div>
+                <div class="countryTitle">Choose your car</div>
+                <div class="countrySub">Tap a car to start the match</div>
+              </div>
+              <button id="btnCarBack" class="countryBack" type="button">Back</button>
+            </div>
+            <div id="carGrid" class="carGrid" aria-label="Car picker"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- End Screen -->
+    <div id="endOverlay" class="overlay hidden">
+      <div class="panel panelSmall">
+        <div class="winnerDisplay">
+          <div class="winnerTitle" id="endTitle">Winner!</div>
+          <div class="winnerInfo">
+            <img id="endWinnerFlag" class="winnerFlag" src="" alt="" />
+            <img id="endWinnerCar" class="winnerCar" src="" alt="" />
+          </div>
+        </div>
+        <div class="endButtons">
+          <button id="btnRestart" class="endImageBtn" aria-label="Play Again">
+            <img src="" alt="Play Again" id="imgEndPlay" />
+          </button>
+          <button id="btnEndMenu" class="endImageBtn" aria-label="Main Menu">
+            <img src="" alt="Main Menu" id="imgEndMenu" />
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" inert>
+      <!-- Mobile Controls inside settings modal -->
+      <div id="mobileControls" class="hidden">
+        <!-- Player 1 Controls (bottom corners) -->
+        <div class="joystickWrap" id="joyWrap">
+          <div class="joyBase">
+            <div class="joyStick" id="joyStick"></div>
+          </div>
+        </div>
+
+        <div class="actionWrap">
+          <button id="btnBoost" class="actionBtn" aria-label="Boost">
+            <img src="assets/buttons/turbo.png" alt="Boost" />
+          </button>
+        </div>
+
+        <!-- Player 2 Controls (top corners, only visible in LOCAL_2P mode) -->
+        <div class="joystickWrap player2" id="joyWrapP2">
+          <div class="joyBase">
+            <div class="joyStick" id="joyStickP2"></div>
+          </div>
+        </div>
+
+        <div class="actionWrap player2" id="actionWrapP2">
+          <button id="btnBoostP2" class="actionBtn" aria-label="Boost Player 2">
+            <img src="assets/buttons/turbo.png" alt="Boost" />
+          </button>
+        </div>
+      </div>
+
+      <div class="settingsCard" role="dialog" aria-label="Settings">
+        <div class="settingsHeader">
+          <h2>Settings</h2>
+          <button id="btnCloseSettings" class="iconBtn" aria-label="Close settings">
+            <svg viewBox="0 0 24 24">
+              <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="settingsCardContent">
+        <div class="toggleRow">
+          <div class="label">
+            <span>Music</span>
+            <small>Background music</small>
+          </div>
+          <div id="toggleMusic" class="switch" role="switch" aria-checked="true" tabindex="0">
+            <div class="knob"></div>
+          </div>
+        </div>
+
+        <div class="toggleRow">
+          <div class="label">
+            <span>FX</span>
+            <small>Sound effects</small>
+          </div>
+          <div id="toggleFx" class="switch" role="switch" aria-checked="true" tabindex="0">
+            <div class="knob"></div>
+          </div>
+        </div>
+
+        <div class="toggleRow">
+          <div class="label">
+            <span>Haptics</span>
+            <small>Vibration feedback</small>
+          </div>
+          <div id="toggleHaptics" class="switch" role="switch" aria-checked="true" tabindex="0">
+            <div class="knob"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Info Modal -->
+    <div id="infoModal" inert>
+      <div class="settingsCard" role="dialog" aria-label="Controls and Tips">
+        <div class="settingsHeader">
+          <h2>Controls & Tips</h2>
+          <button id="btnCloseInfo" class="iconBtn" aria-label="Close">
+            <svg viewBox="0 0 24 24">
+              <path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="panelText">
+          <ul>
+            <li>Desktop: <span class="kbd">WASD</span> or <span class="kbd">Arrows</span>, Boost: <span class="kbd">Space</span></li>
+            <li>Mobile: joystick to drive, Boost button to sprint</li>
+            <li>Tip: hit the ball from behind to shoot harder</li>
+            <li>Tip: angle your car slightly to pass around the bot</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+
+    <div id="fade"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+
