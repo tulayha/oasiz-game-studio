@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Game development workspace for Oasiz platform",
   "scripts": {
-    "upload": "bun run scripts/upload.ts",
-    "upload:list": "bun run scripts/upload.ts --list",
-    "upload:dry": "bun run scripts/upload.ts --dry-run"
+    "upload": "bun run scripts/upload-game.ts",
+    "upload:list": "bun run scripts/upload-game.ts --list",
+    "upload:dry": "bun run scripts/upload-game.ts --dry-run"
   },
   "devDependencies": {
     "@types/bun": "latest"
