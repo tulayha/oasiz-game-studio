@@ -1,0 +1,7 @@
+{
+  "name": "oasiz-game-studio",
+  "version": "1.0.0",
+  "scripts": {
+    "upload": "bun run scripts/upload.ts"
+  }
+}
