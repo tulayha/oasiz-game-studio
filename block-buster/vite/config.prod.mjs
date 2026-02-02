@@ -22,9 +22,9 @@ export default defineConfig({
     build: {
         rollupOptions: {
             output: {
-                // Bundle everything into a single file (no code splitting)
-                // Required for Oasiz upload which inlines all assets into HTML
-                inlineDynamicImports: true,
+                manualChunks: {
+                    phaser: ['phaser']
+                }
             }
         },
         minify: 'terser',

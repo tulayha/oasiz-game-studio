@@ -199,67 +199,101 @@ export default class UIScene extends Phaser.Scene {
             if (this.damageBtn) {
                 toggleLock(this.damageBtn, isInitialLocked || isBallLocked);
                 this.damageBtn.innerHTML = `
-                    <span class="text-[8px] mb-1 text-white">DAMAGE</span>
-                    <span class="text-[10px] text-yellow-300">$${Math.round(prices.damage)}</span>
+                    <span class="label">DAMAGE</span>
+                    <span class="price text-yellow-300">$${Math.round(prices.damage)}</span>
                 `;
             }
             if (this.ballsBtn) {
                 // Balls button is ONLY locked during the first 5 seconds
                 toggleLock(this.ballsBtn, isInitialLocked);
                 this.ballsBtn.innerHTML = `
-                    <span class="text-[8px] mb-1 text-white">BALLS</span>
-                    <span class="text-[10px] text-yellow-300">${Math.round(prices.balls)}</span>
+                    <span class="label">BALLS</span>
+                    <span class="price text-yellow-300">$${Math.round(prices.balls)}</span>
                 `;
             }
             if (this.duplicateBtn) {
                 toggleLock(this.duplicateBtn, isInitialLocked || isBallLocked);
                 const priceText = prices.duplicateMax ? 'MAX' : `$${Math.round(prices.duplicate)}`;
                 this.duplicateBtn.innerHTML = `
-                    <span class="text-[8px] mb-1 text-white">DUPLICATE</span>
-                    <span class="text-[10px] text-purple-300">${priceText}</span>
+                    <span class="label">DUPLICATE</span>
+                    <span class="price text-purple-300">${priceText}</span>
                 `;
             }
             if (this.laserBtn) {
                 toggleLock(this.laserBtn, isInitialLocked || isBallLocked);
                 const priceText = prices.laserMax ? 'MAX' : `$${Math.round(prices.laser)}`;
                 this.laserBtn.innerHTML = `
-                    <span class="text-[8px] mb-1 text-white">LASER</span>
-                    <span class="text-[10px] text-red-300">${priceText}</span>
+                    <span class="label">LASER</span>
+                    <span class="price text-red-300">${priceText}</span>
                 `;
             }
             if (this.electricBtn) {
                 toggleLock(this.electricBtn, isInitialLocked || isBallLocked);
                 const priceText = prices.electricMax ? 'MAX' : `$${Math.round(prices.electric)}`;
                 this.electricBtn.innerHTML = `
-                    <span class="text-[8px] mb-1 text-white">ELECTRIC</span>
-                    <span class="text-[10px] text-blue-300">${priceText}</span>
+                    <span class="label">ELECTRIC</span>
+                    <span class="price text-blue-300">${priceText}</span>
                 `;
             }
             if (this.bombBtn) {
                 toggleLock(this.bombBtn, isInitialLocked || isBallLocked);
                 const priceText = prices.bombMax ? 'MAX' : `$${Math.round(prices.bomb)}`;
                 this.bombBtn.innerHTML = `
-                    <span class="text-[8px] mb-1 text-white">BOMB</span>
-                    <span class="text-[10px] text-orange-300">${priceText}</span>
+                    <span class="label">BOMB</span>
+                    <span class="price text-orange-300">${priceText}</span>
                 `;
             }
             if (this.burstBtn) {
                 toggleLock(this.burstBtn, isInitialLocked || isBallLocked);
                 const priceText = `$${Math.round(prices.burst)}`;
                 this.burstBtn.innerHTML = `
-                    <span class="text-[8px] mb-1 text-white">BURST</span>
-                    <span class="text-[10px] text-red-300">${priceText}</span>
+                    <span class="label">BURST</span>
+                    <span class="price text-red-300">${priceText}</span>
                 `;
             }
         }, this);
 
-        // Ensure UI is visible (in case it was hidden)
         const uiLayer = document.getElementById('ui-layer');
+        const settingsBtn = document.getElementById('btn-settings');
+
+        // Show UI by default since UIScene is only active during gameplay
         if (uiLayer) {
-            uiLayer.style.display = 'flex';
-            // Ensure we remove any 'hidden' class if it was manually added before
             uiLayer.classList.remove('hidden');
+            uiLayer.style.display = 'flex';
         }
+        if (settingsBtn) {
+            settingsBtn.classList.remove('hidden');
+        }
+
+        // Listen for game states (redundant but safe)
+        gameScene.events.on('game-start', () => {
+            if (uiLayer) {
+                uiLayer.classList.remove('hidden');
+                uiLayer.style.display = 'flex';
+            }
+            if (settingsBtn) {
+                settingsBtn.classList.remove('hidden');
+            }
+        });
+
+        gameScene.events.on('game-over', (score: number) => {
+            // Hide normal UI, but keep the game over modal visible (handled elsewhere)
+            if (uiLayer) {
+                // We keep uiLayer visible for the modal, but hide children?
+                // Better: Hide HUD, but show modal
+                const hud = document.getElementById('ui-bottom-bar');
+                if (hud) hud.classList.add('hidden');
+            }
+            if (settingsBtn) settingsBtn.classList.add('hidden');
+
+            if (this.modalGameOver) {
+                this.modalGameOver.classList.remove('hidden');
+                this.modalGameOver.style.display = 'flex';
+            }
+            if (this.finalScoreText) {
+                this.finalScoreText.innerText = score.toString();
+            }
+        }, this);
 
         gameScene.events.emit('request-shop-update');
     }

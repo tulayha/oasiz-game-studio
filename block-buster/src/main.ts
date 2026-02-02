@@ -22,7 +22,10 @@ class Boot extends Phaser.Scene {
 	}
 }
 
-window.addEventListener('load', function () {
+const initGame = () => {
+	// Prevent multiple initializations
+	if ((window as any)._gameInitialized) return;
+	(window as any)._gameInitialized = true;
 
 	const game = new Phaser.Game({
 		width: '100%',
@@ -41,4 +44,13 @@ window.addEventListener('load', function () {
 	});
 
 	game.scene.start("Boot");
-});
+};
+
+// Expose isMobile globally for HUD logic
+(window as any).isMobile = window.matchMedia('(pointer: coarse)').matches;
+
+if (document.readyState === 'complete') {
+	initGame();
+} else {
+	window.addEventListener('load', initGame);
+}

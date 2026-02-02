@@ -16,6 +16,12 @@ interface Wall {
     onHitCenter?: () => void; // Callback when hitting center
 }
 
+interface Settings {
+    music: boolean;
+    fx: boolean;
+    haptics: boolean;
+}
+
 export default class Scene extends Phaser.Scene {
 
     private targetSides: number = 4;
@@ -38,6 +44,9 @@ export default class Scene extends Phaser.Scene {
     private globalSpeedMultiplier: number = 1.0;
     private lastPatternName: string = "";
     private bgMusic?: Phaser.Sound.BaseSound;
+    
+    // Settings (loaded from localStorage)
+    private settings: Settings = { music: true, fx: true, haptics: true };
 
     // --- Color Themes ---
     private readonly PALETTES = [
@@ -65,7 +74,49 @@ export default class Scene extends Phaser.Scene {
         super("Scene");
     }
 
+    private loadSettings(): Settings {
+        try {
+            const saved = localStorage.getItem("endlessHexagonSettings");
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (e) {
+            console.warn('[Scene] Failed to load settings:', e);
+        }
+        return { music: true, fx: true, haptics: true };
+    }
+
+    private saveSettings(): void {
+        try {
+            localStorage.setItem("endlessHexagonSettings", JSON.stringify(this.settings));
+        } catch (e) {
+            console.warn('[Scene] Failed to save settings:', e);
+        }
+    }
+
+    private triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error"): void {
+        if (this.settings.haptics && typeof (window as any).triggerHaptic === "function") {
+            (window as any).triggerHaptic(type);
+        }
+    }
+
+    private playSound(key: string): void {
+        if (this.settings.fx) {
+            try {
+                this.sound.play(key);
+            } catch (e) {
+                // Audio not loaded or failed
+            }
+        }
+    }
+
     preload() {
+        // Add error handler to prevent loading from hanging on failed assets
+        this.load.on('loaderror', (file: Phaser.Loader.File) => {
+            console.warn('[Scene] Failed to load asset:', file.key, file.url);
+        });
+
+        // Load audio files - game will continue even if some fail
         this.load.audio('lose', 'audio/Lose.wav');
         this.load.audio('pop', 'audio/PopBlock.wav');
         this.load.audio('go', 'audio/Go.wav');
@@ -76,6 +127,10 @@ export default class Scene extends Phaser.Scene {
         console.log("SCENE CREATE START", data);
 
         try {
+            // Load settings from localStorage
+            this.settings = this.loadSettings();
+            console.log("[Scene] Settings loaded:", this.settings);
+
             // Reset Game State for fresh start
             this.score = 0;
             this.isGameOver = false;
@@ -98,9 +153,9 @@ export default class Scene extends Phaser.Scene {
             this.wallGraphics.setDepth(1);
             this.playerGraphics.setDepth(2);
 
-            // Safe Area Logic (per Oasiz Guide)
+            // Safe Area Logic (per AGENTS.md)
             const isMobile = window.matchMedia('(pointer: coarse)').matches;
-            const topMargin = isMobile ? 60 : 30; // Reduced margin as req
+            const topMargin = isMobile ? 120 : 45;
             const leftMargin = 20;
 
             // --- Score Container (3D Card Style) ---
@@ -153,8 +208,20 @@ export default class Scene extends Phaser.Scene {
                 this.gameState = 'MENU';
             }
 
-            // Init cursors
-            this.cursorKeys = this.input.keyboard!.createCursorKeys();
+            // Init cursors (with null check for WebView compatibility)
+            if (this.input.keyboard) {
+                this.cursorKeys = this.input.keyboard.createCursorKeys();
+            } else {
+                // Create dummy cursor keys for touch-only devices
+                this.cursorKeys = {
+                    left: { isDown: false },
+                    right: { isDown: false },
+                    up: { isDown: false },
+                    down: { isDown: false },
+                    space: { isDown: false },
+                    shift: { isDown: false }
+                } as Phaser.Types.Input.Keyboard.CursorKeys;
+            }
 
             this.drawLevel(this.currentSides);
 
@@ -172,24 +239,28 @@ export default class Scene extends Phaser.Scene {
                 }
             });
 
-            // Start BGM
-            if ((window as any).platform && (window as any).platform.musicEnabled) {
-                // Clean up any existing BGM to avoid duplicates
-                const existingSounds = this.sound.getAll('bgm');
-                existingSounds.forEach(s => s.stop());
+            // Start BGM (safely - may fail if audio didn't load)
+            if (this.settings.music) {
+                try {
+                    // Clean up any existing BGM to avoid duplicates
+                    const existingSounds = this.sound.getAll('bgm');
+                    existingSounds.forEach(s => s.stop());
 
-                // Create and play new instance
-                this.bgMusic = this.sound.add('bgm', { loop: true, volume: 0.4 });
-                this.bgMusic.play();
+                    // Create and play new instance
+                    this.bgMusic = this.sound.add('bgm', { loop: true, volume: 0.4 });
+                    this.bgMusic.play();
 
-                // Ensure music stops when scene shuts down (restarts)
-                this.events.once('shutdown', () => {
-                    if (this.bgMusic) {
-                        this.bgMusic.stop();
-                        this.bgMusic.destroy();
-                        this.bgMusic = undefined;
-                    }
-                });
+                    // Ensure music stops when scene shuts down (restarts)
+                    this.events.once('shutdown', () => {
+                        if (this.bgMusic) {
+                            this.bgMusic.stop();
+                            this.bgMusic.destroy();
+                            this.bgMusic = undefined;
+                        }
+                    });
+                } catch (e) {
+                    console.warn('[Scene] Failed to start background music:', e);
+                }
             }
 
             // Start Automation Loop - managed in update()
@@ -235,9 +306,24 @@ export default class Scene extends Phaser.Scene {
                 }
             });
 
-            // Expose Restart to Window
+            // Expose Restart to Window (resets game to menu state)
             (window as any).restartGame = () => {
-                this.scene.restart();
+                console.log("[Scene] Resetting game to menu state...");
+                // Stop music
+                if (this.bgMusic) {
+                    try {
+                        this.bgMusic.stop();
+                    } catch (e) { /* ignore */ }
+                }
+                // Reset game state
+                this.isGameOver = false;
+                this.gameState = 'MENU';
+                this.score = 0;
+                this.walls = [];
+                this.globalSpeedMultiplier = 1.0;
+                this.scoreContainer.setVisible(false);
+                // Score timer cleanup
+                if (this.scoreEvent) this.scoreEvent.paused = false;
             };
             (window as any).pauseGame = () => {
                 this.scene.pause();
@@ -270,6 +356,55 @@ export default class Scene extends Phaser.Scene {
                 this.startGame();
             };
 
+            // Expose Settings API for HTML UI
+            (window as any).getSettings = () => ({ ...this.settings });
+            (window as any).setMusic = (enabled: boolean) => {
+                console.log("[Scene] setMusic called:", enabled);
+                this.settings.music = enabled;
+                this.saveSettings();
+                
+                if (enabled) {
+                    // Turn music ON
+                    if (this.bgMusic) {
+                        // Resume if paused, or play if stopped
+                        if (!this.bgMusic.isPlaying) {
+                            try {
+                                this.bgMusic.play();
+                            } catch (e) {
+                                console.warn("[Scene] Failed to play music:", e);
+                            }
+                        }
+                    } else {
+                        // Create and play music if it doesn't exist yet
+                        try {
+                            this.bgMusic = this.sound.add('bgm', { loop: true, volume: 0.4 });
+                            this.bgMusic.play();
+                        } catch (e) {
+                            console.warn("[Scene] Failed to create/play music:", e);
+                        }
+                    }
+                } else {
+                    // Turn music OFF - stop immediately
+                    if (this.bgMusic) {
+                        try {
+                            this.bgMusic.stop();
+                        } catch (e) {
+                            console.warn("[Scene] Failed to stop music:", e);
+                        }
+                    }
+                }
+            };
+            (window as any).setFx = (enabled: boolean) => {
+                console.log("[Scene] setFx called:", enabled);
+                this.settings.fx = enabled;
+                this.saveSettings();
+            };
+            (window as any).setHaptics = (enabled: boolean) => {
+                console.log("[Scene] setHaptics called:", enabled);
+                this.settings.haptics = enabled;
+                this.saveSettings();
+            };
+
         } catch (e) {
             console.error("SCENE CREATE ERROR:", e);
         }
@@ -278,8 +413,11 @@ export default class Scene extends Phaser.Scene {
     // --- Game Loop / State Machine ---
 
     startGame() {
-        // Transition Directly to Game Loop (No Scene Restart)
-        console.log("Starting Game...");
+        console.log("[startGame] Starting Game...");
+
+        // Reset game over flag
+        this.isGameOver = false;
+        this.isGameRunning = true;
 
         this.scoreContainer.setVisible(true);
         this.gameState = 'SPAWNING';
@@ -287,12 +425,62 @@ export default class Scene extends Phaser.Scene {
         // Reset Logic
         this.score = 0;
         this.scoreText.setText("SCORE\n0");
-        this.walls = []; // Should be empty anyway from create, but safety
+        this.walls = []; // Clear walls
         this.globalSpeedMultiplier = 1.0;
+        this.patternsSpawned = 0; // Reset pattern counter
 
         // Ensure controls are reset
         this.currentSides = 4;
         this.targetSides = 4;
+
+        // Recreate score timer (it was destroyed in handleGameOver)
+        if (this.scoreEvent) {
+            this.scoreEvent.remove();
+        }
+        this.scoreEvent = this.time.addEvent({
+            delay: 100,
+            loop: true,
+            callback: () => {
+                if (this.isGameOver || !this.isGameRunning) return;
+                this.score++;
+                this.scoreText.setText("SCORE\n" + this.score.toString());
+
+                // Speed up every 100 points
+                if (this.score % 100 === 0) {
+                    this.globalSpeedMultiplier = Math.min(3.0, this.globalSpeedMultiplier + 0.05);
+
+                    // Visual feedback
+                    this.tweens.add({
+                        targets: this.scoreContainer,
+                        scale: 1.2,
+                        duration: 200,
+                        yoyo: true,
+                        ease: 'Back.easeOut'
+                    });
+                }
+            }
+        });
+
+        // Start music if enabled (like Car Balance does)
+        if (this.settings.music) {
+            try {
+                if (this.bgMusic) {
+                    if (!this.bgMusic.isPlaying) {
+                        this.bgMusic.play();
+                    }
+                } else {
+                    this.bgMusic = this.sound.add('bgm', { loop: true, volume: 0.4 });
+                    this.bgMusic.play();
+                }
+            } catch (e) {
+                console.warn("[startGame] Failed to start music:", e);
+            }
+        }
+
+        // Notify HTML that game has started (clears restart flag)
+        if ((window as any).onGameStarted) {
+            (window as any).onGameStarted();
+        }
 
         // Start Spawning soon
         this.nextSpawnTime = this.time.now + 500;
@@ -857,15 +1045,13 @@ export default class Scene extends Phaser.Scene {
                 }
 
                 // Haptic on impact
-                if ((window as any).triggerHaptic) (window as any).triggerHaptic("medium");
+                this.triggerHaptic("medium");
 
                 // Retro Pulse Effect
                 this.playPulseEffect();
 
                 // Play Pop Sound
-                if ((window as any).platform && (window as any).platform.fxEnabled) {
-                    this.sound.play('pop');
-                }
+                this.playSound('pop');
 
                 continue;
             }
@@ -1141,10 +1327,10 @@ export default class Scene extends Phaser.Scene {
         this.cameras.main.flash(500, 255, 0, 0);
 
         // Haptic
-        if ((window as any).triggerHaptic) (window as any).triggerHaptic("error");
+        this.triggerHaptic("error");
 
-        // Submit Score
-        if ((window as any).submitScore) {
+        // Submit Score (using exact pattern from police-chase/car-balance)
+        if (typeof (window as any).submitScore === "function") {
             (window as any).submitScore(this.score);
         }
 
@@ -1154,9 +1340,7 @@ export default class Scene extends Phaser.Scene {
         }
 
         // Play Lose Sound
-        if ((window as any).platform && (window as any).platform.fxEnabled) {
-            this.sound.play('lose');
-        }
+        this.playSound('lose');
 
         // Stop Score Timer
         if (this.scoreEvent) this.scoreEvent.remove();
@@ -1324,12 +1508,10 @@ export default class Scene extends Phaser.Scene {
             });
 
             // Sound
-            if ((window as any).platform && (window as any).platform.fxEnabled) {
-                if (val === "GO!") {
-                    this.sound.play('go');
-                } else {
-                    this.sound.play('pop');
-                }
+            if (val === "GO!") {
+                this.playSound('go');
+            } else {
+                this.playSound('pop');
             }
         };
 

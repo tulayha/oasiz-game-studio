@@ -56,22 +56,12 @@
                 <div class="text-center mb-8">
                     <p class="text-slate-600 dark:text-slate-400 text-sm mb-2">FINAL SCORE</p>
                     <p id="final-score" class="font-display text-5xl text-slate-800 dark:text-slate-100 mb-4">0</p>
-
-                    <div class="inline-block px-4 py-2 bg-yellow-100 dark:bg-yellow-900/30 rounded pixel-border-sm">
-                        <p class="text-xs text-yellow-700 dark:text-yellow-400 font-bold tracking-widest">HIGH SCORE</p>
-                        <p id="high-score-display" class="font-display text-xl text-yellow-600 dark:text-yellow-300">0
-                        </p>
-                    </div>
                 </div>
 
                 <div class="space-y-4">
                     <button id="restart-btn"
                         class="w-full p-4 bg-white text-slate-900 font-bold pixel-border-sm hover:translate-y-[-2px] hover:shadow-lg transition-all active:translate-y-1">
                         RESTART
-                    </button>
-                    <button id="go-settings-btn"
-                        class="w-full p-4 bg-slate-700 text-slate-200 font-bold pixel-border-sm hover:bg-slate-600 transition-colors">
-                        SETTINGS
                     </button>
                 </div>
             </div>
@@ -158,11 +148,12 @@
 
     <!-- Game & UI Logic -->
     <script>
-        // Platform State
+        // Platform State (legacy - game now uses its own settings system)
+        // Kept for backward compatibility with some UI code
         window.platform = {
-            musicEnabled: localStorage.getItem('musicEnabled') !== 'false',
-            fxEnabled: localStorage.getItem('fxEnabled') !== 'false',
-            hapticsEnabled: localStorage.getItem('hapticsEnabled') !== 'false',
+            musicEnabled: true,
+            fxEnabled: true,
+            hapticsEnabled: true,
         };
 
         // Elements
@@ -172,7 +163,7 @@
         const gameOverModal = document.getElementById('game-over-modal');
         const finalScoreEl = document.getElementById('final-score');
         const restartBtn = document.getElementById('restart-btn');
-        const goSettingsBtn = document.getElementById('go-settings-btn'); // Settings from Game Over
+        // Settings button removed from game over modal
 
         const mainMenu = document.getElementById('main-menu');
         const playBtn = document.getElementById('play-btn');
@@ -182,14 +173,30 @@
         const hapticsToggle = document.getElementById('haptics-toggle');
 
         function updateToggles() {
-            musicToggle.checked = window.platform.musicEnabled;
-            fxToggle.checked = window.platform.fxEnabled;
-            hapticsToggle.checked = window.platform.hapticsEnabled;
+            // Use game settings if available, otherwise use platform defaults
+            if (window.getSettings) {
+                const settings = window.getSettings();
+                musicToggle.checked = settings.music;
+                fxToggle.checked = settings.fx;
+                hapticsToggle.checked = settings.haptics;
+            } else {
+                musicToggle.checked = window.platform.musicEnabled;
+                fxToggle.checked = window.platform.fxEnabled;
+                hapticsToggle.checked = window.platform.hapticsEnabled;
+            }
         }
-        updateToggles();
+        // Delay initial update until game might be ready
+        setTimeout(updateToggles, 100);
 
         // Event Listeners
         function openSettings() {
+            // Sync toggles with game's current settings
+            if (window.getSettings) {
+                const settings = window.getSettings();
+                musicToggle.checked = settings.music;
+                fxToggle.checked = settings.fx;
+                hapticsToggle.checked = settings.haptics;
+            }
             settingsModal.classList.remove('hidden');
             if (window.triggerHaptic) window.triggerHaptic('light');
             if (window.pauseGame) window.pauseGame();
@@ -202,11 +209,19 @@
 
         settingsBtn.onclick = openSettings;
         closeSettingsBtn.onclick = closeSettings;
-        goSettingsBtn.onclick = openSettings;
 
         restartBtn.onclick = () => {
             if (window.triggerHaptic) window.triggerHaptic('medium');
-            location.reload();
+            // Set restart flag to prevent race conditions with showGameOver
+            isRestarting = true;
+            // Hide game over modal and call startGame directly (like Car Balance)
+            gameOverModal.classList.add('hidden');
+            if (window.startGame) {
+                window.startGame();
+            } else {
+                isRestarting = false;
+                mainMenu.classList.remove('opacity-0', 'pointer-events-none');
+            }
         };
 
         // Main Menu Logic
@@ -243,57 +258,61 @@
             gameOverModal.classList.add('hidden');
         };
 
-        // Toggles
+        // Toggles - Call the game's settings API
         musicToggle.onchange = (e) => {
-            window.platform.musicEnabled = e.target.checked;
-            localStorage.setItem('musicEnabled', e.target.checked);
+            if (window.setMusic) window.setMusic(e.target.checked);
         };
         fxToggle.onchange = (e) => {
-            window.platform.fxEnabled = e.target.checked;
-            localStorage.setItem('fxEnabled', e.target.checked);
+            if (window.setFx) window.setFx(e.target.checked);
         };
         hapticsToggle.onchange = (e) => {
-            window.platform.hapticsEnabled = e.target.checked;
-            localStorage.setItem('hapticsEnabled', e.target.checked);
+            if (window.setHaptics) window.setHaptics(e.target.checked);
         };
 
         // Oasiz / Global Hooks
+        // Per AGENTS.md: Platform handles leaderboards, games just call submitScore
+        let isRestarting = false; // Guard flag to prevent modal showing during restart
+        
         window.showGameOver = (score) => {
-            finalScoreEl.textContent = score;
-
-            // --- High Score Logic ---
-            const currentHigh = parseInt(localStorage.getItem('highScore') || '0');
-            let newHigh = currentHigh;
-
-            if (score > currentHigh) {
-                newHigh = score;
-                localStorage.setItem('highScore', newHigh);
-                // Optional: visual flair for new high score can be added here
+            // Don't show modal if we're in the middle of restarting
+            if (isRestarting) {
+                console.log("[showGameOver] Blocked - restart in progress");
+                return;
             }
-
-            const highScoreDisplay = document.getElementById('high-score-display');
-            if (highScoreDisplay) highScoreDisplay.textContent = newHigh;
-
+            finalScoreEl.textContent = score;
             gameOverModal.classList.remove('hidden');
-
-            // Re-enable settings button on game over? logic separate
+        };
+        
+        // Called by Scene.ts when game actually starts (clears restart flag)
+        window.onGameStarted = () => {
+            isRestarting = false;
         };
 
-        window.submitScore = (score) => {
-            console.log("Submitting Score:", score);
-            // Platform injection handle
-        };
+        // DO NOT define window.submitScore - the platform injects the real one!
+        // Only define a fallback for local web testing if platform hasn't injected
+        if (typeof window.submitScore !== 'function') {
+            window.submitScore = (score) => {
+                console.log("[Fallback] submitScore called with:", score, "(platform not injected)");
+            };
+        }
 
-        window.triggerHaptic = (type) => {
-            if (!window.platform.hapticsEnabled) return;
-            // Simple navigator.vibrate fallback
-            if (navigator.vibrate) navigator.vibrate(10);
-        };
+        // Only define triggerHaptic if platform didn't inject one (for local web testing)
+        // On mobile, the platform injects the real native haptic function
+        if (typeof window.triggerHaptic !== 'function') {
+            window.triggerHaptic = (type) => {
+                // Web fallback using Vibration API (not supported on iOS)
+                if (navigator.vibrate) {
+                    navigator.vibrate(type === 'heavy' ? 50 : type === 'medium' ? 20 : 10);
+                }
+            };
+        }
 
         // --- UI Sounds ---
         const clickSound = new Audio('/audio/ButtonClick.wav');
         function playClick() {
-            if (window.platform.fxEnabled) {
+            // Use game settings if available, otherwise use platform defaults
+            const settings = window.getSettings ? window.getSettings() : window.platform;
+            if (settings && (settings.fx || settings.fxEnabled)) {
                 clickSound.currentTime = 0;
                 clickSound.play().catch(() => { });
             }
@@ -399,14 +418,14 @@
             -webkit-text-stroke: 1px black;
         }
 
-        /* Settings Alignment to match Phaser */
+        /* Settings Alignment - Safe Area (per AGENTS.md) */
         .settings-pos {
-            top: 30px;
+            top: 45px;
         }
 
         @media (pointer: coarse) {
             .settings-pos {
-                top: 60px;
+                top: 120px;
             }
         }
     </style>

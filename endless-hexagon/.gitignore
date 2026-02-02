@@ -1,5 +1,9 @@
 package-lock.json
 
+# Large audio files (uploaded separately to CDN)
+public/audio/*.mp3
+public/audio/*.wav
+
 # Logs
 logs
 *.log

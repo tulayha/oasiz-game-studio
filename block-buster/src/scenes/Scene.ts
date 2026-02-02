@@ -188,6 +188,9 @@ export default class Scene extends Phaser.Scene {
 		// Start UI Scene
 		this.purchaseStartTime = this.time.now;
 		this.scene.launch("UIScene");
+		this.time.delayedCall(100, () => {
+			this.events.emit('game-start');
+		});
 
 		// Initialize values
 		this.money = 100;
