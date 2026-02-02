@@ -53,9 +53,15 @@ export default class Scene extends Phaser.Scene {
 	// Upgrade Levels
 	private damageLevel: number = 1;
 	private duplicateLevel: number = 0;
-	private laserLevel: number = 0; // Starts at 0
+	private laserLevel: number = 0;
 	private laserCost: number = 200;
 	private laserChance: number = 0;
+	private electricLevel: number = 0;
+	private electricCost: number = 200;
+	private electricChance: number = 0;
+	private bombLevel: number = 0;
+	private bombCost: number = 200;
+	private bombChance: number = 0;
 
 	private duplicateMaxed: boolean = false;
 	private purchaseStartTime: number = 0;
@@ -68,7 +74,6 @@ export default class Scene extends Phaser.Scene {
 
 	// Visuals
 	private idleHexagon!: Phaser.GameObjects.Graphics;
-	private aimArrow!: Phaser.GameObjects.Graphics;
 	private trailEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 	private impactEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 	private explosionEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -288,15 +293,55 @@ export default class Scene extends Phaser.Scene {
 					this.addMoney(-this.laserCost);
 					this.laserLevel++;
 
-					// Level 1 = 10%, +2% each level up to 20%
+					// Level 1 = 5%, +1.25% each level up to 10%
 					if (this.laserLevel === 1) {
-						this.laserChance = 10;
+						this.laserChance = 5;
 					} else {
-						this.laserChance += 2;
+						this.laserChance += 1.25;
 					}
 
 					if (this.laserLevel < 6) {
 						this.laserCost = Math.round((this.laserCost * 1.5) / 50) * 50;
+					}
+
+					this.updateShopUI();
+					purchased = true;
+				}
+			} else if (type === 'electric') {
+				if (this.electricLevel < 5 && this.money >= this.electricCost) {
+					this.addMoney(-this.electricCost);
+					this.electricLevel++;
+
+					// Level 1 = 10%, +2.5% each level up to 20%? 
+					// User said "5 kez updatesi olsun" and "ilk satın alındığında %10"
+					// I will do 10, 12, 14, 16, 18, 20 or similar.
+					if (this.electricLevel === 1) {
+						this.electricChance = 5;
+					} else {
+						this.electricChance += 1.25;
+					}
+
+					if (this.electricLevel < 5) {
+						this.electricCost = Math.round((this.electricCost * 1.5) / 50) * 50;
+					}
+
+					this.updateShopUI();
+					purchased = true;
+				}
+			} else if (type === 'bomb') {
+				if (this.bombLevel < 5 && this.money >= this.bombCost) {
+					this.addMoney(-this.bombCost);
+					this.bombLevel++;
+
+					// Level 1 = 5%, +1.25% each level up to 10%
+					if (this.bombLevel === 1) {
+						this.bombChance = 5;
+					} else {
+						this.bombChance += 1.25;
+					}
+
+					if (this.bombLevel < 5) {
+						this.bombCost = Math.round((this.bombCost * 1.5) / 50) * 50;
 					}
 
 					this.updateShopUI();
@@ -374,9 +419,13 @@ export default class Scene extends Phaser.Scene {
 			balls: Math.round(this.ballCost),
 			duplicate: Math.round(this.duplicateCost),
 			laser: Math.round(this.laserCost),
+			electric: Math.round(this.electricCost),
+			bomb: Math.round(this.bombCost),
 			burst: Math.round(burstCost),
 			duplicateMax: this.duplicateMaxed,
 			laserMax: this.laserLevel >= 6,
+			electricMax: this.electricLevel >= 5,
+			bombMax: this.bombLevel >= 5,
 			locked: ballLocked,
 			timeLocked: timeLocked
 		});
@@ -665,54 +714,6 @@ export default class Scene extends Phaser.Scene {
 			this.idleHexagon.rotation += 0.005;
 		}
 
-		// Update Aim Arrow
-		if (!this.aimArrow) {
-			this.aimArrow = this.add.graphics();
-			this.aimArrow.setDepth(20); // Above background/enemies, below UI?
-		}
-		this.aimArrow.clear();
-		const cx = this.scale.width / 2;
-		const cy = this.scale.height / 2;
-
-		// Arrow styling: White fill, Black border, 3D-ish
-		// Angle is this.spiralAngle
-		// Length ~60px
-
-		const arrowLength = 60;
-		const tipX = cx + Math.cos(this.spiralAngle) * arrowLength;
-		const tipY = cy + Math.sin(this.spiralAngle) * arrowLength;
-
-		// Arrow Head
-		const headSize = 15;
-		const angle = this.spiralAngle;
-
-		// Vertices
-		const p1 = { x: tipX, y: tipY }; // Tip
-		const p2 = { x: tipX - headSize * Math.cos(angle - Math.PI / 6), y: tipY - headSize * Math.sin(angle - Math.PI / 6) };
-		const p3 = { x: tipX - headSize * Math.cos(angle + Math.PI / 6), y: tipY - headSize * Math.sin(angle + Math.PI / 6) };
-		const pCenter = { x: tipX - headSize * 0.5 * Math.cos(angle), y: tipY - headSize * 0.5 * Math.sin(angle) };
-
-		// Shaft
-		const startX = cx + Math.cos(angle) * 20; // Offset from center a bit
-		const startY = cy + Math.sin(angle) * 20;
-
-		this.aimArrow.lineStyle(4, 0x000000);
-		this.aimArrow.fillStyle(0xffffff);
-
-		// Draw Shaft Line
-		this.aimArrow.beginPath();
-		this.aimArrow.moveTo(startX, startY);
-		this.aimArrow.lineTo(pCenter.x, pCenter.y);
-		this.aimArrow.strokePath();
-
-		// Draw Arrow Head
-		this.aimArrow.beginPath();
-		this.aimArrow.moveTo(p1.x, p1.y);
-		this.aimArrow.lineTo(p2.x, p2.y);
-		this.aimArrow.lineTo(p3.x, p3.y);
-		this.aimArrow.closePath();
-		this.aimArrow.fillPath();
-		this.aimArrow.strokePath();
 
 		// Game Over Check: If we are not running updates or scene paused?
 		// Actually we just stop physics or ignore updates if game over.
@@ -866,6 +867,16 @@ export default class Scene extends Phaser.Scene {
 							const lvx = bullet.getData('vx');
 							const lvy = bullet.getData('vy');
 							this.fireLaser(enemy.x, enemy.y, lvx, lvy);
+						}
+
+						// ELECTRIC CHANCE
+						if (this.electricChance > 0 && Phaser.Math.Between(0, 100) < this.electricChance) {
+							this.triggerElectricEffect(enemy.x, enemy.y);
+						}
+
+						// BOMB CHANCE
+						if (this.bombChance > 0 && Phaser.Math.Between(0, 100) < this.bombChance) {
+							this.triggerBombExplosion(enemy.x, enemy.y);
 						}
 
 						enemy.destroy();
@@ -1320,16 +1331,16 @@ export default class Scene extends Phaser.Scene {
 		const endX = x + Math.cos(angle) * length;
 		const endY = y + Math.sin(angle) * length;
 
-		// Visuals: Laser Beam
+		// Visuals: Laser Beam (2.5x thicker)
 		const graphics = this.add.graphics();
-		graphics.lineStyle(20, 0xffffff, 1);
+		graphics.lineStyle(50, 0xffffff, 1);
 		graphics.lineBetween(x, y, endX, endY);
 		graphics.setBlendMode(Phaser.BlendModes.ADD);
 		graphics.setDepth(50); // Below text but above background
 
-		// Inner Core
+		// Inner Core (2.5x thicker)
 		const core = this.add.graphics();
-		core.lineStyle(8, 0xffaaaa, 1); // Reddish core
+		core.lineStyle(20, 0xffaaaa, 1); // Reddish core
 		core.lineBetween(x, y, endX, endY);
 		core.setBlendMode(Phaser.BlendModes.ADD);
 		core.setDepth(51);
@@ -1346,7 +1357,7 @@ export default class Scene extends Phaser.Scene {
 		});
 
 		// Audio
-		this.playSound('explosion'); // Use explosion sound as requested
+		this.playSound('laser'); // Laser sound effect
 
 		// Collision Logic: Raycast / Line Intersection check against all enemies
 		const laserLine = new Phaser.Geom.Line(x, y, endX, endY);
@@ -1368,66 +1379,28 @@ export default class Scene extends Phaser.Scene {
 			}
 		});
 
-		// Apply Damage
+		// Apply Instant Destroy (No damage, just destroy)
 		enemieshit.forEach(enemy => {
 			if (!enemy.active) return;
 
-			let hp = enemy.getData('hp');
-			// Damage = Ball Damage * 3
-			const damageDealt = this.bulletDamage * 3;
-			hp -= damageDealt;
-			enemy.setData('hp', hp);
+			// Get reward before destroying
+			const reward = enemy.getData('moneyValue') || 10;
 
-			// Floating Damage Text
-			this.showDamageText(enemy.x, enemy.y, damageDealt);
+			// Check if red block for explosion
+			if (enemy.getData('originalColor') === 0xff0000) {
+				this.triggerExplosion(enemy.x, enemy.y);
+				this.playSound('redBlockExplosion');
+			}
 
 			// Visual Feedback for hit
-			this.impactEmitter.explode(10, enemy.x, enemy.y);
+			this.impactEmitter.explode(15, enemy.x, enemy.y);
 
-			if (hp <= 0) {
-				const reward = enemy.getData('moneyValue') || 10;
-				enemy.destroy();
-				this.addMoney(reward);
-				this.addScore(100);
-				this.showFloatingText(enemy.x, enemy.y, "+" + reward);
-				this.trackProgress();
-			} else {
-				// Flash/Update Color logic (simplified copy from hit logic)
-				const top = enemy.getByName('top') as Phaser.GameObjects.Rectangle;
-				if (top) {
-					top.setFillStyle(0xffffff); // White flash
-					this.time.delayedCall(50, () => {
-						if (enemy.active && top.active) {
-							// Revert to approximate color logic would be complex here, 
-							// so let's just trigger a re-render or leave it for next frame update/hit.
-							// For now just white flash is enough feedback.
-							// Actually, let's call applyDynamicColor for this single enemy if we could, 
-							// but simpler is to just let the update loop handle it or just leave it flashed briefly?
-							// No, we should restore color.
-							// Let's re-use the color calculation logic briefly? 
-							// Or simpler: force an update if possible.
-							// Let's just leave it white for 50ms then restore to 'originalColor' or 'dynamic'.
-
-							// Re-calculate color
-							let baseColorVal;
-							if (enemy.getData('isDynamicColor')) {
-								baseColorVal = this.currentDynamicColor;
-								if (baseColorVal === 0x000000) baseColorVal = 0xffffff;
-							} else {
-								baseColorVal = enemy.getData('originalColor') || 0xffffff;
-							}
-							const colorObj = Phaser.Display.Color.ValueToColor(baseColorVal);
-							const maxHP = enemy.getData('maxHP') || 1;
-							const ratio = (enemy.getData('hp')) / maxHP;
-							const brightness = 0.5 + (0.5 * ratio);
-							const r = Math.floor(colorObj.red * brightness);
-							const g = Math.floor(colorObj.green * brightness);
-							const b = Math.floor(colorObj.blue * brightness);
-							top.setFillStyle(Phaser.Display.Color.GetColor(r, g, b));
-						}
-					});
-				}
-			}
+			// Instant destroy
+			enemy.destroy();
+			this.addMoney(reward);
+			this.addScore(100);
+			this.showFloatingText(enemy.x, enemy.y, "+" + Math.floor(reward));
+			this.trackProgress();
 		});
 	}
 
@@ -1469,6 +1442,200 @@ export default class Scene extends Phaser.Scene {
 
 		return nearest;
 	}
+
+	triggerElectricEffect(sourceX: number, sourceY: number) {
+		const nearbyEnemies: any[] = [];
+		const maxTargets = 15;
+		const radius = 200;
+
+		this.enemies.getChildren().forEach((child: any) => {
+			const target = child as Phaser.GameObjects.Container;
+			if (!target.active) return;
+
+			const dist = Phaser.Math.Distance.Between(sourceX, sourceY, target.x, target.y);
+			if (dist > 0 && dist < radius) {
+				nearbyEnemies.push({ target, dist });
+			}
+		});
+
+		// Sort by distance and take 5
+		nearbyEnemies.sort((a, b) => a.dist - b.dist);
+		const targets = nearbyEnemies.slice(0, maxTargets);
+
+		const damage = this.bulletDamage / 2;
+
+		targets.forEach(t => {
+			const enemy = t.target;
+
+			// Visual Lightning
+			this.drawLightning(sourceX, sourceY, enemy.x, enemy.y);
+
+			// Deal Damage
+			let hp = enemy.getData('hp');
+			hp -= damage;
+			enemy.setData('hp', hp);
+
+			this.showDamageText(enemy.x, enemy.y, damage);
+
+			if (hp <= 0) {
+				const reward = enemy.getData('moneyValue') || 10;
+				if (enemy.getData('originalColor') === 0xff0000) {
+					this.triggerExplosion(enemy.x, enemy.y);
+					this.playSound('redBlockExplosion');
+				}
+				enemy.destroy();
+				this.addMoney(reward);
+				this.addScore(100);
+				this.showFloatingText(enemy.x, enemy.y, "+" + Math.floor(reward));
+				this.trackProgress();
+			} else {
+				// Flash effect
+				const top = enemy.getByName('top') as Phaser.GameObjects.Rectangle;
+				if (top) {
+					const originalFill = top.fillColor;
+					top.setFillStyle(0x00ffff);
+					this.time.delayedCall(100, () => {
+						if (enemy.active && top.active) {
+							top.setFillStyle(originalFill);
+						}
+					});
+				}
+			}
+		});
+
+		if (targets.length > 0) {
+			this.playSound('electric'); // Electric sound effect
+		}
+	}
+
+	drawLightning(x1: number, y1: number, x2: number, y2: number) {
+		// Draw multiple lightning bolts for more impact
+		for (let bolt = 0; bolt < 3; bolt++) {
+			const graphics = this.add.graphics();
+			const delay = bolt * 50;
+
+			// Outer glow (thicker, more transparent)
+			if (bolt === 0) {
+				graphics.lineStyle(12, 0x00ffff, 0.3);
+				const segments = 5;
+				const stepX = (x2 - x1) / segments;
+				const stepY = (y2 - y1) / segments;
+
+				graphics.beginPath();
+				graphics.moveTo(x1, y1);
+
+				for (let i = 1; i < segments; i++) {
+					const jump = 20;
+					const offX = Phaser.Math.Between(-jump, jump);
+					const offY = Phaser.Math.Between(-jump, jump);
+					graphics.lineTo(x1 + stepX * i + offX, y1 + stepY * i + offY);
+				}
+
+				graphics.lineTo(x2, y2);
+				graphics.strokePath();
+			}
+
+			// Main bright bolt
+			graphics.lineStyle(6, 0xffffff, 1);
+			const segments = 6;
+			const stepX = (x2 - x1) / segments;
+			const stepY = (y2 - y1) / segments;
+
+			graphics.beginPath();
+			graphics.moveTo(x1, y1);
+
+			for (let i = 1; i < segments; i++) {
+				const jump = 25;
+				const offX = Phaser.Math.Between(-jump, jump);
+				const offY = Phaser.Math.Between(-jump, jump);
+				graphics.lineTo(x1 + stepX * i + offX, y1 + stepY * i + offY);
+			}
+
+			graphics.lineTo(x2, y2);
+			graphics.strokePath();
+
+			// Secondary cyan glow
+			graphics.lineStyle(3, 0x00ffff, 0.8);
+			graphics.beginPath();
+			graphics.moveTo(x1, y1);
+
+			for (let i = 1; i < segments; i++) {
+				const jump = 20;
+				const offX = Phaser.Math.Between(-jump, jump);
+				const offY = Phaser.Math.Between(-jump, jump);
+				graphics.lineTo(x1 + stepX * i + offX, y1 + stepY * i + offY);
+			}
+
+			graphics.lineTo(x2, y2);
+			graphics.strokePath();
+
+			// Animate with flash effect
+			this.time.delayedCall(delay, () => {
+				this.tweens.add({
+					targets: graphics,
+					alpha: 0,
+					duration: 300,
+					ease: 'Power2',
+					onComplete: () => graphics.destroy()
+				});
+			});
+		}
+
+		// Add impact particles at source
+		this.impactEmitter.explode(15, x1, y1);
+		// Add impact particles at target
+		this.impactEmitter.explode(10, x2, y2);
+
+		// Flash effect at both ends
+		const flashStart = this.add.circle(x1, y1, 20, 0x00ffff, 0.6);
+		const flashEnd = this.add.circle(x2, y2, 15, 0x00ffff, 0.6);
+
+		this.tweens.add({
+			targets: [flashStart, flashEnd],
+			alpha: 0,
+			scale: 2,
+			duration: 300,
+			onComplete: () => {
+				flashStart.destroy();
+				flashEnd.destroy();
+			}
+		});
+	}
+
+	triggerBombExplosion(x: number, y: number) {
+		// Visual Effect (2.5x bigger than red block explosion)
+		this.explosionEmitter.explode(125, x, y); // 50 * 2.5 = 125
+
+		// Play explosion sound
+		this.playSound('redBlockExplosion');
+
+		// Haptics
+		this.triggerHaptic('heavy');
+
+		// Camera Shake (stronger)
+		this.cameras.main.shake(300, 0.015);
+
+		// AoE Damage - Same radius and damage as red block explosion (150)
+		const explosionRadius = 150;
+		const enemies = this.enemies.getChildren();
+
+		enemies.forEach((child: any) => {
+			const enemy = child as Phaser.GameObjects.Container;
+			if (!enemy.active) return;
+
+			// Check distance
+			const dist = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
+
+			if (dist <= explosionRadius) {
+				// Same damage/behavior as red block explosion
+				this.impactEmitter.explode(10, enemy.x, enemy.y);
+				enemy.destroy();
+				this.addScore(50);
+				this.addMoney(5);
+			}
+		});
+	}
+
 	/* END-USER-CODE */
 }
 

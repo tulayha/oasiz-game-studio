@@ -106,6 +106,13 @@
         .oasiz-pb-safe {
             padding-bottom: env(safe-area-inset-bottom, 20px);
         }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
     </style>
     <link rel="stylesheet" href="/style.css">
     <title>Block Buster!</title>
@@ -143,18 +150,18 @@
 
                 <!-- Row 2: Upgrades -->
                 <div id="bottom-hud-upgrades"
-                    class="flex justify-center items-center w-full gap-2 p-2 relative pointer-events-auto">
+                    class="flex justify-start items-center w-full gap-2 p-2 relative pointer-events-auto overflow-x-auto no-scrollbar">
 
                     <!-- Damage Button -->
                     <button id="btn-damage"
-                        class="ui-button flex-1 h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
                         <span class="text-[8px] mb-1 text-white">DAMAGE</span>
                         <span class="text-[10px] text-yellow-300">$100</span>
                     </button>
 
                     <!-- Shoot Button (formerly Balls) -->
                     <button id="btn-balls"
-                        class="ui-button flex-1 h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
                         <span class="text-[8px] mb-1 text-white">BALLS</span>
                         <span class="text-[10px] text-yellow-300">$50</span>
                     </button>
@@ -162,21 +169,35 @@
 
                     <!-- Duplicate Button -->
                     <button id="btn-duplicate"
-                        class="ui-button flex-1 h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
                         <span class="text-[8px] mb-1 text-white">DUPLICATE</span>
                         <span class="text-[10px] text-purple-300">$200</span>
                     </button>
 
                     <!-- Laser Button -->
                     <button id="btn-laser"
-                        class="ui-button flex-1 h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
                         <span class="text-[8px] mb-1 text-white">LASER</span>
                         <span class="text-[10px] text-red-300">$200</span>
                     </button>
 
+                    <!-- Electric Button -->
+                    <button id="btn-electric"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">ELECTRIC</span>
+                        <span class="text-[10px] text-blue-300">$200</span>
+                    </button>
+
+                    <!-- Bomb Button -->
+                    <button id="btn-bomb"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">BOMB</span>
+                        <span class="text-[10px] text-orange-300">$200</span>
+                    </button>
+
                     <!-- Burst Button -->
                     <button id="btn-burst"
-                        class="ui-button flex-1 h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
                         <span class="text-[8px] mb-1 text-white">BURST</span>
                         <span class="text-[10px] text-red-300">$100</span>
                     </button>
