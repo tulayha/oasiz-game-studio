@@ -74,7 +74,24 @@ class BlockBreakerGame {
     console.log('[BlockBreakerGame] Initializing');
     
     this.canvas = document.getElementById('game') as HTMLCanvasElement;
-    this.ctx = this.canvas.getContext('2d')!;
+    if (!this.canvas) {
+      console.error('[BlockBreakerGame] Canvas element not found');
+      return;
+    }
+    
+    // iOS WebView requires explicit canvas attributes for proper rendering
+    this.canvas.setAttribute('willReadFrequently', 'true');
+    
+    const ctx = this.canvas.getContext('2d', { 
+      alpha: false,  // Optimization: no transparency needed for background
+      desynchronized: true  // Better performance on mobile
+    });
+    
+    if (!ctx) {
+      console.error('[BlockBreakerGame] Failed to get 2D context');
+      return;
+    }
+    this.ctx = ctx;
     
     this.engine = Engine.create({
       gravity: { x: 0, y: 0.5 }
@@ -732,4 +749,9 @@ class BlockBreakerGame {
   }
 }
 
-new BlockBreakerGame();
+// Ensure DOM is ready before initializing (critical for iOS WebView)
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => new BlockBreakerGame());
+} else {
+  new BlockBreakerGame();
+}
