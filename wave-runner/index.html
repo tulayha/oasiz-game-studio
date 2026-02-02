@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, minimal-ui"
+  />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Wave Runner</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at top, #1f1b3a 0, #050411 55%, #000 100%);
+      font-family: "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #game-root {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #game-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 960px;
+      max-height: 540px;
+      border-radius: 26px;
+      overflow: hidden;
+      background: radial-gradient(circle at top, #141129 0, #050411 55%, #000 100%);
+      box-shadow:
+        0 0 0 2px rgba(255, 255, 255, 0.04),
+        0 30px 80px rgba(0, 0, 0, 0.85);
+    }
+
+    @media (pointer: coarse) {
+      #game-container {
+        max-width: none;
+        max-height: none;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      html,
+      body {
+        background: radial-gradient(circle at top, #141129 0, #050411 55%, #000 100%);
+        height: 100%;
+      }
+    }
+
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* HUD */
+    #hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      pointer-events: none;
+      padding-top: 45px;
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+
+    .hud-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 420px;
+      margin: 0 auto;
+      gap: 12px;
+    }
+
+    .score-pill {
+      min-width: 120px;
+      padding: 8px 18px;
+      border-radius: 999px;
+      background: radial-gradient(circle at top, rgba(108, 255, 255, 0.35), rgba(0, 255, 194, 0.08));
+      border: 1px solid rgba(134, 255, 255, 0.7);
+      box-shadow:
+        0 0 18px rgba(0, 255, 194, 0.4),
+        0 16px 40px rgba(0, 0, 0, 0.7);
+      text-align: center;
+      pointer-events: auto;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .score-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(180, 255, 255, 0.75);
+    }
+
+    .score-value {
+      display: block;
+      margin-top: 2px;
+      font-size: 20px;
+      font-weight: 700;
+      color: #e9feff;
+      text-shadow: 0 0 12px rgba(0, 255, 255, 0.75);
+    }
+
+    .icon-button {
+      width: 44px;
+      height: 44px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      background: radial-gradient(circle at 30% 0, rgba(255, 255, 255, 0.25), rgba(16, 12, 40, 0.9));
+      box-shadow:
+        0 0 12px rgba(0, 0, 0, 0.8),
+        0 0 16px rgba(0, 255, 255, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      pointer-events: auto;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.16s ease;
+      color: rgba(220, 240, 255, 0.9);
+    }
+
+    .icon-button:active {
+      transform: translateY(1px) scale(0.96);
+      box-shadow:
+        0 0 6px rgba(0, 0, 0, 0.8),
+        0 0 10px rgba(0, 255, 255, 0.5);
+    }
+
+    .icon-button svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    #pauseButton {
+      visibility: hidden;
+    }
+
+    /* Overlays */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      pointer-events: none;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    .overlay-inner {
+      pointer-events: auto;
+      text-align: center;
+      padding: 32px 28px;
+      border-radius: 24px;
+      background: radial-gradient(circle at top, rgba(30, 27, 73, 0.96), rgba(10, 6, 34, 0.96));
+      border: 1px solid rgba(148, 163, 255, 0.75);
+      box-shadow:
+        0 26px 80px rgba(0, 0, 0, 0.95),
+        0 0 40px rgba(63, 81, 181, 0.8);
+      max-width: 360px;
+      width: 86%;
+    }
+
+    .game-title {
+      font-size: 32px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #f9f5ff;
+      text-shadow:
+        0 0 24px rgba(236, 72, 153, 0.9),
+        0 0 40px rgba(56, 189, 248, 0.9);
+      margin-bottom: 8px;
+    }
+
+    .game-subtitle {
+      font-size: 13px;
+      line-height: 1.6;
+      color: rgba(209, 213, 219, 0.9);
+      margin-bottom: 24px;
+    }
+
+    .start-button,
+    .primary-button,
+    .secondary-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 26px;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid rgba(248, 250, 252, 0.2);
+      box-shadow:
+        0 18px 40px rgba(0, 0, 0, 0.8),
+        0 0 24px rgba(56, 189, 248, 0.7);
+      background: linear-gradient(90deg, #ec4899, #8b5cf6, #22d3ee);
+      color: #f9fafb;
+      pointer-events: auto;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+      width: 100%;
+      justify-content: center;
+    }
+
+    .secondary-button {
+      margin-top: 10px;
+      background: transparent;
+      box-shadow: none;
+      border-color: rgba(148, 163, 255, 0.75);
+      color: rgba(191, 219, 254, 0.95);
+    }
+
+    .start-button:active,
+    .primary-button:active,
+    .secondary-button:active {
+      transform: translateY(1px) scale(0.97);
+      box-shadow:
+        0 10px 28px rgba(0, 0, 0, 0.8),
+        0 0 20px rgba(56, 189, 248, 0.9);
+      filter: brightness(1.08);
+    }
+
+    .meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      margin-bottom: 22px;
+      color: rgba(148, 163, 255, 0.9);
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .meta-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(148, 163, 255, 0.85);
+      box-shadow: 0 0 10px rgba(129, 140, 248, 0.85);
+    }
+
+    .wave-preview {
+      width: 100%;
+      height: 120px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: rgba(156, 163, 175, 0.95);
+      margin-top: 18px;
+    }
+
+    /* Settings modal */
+    #settingsModal {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 30;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+      background: radial-gradient(circle at top, rgba(17, 24, 39, 0.92), rgba(3, 7, 18, 0.96));
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    #settingsModal.visible {
+      pointer-events: auto;
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .settings-panel {
+      width: 88%;
+      max-width: 360px;
+      border-radius: 22px;
+      padding: 24px 22px 20px;
+      border: 1px solid rgba(148, 163, 255, 0.8);
+      background: radial-gradient(circle at top, rgba(30, 64, 175, 0.96), rgba(12, 10, 39, 0.98));
+      box-shadow:
+        0 26px 70px rgba(0, 0, 0, 0.9),
+        0 0 40px rgba(56, 189, 248, 0.9);
+      color: #e5e7eb;
+    }
+
+    .settings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .settings-title {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #f9fafb;
+    }
+
+    .settings-rows {
+      margin-top: 8px;
+      margin-bottom: 10px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(148, 163, 255, 0.38);
+    }
+
+    .settings-row:last-child {
+      border-bottom: none;
+    }
+
+    .settings-label {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .toggle {
+      width: 54px;
+      height: 30px;
+      border-radius: 999px;
+      border: 1px solid rgba(248, 250, 252, 0.55);
+      background: rgba(15, 23, 42, 0.9);
+      position: relative;
+      cursor: pointer;
+      flex-shrink: 0;
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.9);
+      transition: background 0.22s ease, box-shadow 0.22s ease;
+    }
+
+    .toggle::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 0, #f9fafb, #e5e7eb);
+      box-shadow:
+        0 8px 14px rgba(0, 0, 0, 0.8),
+        0 0 6px rgba(248, 250, 252, 0.6);
+      transition: transform 0.22s ease;
+    }
+
+    .toggle.active {
+      background: radial-gradient(circle at 0 0, #22c55e, #0ea5e9);
+      box-shadow:
+        inset 0 0 0 1px rgba(8, 47, 73, 0.9),
+        0 0 18px rgba(45, 212, 191, 0.8);
+    }
+
+    .toggle.active::after {
+      transform: translateX(22px);
+    }
+
+    .settings-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 6px;
+    }
+
+    .settings-close {
+      padding: 8px 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(191, 219, 254, 0.8);
+      background: rgba(15, 23, 42, 0.8);
+      color: rgba(219, 234, 254, 0.98);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      cursor: pointer;
+    }
+
+    .settings-close:active {
+      transform: translateY(1px);
+    }
+
+    /* Safe area for mobile top bar */
+    @media (pointer: coarse) {
+      #hud {
+        padding-top: max(120px, calc(env(safe-area-inset-top, 0px) + 100px));
+        padding-left: max(20px, env(safe-area-inset-left, 20px));
+        padding-right: max(20px, env(safe-area-inset-right, 20px));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="game-root">
+    <div id="game-container">
+      <canvas id="gameCanvas"></canvas>
+
+      <div id="hud">
+        <div class="hud-row">
+          <button id="pauseButton" class="icon-button" aria-label="Pause">
+            <svg viewBox="0 0 24 24">
+              <path d="M7 5h3v14H7zm7 0h3v14h-3z" />
+            </svg>
+          </button>
+
+          <div class="score-pill" id="scorePill">
+            <span class="score-label">distance</span>
+            <span class="score-value" id="scoreValue">0</span>
+          </div>
+
+          <button id="settingsButton" class="icon-button" aria-label="Settings">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.5.5 0 0 0 14.4 2h-4.8a.5.5 0 0 0-.48.41L8.76 4.95a7.03 7.03 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.59.22L2.24 8.47a.5.5 0 0 0 .12.61l2.03 1.58c-.05.3-.08.63-.08.94s.03.64.08.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.04.24.24.41.48.41h4.8c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.5.5 0 0 0-.12-.61L19.14 12.94zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Start screen -->
+      <div id="startOverlay" class="overlay">
+        <div class="overlay-inner">
+          <div class="meta-row">
+            <span>tap to flip</span>
+            <span class="meta-dot"></span>
+            <span>survive the grid</span>
+          </div>
+          <h1 class="game-title">Wave Runner</h1>
+          <p class="game-subtitle">
+            Ride a razor-sharp neon wave through an endless synth skyline.
+            Tap to snap your angle and thread the spikes.
+          </p>
+          <div class="wave-preview" id="wavePreview"></div>
+          <button id="startButton" class="start-button">
+            Start Run
+          </button>
+          <p class="hint">Tap or click anywhere to flip your wave mid‑air.</p>
+        </div>
+      </div>
+
+      <!-- Game over -->
+      <div id="gameOverOverlay" class="overlay hidden">
+        <div class="overlay-inner">
+          <h2 class="game-title" style="font-size: 24px; margin-bottom: 4px;">
+            Run Over
+          </h2>
+          <p class="game-subtitle" id="finalScoreText">Distance: 0</p>
+          <button id="restartButton" class="primary-button">
+            Run Again
+          </button>
+          <button id="backToMenuButton" class="secondary-button">
+            Back to Menu
+          </button>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div id="settingsModal">
+        <div class="settings-panel">
+          <div class="settings-header">
+            <div class="settings-title">Settings</div>
+          </div>
+          <div class="settings-rows">
+            <div class="settings-row">
+              <span class="settings-label">Music</span>
+              <div id="musicToggle" class="toggle"></div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">FX</span>
+              <div id="fxToggle" class="toggle"></div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Haptics</span>
+              <div id="hapticsToggle" class="toggle"></div>
+            </div>
+          </div>
+          <div class="settings-footer">
+            <button id="settingsCloseButton" class="settings-close">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
+
