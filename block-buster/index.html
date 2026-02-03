@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&amp;display=swap" rel="stylesheet" />
+    <style type="text/tailwindcss">
+        :root {
+            --primary: #3d3d4b;
+            --background-light: #f2ebd9;
+            --border-retro: #2d2822;
+            --button-shadow: #1a1a1a;
+            --button-highlight: rgba(255, 255, 255, 0.15);
+        }
+        html, body {
+            padding: 0px;
+            margin: 0px;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #2f2f2f;
+            image-rendering: pixelated;
+            touch-action: none; /* Prevent Pull-to-refresh on mobile */
+        }
+        .pixel-card {
+            background: #ffffff;
+            border: 4px solid var(--border-retro);
+            position: relative;
+            box-shadow: 6px 6px 0px 0px rgba(0,0,0,0.1);
+        }
+        .ui-button {
+            /* Width/Height will be controlled by specific elements or classes if needed, 
+               but base style should be flexible or fixed as per need. 
+               The prompt had fixed 160x64, let's keep it flexible or use utility classes */
+            @apply flex items-center justify-center; 
+            background-color: var(--primary);
+            border: 4px solid var(--button-shadow);
+            position: relative;
+            cursor: pointer;
+            transition: none;
+            color: white;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 10px; /* Reduced from prompt's implicit or default */
+            text-transform: uppercase;
+        }
+        .ui-button::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border-top: 4px solid var(--button-highlight);
+            border-left: 4px solid var(--button-highlight);
+            border-bottom: 4px solid rgba(0,0,0,0.3);
+            border-right: 4px solid rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        .ui-button:hover {
+            background-color: #4e4e5e;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 0px 0px var(--button-shadow);
+        }
+        .ui-button:active {
+            background-color: #2a2a35;
+            transform: translateY(4px);
+            box-shadow: none;
+        }
+        .ui-button:active::before {
+            border-top: 4px solid rgba(0,0,0,0.4);
+            border-left: 4px solid rgba(0,0,0,0.4);
+            border-bottom: 4px solid var(--button-highlight);
+            border-right: 4px solid var(--button-highlight);
+        }
+        .pixel-grid {
+            background-image: 
+                linear-gradient(to right, rgba(0,0,0,0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0,0,0,0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .section-label {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 10px;
+            color: var(--border-retro);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        /* Phaser Container Override to make it transparent? */
+        #game-container canvas {
+            /* display: block;  Default */
+        }
+
+        /* Animated Gradient Background */
+
+        .gradient-bg {
+            background: radial-gradient(circle at center, #2e2e38 0%, #050505 100%);
+        }
+
+        /* Safe Area Compliance */
+        .oasiz-mt-safe {
+            margin-top: env(safe-area-inset-top, 20px);
+        }
+        .oasiz-pb-safe {
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+    <link rel="stylesheet" href="/style.css">
+    <title>Block Buster!</title>
+</head>
+
+<body>
+    <!-- Force Font Load -->
+    <div style="font-family: 'Press Start 2P'; padding: 0; margin: 0; position: absolute; visibility: hidden;">.</div>
+    <div id="app" class="fixed inset-0 w-full h-full gradient-bg flex flex-col md:block overflow-hidden">
+        <!-- Game Canvas will be injected here by Phaser -->
+        <div id="game-container" class="relative flex-1 min-h-0 w-full md:absolute md:inset-0 z-0"></div>
+
+        <!-- UI Overlay Layer -->
+        <div id="ui-layer"
+            class="hidden relative w-full flex-none md:absolute md:inset-0 z-10 pointer-events-none flex flex-col justify-end">
+
+            <!-- Top Right Settings Button -->
+            <!-- Fixed Positioning + Safe Area Margin -->
+            <div class="fixed top-4 right-4 z-50 pointer-events-auto oasiz-mt-safe">
+                <button id="btn-settings" class="ui-button w-12 h-12 rounded bg-gray-700 text-xl shadow-lg">
+                    ⚙️
+                </button>
+            </div>
+
+            <!-- Bottom Dashboard Bar -->
+            <!-- Fixed at bottom, spans full width -->
+            <div id="ui-bottom-bar"
+                class="w-full md:w-[600px] md:mx-auto md:rounded-t-2xl bg-white border-t-4 border-[#2d2822] pt-3 px-4 pb-[50px] md:pb-6 pointer-events-auto flex flex-col gap-3 shadow-[0_-4px_0_0_rgba(0,0,0,0.1)]">
+
+                <!-- Row 1: Stats -->
+                <div class="flex justify-between items-center px-4 py-2 border-2 border-[#2d2822] bg-[#f2ebd9]">
+                    <div id="hud-money" class="font-['Press_Start_2P'] text-[10px] text-black">MONEY: $0</div>
+                    <div id="hud-level" class="font-['Press_Start_2P'] text-[10px] text-black">LEVEL: 1</div>
+                </div>
+
+                <!-- Row 2: Upgrades -->
+                <div id="bottom-hud-upgrades"
+                    class="flex justify-start items-center w-full gap-2 p-2 relative pointer-events-auto overflow-x-auto no-scrollbar">
+
+                    <!-- Damage Button -->
+                    <button id="btn-damage"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">DAMAGE</span>
+                        <span class="text-[10px] text-yellow-300">$100</span>
+                    </button>
+
+                    <!-- Shoot Button (formerly Balls) -->
+                    <button id="btn-balls"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">BALLS</span>
+                        <span class="text-[10px] text-yellow-300">$50</span>
+                    </button>
+
+
+                    <!-- Duplicate Button -->
+                    <button id="btn-duplicate"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">DUPLICATE</span>
+                        <span class="text-[10px] text-purple-300">$200</span>
+                    </button>
+
+                    <!-- Laser Button -->
+                    <button id="btn-laser"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">LASER</span>
+                        <span class="text-[10px] text-red-300">$200</span>
+                    </button>
+
+                    <!-- Electric Button -->
+                    <button id="btn-electric"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">ELECTRIC</span>
+                        <span class="text-[10px] text-blue-300">$200</span>
+                    </button>
+
+                    <!-- Bomb Button -->
+                    <button id="btn-bomb"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">BOMB</span>
+                        <span class="text-[10px] text-orange-300">$200</span>
+                    </button>
+
+                    <!-- Burst Button -->
+                    <button id="btn-burst"
+                        class="ui-button flex-none min-w-[85px] h-16 flex flex-col items-center justify-center p-1 opacity-50 grayscale pointer-events-none">
+                        <span class="text-[8px] mb-1 text-white">BURST</span>
+                        <span class="text-[10px] text-red-300">$100</span>
+                    </button>
+
+                </div>
+
+            </div>
+
+            <!-- Settings Modal (Hidden by Default) -->
+            <div id="modal-settings"
+                class="hidden fixed inset-0 bg-black/80 z-[100] flex items-center justify-center pointer-events-auto">
+                <div class="pixel-card p-8 flex flex-col space-y-6 min-w-[300px]">
+                    <div class="section-label text-center text-lg">SETTINGS</div>
+
+                    <div class="flex justify-between items-center">
+                        <span class="font-['Press_Start_2P'] text-xs text-black">MUSIC</span>
+                        <input type="checkbox" id="toggle-music" class="w-6 h-6 border-4 border-black" />
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="font-['Press_Start_2P'] text-xs text-black">FX</span>
+                        <input type="checkbox" id="toggle-fx" class="w-6 h-6 border-4 border-black" />
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="font-['Press_Start_2P'] text-xs text-black">HAPTICS</span>
+                        <input type="checkbox" id="toggle-haptics" class="w-6 h-6 border-4 border-black" />
+                    </div>
+
+                    <button id="btn-close-settings" class="ui-button w-full h-12 mt-4">
+                        CLOSE
+                    </button>
+                </div>
+            </div>
+
+            <!-- Game Over Modal (Hidden by Default) -->
+            <div id="modal-gameover"
+                class="hidden fixed inset-0 bg-red-900/80 z-[100] flex items-center justify-center pointer-events-auto">
+                <div class="pixel-card p-8 flex flex-col space-y-6 min-w-[300px] items-center text-center">
+                    <div class="section-label text-xl text-red-600">GAME OVER</div>
+
+                    <div class="font-['Press_Start_2P'] text-sm text-black">SCORE</div>
+                    <div id="final-score" class="font-['Press_Start_2P'] text-xl text-black">0</div>
+
+                    <button id="btn-restart" class="ui-button w-full h-12 mt-4">
+                        RESTART
+                    </button>
+                </div>
+            </div>
+
+        </div>
+        <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

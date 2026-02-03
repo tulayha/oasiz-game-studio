@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Perfect Drop | Pro</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --primary: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.6);
+      --accent: #d946ef;
+      --accent-glow: rgba(217, 70, 239, 0.6);
+      --success: #22c55e;
+      --warning: #eab308;
+      --danger: #ef4444;
+      --white: #ffffff;
+      --glass-bg: rgba(255, 255, 255, 0.08);
+      --glass-border: rgba(255, 255, 255, 0.15);
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+      --font-main: 'Outfit', sans-serif;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: var(--font-main);
+      background: #0f172a;
+      color: var(--white);
+    }
+
+    /* Background Animation */
+    .bg-animation {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      background: radial-gradient(circle at 50% 50%, #1e1b4b 0%, #0f172a 100%);
+      overflow: hidden;
+    }
+
+    .blob {
+      position: absolute;
+      filter: blur(80px);
+      border-radius: 50%;
+      opacity: 0.4;
+      animation: float 20s infinite ease-in-out;
+    }
+
+    .blob-1 {
+      width: 400px;
+      height: 400px;
+      background: var(--primary);
+      top: -10%;
+      left: -10%;
+      animation-delay: 0s;
+    }
+
+    .blob-2 {
+      width: 300px;
+      height: 300px;
+      background: var(--accent);
+      bottom: -10%;
+      right: -10%;
+      animation-delay: -10s;
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      33% {
+        transform: translate(30px, -50px) scale(1.1);
+      }
+
+      66% {
+        transform: translate(-20px, 20px) scale(0.9);
+      }
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 0.7;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 1;
+        transform: scale(1.05);
+      }
+    }
+
+    .pulse-text {
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      display: block;
+    }
+
+    /* UI Layout */
+    .screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      pointer-events: auto;
+    }
+
+    .screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.95);
+    }
+
+    /* Components */
+    .glass-panel {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      border-radius: 24px;
+      padding: 40px;
+      text-align: center;
+      max-width: 90%;
+      width: 400px;
+    }
+
+    .btn {
+      position: relative;
+      background: linear-gradient(135deg, var(--primary) 0%, #4f46e5 100%);
+      color: white;
+      border: none;
+      padding: 16px 40px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      border-radius: 100px;
+      cursor: pointer;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 15px var(--primary-glow);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 20px;
+      font-family: var(--font-main);
+    }
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transform: translateX(-100%);
+      transition: 0.5s;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 8px 25px var(--primary-glow);
+    }
+
+    .btn:hover::before {
+      transform: translateX(100%);
+    }
+
+    .btn:active {
+      transform: translateY(1px) scale(0.98);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: none;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Start Screen */
+    .game-logo {
+      font-size: 5rem;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 4px 30px rgba(99, 102, 241, 0.3);
+      letter-spacing: -2px;
+    }
+
+    .game-subtitle {
+      font-size: 1.2rem;
+      color: #cbd5e1;
+      margin-bottom: 3rem;
+      font-weight: 300;
+    }
+
+    /* HUD */
+    #hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .score-container {
+      position: absolute;
+      top: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+
+    .score-label {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: rgba(255, 255, 255, 0.6);
+      margin-bottom: 4px;
+    }
+
+    #score-display {
+      font-size: 4rem;
+      font-weight: 700;
+      line-height: 1;
+      text-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .top-bar {
+      position: absolute;
+      top: 30px;
+      left: 0;
+      width: 100%;
+      padding: 0 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .lives_container {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    /* Settings Button */
+    .icon-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      pointer-events: auto;
+    }
+
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      transform: rotate(15deg);
+    }
+
+    .icon-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: white;
+    }
+
+    /* Game Over */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      width: 100%;
+      margin: 30px 0;
+    }
+
+    .stat-box {
+      background: rgba(0, 0, 0, 0.2);
+      padding: 15px;
+      border-radius: 15px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: white;
+    }
+
+    .stat-value.gold {
+      color: #facc15;
+    }
+
+    .stat-value.blue {
+      color: #60a5fa;
+    }
+
+    /* Settings Modal */
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(5px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .setting-row:last-of-type {
+      border-bottom: none;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 60px;
+      height: 32px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .toggle-switch.active {
+      background: var(--primary);
+    }
+
+    .toggle-thumb {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: white;
+      transition: 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .toggle-switch.active .toggle-thumb {
+      transform: translateX(28px);
+    }
+
+    /* Utility */
+    .hidden {
+      display: none !important;
+    }
+
+    /* Mobile Responsive */
+    @media (max-width: 600px) {
+      .game-logo {
+        font-size: 3.5rem;
+      }
+
+      .glass-panel {
+        padding: 30px 20px;
+        width: 85%;
+      }
+
+      #score-display {
+        font-size: 3rem;
+      }
+
+      .top-bar {
+        padding: 0 20px;
+        top: 20px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Background Blobs -->
+  <div class="bg-animation">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <!-- Start Screen -->
+  <div id="start-screen" class="screen">
+    <div class="glass-panel">
+      <h1 class="game-logo">PERFECT<br>DROP</h1>
+      <p class="game-subtitle">Timing is everything.</p>
+      <button id="start-btn" class="btn">Start Game</button>
+      <div id="high-score-display" style="margin-top: 15px; font-size: 1rem; color: #a5b4fc; font-weight: 500;">Best: 0
+      </div>
+      <div class="pulse-text" style="margin-top: 20px; font-size: 0.9rem;">
+        Tap anywhere to drop
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="score-container">
+      <div class="score-label">Score</div>
+      <div id="score-display">0</div>
+    </div>
+
+    <div class="top-bar">
+      <div class="lives_container">
+        <!-- Stats can go here for lives if not drawn on canvas -->
+      </div>
+
+      <button id="settings-btn" class="icon-btn">
+        <svg viewBox="0 0 24 24">
+          <path
+            d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="gameover-screen" class="screen hidden" style="background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);">
+    <div class="glass-panel">
+      <h2 style="font-size: 2.5rem; margin-bottom: 20px;">GAME OVER</h2>
+
+      <div style="font-size: 1rem; color: #94a3b8; margin-bottom: 5px;">FINAL SCORE</div>
+      <div id="final-score"
+        style="font-size: 4rem; font-weight: 700; color: var(--primary); line-height: 1; margin-bottom: 20px;">0</div>
+
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">MAX COMBO</div>
+          <div id="gameover-combo" class="stat-value gold">0x</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">BEST SCORE</div>
+          <div id="gameover-highscore" class="stat-value blue">0</div>
+        </div>
+      </div>
+
+      <div id="coins-earned" style="margin: 20px 0; font-size: 1.2rem; font-weight: 600; color: var(--warning);">+0
+        Coins 💰</div>
+
+      <button id="restart-btn" class="btn">Play Again</button>
+      <button class="btn btn-secondary" id="home-btn" style="margin-top: 10px; width: 100%;">Home</button>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="glass-panel">
+      <h3 style="font-size: 1.8rem; margin-bottom: 30px;">SETTINGS</h3>
+
+      <div class="setting-row">
+        <span>Music</span>
+        <div id="toggle-music" class="toggle-switch active">
+          <div class="toggle-thumb"></div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <span>Sound Effects</span>
+        <div id="toggle-fx" class="toggle-switch active">
+          <div class="toggle-thumb"></div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <span>Haptics</span>
+        <div id="toggle-haptics" class="toggle-switch active">
+          <div class="toggle-thumb"></div>
+        </div>
+      </div>
+
+      <button id="close-settings" class="btn" style="width: 100%; margin-top: 30px;">Resume</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
