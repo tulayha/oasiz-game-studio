@@ -50,7 +50,7 @@ If no kills occur for a set duration:
 1.  **"OVERTIME"** text flashes.
 2.  **The Crush:** Indestructible blocks begin spawning from the outer edges of the map, slowly filling the screen row by row, reducing the playable area until someone is crushed.
 
-### 3.4. **Player Death Handling (During an Active Round)**
+### 3.4.A **Player Death Handling (During an Active Round) (Online Multiplayer)**
 1. On Player Death
 
  **When a player’s Pilot is killed:**
@@ -96,7 +96,7 @@ Start the next round using the same session rules
 - Restart
 - Main Menu
 
-### 3.8 Local Match Scenario (Input & Session Flow)
+### 3.4.B Local Match Scenario (Input & Session Flow)
 
 - On player elimination, the corresponding local input controls are locked and ignored by the game.
 - Input remains disabled until a new game session is created.
