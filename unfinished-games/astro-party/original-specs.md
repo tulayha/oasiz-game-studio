@@ -50,6 +50,59 @@ If no kills occur for a set duration:
 1.  **"OVERTIME"** text flashes.
 2.  **The Crush:** Indestructible blocks begin spawning from the outer edges of the map, slowly filling the screen row by row, reducing the playable area until someone is crushed.
 
+### 3.4. **Player Death Handling (During an Active Round)**
+1. On Player Death
+
+ **When a player’s Pilot is killed:**
+- The player is marked as Eliminated for the current round.
+**- The eliminated player:**
+- Enters Spectator Mode
+- Can freely watch the remaining match
+- Cannot interact with gameplay
+- May Exit the game session at any time
+
+2. Last Player Check
+- After a player is eliminated:
+- If only one active player remains:
+- That player is declared Round Winner
+- Winner’s score is incremented (score++)
+- End the current round
+- Automatically start the next round after a short delay
+- If more than one active player remains:
+- Continue the current round
+- Eliminated players remain spectators until the round ends
+
+### 3.5. **Round End → Game Session Progression**
+1. Round Transition
+Clear all active ships, pilots, and projectiles
+Reset map state
+Respawn all non-exited players
+Start the next round using the same session rules
+
+### 3.6. **Game Session End Condition**
+1. Game Session End
+
+- A Game Session ends when:
+- One player reaches the defined win condition (e.g., first to 3 kills)
+- At session end:
+- Declare 1 Winner
+- All other players are marked as Losers
+- Freeze gameplay
+- Display End Session UI
+
+### 3.7 End Session UI
+1. End Session Screen
+- Show the following buttons:
+- Restart
+- Main Menu
+
+### 3.8 Local Match Scenario (Input & Session Flow)
+
+- On player elimination, the corresponding local input controls are locked and ignored by the game.
+- Input remains disabled until a new game session is created.
+- At the end of the game session, the winning player is announced, after which the game returns to the Main Menu.
+- Starting a new session allows players to configure the local player count (2–4 players) before entering the lobby.
+
 ---
 
 ## 4. Game Entities
@@ -110,6 +163,16 @@ Power-ups appear in floating bubbles. They are collected by shooting the bubble 
     1.  **Player (1P, 2P, etc.)** - Active human player.
     2.  **OFF** - Slot is empty.
 *   *Correction:* There is no AI/CPU toggle in the selection screen.
+    Matchmaking Rules Summary
+
+### 7.1.2 Minimum players required: 2
+- Maximum players allowed: 4
+-  Session starts only when:
+-  playerCount ≥ 2
+-  All active players are ready
+-  If playerCount < 2:
+-  Display warning:
+-  “Player count is too low. Invite a friend or return to Main Menu.”
 
 ### 7.2. Settings (Advanced Setup)
 Toggle switches to customize the engine:
@@ -119,6 +182,32 @@ Toggle switches to customize the engine:
 *   **Fixed Spawn:** Ships spawn in corners vs. Random locations.
 *   **Friendly Fire:** On/Off.
 *   **Super Dash:** On/Off (Enables the double-tap Button A mechanic).
+
+### 7.3. Restart Flow (Session Reset)
+1. On Restart Button Click
+- Create a new game session
+- Preserve currently connected players
+- Enter Matchmaking Ready State
+- Player Count Handling:
+- Required minimum players: 2
+- If connected players ≥ 2:
+- Wait for all players to confirm ready
+- Start a new session automatically
+- If connected players < 2:
+- Show message:
+- “Not enough players. Invite someone to play or return to Main Menu.”
+
+### 7.3. Main Menu Flow
+1. On Main Menu Button Click
+- Remove the player from the current session
+- Reduce the active matchmaking player count
+- Remaining players stay in matchmaking
+- Example:
+- 4 players finish a session
+- 1 player goes to Main Menu
+- 3 players press Restart
+- New matchmaking waits for 3 players to be ready
+- Session starts once all ready
 
 ---
 
@@ -136,3 +225,12 @@ Toggle switches to customize the engine:
 *   **Laser:** High pitch "pew".
 *   **Explosion:** Bit-crushed noise.
 *   **Announcer:** Arcade-style voice lines for major events ("FIGHT", "OVERTIME", "PLAYER 1 WINS").
+
+### 9. Game States
+
+* State        | Description
+* Active       | Playing current round
+* Eliminated   | Dead, spectating
+* Ready        | Waiting for session start
+* Disconnected | Left the session
+* Menu	       | Returned to Main Menu
