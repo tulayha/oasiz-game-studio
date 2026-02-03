@@ -493,52 +493,6 @@
         #startOverlay .menuButtons {
             margin-top: 0;
         }
-        /* 3rd button spans full row */
-        #startOverlay #howBtn {
-            grid-column: 1 / -1;
-        }
-
-        /* Start menu "How To Play" panel */
-        #startOverlay .startHelp {
-            display: none;
-            width: min(820px, calc(100% - 16px));
-            margin: 14px auto 0;
-            border: 3px solid rgba(210,255,240,0.34);
-            background: rgba(5,4,13,0.92);
-            box-shadow: 0 0 0 3px rgba(0,0,0,0.85) inset, 0 0 22px rgba(120,255,244,0.16);
-            padding: 14px 14px 12px;
-        }
-        #startOverlay .startHelp.open {
-            display: block;
-        }
-        #startOverlay .startHelpHeader {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 10px;
-        }
-        #startOverlay .startHelpTitle {
-            font-size: 14px;
-            letter-spacing: 0.10em;
-            color: var(--ui-fg);
-            text-shadow: 2px 2px 0 rgba(0,0,0,0.78), 0 0 12px rgba(120,255,244,0.18);
-        }
-        #startOverlay .startHelpClose {
-            border-radius: 0;
-            border: 3px solid var(--ui-border);
-            background: var(--ui-bg);
-            color: var(--ui-fg);
-            width: 44px;
-            height: 38px;
-            cursor: pointer;
-        }
-        #startOverlay .startHelpBody p {
-            font-size: 11px;
-            line-height: 1.6;
-            opacity: 0.92;
-            margin: 8px 0;
-        }
 
         #startOverlay .startScene {
             transition: transform 0.32s ease, filter 0.32s ease;
@@ -1323,18 +1277,6 @@
                 <div class="menuButtons">
                     <button id="playBtn" class="menuBtn primary">Start Game</button>
                     <button id="optionsBtn" class="menuBtn">Options</button>
-                    <button id="howBtn" class="menuBtn">How To Play</button>
-                </div>
-                <div id="howPanel" class="startHelp" aria-hidden="true">
-                    <div class="startHelpHeader">
-                        <div class="startHelpTitle">How To Play</div>
-                        <button id="howCloseBtn" class="startHelpClose" aria-label="Close">X</button>
-                    </div>
-                    <div class="startHelpBody">
-                        <p>Hold to go up. Release to go down.</p>
-                        <p>Stay inside the corridor. Avoid spikes and space hazards.</p>
-                        <p>You can slide along surfaces. Some expanded sections have a center platform.</p>
-                    </div>
                 </div>
             </div>
         </div>
