@@ -5,6 +5,8 @@
 ## 1. Game Overview
 **Astro Party** is a 2-4 player top-down arena shooter. The objective is not to destroy ships, but to eliminate the **Pilots** that survive the ship's destruction. The game relies on high-inertia physics, rapid rounds, and randomized map elements.
 
+**Exploratory Direction:** The game feel remains **Astro Party**, but the default map is larger and exploratory (inspired by io games). Players should spawn far apart and not immediately see each other at match start. Obstacles and map features create exploration space.
+
 ## 2. Input & Control Scheme
 The game uses a **two-button control scheme** for each player corner.
 
@@ -50,6 +52,27 @@ If no kills occur for a set duration:
 1.  **"OVERTIME"** text flashes.
 2.  **The Crush:** Indestructible blocks begin spawning from the outer edges of the map, slowly filling the screen row by row, reducing the playable area until someone is crushed.
 
+### 3.4. Round Structure (Online Multiplayer)
+**Player Death Handling (During an Active Round):** When a player’s Pilot is killed, they are marked **Eliminated** for the current round and enter **Spectator Mode**. Spectators can watch, cannot interact with gameplay, and may exit the game session at any time.
+
+**Last Player Check:** After any elimination, check remaining active players. If only one remains, declare them **Round Winner**, increment their score (**score++**), end the round, and start the next round after a short delay. If more than one remains, continue the round and keep eliminated players as spectators until the round ends.
+
+### 3.5. Round Transition (Session Progression)
+Clear all active ships, pilots, and projectiles. Reset map state. Respawn all non-exited players. Start the next round using the same session rules.
+
+### 3.6. Game Session End Condition
+A session ends when one player reaches the defined win condition (e.g., first to 3 kills). At session end, declare one **Winner**, mark all other players as **Losers**, freeze gameplay, and display the **End Session UI**.
+
+### 3.7. End Session UI
+Show the following buttons: **Restart**, **Main Menu**.
+
+### 3.8. Local Match Scenario (Input & Session Flow)
+Replace local multiplayer with **Single-Player**:
+*   Single-player uses the same core loop, but the player competes against AI-controlled ships.
+*   The game should support **bots** to fill missing player slots in online multiplayer.
+*   AI should be rudimentary and use the same input rules as players (rotation, thrust/fire, dash).
+*   Session flow remains the same (rounds, elimination, score track, end session UI).
+
 ---
 
 ## 4. Game Entities
@@ -75,6 +98,21 @@ If no kills occur for a set duration:
 
 ## 5. Map System
 *Note: Maps are not strictly hardcoded "levels" but rather randomized arrangements of specific features. The reverse-engineered project should be able to generate maps containing one or more of the following archetypes:*
+
+**Map Scale & Exploration Requirements (Core):**
+*   Default map is **large and exploratory** compared to the original Astro Party arena.
+*   Players should **spawn far apart** and **not immediately see each other** at match start.
+*   Map should include **obstacles** and **exploration space** to encourage movement and discovery.
+*   Provide **2-3 map size variants**.
+*   **Small:** Similar to Astro Party scale (fast, no exploration).
+*   **Large:** Exploratory (default).
+*   **Medium (optional):** Middle ground between fast arena and exploration.
+*   Round pacing is longer by default on large maps to accommodate exploration.
+
+**Spawn & Visibility (Core):**
+*   **Safe spawn** requires a minimum distance from any active ship, pilot, or hazard.
+*   Spawn points must avoid immediate line-of-fire from turrets or hazards.
+*   Visibility should be limited by distance on large maps to reinforce exploration. Players outside the radius are not shown on HUD.
 
 1.  **The Void:** Empty arena. Only players.
 2.  **The Cache:** High density of Destructible Yellow Blocks and Orange Asteroids.
@@ -111,7 +149,13 @@ Power-ups appear in floating bubbles. They are collected by shooting the bubble 
     2.  **OFF** - Slot is empty.
 *   *Correction:* There is no AI/CPU toggle in the selection screen.
 
-### 7.2. Settings (Advanced Setup)
+### 7.2. Matchmaking Rules Summary
+*   **Minimum players required:** 1 (bots fill remaining slots).
+*   **Maximum players allowed:** 4.
+*   **Session starts only when:** `playerCount ≥ 1` and all active players are ready.
+*   **If `playerCount < 1`:** Display warning: **"Player count is too low. Invite a friend or return to Main Menu."**
+
+### 7.3. Settings (Advanced Setup)
 Toggle switches to customize the engine:
 *   **Asteroids:** Quantity slider (None -> Many).
 *   **Auto-Balance:** Dynamic difficulty (Losing players get better power-ups).
@@ -119,6 +163,12 @@ Toggle switches to customize the engine:
 *   **Fixed Spawn:** Ships spawn in corners vs. Random locations.
 *   **Friendly Fire:** On/Off.
 *   **Super Dash:** On/Off (Enables the double-tap Button A mechanic).
+
+### 7.4. Restart Flow (Session Reset)
+**On Restart button click:** Create a new game session, preserve currently connected players, and enter Matchmaking Ready State. **Player count handling:** Required minimum players is 1. If connected players ≥ 1, wait for all players to confirm ready and start a new session automatically. If connected players < 1, show message: **"Not enough players. Invite someone to play or return to Main Menu."**
+
+### 7.5. Main Menu Flow
+**On Main Menu button click:** Remove the player from the current session, reduce the active matchmaking player count, and keep remaining players in matchmaking. **Example:** 4 players finish a session. 1 player goes to Main Menu. 3 players press Restart. New matchmaking waits for 3 players to be ready. Session starts once all ready.
 
 ---
 
@@ -136,3 +186,13 @@ Toggle switches to customize the engine:
 *   **Laser:** High pitch "pew".
 *   **Explosion:** Bit-crushed noise.
 *   **Announcer:** Arcade-style voice lines for major events ("FIGHT", "OVERTIME", "PLAYER 1 WINS").
+
+## 9. Game States
+
+| State | Description |
+| --- | --- |
+| Active | Playing current round |
+| Eliminated | Dead, spectating |
+| Ready | Waiting for session start |
+| Disconnected | Left the session |
+| Menu | Returned to Main Menu |
