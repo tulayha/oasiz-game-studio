@@ -4,10 +4,10 @@ Run 'bun run build' after making/changing games
 Follow these rules for any game development task:
 
 ### 1. Setup
-- **Clone Template**: `cp -r seed-templates/template/ seed-templates/<game-name>`
-- **Structure**: Logic in `src/main.ts`, entry in `index.html`.
+- **Clone Template**: `cp -r template/ <game-name>`
+- **Structure**: All game code resides in the `src/` directory. `src/main.ts` is the entry point, but code can be split across multiple files within `src/`. Entry in `index.html`.
 - **Install**: Run `bun install` in the game folder.
-- **Build**: Run `bun run build` **from within the game folder** (e.g., `cd seed-templates/police-chase && bun run build`). Do NOT run from root or frontend—those are separate builds.
+- **Build**: Run `bun run build` **from within the game folder** (e.g., `cd police-chase && bun run build`). Do NOT run from root or frontend—those are separate builds.
 
 ### 2. Multiplayer Games (Playroom Kit)
 
