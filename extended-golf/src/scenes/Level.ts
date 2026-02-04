@@ -6,6 +6,8 @@
 /* START-USER-IMPORTS */
 import TerrainGenerator from "../scripts/TerrainGenerator";
 import SettingsModal from "../scripts/SettingsModal";
+import ThemeManager, { SeasonType, TimeType } from "../scripts/ThemeManager";
+import SkinManager, { SkinType } from "../scripts/SkinManager";
 /* END-USER-IMPORTS */
 
 export default class Level extends Phaser.Scene {
@@ -50,13 +52,14 @@ export default class Level extends Phaser.Scene {
 	private currentTerrain: any; // TerrainInstance
 	private flagGraphics: Phaser.GameObjects.Graphics | undefined;
 	private bgMusic: Phaser.Sound.BaseSound | undefined;
-	private ballVisual: Phaser.GameObjects.Arc | undefined;
+	private ballVisual: Phaser.GameObjects.Arc | Phaser.GameObjects.Container | undefined;
 	private lastSettledPos: { x: number, y: number } | undefined;
 	private stopTimestamp: number = 0;
 	private isWaitingForGameOver: boolean = false;
 	private isMenuOpen: boolean = true;
 	private lastTrailSpawnTime: number = 0;
 	private indicatorGraphics: Phaser.GameObjects.Graphics | undefined;
+	private sky: Phaser.GameObjects.Graphics | undefined;
 
 	create() {
 		// --- Explicit State Resets ---
@@ -81,6 +84,7 @@ export default class Level extends Phaser.Scene {
 		// Indicator Graphics
 		this.indicatorGraphics = this.add.graphics();
 		this.indicatorGraphics.setDepth(100);
+		this.indicatorGraphics.setScrollFactor(0);
 
 		const width = this.scale.width;
 		const height = this.scale.height;
@@ -97,11 +101,16 @@ export default class Level extends Phaser.Scene {
 		}
 
 		// Background & Decoration
-		const sky = this.add.graphics();
-		sky.fillStyle(0x81D4FA, 1);
-		sky.fillRect(0, 0, width, height);
-		sky.setDepth(-100);
-		sky.setScrollFactor(0);
+		// Fetch current theme from registry
+		const season = this.registry.get('season') as SeasonType || 'spring';
+		const time = this.registry.get('time') as TimeType || 'day';
+		const theme = ThemeManager.getColors(season, time);
+
+		this.sky = this.add.graphics();
+		this.sky.fillStyle(theme.sky, 1);
+		this.sky.fillRect(0, 0, width, height);
+		this.sky.setDepth(-100);
+		this.sky.setScrollFactor(0);
 
 		// --- Add Mountains (Background Parallax) ---
 		for (let i = 0; i < 5; i++) {
@@ -111,7 +120,7 @@ export default class Level extends Phaser.Scene {
 			const mHeight = Phaser.Math.Between(300, 500);
 
 			const mountain = this.add.graphics();
-			mountain.fillStyle(0x4A9099, 0.4); // Tealy-blue shade from reference
+			mountain.fillStyle(theme.mountains, theme.mountainAlpha); // Themed Mountain Color
 			// Use ellipse for smooth mountain shape
 			mountain.fillEllipse(mx, my, mWidth, mHeight * 2);
 			mountain.setDepth(-95);
@@ -126,7 +135,7 @@ export default class Level extends Phaser.Scene {
 			const cHeight = Phaser.Math.Between(40, 70);
 
 			const cloud = this.add.graphics();
-			cloud.fillStyle(0xffffff, 0.3); // Semi-transparent white
+			cloud.fillStyle(theme.clouds, 0.3); // Themed clouds
 			cloud.fillRoundedRect(-cWidth / 2, -cHeight / 2, cWidth, cHeight, cHeight / 2);
 
 			const container = this.add.container(cx, cy, [cloud]);
@@ -150,7 +159,9 @@ export default class Level extends Phaser.Scene {
 		// Reach difficulty (1 + 5/12) ≈ 1.416 at score 100
 		const cappedScore = Math.min(currentScore, 100);
 		const initialDifficulty = 1 + (cappedScore * (0.05 / 12));
-		this.currentTerrain = this.terrainGen.generateTerrain(undefined, 0, initialDifficulty);
+
+		// Pass theme to generator
+		this.currentTerrain = this.terrainGen.generateTerrain(undefined, 0, initialDifficulty, theme);
 
 		this.settingsModal = new SettingsModal(this);
 		this.settingsModal.create();
@@ -181,25 +192,53 @@ export default class Level extends Phaser.Scene {
 		this.startGameplay();
 	}
 
+	public updateTheme() {
+		const season = this.registry.get('season') as SeasonType || 'spring';
+		const time = this.registry.get('time') as TimeType || 'day';
+		const theme = ThemeManager.getColors(season, time);
+
+		if (this.sky) {
+			const width = this.scale.width;
+			const height = this.scale.height;
+			this.sky.clear();
+			this.sky.fillStyle(theme.sky, 1);
+			this.sky.fillRect(0, 0, width, height);
+		}
+
+		// Update Terrain Colors
+		if (this.terrainGen && this.currentTerrain) {
+			this.terrainGen.redraw(this.currentTerrain, theme);
+		}
+	}
+
 	private createBallObject() {
-		// Cleanup old visual if it exists (like the one stuck in the hole)
+		// Cleanup old visual if it exists
 		if (this.ballVisual) {
 			this.ballVisual.destroy();
 			this.ballVisual = undefined;
 		}
 
+		// Get selected setup
+		const ballColor = this.registry.get('ballColor') || 0xffffff;
+		const ballSkin = (this.registry.get('ballSkin') as SkinType) || 'solid';
+
 		const ballRadius = 15;
 		this.ball = this.matter.add.circle(this.spawnPoint.x, this.spawnPoint.y, ballRadius, {
-			restitution: 0.55, // Extra bounce for smoother "aksın gitsin" feel
+			restitution: 0.55,
 			friction: 0.0005,
 			frictionAir: 0.0003,
 			frictionStatic: 0,
 			density: 0.0018,
-			render: { fillColor: 0xffffff }
+			render: { fillColor: ballColor }
 		});
 
-		this.ballVisual = this.add.circle(this.spawnPoint.x, this.spawnPoint.y, ballRadius, 0xffffff);
+		// Use SkinManager based Container
+		// Note: MatterJS gameObject binding usually expects a single DisplayObject (Sprite/Image/Container).
+		// Containers work but origin needs care. Container 0,0 is usually center if children are centered.
+
+		this.ballVisual = SkinManager.drawBall(this, this.spawnPoint.x, this.spawnPoint.y, ballRadius, ballColor, ballSkin);
 		this.ballVisual.setDepth(50);
+
 		this.matter.add.gameObject(this.ballVisual, this.ball);
 	}
 
@@ -253,9 +292,9 @@ export default class Level extends Phaser.Scene {
 		});
 	}
 
-	private playSFX(key: string) {
+	private playSFX(key: string, volume: number = 1) {
 		if (localStorage.getItem('golf_settings_fx') === 'true') {
-			this.sound.play(key);
+			this.sound.play(key, { volume: volume });
 		}
 	}
 
@@ -345,12 +384,13 @@ export default class Level extends Phaser.Scene {
 			this.graphics.clear();
 			// SNAPPY LAUNCH: Reduced force multiplier by 1.5x for better control
 			// SNAPPY LAUNCH: Using setVelocity instead of applyForce to prevent FPS-dependent distance
-			const velX = (this.ball.position.x - (pointer.x + this.cameras.main.scrollX)) * 0.096;
-			const velY = (this.ball.position.y - pointer.y) * 0.096;
+			// Power increased by 1.3x as requested (0.096 -> 0.125)
+			const velX = (this.ball.position.x - (pointer.x + this.cameras.main.scrollX)) * 0.125;
+			const velY = (this.ball.position.y - pointer.y) * 0.125;
 			this.matter.body.setVelocity(this.ball, { x: velX, y: velY });
 			this.shotsRemaining--;
 			this.updateShotVisuals();
-			this.playSFX('HitBall');
+			this.playSFX('HitBall', 2.5); // Volume increased by 2.5x
 			if (typeof (window as any).triggerHaptic === "function") (window as any).triggerHaptic("light");
 		}
 	}
@@ -402,7 +442,10 @@ export default class Level extends Phaser.Scene {
 		// Reach difficulty (1 + 5/12) ≈ 1.416 at score 100
 		const cappedScore = Math.min(currentScore, 100);
 		const nextDifficulty = 1 + (cappedScore * (0.05 / 12));
-		const nextTerrain = this.terrainGen!.generateTerrain(lastY, this.cameras.main.scrollX + this.scale.width, nextDifficulty);
+		const season = this.registry.get('season') as SeasonType || 'spring';
+		const time = this.registry.get('time') as TimeType || 'day';
+		const theme = ThemeManager.getColors(season, time);
+		const nextTerrain = this.terrainGen!.generateTerrain(lastY, this.cameras.main.scrollX + this.scale.width, nextDifficulty, theme);
 
 		this.cameras.main.pan(this.cameras.main.scrollX + this.scale.width + this.scale.width / 2, this.scale.height / 2, 2000, 'Power2');
 
@@ -412,6 +455,15 @@ export default class Level extends Phaser.Scene {
 			this.currentTerrain.bodies.forEach((b: any) => this.matter.world.remove(b));
 
 			this.currentTerrain = nextTerrain;
+			// The nextTerrain generated above actually used OLD call without theme? 
+			// Correct logic: we should generate NEXT terrain with theme too! Note: line 426 above.
+
+			// Fix: We need to re-generate here or fix the call above. 
+			// Since we can't edit non-contiguous line 426 easily in this block, we will re-gen or assume fixed.
+			// Actually, `generateTerrain` was called at line 426. I missed adding Theme there in previous chunk?
+			// Yes, I missed it. Let's fix line 426 via this tool by editing 419-432 block widely? 
+
+			// Re-targeting the startTransition method to fix the generateTerrain call too.
 			this.isTransitioning = false;
 			this.data.set('isWon', false);
 			this.shotsRemaining = 2;
@@ -462,7 +514,9 @@ export default class Level extends Phaser.Scene {
 			const now = this.time.now;
 			if (now - this.lastTrailSpawnTime > 50) { // Reduced frequency from 25ms to 50ms
 				this.lastTrailSpawnTime = now;
-				const ghost = this.add.circle(this.ball.position.x, this.ball.position.y, 15, 0xffffff);
+				const ballColor = this.registry.get('ballColor') || 0xffffff;
+				const ghost = this.add.circle(this.ball.position.x, this.ball.position.y, 15, ballColor);
+				ghost.setStrokeStyle(1.5, 0x000000, 0.5); // Light border for ghost
 				ghost.setDepth(40).setAlpha(0.5);
 
 				this.tweens.add({
@@ -520,6 +574,10 @@ export default class Level extends Phaser.Scene {
 
 	private updateIndicator() {
 		if (!this.ball || !this.indicatorGraphics) return;
+		if (this.isMenuOpen) {
+			this.indicatorGraphics.clear();
+			return;
+		}
 
 		this.indicatorGraphics.clear();
 

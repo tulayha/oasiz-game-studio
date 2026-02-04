@@ -2,6 +2,8 @@ import Phaser from "phaser";
 import Level from "./scenes/Level";
 import Preload from "./scenes/Preload";
 import Menu from "./scenes/Menu";
+import BallSelect from "./scenes/BallSelect";
+import MapSelect from "./scenes/MapSelect";
 
 class Boot extends Phaser.Scene {
 
@@ -38,7 +40,7 @@ window.addEventListener('load', async function () {
 			width: 1280,
 			height: 720
 		},
-		scene: [Boot, Preload, Level, Menu],
+		scene: [Boot, Preload, Level, Menu, BallSelect, MapSelect],
 		physics: {
 			default: 'matter',
 			matter: {
