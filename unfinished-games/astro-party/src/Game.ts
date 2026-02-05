@@ -150,7 +150,54 @@ export class Game {
 
       onHostChanged: () => {
         console.log("[Game] Host changed, we are now host");
-        // If we become host mid-game, we need to take over physics simulation
+
+        // Update UI to reflect new host status
+        this.onPlayersUpdate?.([...this.players.values()]);
+
+        // If we become host mid-game, we need to handle it
+        if (this.phase === "PLAYING") {
+          // For now, end the game if host leaves mid-game
+          // Full host migration would require reconstructing physics state
+          console.log("[Game] Previous host left mid-game, ending match");
+          this.endGame(this.network.getMyPlayerId() || "");
+        }
+
+        // If we become host during countdown, cancel and return to lobby
+        if (this.phase === "COUNTDOWN") {
+          if (this.countdownInterval) {
+            clearInterval(this.countdownInterval);
+            this.countdownInterval = null;
+          }
+          this.setPhase("LOBBY");
+        }
+      },
+
+      onDisconnected: () => {
+        console.log("[Game] Disconnected from room");
+        this.handleDisconnected();
+      },
+
+      onGamePhaseReceived: (phase) => {
+        console.log("[Game] RPC phase received:", phase);
+        // Only non-host should process this (host already set the phase)
+        if (!this.network.isHost()) {
+          const oldPhase = this.phase;
+          this.phase = phase;
+
+          // If returning to LOBBY from GAME_END, clear game state
+          if (phase === "LOBBY" && oldPhase === "GAME_END") {
+            this.clearGameState();
+          }
+
+          this.onPhaseChange?.(phase);
+        }
+      },
+
+      onWinnerReceived: (winnerId) => {
+        console.log("[Game] RPC winner received:", winnerId);
+        this.winnerId = winnerId;
+        // UI will pick this up on next phase change or can update immediately
+        this.onPlayersUpdate?.([...this.players.values()]);
       },
     });
 
@@ -158,9 +205,53 @@ export class Game {
     this.setPhase("LOBBY");
   }
 
+  private handleDisconnected(): void {
+    // Stop any ongoing countdown
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+
+    // Clear game state
+    this.clearGameState();
+    this.players.clear();
+
+    // Return to start screen
+    this.setPhase("START");
+  }
+
   // ============= PLAYER MANAGEMENT =============
 
   private addPlayer(playerId: string, playerIndex: number): void {
+    // Don't add players during active gameplay - they missed the start
+    if (this.phase === "PLAYING" || this.phase === "GAME_END") {
+      console.log(
+        "[Game] Player tried to join during active game, setting as spectator",
+      );
+      // Add as spectator
+      const color = PLAYER_COLORS[playerIndex % PLAYER_COLORS.length];
+      const player: PlayerData = {
+        id: playerId,
+        name: this.network.getPlayerName(playerId),
+        color,
+        kills: 0,
+        state: "SPECTATING",
+      };
+      this.players.set(playerId, player);
+      this.onPlayersUpdate?.([...this.players.values()]);
+      return;
+    }
+
+    // If joining during countdown and we're host, cancel countdown and return to lobby
+    if (this.phase === "COUNTDOWN" && this.network.isHost()) {
+      console.log("[Game] Player joined during countdown, restarting countdown");
+      if (this.countdownInterval) {
+        clearInterval(this.countdownInterval);
+        this.countdownInterval = null;
+      }
+      // Don't go back to lobby, just restart countdown with new player
+    }
+
     const color = PLAYER_COLORS[playerIndex % PLAYER_COLORS.length];
     const player: PlayerData = {
       id: playerId,
@@ -188,6 +279,26 @@ export class Game {
 
     this.players.delete(playerId);
     this.onPlayersUpdate?.([...this.players.values()]);
+
+    // Handle based on current phase
+    if (this.network.isHost()) {
+      if (this.phase === "PLAYING") {
+        // Check if remaining players should trigger a win
+        this.checkEliminationWin();
+      } else if (this.phase === "COUNTDOWN") {
+        // If we drop below 2 players during countdown, cancel and return to lobby
+        if (this.players.size < 2) {
+          console.log(
+            "[Game] Not enough players during countdown, returning to lobby",
+          );
+          if (this.countdownInterval) {
+            clearInterval(this.countdownInterval);
+            this.countdownInterval = null;
+          }
+          this.setPhase("LOBBY");
+        }
+      }
+    }
   }
 
   // ============= GAME FLOW =============
@@ -385,9 +496,19 @@ export class Game {
       (p) => p.state !== "SPECTATING",
     );
 
-    // If only one player remains, they win
-    if (alivePlayers.length === 1 && this.players.size > 1) {
+    // If only one player remains and we're in a game, they win
+    // Note: This handles both:
+    // - Player killed (set to SPECTATING)
+    // - Player disconnected (removed from players map entirely)
+    if (alivePlayers.length === 1) {
       this.endGame(alivePlayers[0].id);
+    } else if (alivePlayers.length === 0 && this.players.size > 0) {
+      // Edge case: all active players died simultaneously or disconnected
+      // Give win to whoever has most kills, or first player
+      const sortedByKills = [...this.players.values()].sort(
+        (a, b) => b.kills - a.kills,
+      );
+      this.endGame(sortedByKills[0].id);
     }
   }
 
@@ -433,7 +554,22 @@ export class Game {
     this.triggerHaptic("success");
   }
 
-  restartGame(): void {
+  async restartGame(): Promise<void> {
+    // Only host can initiate restart - non-host should wait for host's broadcast
+    if (!this.network.isHost()) {
+      console.log("[Game] Non-host cannot restart game, waiting for host");
+      return;
+    }
+
+    // Reset player states on PlayroomKit (keeps customName)
+    await this.network.resetAllPlayerStates();
+
+    this.clearGameState();
+    this.setPhase("LOBBY");
+    this.onPlayersUpdate?.([...this.players.values()]);
+  }
+
+  private clearGameState(): void {
     // Clear all entities
     this.ships.forEach((ship) => ship.destroy());
     this.ships.clear();
@@ -444,6 +580,11 @@ export class Game {
     this.projectiles.forEach((proj) => proj.destroy());
     this.projectiles = [];
 
+    // Clear network state caches
+    this.networkShips = [];
+    this.networkPilots = [];
+    this.networkProjectiles = [];
+
     // Reset player scores
     this.players.forEach((player) => {
       player.kills = 0;
@@ -451,8 +592,6 @@ export class Game {
     });
 
     this.winnerId = null;
-    this.setPhase("LOBBY");
-    this.onPlayersUpdate?.([...this.players.values()]);
   }
 
   private removeProjectileByBody(body: Matter.Body): void {
@@ -600,14 +739,20 @@ export class Game {
       this.onCountdownUpdate?.(this.countdown);
     }
 
-    // Update phase LAST so all data is ready when callback fires
+    // Handle phase transitions
     if (state.phase !== this.phase) {
+      const oldPhase = this.phase;
       this.phase = state.phase;
+
+      // If returning to LOBBY from GAME_END, clear game state on non-host
+      if (state.phase === "LOBBY" && oldPhase === "GAME_END") {
+        this.clearGameState();
+      }
+
       this.onPhaseChange?.(state.phase);
     }
 
-    // Note: For a production game, we'd also sync entity positions
-    // For now, we render based on state data directly
+    // Sync entity states for rendering on clients
     this.networkShips = state.ships;
     this.networkPilots = state.pilots;
     this.networkProjectiles = state.projectiles;
@@ -737,29 +882,20 @@ export class Game {
     return this.network.isHost() && this.network.getPlayerCount() >= 2;
   }
 
-  leaveGame(): void {
-    // Clear all entities
-    this.ships.forEach((ship) => ship.destroy());
-    this.ships.clear();
-
-    this.pilots.forEach((pilot) => pilot.destroy());
-    this.pilots.clear();
-
-    this.projectiles.forEach((proj) => proj.destroy());
-    this.projectiles = [];
-
-    // Reset game state
-    this.players.clear();
-    this.winnerId = null;
-
-    // Clear countdown if running
+  async leaveGame(): Promise<void> {
+    // Stop any ongoing countdown
     if (this.countdownInterval) {
       clearInterval(this.countdownInterval);
       this.countdownInterval = null;
     }
 
-    // Disconnect from network
-    this.network.disconnect();
+    // Properly leave room using PlayroomKit's native leaveRoom()
+    // This triggers onQuit for other players
+    await this.network.disconnect();
+
+    // Clear local state
+    this.clearGameState();
+    this.players.clear();
 
     // Return to start screen
     this.setPhase("START");

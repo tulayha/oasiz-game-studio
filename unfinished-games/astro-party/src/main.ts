@@ -158,19 +158,21 @@ function updateLobbyUI(players: PlayerData[]): void {
     })
     .join("");
 
-  // Update status and start button
+  // Update status and start button based on host status
   const canStart = game.canStartGame();
-  startGameBtn.disabled = !canStart;
+  const isHost = game.isHost();
 
-  if (game.isHost()) {
+  if (isHost) {
+    startGameBtn.style.display = "block";
+    startGameBtn.disabled = !canStart;
     if (canStart) {
       lobbyStatus.innerHTML = "Ready to start!";
     } else {
       lobbyStatus.innerHTML = `Need at least 2 players<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
     }
   } else {
-    lobbyStatus.innerHTML = `Waiting for host to start<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
     startGameBtn.style.display = "none";
+    lobbyStatus.innerHTML = `Waiting for host to start<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
   }
 }
 
@@ -209,6 +211,19 @@ function updateGameEnd(players: PlayerData[]): void {
   `,
     )
     .join("");
+
+  // Update button states based on host status
+  if (game.isHost()) {
+    playAgainBtn.textContent = "Play Again";
+    playAgainBtn.disabled = false;
+    backToLobbyBtn.textContent = "Back to Lobby";
+    backToLobbyBtn.disabled = false;
+  } else {
+    playAgainBtn.textContent = "Waiting for host...";
+    playAgainBtn.disabled = true;
+    backToLobbyBtn.textContent = "Waiting for host...";
+    backToLobbyBtn.disabled = true;
+  }
 }
 
 function escapeHtml(text: string): string {
@@ -226,10 +241,19 @@ game.setUICallbacks({
     switch (phase) {
       case "START":
         showScreen("start");
+        // Reset button states when returning to start
+        createRoomBtn.disabled = false;
+        createRoomBtn.textContent = "Create Room";
+        hideJoinSection();
         break;
       case "LOBBY":
         showScreen("lobby");
         roomCodeDisplay.textContent = game.getRoomCode();
+        // Reset game end buttons when returning to lobby
+        playAgainBtn.disabled = false;
+        playAgainBtn.textContent = "Play Again";
+        backToLobbyBtn.disabled = false;
+        backToLobbyBtn.textContent = "Back to Lobby";
         break;
       case "COUNTDOWN":
       case "PLAYING":
@@ -351,28 +375,48 @@ startGameBtn.addEventListener("click", () => {
   game.startGame();
 });
 
-leaveLobbyBtn.addEventListener("click", () => {
+leaveLobbyBtn.addEventListener("click", async () => {
   triggerHaptic("light");
-  game.leaveGame();
+  leaveLobbyBtn.disabled = true;
+  leaveLobbyBtn.textContent = "Leaving...";
+  await game.leaveGame();
+  leaveLobbyBtn.disabled = false;
+  leaveLobbyBtn.textContent = "Leave";
 });
 
 // Leave game button (during gameplay)
-leaveGameBtn.addEventListener("click", () => {
+leaveGameBtn.addEventListener("click", async () => {
   triggerHaptic("light");
   if (confirm("Leave the game?")) {
-    game.leaveGame();
+    await game.leaveGame();
   }
 });
 
 // Game end screen
-playAgainBtn.addEventListener("click", () => {
+playAgainBtn.addEventListener("click", async () => {
   triggerHaptic("light");
-  game.restartGame();
+  if (game.isHost()) {
+    playAgainBtn.disabled = true;
+    playAgainBtn.textContent = "Restarting...";
+    await game.restartGame();
+  } else {
+    // Non-host can't restart, show waiting message
+    playAgainBtn.textContent = "Waiting for host...";
+    playAgainBtn.disabled = true;
+  }
 });
 
-backToLobbyBtn.addEventListener("click", () => {
+backToLobbyBtn.addEventListener("click", async () => {
   triggerHaptic("light");
-  game.restartGame();
+  if (game.isHost()) {
+    backToLobbyBtn.disabled = true;
+    backToLobbyBtn.textContent = "Returning...";
+    await game.restartGame();
+  } else {
+    // Non-host can't restart, show waiting message
+    backToLobbyBtn.textContent = "Waiting for host...";
+    backToLobbyBtn.disabled = true;
+  }
 });
 
 // Settings

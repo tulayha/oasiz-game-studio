@@ -3,9 +3,12 @@ import {
   isHost,
   myPlayer,
   onPlayerJoin,
+  onDisconnect,
   getState,
   setState,
   getRoomCode,
+  RPC,
+  resetPlayersStates,
   PlayerState as PlayroomPlayerState,
 } from "playroomkit";
 import {
@@ -22,6 +25,9 @@ export interface NetworkCallbacks {
   onGameStateReceived: (state: GameStateSync) => void;
   onInputReceived: (playerId: string, input: PlayerInput) => void;
   onHostChanged: () => void;
+  onDisconnected: () => void;
+  onGamePhaseReceived: (phase: GameStateSync["phase"]) => void;
+  onWinnerReceived: (winnerId: string) => void;
 }
 
 export class NetworkManager {
@@ -32,28 +38,13 @@ export class NetworkManager {
   private connected = false;
 
   async createRoom(): Promise<string> {
-    const roomCode = this.generateRoomCode();
-    await this.connect(roomCode);
-    return roomCode;
-  }
+    console.log("[NetworkManager] Creating new room...");
 
-  async joinRoom(roomCode: string): Promise<boolean> {
-    try {
-      await this.connect(roomCode);
-      return true;
-    } catch (e) {
-      console.error("[NetworkManager] Failed to join room:", e);
-      return false;
-    }
-  }
-
-  private async connect(roomCode: string): Promise<void> {
-    console.log("[NetworkManager] Connecting to room:", roomCode);
-
+    // Don't pass roomCode - let PlayroomKit generate one
     await insertCoin({
       skipLobby: true,
       maxPlayersPerRoom: 4,
-      roomCode: roomCode,
+      reconnectGracePeriod: 5000, // 5 second grace period for reconnection
       defaultPlayerStates: {
         kills: 0,
         playerState: "ACTIVE",
@@ -62,14 +53,48 @@ export class NetworkManager {
     });
 
     this.connected = true;
-    console.log("[NetworkManager] Connected! Room code:", getRoomCode());
+    const roomCode = getRoomCode() || "";
+    console.log("[NetworkManager] Room created! Code:", roomCode);
 
     // Share room code with platform
     this.shareRoomCode(roomCode);
+    return roomCode;
+  }
+
+  async joinRoom(roomCode: string): Promise<boolean> {
+    try {
+      console.log("[NetworkManager] Joining room:", roomCode);
+
+      // Pass roomCode to join existing room
+      await insertCoin({
+        skipLobby: true,
+        maxPlayersPerRoom: 4,
+        roomCode: roomCode,
+        reconnectGracePeriod: 5000,
+        defaultPlayerStates: {
+          kills: 0,
+          playerState: "ACTIVE",
+          input: null,
+        },
+      });
+
+      this.connected = true;
+      console.log("[NetworkManager] Joined room! Code:", getRoomCode());
+
+      // Share room code with platform
+      this.shareRoomCode(roomCode);
+      return true;
+    } catch (e) {
+      console.error("[NetworkManager] Failed to join room:", e);
+      return false;
+    }
   }
 
   setCallbacks(callbacks: NetworkCallbacks): void {
     this.callbacks = callbacks;
+
+    // Register RPC handlers for game events
+    this.setupRPCHandlers();
 
     // Setup player join/leave handlers
     onPlayerJoin((player) => {
@@ -97,6 +122,28 @@ export class NetworkManager {
         }
       });
     });
+
+    // Setup disconnect handler (for when current player disconnects/leaves)
+    onDisconnect((e) => {
+      console.log("[NetworkManager] Disconnected:", e.code, e.reason);
+      this.connected = false;
+      this.stopSync();
+      this.callbacks?.onDisconnected();
+    });
+  }
+
+  private setupRPCHandlers(): void {
+    // Handle game phase changes from host
+    RPC.register("gamePhase", async (phase: GameStateSync["phase"]) => {
+      console.log("[NetworkManager] RPC gamePhase received:", phase);
+      this.callbacks?.onGamePhaseReceived(phase);
+    });
+
+    // Handle winner announcement from host
+    RPC.register("gameWinner", async (winnerId: string) => {
+      console.log("[NetworkManager] RPC gameWinner received:", winnerId);
+      this.callbacks?.onWinnerReceived(winnerId);
+    });
   }
 
   startSync(): void {
@@ -105,10 +152,7 @@ export class NetworkManager {
     this.syncInterval = setInterval(() => {
       if (!this.connected) return;
 
-      // Host broadcasts game state
-      // (This is called by Game.ts, not here - we just poll for inputs)
-
-      // All clients: check for game state updates
+      // All clients: check for game state updates (positions, etc)
       if (!isHost()) {
         const gameState = getState("gameState") as GameStateSync;
         if (gameState) {
@@ -143,21 +187,31 @@ export class NetworkManager {
     }
   }
 
-  // Host broadcasts game state to all clients
+  // Host broadcasts game state to all clients (frequent position updates)
   broadcastGameState(state: GameStateSync): void {
     if (!isHost()) return;
     setState("gameState", state, false); // Unreliable for frequent position updates
   }
 
-  // Broadcast important game events (reliable)
+  // Broadcast game phase change via RPC (reliable one-time event)
   broadcastGamePhase(phase: GameStateSync["phase"]): void {
     if (!isHost()) return;
-    setState("gamePhase", phase, true);
+    console.log("[NetworkManager] Broadcasting game phase via RPC:", phase);
+    RPC.call("gamePhase", phase, RPC.Mode.ALL);
   }
 
+  // Broadcast winner via RPC (reliable one-time event)
   broadcastWinner(winnerId: string): void {
     if (!isHost()) return;
-    setState("winnerId", winnerId, true);
+    console.log("[NetworkManager] Broadcasting winner via RPC:", winnerId);
+    RPC.call("gameWinner", winnerId, RPC.Mode.ALL);
+  }
+
+  // Reset all player states (for game restart)
+  async resetAllPlayerStates(): Promise<void> {
+    if (!isHost()) return;
+    console.log("[NetworkManager] Resetting all player states");
+    await resetPlayersStates(["customName"]); // Keep custom names
   }
 
   // Update player kill count
@@ -224,21 +278,18 @@ export class NetworkManager {
     }
   }
 
-  disconnect(): void {
+  async disconnect(): Promise<void> {
     this.stopSync();
     this.shareRoomCode(null);
     this.connected = false;
-    // Note: PlayroomKit doesn't have a direct disconnect method
-    // The connection will be cleaned up when the page unloads
-  }
-
-  private generateRoomCode(): string {
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let code = "";
-    for (let i = 0; i < 4; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    try {
+      const player = myPlayer();
+      if (player) {
+        await player.leaveRoom();
+      }
+    } catch (e) {
+      console.log("[NetworkManager] Error leaving room:", e);
     }
-    return code;
   }
 
   private shareRoomCode(code: string | null): void {
