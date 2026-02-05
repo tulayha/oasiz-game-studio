@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Astro Party</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,25 +28,25 @@
       user-select: none;
     }
 
-    canvas {
-      display: block;
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
-
-    /* Color Scheme */
     :root {
       --cyan: #00f0ff;
       --magenta: #ff00aa;
       --yellow: #ffee00;
       --green: #00ff88;
-      --orange: #ff6600;
-      --bg-dark: #0a0a12;
-      --bg-panel: rgba(10, 10, 18, 0.9);
+      --bg: #0a0a12;
+      --bg-panel: rgba(10, 10, 18, 0.95);
     }
 
-    /* Overlays */
+    canvas {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ============= OVERLAYS ============= */
     .overlay {
       position: fixed;
       top: 0;
@@ -56,326 +58,568 @@
       align-items: center;
       justify-content: center;
       z-index: 100;
-      pointer-events: none;
+      background: radial-gradient(ellipse at center, rgba(0, 100, 150, 0.2) 0%, rgba(10, 10, 18, 0.95) 70%);
+      transition: opacity 0.3s ease, visibility 0.3s ease;
     }
 
     .overlay.hidden {
-      visibility: hidden;
       opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
     }
 
-    .overlay > * {
-      pointer-events: auto;
-    }
-
-    /* Start Screen */
-    #startScreen {
-      background: radial-gradient(ellipse at center, rgba(0, 100, 150, 0.3) 0%, rgba(10, 10, 18, 0.95) 70%);
-    }
-
+    /* ============= START SCREEN ============= */
     .game-title {
       font-family: 'Orbitron', sans-serif;
-      font-size: clamp(3rem, 12vw, 7rem);
+      font-size: clamp(2.5rem, 10vw, 5rem);
       font-weight: 900;
       color: var(--cyan);
-      text-shadow: 
-        0 0 20px var(--cyan),
-        0 0 40px var(--cyan),
-        0 0 80px rgba(0, 240, 255, 0.5);
+      text-shadow: 0 0 20px var(--cyan), 0 0 40px var(--cyan);
       letter-spacing: 0.1em;
       margin-bottom: 0.5rem;
-      animation: titlePulse 2s ease-in-out infinite;
-    }
-
-    @keyframes titlePulse {
-      0%, 100% { text-shadow: 0 0 20px var(--cyan), 0 0 40px var(--cyan), 0 0 80px rgba(0, 240, 255, 0.5); }
-      50% { text-shadow: 0 0 30px var(--cyan), 0 0 60px var(--cyan), 0 0 120px rgba(0, 240, 255, 0.7); }
+      text-align: center;
     }
 
     .subtitle {
       font-family: 'Orbitron', sans-serif;
-      font-size: clamp(0.8rem, 3vw, 1.2rem);
+      font-size: clamp(0.7rem, 2.5vw, 1rem);
       color: var(--magenta);
       letter-spacing: 0.3em;
       margin-bottom: 3rem;
       text-transform: uppercase;
     }
 
-    .controls-info {
-      color: #888;
-      font-size: clamp(0.7rem, 2vw, 0.9rem);
-      text-align: center;
-      margin-bottom: 2rem;
-      line-height: 1.8;
-    }
-
-    .controls-info span {
-      color: var(--yellow);
+    .btn {
       font-family: 'Orbitron', sans-serif;
-    }
-
-    .start-btn {
-      font-family: 'Orbitron', sans-serif;
-      font-size: clamp(1rem, 3vw, 1.4rem);
+      font-size: clamp(0.9rem, 2.5vw, 1.2rem);
       font-weight: 700;
-      padding: 1rem 3rem;
+      padding: 1rem 2.5rem;
       background: transparent;
       border: 2px solid var(--cyan);
       color: var(--cyan);
       cursor: pointer;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
-      transition: all 0.3s ease;
-      position: relative;
-      overflow: hidden;
+      letter-spacing: 0.15em;
+      transition: all 0.2s ease;
+      margin: 0.5rem;
     }
 
-    .start-btn::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.3), transparent);
-      transition: left 0.5s ease;
-    }
-
-    .start-btn:hover::before {
-      left: 100%;
-    }
-
-    .start-btn:hover {
+    .btn:hover {
       background: rgba(0, 240, 255, 0.1);
-      box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
     }
 
-    /* HUD */
-    #hud {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      padding: 1rem;
-      display: none;
-      justify-content: space-between;
-      align-items: flex-start;
-      z-index: 50;
-      pointer-events: none;
+    .btn:active {
+      transform: scale(0.98);
     }
 
-    .hud-left, .hud-center, .hud-right {
+    .btn.secondary {
+      border-color: var(--magenta);
+      color: var(--magenta);
+    }
+
+    .btn.secondary:hover {
+      background: rgba(255, 0, 170, 0.1);
+      box-shadow: 0 0 20px rgba(255, 0, 170, 0.4);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-group {
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
     }
 
-    .hud-center {
+    /* ============= JOIN ROOM ============= */
+    .join-section {
+      display: none;
+      flex-direction: column;
       align-items: center;
+      gap: 1rem;
     }
 
-    .hud-right {
-      align-items: flex-end;
-    }
-
-    .score-display {
-      font-family: 'Orbitron', sans-serif;
-      font-size: clamp(1.2rem, 4vw, 2rem);
-      color: var(--cyan);
-      text-shadow: 0 0 10px var(--cyan);
-    }
-
-    .wave-display {
-      font-family: 'Orbitron', sans-serif;
-      font-size: clamp(0.9rem, 3vw, 1.2rem);
-      color: var(--yellow);
-      text-shadow: 0 0 10px var(--yellow);
-    }
-
-    .lives-display {
+    .join-section.active {
       display: flex;
+    }
+
+    .room-input {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.5rem;
+      padding: 0.8rem 1.5rem;
+      background: rgba(0, 0, 0, 0.5);
+      border: 2px solid var(--cyan);
+      color: var(--cyan);
+      text-align: center;
+      letter-spacing: 0.3em;
+      width: 180px;
+      text-transform: uppercase;
+    }
+
+    .room-input::placeholder {
+      color: rgba(0, 240, 255, 0.3);
+    }
+
+    .error-message {
+      color: #ff4444;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .error-message.active {
+      display: block;
+    }
+
+    /* ============= LOBBY SCREEN ============= */
+    .room-code-display {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .room-code {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(2rem, 8vw, 3rem);
+      font-weight: 900;
+      color: var(--yellow);
+      text-shadow: 0 0 20px var(--yellow);
+      letter-spacing: 0.2em;
+    }
+
+    .copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.5rem;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+    }
+
+    .copy-btn:hover {
+      opacity: 1;
+    }
+
+    .copy-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: var(--yellow);
+    }
+
+    .players-list {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      max-width: 400px;
+    }
+
+    .player-slot {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 1rem;
+      background: var(--bg-panel);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      min-width: 80px;
+    }
+
+    .player-avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+
+    .player-name {
+      font-size: 0.8rem;
+      color: #fff;
+      text-align: center;
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .player-slot.host .player-avatar::after {
+      content: '';
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      width: 20px;
+      height: 20px;
+      background: var(--yellow);
+      border-radius: 50%;
+    }
+
+    .lobby-status {
+      color: #888;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+
+    .waiting-dots {
+      display: inline-flex;
+      gap: 4px;
+      margin-left: 8px;
+    }
+
+    .waiting-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--cyan);
+      border-radius: 50%;
+      animation: dotPulse 1.4s ease-in-out infinite;
+    }
+
+    .waiting-dot:nth-child(2) { animation-delay: 0.2s; }
+    .waiting-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dotPulse {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40% { opacity: 1; transform: scale(1); }
+    }
+
+    /* ============= SCORE TRACK HUD ============= */
+    .hud {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 1rem;
+      z-index: 50;
+      pointer-events: none;
+      display: none;
+    }
+
+    .hud.active {
+      display: block;
+    }
+
+    .score-track {
+      position: absolute;
+      top: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-panel);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 0.8rem 1.2rem;
+      display: flex;
+      flex-direction: column;
       gap: 0.4rem;
     }
 
-    .life-icon {
-      width: 24px;
-      height: 24px;
-      background: var(--green);
-      clip-path: polygon(50% 0%, 100% 100%, 50% 75%, 0% 100%);
-      box-shadow: 0 0 10px var(--green);
-      transition: all 0.3s ease;
+    @media (pointer: fine) {
+      .score-track {
+        top: 45px;
+      }
     }
 
-    .life-icon.lost {
-      background: #333;
-      box-shadow: none;
-    }
-
-    .ammo-display {
+    .score-row {
       display: flex;
-      gap: 0.3rem;
+      align-items: center;
+      gap: 0.5rem;
     }
 
-    .ammo-bullet {
-      width: 8px;
+    .score-player-name {
+      font-size: 0.7rem;
+      color: #fff;
+      width: 60px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .score-dots {
+      display: flex;
+      gap: 4px;
+    }
+
+    .score-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid currentColor;
+      opacity: 0.3;
+    }
+
+    .score-dot.filled {
+      opacity: 1;
+      background: currentColor;
+    }
+
+    .score-kills {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.7rem;
+      color: #888;
+      width: 20px;
+      text-align: right;
+    }
+
+    /* ============= SETTINGS ============= */
+    .settings-btn {
+      position: fixed;
+      top: 120px;
+      right: 20px;
+      z-index: 60;
+      width: 44px;
+      height: 44px;
+      background: var(--bg-panel);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    @media (pointer: fine) {
+      .settings-btn {
+        top: 45px;
+      }
+    }
+
+    .settings-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .settings-btn svg {
+      width: 20px;
       height: 20px;
-      background: var(--magenta);
-      border-radius: 4px 4px 2px 2px;
-      box-shadow: 0 0 8px var(--magenta);
-      transition: all 0.2s ease;
+      fill: #fff;
     }
 
-    .ammo-bullet.empty {
-      background: #333;
-      box-shadow: none;
-    }
-
-    /* Wave Announcement */
-    #waveAnnouncement {
+    .settings-modal {
       position: fixed;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
+      background: var(--bg-panel);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 16px;
+      padding: 1.5rem 2rem;
+      z-index: 200;
+      min-width: 280px;
+      display: none;
+    }
+
+    .settings-modal.active {
+      display: block;
+    }
+
+    .settings-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 199;
+      display: none;
+    }
+
+    .settings-backdrop.active {
+      display: block;
+    }
+
+    .settings-title {
       font-family: 'Orbitron', sans-serif;
-      font-size: clamp(2rem, 8vw, 4rem);
+      font-size: 1.2rem;
+      color: #fff;
+      margin-bottom: 1.5rem;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .settings-label {
+      color: #ccc;
+      font-size: 1rem;
+    }
+
+    .toggle {
+      width: 50px;
+      height: 28px;
+      background: #333;
+      border-radius: 14px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle.active {
+      background: var(--green);
+    }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 22px;
+      height: 22px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle.active::after {
+      transform: translateX(22px);
+    }
+
+    .settings-close {
+      width: 100%;
+      margin-top: 1rem;
+    }
+
+    /* ============= GAME END SCREEN ============= */
+    .winner-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(1.5rem, 6vw, 2.5rem);
       font-weight: 900;
       color: var(--yellow);
       text-shadow: 0 0 30px var(--yellow);
-      z-index: 60;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s ease;
+      margin-bottom: 0.5rem;
+      text-align: center;
     }
 
-    #waveAnnouncement.show {
-      opacity: 1;
-      animation: waveIn 0.5s ease-out;
-    }
-
-    @keyframes waveIn {
-      0% { transform: translate(-50%, -50%) scale(2); opacity: 0; }
-      100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-    }
-
-    /* Game Over Screen */
-    #gameOverScreen {
-      background: radial-gradient(ellipse at center, rgba(150, 0, 50, 0.3) 0%, rgba(10, 10, 18, 0.95) 70%);
-    }
-
-    .game-over-title {
+    .winner-name {
       font-family: 'Orbitron', sans-serif;
       font-size: clamp(2rem, 8vw, 4rem);
       font-weight: 900;
-      color: var(--magenta);
-      text-shadow: 0 0 30px var(--magenta);
+      color: var(--green);
+      text-shadow: 0 0 30px var(--green);
       margin-bottom: 2rem;
+      text-align: center;
     }
 
-    .stats-container {
+    .final-scores {
       display: flex;
       flex-direction: column;
-      gap: 0.8rem;
+      gap: 0.5rem;
       margin-bottom: 2rem;
-      padding: 1.5rem 2rem;
+      padding: 1rem 2rem;
       background: var(--bg-panel);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
+      border-radius: 12px;
     }
 
-    .stat-row {
+    .final-score-row {
       display: flex;
       justify-content: space-between;
       gap: 2rem;
-      font-size: clamp(0.9rem, 2.5vw, 1.1rem);
+      font-size: 1rem;
     }
 
-    .stat-label {
-      color: #888;
+    .final-score-name {
+      color: #fff;
     }
 
-    .stat-value {
+    .final-score-kills {
       font-family: 'Orbitron', sans-serif;
       color: var(--cyan);
     }
 
-    .final-score {
-      font-family: 'Orbitron', sans-serif;
-      font-size: clamp(2rem, 6vw, 3rem);
-      color: var(--yellow);
-      text-shadow: 0 0 20px var(--yellow);
-      margin-bottom: 0.5rem;
-    }
-
-    .high-score-badge {
-      font-family: 'Orbitron', sans-serif;
-      font-size: 0.9rem;
-      color: var(--green);
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-    }
-
-    .high-score-badge.show {
-      opacity: 1;
-      animation: badgePulse 1s ease-in-out infinite;
-    }
-
-    @keyframes badgePulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-    }
-
-    /* Mobile Controls */
+    /* ============= MOBILE CONTROLS ============= */
     .mobile-controls {
       position: fixed;
       bottom: 0;
       left: 0;
       width: 100%;
-      height: 35%;
+      height: 40%;
       display: none;
       z-index: 40;
-      pointer-events: none;
     }
 
-    .mobile-controls.show {
-      display: flex;
+    @media (pointer: coarse) {
+      .mobile-controls.active {
+        display: flex;
+      }
     }
 
-    .mobile-zone {
+    .control-zone {
       flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
-      pointer-events: auto;
+      opacity: 0.3;
+      transition: opacity 0.1s;
     }
 
-    .fire-zone {
-      border-right: 1px solid rgba(255, 0, 170, 0.2);
+    .control-zone.active {
+      opacity: 0.6;
+      background: rgba(255, 255, 255, 0.05);
     }
 
-    .turn-zone {
-      border-left: 1px solid rgba(0, 240, 255, 0.2);
+    .control-zone-left {
+      border-right: 1px solid rgba(0, 240, 255, 0.2);
     }
 
-    .zone-icon {
+    .control-zone-right {
+      border-left: 1px solid rgba(255, 0, 170, 0.2);
+    }
+
+    .zone-label {
       font-family: 'Orbitron', sans-serif;
-      font-size: 1.5rem;
-      color: rgba(255, 255, 255, 0.2);
+      font-size: 0.8rem;
       text-transform: uppercase;
       letter-spacing: 0.1em;
+      text-align: center;
+      pointer-events: none;
     }
 
-    .fire-zone .zone-icon {
-      color: rgba(255, 0, 170, 0.3);
+    .control-zone-left .zone-label {
+      color: var(--cyan);
     }
 
-    .turn-zone .zone-icon {
-      color: rgba(0, 240, 255, 0.3);
+    .control-zone-right .zone-label {
+      color: var(--magenta);
     }
 
-    .mobile-zone.active {
-      background: rgba(255, 255, 255, 0.05);
+    .zone-hint {
+      font-size: 0.6rem;
+      opacity: 0.7;
+      margin-top: 0.3rem;
+    }
+
+    /* ============= CONTROLS INFO ============= */
+    .controls-info {
+      color: #666;
+      font-size: 0.8rem;
+      text-align: center;
+      margin-top: 2rem;
+      line-height: 1.8;
+    }
+
+    .controls-info kbd {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-family: 'Orbitron', sans-serif;
+      color: var(--yellow);
+    }
+
+    @media (pointer: coarse) {
+      .controls-info {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -385,68 +629,104 @@
   <!-- Start Screen -->
   <div id="startScreen" class="overlay">
     <h1 class="game-title">ASTRO PARTY</h1>
-    <p class="subtitle">Survival Mode</p>
-    <div class="controls-info">
-      <span>RIGHT ARROW</span> or <span>D</span> - Turn Right<br>
-      <span>SPACE</span> or <span>CLICK</span> - Fire
+    <p class="subtitle">Multiplayer Arena</p>
+
+    <div class="btn-group" id="mainButtons">
+      <button class="btn" id="createRoomBtn">Create Room</button>
+      <button class="btn secondary" id="joinRoomBtn">Join Room</button>
     </div>
-    <button id="startButton" class="start-btn">Start Game</button>
+
+    <div class="join-section" id="joinSection">
+      <input type="text" class="room-input" id="roomCodeInput" placeholder="CODE" maxlength="4" autocomplete="off">
+      <p class="error-message" id="joinError">Could not join room</p>
+      <div class="btn-group">
+        <button class="btn" id="submitJoinBtn">Join</button>
+        <button class="btn secondary" id="backToStartBtn">Back</button>
+      </div>
+    </div>
+
+    <div class="controls-info">
+      <kbd>A</kbd> / <kbd>←</kbd> Rotate &nbsp;&nbsp; <kbd>D</kbd> / <kbd>→</kbd> / <kbd>Space</kbd> Thrust + Fire<br>
+      Double-tap rotate for Super Dash
+    </div>
+  </div>
+
+  <!-- Lobby Screen -->
+  <div id="lobbyScreen" class="overlay hidden">
+    <h2 class="game-title" style="font-size: clamp(1.5rem, 5vw, 2.5rem);">LOBBY</h2>
+
+    <div class="room-code-display">
+      <span class="room-code" id="roomCodeDisplay">----</span>
+      <button class="copy-btn" id="copyCodeBtn">
+        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+      </button>
+    </div>
+
+    <div class="players-list" id="playersList"></div>
+
+    <p class="lobby-status" id="lobbyStatus">
+      Waiting for players<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>
+    </p>
+
+    <button class="btn" id="startGameBtn" disabled>Start Game</button>
+    <button class="btn secondary" id="leaveLobbyBtn" style="margin-top: 1rem;">Leave</button>
+  </div>
+
+  <!-- Game End Screen -->
+  <div id="gameEndScreen" class="overlay hidden">
+    <p class="winner-title">WINNER</p>
+    <h2 class="winner-name" id="winnerName">Player 1</h2>
+
+    <div class="final-scores" id="finalScores"></div>
+
+    <div class="btn-group">
+      <button class="btn" id="playAgainBtn">Play Again</button>
+      <button class="btn secondary" id="backToLobbyBtn">Back to Lobby</button>
+    </div>
   </div>
 
   <!-- HUD -->
-  <div id="hud">
-    <div class="hud-left">
-      <div class="score-display">SCORE: <span id="scoreValue">0</span></div>
-      <div class="ammo-display" id="ammoDisplay">
-        <div class="ammo-bullet"></div>
-        <div class="ammo-bullet"></div>
-        <div class="ammo-bullet"></div>
-      </div>
-    </div>
-    <div class="hud-center">
-      <div class="wave-display">WAVE <span id="waveValue">1</span></div>
-    </div>
-    <div class="hud-right">
-      <div class="lives-display" id="livesDisplay">
-        <div class="life-icon"></div>
-        <div class="life-icon"></div>
-        <div class="life-icon"></div>
-      </div>
-    </div>
+  <div class="hud" id="hud">
+    <div class="score-track" id="scoreTrack"></div>
   </div>
 
-  <!-- Wave Announcement -->
-  <div id="waveAnnouncement">WAVE 1</div>
+  <!-- Settings Button -->
+  <button class="settings-btn" id="settingsBtn" style="display: none;">
+    <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+  </button>
 
-  <!-- Game Over Screen -->
-  <div id="gameOverScreen" class="overlay hidden">
-    <h2 class="game-over-title">GAME OVER</h2>
-    <div class="final-score"><span id="finalScore">0</span></div>
-    <div class="high-score-badge" id="highScoreBadge">NEW HIGH SCORE!</div>
-    <div class="stats-container">
-      <div class="stat-row">
-        <span class="stat-label">Waves Survived</span>
-        <span class="stat-value" id="wavesSurvived">0</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Enemies Destroyed</span>
-        <span class="stat-value" id="enemiesDestroyed">0</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Pilots Collected</span>
-        <span class="stat-value" id="pilotsCollected">0</span>
-      </div>
+  <!-- Settings Modal -->
+  <div class="settings-backdrop" id="settingsBackdrop"></div>
+  <div class="settings-modal" id="settingsModal">
+    <h3 class="settings-title">Settings</h3>
+    <div class="settings-row">
+      <span class="settings-label">Music</span>
+      <div class="toggle active" id="toggleMusic"></div>
     </div>
-    <button id="restartButton" class="start-btn">Play Again</button>
+    <div class="settings-row">
+      <span class="settings-label">Sound FX</span>
+      <div class="toggle active" id="toggleFx"></div>
+    </div>
+    <div class="settings-row">
+      <span class="settings-label">Haptics</span>
+      <div class="toggle active" id="toggleHaptics"></div>
+    </div>
+    <button class="btn settings-close" id="settingsClose">Done</button>
   </div>
 
   <!-- Mobile Controls -->
   <div class="mobile-controls" id="mobileControls">
-    <div class="mobile-zone fire-zone" id="fireZone">
-      <span class="zone-icon">FIRE</span>
+    <div class="control-zone control-zone-left" id="control-zone-left">
+      <div class="zone-label">
+        ROTATE
+        <div class="zone-hint">double-tap: dash</div>
+      </div>
     </div>
-    <div class="mobile-zone turn-zone" id="turnZone">
-      <span class="zone-icon">TURN</span>
+    <div class="control-zone control-zone-right" id="control-zone-right">
+      <div class="zone-label">
+        THRUST + FIRE
+        <div class="zone-hint">hold to move & shoot</div>
+      </div>
     </div>
   </div>
 
