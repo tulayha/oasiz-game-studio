@@ -66,6 +66,16 @@ const leaveGameBtn = document.getElementById(
   "leaveGameBtn",
 ) as HTMLButtonElement;
 
+// Leave confirmation modal
+const leaveModal = document.getElementById("leaveModal")!;
+const leaveBackdrop = document.getElementById("leaveBackdrop")!;
+const leaveCancelBtn = document.getElementById(
+  "leaveCancelBtn",
+) as HTMLButtonElement;
+const leaveConfirmBtn = document.getElementById(
+  "leaveConfirmBtn",
+) as HTMLButtonElement;
+
 // Settings
 const settingsBtn = document.getElementById("settingsBtn")!;
 const settingsModal = document.getElementById("settingsModal")!;
@@ -382,12 +392,32 @@ leaveLobbyBtn.addEventListener("click", async () => {
   leaveLobbyBtn.textContent = "Leave";
 });
 
-// Leave game button (during gameplay)
-leaveGameBtn.addEventListener("click", async () => {
+// Leave game button (during gameplay) - shows in-game modal
+leaveGameBtn.addEventListener("click", () => {
   triggerHaptic("light");
-  if (confirm("Leave the game?")) {
-    await game.leaveGame();
-  }
+  leaveModal.classList.add("active");
+  leaveBackdrop.classList.add("active");
+});
+
+// Leave modal - cancel
+leaveCancelBtn.addEventListener("click", () => {
+  triggerHaptic("light");
+  leaveModal.classList.remove("active");
+  leaveBackdrop.classList.remove("active");
+});
+
+// Leave modal - backdrop click to cancel
+leaveBackdrop.addEventListener("click", () => {
+  leaveModal.classList.remove("active");
+  leaveBackdrop.classList.remove("active");
+});
+
+// Leave modal - confirm leave
+leaveConfirmBtn.addEventListener("click", async () => {
+  triggerHaptic("light");
+  leaveModal.classList.remove("active");
+  leaveBackdrop.classList.remove("active");
+  await game.leaveGame();
 });
 
 // Game end screen

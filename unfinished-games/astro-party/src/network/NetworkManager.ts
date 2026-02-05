@@ -28,6 +28,7 @@ export interface NetworkCallbacks {
   onDisconnected: () => void;
   onGamePhaseReceived: (phase: GameStateSync["phase"]) => void;
   onWinnerReceived: (winnerId: string) => void;
+  onCountdownReceived: (count: number) => void;
 }
 
 export class NetworkManager {
@@ -144,6 +145,12 @@ export class NetworkManager {
       console.log("[NetworkManager] RPC gameWinner received:", winnerId);
       this.callbacks?.onWinnerReceived(winnerId);
     });
+
+    // Handle countdown updates from host
+    RPC.register("countdown", async (count: number) => {
+      console.log("[NetworkManager] RPC countdown received:", count);
+      this.callbacks?.onCountdownReceived(count);
+    });
   }
 
   startSync(): void {
@@ -205,6 +212,12 @@ export class NetworkManager {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting winner via RPC:", winnerId);
     RPC.call("gameWinner", winnerId, RPC.Mode.ALL);
+  }
+
+  // Broadcast countdown via RPC (reliable one-time event per tick)
+  broadcastCountdown(count: number): void {
+    if (!isHost()) return;
+    RPC.call("countdown", count, RPC.Mode.ALL);
   }
 
   // Reset all player states (for game restart)

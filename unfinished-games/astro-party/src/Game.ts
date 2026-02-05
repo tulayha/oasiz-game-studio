@@ -202,6 +202,14 @@ export class Game {
         // UI will pick this up on next phase change or can update immediately
         this.onPlayersUpdate?.([...this.players.values()]);
       },
+
+      onCountdownReceived: (count) => {
+        // Non-host receives countdown updates via RPC
+        if (!this.network.isHost()) {
+          this.countdown = count;
+          this.onCountdownUpdate?.(count);
+        }
+      },
     });
 
     this.network.startSync();
@@ -327,10 +335,12 @@ export class Game {
     this.setPhase("COUNTDOWN");
     this.countdown = GAME_CONFIG.COUNTDOWN_DURATION;
     this.onCountdownUpdate?.(this.countdown);
+    this.network.broadcastCountdown(this.countdown);
 
     this.countdownInterval = setInterval(() => {
       this.countdown--;
       this.onCountdownUpdate?.(this.countdown);
+      this.network.broadcastCountdown(this.countdown);
 
       if (this.countdown <= 0) {
         if (this.countdownInterval) {
@@ -762,11 +772,7 @@ export class Game {
       this.winnerId = state.winnerId;
     }
 
-    // Update countdown
-    if (state.countdown !== undefined) {
-      this.countdown = state.countdown;
-      this.onCountdownUpdate?.(this.countdown);
-    }
+    // Note: countdown is now synced via RPC, not gameState, to avoid spam
 
     // Handle phase transitions
     if (state.phase !== this.phase) {
