@@ -15,10 +15,10 @@ export type PlayerState =
 // ============= INPUT =============
 
 export interface PlayerInput {
-  buttonA: boolean; // Rotation (hold) + Dash (double-tap)
+  buttonA: boolean; // Rotation (hold)
   buttonB: boolean; // Thrust AND Fire (simultaneous)
-  dashTriggered: boolean; // True on double-tap frame
   timestamp: number;
+  // Note: Dash is handled via RPC, not input state
 }
 
 // ============= ENTITIES =============

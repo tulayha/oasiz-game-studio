@@ -8,6 +8,7 @@ export class InputManager {
   buttonB = false;
   private wasButtonA = false;
   private lastButtonATime = 0;
+  private onDashDetected: (() => void) | null = null;
   private isMobile: boolean;
 
   constructor() {
@@ -98,15 +99,18 @@ export class InputManager {
     }
   }
 
+  setDashCallback(callback: () => void): void {
+    this.onDashDetected = callback;
+  }
+
   capture(): PlayerInput {
     const now = performance.now();
-    let dashTriggered = false;
 
     // Detect double-tap on Button A for dash
     if (this.buttonA && !this.wasButtonA) {
       if (now - this.lastButtonATime < DOUBLE_TAP_WINDOW) {
-        dashTriggered = true;
         this.triggerHaptic("medium");
+        this.onDashDetected?.(); // Send RPC immediately
       }
       this.lastButtonATime = now;
     }
@@ -115,7 +119,6 @@ export class InputManager {
     return {
       buttonA: this.buttonA,
       buttonB: this.buttonB,
-      dashTriggered,
       timestamp: now,
     };
   }

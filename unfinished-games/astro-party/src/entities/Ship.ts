@@ -31,6 +31,7 @@ export class Ship {
 
   applyInput(
     input: PlayerInput,
+    dash: boolean,
     dt: number,
   ): { shouldFire: boolean; fireAngle: number } | null {
     if (!this.alive) return null;
@@ -51,8 +52,8 @@ export class Ship {
       Body.rotate(this.body, GAME_CONFIG.ROTATION_SPEED * dt);
     }
 
-    // Button A double-tap: Super Dash (burst of thrust)
-    if (input.dashTriggered) {
+    // Dash: Super Dash (burst of thrust) - received via RPC
+    if (dash) {
       Body.applyForce(this.body, this.body.position, {
         x: Math.cos(angle) * GAME_CONFIG.DASH_FORCE,
         y: Math.sin(angle) * GAME_CONFIG.DASH_FORCE,

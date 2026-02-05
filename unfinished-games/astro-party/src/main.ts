@@ -55,9 +55,7 @@ const finalScores = document.getElementById("finalScores")!;
 const playAgainBtn = document.getElementById(
   "playAgainBtn",
 ) as HTMLButtonElement;
-const backToLobbyBtn = document.getElementById(
-  "backToLobbyBtn",
-) as HTMLButtonElement;
+const leaveEndBtn = document.getElementById("leaveEndBtn") as HTMLButtonElement;
 
 // HUD
 const hud = document.getElementById("hud")!;
@@ -211,14 +209,13 @@ function updateGameEnd(players: PlayerData[]): void {
   if (game.isHost()) {
     playAgainBtn.textContent = "Play Again";
     playAgainBtn.disabled = false;
-    backToLobbyBtn.textContent = "Back to Lobby";
-    backToLobbyBtn.disabled = false;
   } else {
     playAgainBtn.textContent = "Waiting for host...";
     playAgainBtn.disabled = true;
-    backToLobbyBtn.textContent = "Waiting for host...";
-    backToLobbyBtn.disabled = true;
   }
+  // Leave button is always available for everyone
+  leaveEndBtn.textContent = "Leave";
+  leaveEndBtn.disabled = false;
 }
 
 function escapeHtml(text: string): string {
@@ -247,8 +244,8 @@ game.setUICallbacks({
         // Reset game end buttons when returning to lobby
         playAgainBtn.disabled = false;
         playAgainBtn.textContent = "Play Again";
-        backToLobbyBtn.disabled = false;
-        backToLobbyBtn.textContent = "Back to Lobby";
+        leaveEndBtn.disabled = false;
+        leaveEndBtn.textContent = "Leave";
         break;
       case "COUNTDOWN":
       case "PLAYING":
@@ -434,17 +431,12 @@ playAgainBtn.addEventListener("click", async () => {
   }
 });
 
-backToLobbyBtn.addEventListener("click", async () => {
+// Leave button on game end - available for everyone
+leaveEndBtn.addEventListener("click", async () => {
   triggerHaptic("light");
-  if (game.isHost()) {
-    backToLobbyBtn.disabled = true;
-    backToLobbyBtn.textContent = "Returning...";
-    await game.restartGame();
-  } else {
-    // Non-host can't restart, show waiting message
-    backToLobbyBtn.textContent = "Waiting for host...";
-    backToLobbyBtn.disabled = true;
-  }
+  leaveEndBtn.disabled = true;
+  leaveEndBtn.textContent = "Leaving...";
+  await game.leaveGame();
 });
 
 // Settings

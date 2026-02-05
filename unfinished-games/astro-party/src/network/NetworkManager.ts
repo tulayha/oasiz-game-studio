@@ -29,6 +29,8 @@ export interface NetworkCallbacks {
   onGamePhaseReceived: (phase: GameStateSync["phase"]) => void;
   onWinnerReceived: (winnerId: string) => void;
   onCountdownReceived: (count: number) => void;
+  onGameSoundReceived: (type: string, playerId: string) => void;
+  onDashRequested: (playerId: string) => void;
 }
 
 export class NetworkManager {
@@ -45,7 +47,6 @@ export class NetworkManager {
     await insertCoin({
       skipLobby: true,
       maxPlayersPerRoom: 4,
-      reconnectGracePeriod: 5000, // 5 second grace period for reconnection
       defaultPlayerStates: {
         kills: 0,
         playerState: "ACTIVE",
@@ -71,7 +72,6 @@ export class NetworkManager {
         skipLobby: true,
         maxPlayersPerRoom: 4,
         roomCode: roomCode,
-        reconnectGracePeriod: 5000,
         defaultPlayerStates: {
           kills: 0,
           playerState: "ACTIVE",
@@ -151,6 +151,19 @@ export class NetworkManager {
       console.log("[NetworkManager] RPC countdown received:", count);
       this.callbacks?.onCountdownReceived(count);
     });
+
+    // Handle game sound events from host
+    RPC.register(
+      "gameSound",
+      async (data: { type: string; playerId: string }) => {
+        this.callbacks?.onGameSoundReceived(data.type, data.playerId);
+      },
+    );
+
+    // Handle dash request from any player (sent to host)
+    RPC.register("dashRequest", async (playerId: string) => {
+      this.callbacks?.onDashRequested(playerId);
+    });
   }
 
   startSync(): void {
@@ -218,6 +231,19 @@ export class NetworkManager {
   broadcastCountdown(count: number): void {
     if (!isHost()) return;
     RPC.call("countdown", count, RPC.Mode.ALL);
+  }
+
+  // Broadcast game sound event via RPC (all players hear all sounds)
+  broadcastGameSound(type: string, playerId: string): void {
+    if (!isHost()) return;
+    RPC.call("gameSound", { type, playerId }, RPC.Mode.ALL);
+  }
+
+  // Send dash request to host (any player can call)
+  sendDashRequest(): void {
+    const playerId = myPlayer()?.id;
+    if (!playerId) return;
+    RPC.call("dashRequest", playerId, RPC.Mode.HOST);
   }
 
   // Reset all player states (for game restart)

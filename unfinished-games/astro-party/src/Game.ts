@@ -33,6 +33,7 @@ export class Game {
   private players: Map<string, PlayerData> = new Map();
 
   private pendingInputs: Map<string, PlayerInput> = new Map();
+  private pendingDashes: Set<string> = new Set(); // Dash requests received via RPC
   private countdown: number = 0;
   private countdownInterval: ReturnType<typeof setInterval> | null = null;
   private lastTime: number = 0;
@@ -210,9 +211,48 @@ export class Game {
           this.onCountdownUpdate?.(count);
         }
       },
+
+      onGameSoundReceived: (type, _playerId) => {
+        // All clients play sounds when host broadcasts events
+        switch (type) {
+          case "fire":
+            AudioManager.playFire();
+            break;
+          case "dash":
+            AudioManager.playDash();
+            break;
+          case "explosion":
+            AudioManager.playExplosion();
+            AudioManager.playPilotEject();
+            break;
+          case "kill":
+            AudioManager.playKill();
+            AudioManager.playPilotDeath();
+            break;
+          case "respawn":
+            AudioManager.playRespawn();
+            break;
+          case "win":
+            AudioManager.playWin();
+            break;
+        }
+      },
+
+      onDashRequested: (playerId) => {
+        // Host receives dash request, queues it for processing
+        if (this.network.isHost()) {
+          this.pendingDashes.add(playerId);
+        }
+      },
     });
 
     this.network.startSync();
+
+    // Set up dash detection callback - sends RPC when double-tap detected
+    this.input.setDashCallback(() => {
+      this.network.sendDashRequest();
+    });
+
     this.setPhase("LOBBY");
   }
 
@@ -460,8 +500,8 @@ export class Game {
 
     this.onPlayersUpdate?.([...this.players.values()]);
     this.triggerHaptic("heavy");
-    AudioManager.playExplosion();
-    AudioManager.playPilotEject();
+    // Broadcast explosion sound to all players
+    this.network.broadcastGameSound("explosion", playerId);
   }
 
   private killPilot(pilotPlayerId: string, killerId: string): void {
@@ -504,8 +544,8 @@ export class Game {
 
     this.onPlayersUpdate?.([...this.players.values()]);
     this.triggerHaptic("success");
-    AudioManager.playKill();
-    AudioManager.playPilotDeath();
+    // Broadcast kill sound to all players
+    this.network.broadcastGameSound("kill", pilotPlayerId);
   }
 
   private checkEliminationWin(): void {
@@ -563,7 +603,8 @@ export class Game {
     this.network.updatePlayerState(playerId, "ACTIVE");
 
     this.onPlayersUpdate?.([...this.players.values()]);
-    AudioManager.playRespawn();
+    // Broadcast respawn sound to all players
+    this.network.broadcastGameSound("respawn", playerId);
   }
 
   private endGame(winnerId: string): void {
@@ -571,7 +612,8 @@ export class Game {
     this.setPhase("GAME_END");
     this.network.broadcastWinner(winnerId);
     this.triggerHaptic("success");
-    AudioManager.playWin();
+    // Broadcast win sound to all players
+    this.network.broadcastGameSound("win", winnerId);
 
     // Submit local player's score to the platform
     const myId = this.network.getMyPlayerId();
@@ -613,6 +655,9 @@ export class Game {
     this.networkShips = [];
     this.networkPilots = [];
     this.networkProjectiles = [];
+
+    // Clear input tracking
+    this.pendingDashes.clear();
 
     // Reset player scores
     this.players.forEach((player) => {
@@ -674,7 +719,13 @@ export class Game {
           timestamp: 0,
         };
 
-        const fireResult = ship.applyInput(input, dt);
+        // Check for pending dash (received via RPC)
+        const shouldDash = this.pendingDashes.has(playerId);
+        if (shouldDash) {
+          this.pendingDashes.delete(playerId);
+        }
+
+        const fireResult = ship.applyInput(input, shouldDash, dt);
         if (fireResult?.shouldFire) {
           const firePos = ship.getFirePosition();
           const projectile = new Projectile(
@@ -685,16 +736,13 @@ export class Game {
             playerId,
           );
           this.projectiles.push(projectile);
-
-          // Play fire sound for local player
-          if (playerId === this.network.getMyPlayerId()) {
-            AudioManager.playFire();
-          }
+          // Broadcast fire sound to all players
+          this.network.broadcastGameSound("fire", playerId);
         }
 
-        // Play dash sound for local player
-        if (input.dashTriggered && playerId === this.network.getMyPlayerId()) {
-          AudioManager.playDash();
+        // Broadcast dash sound when triggered
+        if (shouldDash) {
+          this.network.broadcastGameSound("dash", playerId);
         }
       });
 
