@@ -14,6 +14,11 @@ export class Renderer {
   private particles: Particle[] = [];
   private screenShake = { intensity: 0, duration: 0 };
 
+  // Fixed arena scaling
+  private scale: number = 1;
+  private offsetX: number = 0;
+  private offsetY: number = 0;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
@@ -22,10 +27,26 @@ export class Renderer {
   resize(): void {
     this.canvas.width = window.innerWidth;
     this.canvas.height = window.innerHeight;
+
+    // Calculate scale to fit fixed arena in window while maintaining aspect ratio
+    const scaleX = this.canvas.width / GAME_CONFIG.ARENA_WIDTH;
+    const scaleY = this.canvas.height / GAME_CONFIG.ARENA_HEIGHT;
+    this.scale = Math.min(scaleX, scaleY);
+
+    // Center the arena
+    this.offsetX =
+      (this.canvas.width - GAME_CONFIG.ARENA_WIDTH * this.scale) / 2;
+    this.offsetY =
+      (this.canvas.height - GAME_CONFIG.ARENA_HEIGHT * this.scale) / 2;
   }
 
   getSize(): { width: number; height: number } {
-    return { width: this.canvas.width, height: this.canvas.height };
+    // Return fixed arena size (not canvas size)
+    return { width: GAME_CONFIG.ARENA_WIDTH, height: GAME_CONFIG.ARENA_HEIGHT };
+  }
+
+  getScale(): number {
+    return this.scale;
   }
 
   clear(): void {
@@ -42,6 +63,10 @@ export class Renderer {
       const shakeY = (Math.random() - 0.5) * this.screenShake.intensity;
       this.ctx.translate(shakeX, shakeY);
     }
+
+    // Apply arena scaling and centering
+    this.ctx.translate(this.offsetX, this.offsetY);
+    this.ctx.scale(this.scale, this.scale);
   }
 
   endFrame(): void {

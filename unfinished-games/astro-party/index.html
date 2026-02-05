@@ -366,6 +366,34 @@
       text-align: right;
     }
 
+    .leave-btn {
+      position: absolute;
+      top: 120px;
+      left: 20px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.7rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg-panel);
+      border: 1px solid rgba(255, 100, 100, 0.5);
+      border-radius: 8px;
+      color: #ff6666;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      pointer-events: auto;
+      transition: all 0.2s ease;
+    }
+
+    @media (pointer: fine) {
+      .leave-btn {
+        top: 45px;
+      }
+    }
+
+    .leave-btn:hover {
+      background: rgba(255, 100, 100, 0.2);
+    }
+
     /* ============= SETTINGS ============= */
     .settings-btn {
       position: fixed;
@@ -646,7 +674,8 @@
     </div>
 
     <div class="controls-info">
-      <kbd>A</kbd> / <kbd>←</kbd> Rotate &nbsp;&nbsp; <kbd>D</kbd> / <kbd>→</kbd> / <kbd>Space</kbd> Thrust + Fire<br>
+      Ship always moves forward!<br>
+      <kbd>A</kbd> / <kbd>←</kbd> Rotate (+ boost) &nbsp;&nbsp; <kbd>D</kbd> / <kbd>→</kbd> / <kbd>Space</kbd> Fire (with recoil)<br>
       Double-tap rotate for Super Dash
     </div>
   </div>
@@ -688,6 +717,7 @@
   <!-- HUD -->
   <div class="hud" id="hud">
     <div class="score-track" id="scoreTrack"></div>
+    <button class="leave-btn" id="leaveGameBtn">Leave</button>
   </div>
 
   <!-- Settings Button -->
@@ -719,13 +749,13 @@
     <div class="control-zone control-zone-left" id="control-zone-left">
       <div class="zone-label">
         ROTATE
-        <div class="zone-hint">double-tap: dash</div>
+        <div class="zone-hint">hold: rotate + boost | double-tap: dash</div>
       </div>
     </div>
     <div class="control-zone control-zone-right" id="control-zone-right">
       <div class="zone-label">
-        THRUST + FIRE
-        <div class="zone-hint">hold to move & shoot</div>
+        FIRE
+        <div class="zone-hint">tap to shoot (recoil pushes you back)</div>
       </div>
     </div>
   </div>

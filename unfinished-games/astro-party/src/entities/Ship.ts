@@ -32,35 +32,47 @@ export class Ship {
   ): { shouldFire: boolean; fireAngle: number } | null {
     if (!this.alive) return null;
 
-    // Button A: Rotate clockwise
+    const angle = this.body.angle;
+
+    // ALWAYS apply base forward thrust - ship is never stationary
+    Body.applyForce(this.body, this.body.position, {
+      x: Math.cos(angle) * GAME_CONFIG.BASE_THRUST,
+      y: Math.sin(angle) * GAME_CONFIG.BASE_THRUST,
+    });
+
+    // Button A: Rotate clockwise + slight thrust bonus
     if (input.buttonA) {
       Body.setAngularVelocity(this.body, 0);
       Body.rotate(this.body, GAME_CONFIG.ROTATION_SPEED * dt);
+
+      // Extra thrust while rotating
+      Body.applyForce(this.body, this.body.position, {
+        x: Math.cos(angle) * GAME_CONFIG.ROTATION_THRUST_BONUS,
+        y: Math.sin(angle) * GAME_CONFIG.ROTATION_THRUST_BONUS,
+      });
     }
 
     // Button A double-tap: Super Dash
     if (input.dashTriggered) {
-      const angle = this.body.angle;
       Body.applyForce(this.body, this.body.position, {
         x: Math.cos(angle) * GAME_CONFIG.DASH_FORCE,
         y: Math.sin(angle) * GAME_CONFIG.DASH_FORCE,
       });
     }
 
-    // Button B: Thrust AND Fire (inseparable)
+    // Button B: Fire with recoil
     let fireResult: { shouldFire: boolean; fireAngle: number } | null = null;
     if (input.buttonB) {
-      // Thrust
-      const angle = this.body.angle;
-      Body.applyForce(this.body, this.body.position, {
-        x: Math.cos(angle) * GAME_CONFIG.THRUST_FORCE,
-        y: Math.sin(angle) * GAME_CONFIG.THRUST_FORCE,
-      });
-
-      // Fire (with cooldown)
       const now = Date.now();
       if (now - this.lastFireTime > GAME_CONFIG.FIRE_COOLDOWN) {
         this.lastFireTime = now;
+
+        // Apply recoil force (pushback opposite to firing direction)
+        Body.applyForce(this.body, this.body.position, {
+          x: -Math.cos(angle) * GAME_CONFIG.RECOIL_FORCE,
+          y: -Math.sin(angle) * GAME_CONFIG.RECOIL_FORCE,
+        });
+
         fireResult = {
           shouldFire: true,
           fireAngle: angle,

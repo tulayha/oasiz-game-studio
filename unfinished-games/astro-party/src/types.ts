@@ -117,20 +117,24 @@ export const GAME_CONFIG = {
   // Win condition
   KILLS_TO_WIN: 5,
 
-  // Arena
+  // Arena - FIXED SIZE (scales to fit window)
+  ARENA_WIDTH: 1200,
+  ARENA_HEIGHT: 800,
   ARENA_PADDING: 50,
 
   // Ship physics
+  BASE_THRUST: 0.00015, // Always-on forward thrust
   ROTATION_SPEED: 4.5, // rad/s
-  THRUST_FORCE: 0.0004,
-  DASH_FORCE: 0.008,
+  ROTATION_THRUST_BONUS: 0.00008, // Extra thrust when rotating
+  RECOIL_FORCE: 0.0003, // Pushback when shooting
+  DASH_FORCE: 0.012,
   SHIP_FRICTION_AIR: 0.002,
   SHIP_RESTITUTION: 0.9,
 
   // Combat
-  FIRE_COOLDOWN: 150, // ms
-  PROJECTILE_SPEED: 12,
-  PROJECTILE_LIFETIME: 2000, // ms
+  FIRE_COOLDOWN: 180, // ms
+  PROJECTILE_SPEED: 14,
+  PROJECTILE_LIFETIME: 2500, // ms
 
   // Pilot
   PILOT_SURVIVAL_TIME: 5000, // ms
@@ -138,7 +142,6 @@ export const GAME_CONFIG = {
 
   // Respawn
   INVULNERABLE_TIME: 2000, // ms
-  SPAWN_SAFE_DISTANCE: 150,
 
   // Network
   SYNC_INTERVAL: 50, // ms (20 updates/sec)

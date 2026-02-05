@@ -230,14 +230,17 @@ export class Game {
   private beginMatch(): void {
     this.setPhase("PLAYING");
 
-    // Initialize physics world
-    const { width, height } = this.renderer.getSize();
-    this.physics.createWalls(width, height);
+    // Initialize physics world with FIXED arena size
+    this.physics.createWalls(GAME_CONFIG.ARENA_WIDTH, GAME_CONFIG.ARENA_HEIGHT);
 
     // Spawn ships for all players
     if (this.network.isHost()) {
       const playerIds = this.network.getPlayerIds();
-      const spawnPoints = this.getSpawnPoints(playerIds.length, width, height);
+      const spawnPoints = this.getSpawnPoints(
+        playerIds.length,
+        GAME_CONFIG.ARENA_WIDTH,
+        GAME_CONFIG.ARENA_HEIGHT,
+      );
 
       playerIds.forEach((playerId, index) => {
         const spawn = spawnPoints[index];
@@ -279,51 +282,6 @@ export class Game {
     return points;
   }
 
-  private getSafeSpawnPoint(): { x: number; y: number } {
-    const { width, height } = this.renderer.getSize();
-    const padding = 100;
-    let attempts = 0;
-    let bestPoint = { x: width / 2, y: height / 2 };
-    let bestDistance = 0;
-
-    while (attempts < 20) {
-      const x = padding + Math.random() * (width - padding * 2);
-      const y = padding + Math.random() * (height - padding * 2);
-
-      let minDist = Infinity;
-
-      // Check distance to all ships
-      this.ships.forEach((ship) => {
-        if (ship.alive) {
-          const dx = ship.body.position.x - x;
-          const dy = ship.body.position.y - y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          minDist = Math.min(minDist, dist);
-        }
-      });
-
-      // Check distance to all projectiles
-      this.projectiles.forEach((proj) => {
-        const dx = proj.body.position.x - x;
-        const dy = proj.body.position.y - y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        minDist = Math.min(minDist, dist);
-      });
-
-      if (minDist > bestDistance) {
-        bestDistance = minDist;
-        bestPoint = { x, y };
-      }
-
-      if (minDist >= GAME_CONFIG.SPAWN_SAFE_DISTANCE) {
-        return { x, y };
-      }
-
-      attempts++;
-    }
-
-    return bestPoint;
-  }
 
   // ============= COMBAT =============
 
@@ -394,14 +352,17 @@ export class Game {
     this.triggerHaptic("success");
   }
 
-  private respawnPlayer(playerId: string): void {
+  private respawnPlayer(
+    playerId: string,
+    position: { x: number; y: number },
+  ): void {
     const player = this.players.get(playerId);
     if (!player) return;
 
-    const spawn = this.getSafeSpawnPoint();
     const color = player.color;
 
-    const ship = new Ship(this.physics, spawn.x, spawn.y, playerId, color);
+    // Spawn ship at the provided position (pilot's position)
+    const ship = new Ship(this.physics, position.x, position.y, playerId, color);
     ship.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
     this.ships.set(playerId, ship);
 
@@ -457,10 +418,7 @@ export class Game {
     window.addEventListener("resize", () => {
       this.renderer.resize();
       this.renderer.initStars();
-      if (this.phase === "PLAYING" && this.network.isHost()) {
-        const { width, height } = this.renderer.getSize();
-        this.physics.createWalls(width, height);
-      }
+      // Walls don't need to be recreated - arena size is fixed
     });
 
     this.lastTime = performance.now();
@@ -525,9 +483,15 @@ export class Game {
 
         // Check if pilot survived
         if (pilot.hasSurvived()) {
+          // Get pilot position before destroying
+          const pilotPosition = {
+            x: pilot.body.position.x,
+            y: pilot.body.position.y,
+          };
           pilot.destroy();
           this.pilots.delete(playerId);
-          this.respawnPlayer(playerId);
+          // Respawn ship at pilot's position
+          this.respawnPlayer(playerId, pilotPosition);
         }
       });
 
@@ -717,5 +681,33 @@ export class Game {
 
   canStartGame(): boolean {
     return this.network.isHost() && this.network.getPlayerCount() >= 2;
+  }
+
+  leaveGame(): void {
+    // Clear all entities
+    this.ships.forEach((ship) => ship.destroy());
+    this.ships.clear();
+
+    this.pilots.forEach((pilot) => pilot.destroy());
+    this.pilots.clear();
+
+    this.projectiles.forEach((proj) => proj.destroy());
+    this.projectiles = [];
+
+    // Reset game state
+    this.players.clear();
+    this.winnerId = null;
+
+    // Clear countdown if running
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+
+    // Disconnect from network
+    this.network.disconnect();
+
+    // Return to start screen
+    this.setPhase("START");
   }
 }

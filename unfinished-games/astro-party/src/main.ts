@@ -51,6 +51,9 @@ const backToLobbyBtn = document.getElementById(
 // HUD
 const hud = document.getElementById("hud")!;
 const scoreTrack = document.getElementById("scoreTrack")!;
+const leaveGameBtn = document.getElementById(
+  "leaveGameBtn",
+) as HTMLButtonElement;
 
 // Settings
 const settingsBtn = document.getElementById("settingsBtn")!;
@@ -350,8 +353,15 @@ startGameBtn.addEventListener("click", () => {
 
 leaveLobbyBtn.addEventListener("click", () => {
   triggerHaptic("light");
-  // For now, just reload to disconnect
-  window.location.reload();
+  game.leaveGame();
+});
+
+// Leave game button (during gameplay)
+leaveGameBtn.addEventListener("click", () => {
+  triggerHaptic("light");
+  if (confirm("Leave the game?")) {
+    game.leaveGame();
+  }
 });
 
 // Game end screen
