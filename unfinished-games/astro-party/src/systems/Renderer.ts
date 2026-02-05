@@ -12,7 +12,7 @@ export class Renderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private particles: Particle[] = [];
-  private screenShake = { intensity: 0, duration: 0 };
+  private screenShake = { intensity: 0, duration: 0, offsetX: 0, offsetY: 0 };
 
   // Fixed arena scaling
   private scale: number = 1;
@@ -57,11 +57,9 @@ export class Renderer {
   beginFrame(): void {
     this.ctx.save();
 
-    // Apply screen shake
+    // Apply screen shake (using pre-calculated offsets from updateScreenShake)
     if (this.screenShake.duration > 0) {
-      const shakeX = (Math.random() - 0.5) * this.screenShake.intensity;
-      const shakeY = (Math.random() - 0.5) * this.screenShake.intensity;
-      this.ctx.translate(shakeX, shakeY);
+      this.ctx.translate(this.screenShake.offsetX, this.screenShake.offsetY);
     }
 
     // Apply arena scaling and centering
@@ -76,8 +74,26 @@ export class Renderer {
   updateScreenShake(dt: number): void {
     if (this.screenShake.duration > 0) {
       this.screenShake.duration -= dt;
+
+      // Calculate deterministic shake offsets using time-based sin/cos
+      // This avoids Math.random() in the render loop while still giving chaotic motion
+      const time = performance.now() * 0.05;
+      const decay = this.screenShake.duration > 0 ? 1 : 0;
+      this.screenShake.offsetX =
+        Math.sin(time * 1.1) *
+        Math.cos(time * 0.7) *
+        this.screenShake.intensity *
+        decay;
+      this.screenShake.offsetY =
+        Math.sin(time * 0.9) *
+        Math.cos(time * 1.3) *
+        this.screenShake.intensity *
+        decay;
+
       if (this.screenShake.duration <= 0) {
         this.screenShake.intensity = 0;
+        this.screenShake.offsetX = 0;
+        this.screenShake.offsetY = 0;
       }
     }
   }

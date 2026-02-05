@@ -1,5 +1,16 @@
 import { Game } from "./Game";
-import { GamePhase, PlayerData, Settings, GAME_CONFIG } from "./types";
+import { GamePhase, PlayerData, GAME_CONFIG } from "./types";
+import { SettingsManager } from "./SettingsManager";
+import { AudioManager } from "./AudioManager";
+
+// Declare platform-injected variables
+declare global {
+  interface Window {
+    __ROOM_CODE__?: string;
+    __PLAYER_NAME__?: string;
+    __PLAYER_AVATAR__?: string;
+  }
+}
 
 // ============= DOM ELEMENTS =============
 
@@ -74,29 +85,8 @@ const game = new Game(canvas);
 
 // ============= SETTINGS =============
 
-let settings: Settings = loadSettings();
-
-function loadSettings(): Settings {
-  try {
-    const saved = localStorage.getItem("astro-party-settings");
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch (e) {
-    console.log("[Main] Could not load settings");
-  }
-  return { music: true, fx: true, haptics: true };
-}
-
-function saveSettings(): void {
-  try {
-    localStorage.setItem("astro-party-settings", JSON.stringify(settings));
-  } catch (e) {
-    console.log("[Main] Could not save settings");
-  }
-}
-
 function updateSettingsUI(): void {
+  const settings = SettingsManager.get();
   toggleMusic.classList.toggle("active", settings.music);
   toggleFx.classList.toggle("active", settings.fx);
   toggleHaptics.classList.toggle("active", settings.haptics);
@@ -129,15 +119,7 @@ function hideJoinSection(): void {
 function triggerHaptic(
   type: "light" | "medium" | "heavy" | "success" | "error",
 ): void {
-  if (
-    settings.haptics &&
-    typeof (window as unknown as { triggerHaptic?: (type: string) => void })
-      .triggerHaptic === "function"
-  ) {
-    (
-      window as unknown as { triggerHaptic: (type: string) => void }
-    ).triggerHaptic(type);
-  }
+  SettingsManager.triggerHaptic(type);
 }
 
 // ============= LOBBY UI =============
@@ -147,10 +129,13 @@ function updateLobbyUI(players: PlayerData[]): void {
   playersList.innerHTML = players
     .map((player, index) => {
       const isHost = index === 0; // First player is usually host
+      // Use SVG icons instead of emojis for cross-platform consistency
+      const hostIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#ffee00"><path d="M12 1L9 9l-7 1 5 5-1.5 7L12 18l6.5 4L17 15l5-5-7-1z"/></svg>`;
+      const playerIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="${player.color.primary}"><path d="M12 2L4 12l3 1.5L12 22l5-8.5L20 12z"/></svg>`;
       return `
       <div class="player-slot ${isHost ? "host" : ""}">
         <div class="player-avatar" style="background: ${player.color.primary}">
-          ${isHost ? "👑" : "🚀"}
+          ${isHost ? hostIcon : playerIcon}
         </div>
         <div class="player-name">${escapeHtml(player.name)}</div>
       </div>
@@ -276,8 +261,10 @@ game.setUICallbacks({
     // Countdown is rendered in the game canvas
     if (count > 0) {
       triggerHaptic("light");
+      AudioManager.playCountdown(count);
     } else {
       triggerHaptic("medium");
+      AudioManager.playFight();
     }
   },
 });
@@ -287,12 +274,17 @@ game.setUICallbacks({
 // Start screen
 createRoomBtn.addEventListener("click", async () => {
   triggerHaptic("light");
+  AudioManager.playUIClick();
   createRoomBtn.disabled = true;
   createRoomBtn.textContent = "Creating...";
 
   try {
     const code = await game.createRoom();
     console.log("[Main] Room created:", code);
+    // Set player name from platform if provided
+    if (window.__PLAYER_NAME__) {
+      game.setPlayerName(window.__PLAYER_NAME__);
+    }
   } catch (e) {
     console.error("[Main] Failed to create room:", e);
     createRoomBtn.disabled = false;
@@ -334,12 +326,18 @@ submitJoinBtn.addEventListener("click", async () => {
   }
 
   triggerHaptic("light");
+  AudioManager.playUIClick();
   submitJoinBtn.disabled = true;
   submitJoinBtn.textContent = "Joining...";
 
   try {
     const success = await game.joinRoom(code);
-    if (!success) {
+    if (success) {
+      // Set player name from platform if provided
+      if (window.__PLAYER_NAME__) {
+        game.setPlayerName(window.__PLAYER_NAME__);
+      }
+    } else {
       joinError.textContent = "Could not join room";
       joinError.classList.add("active");
       triggerHaptic("error");
@@ -438,24 +436,21 @@ settingsClose.addEventListener("click", () => {
 });
 
 toggleMusic.addEventListener("click", () => {
-  settings.music = !settings.music;
+  SettingsManager.toggle("music");
   updateSettingsUI();
-  saveSettings();
   triggerHaptic("light");
 });
 
 toggleFx.addEventListener("click", () => {
-  settings.fx = !settings.fx;
+  SettingsManager.toggle("fx");
   updateSettingsUI();
-  saveSettings();
   triggerHaptic("light");
 });
 
 toggleHaptics.addEventListener("click", () => {
-  settings.haptics = !settings.haptics;
+  SettingsManager.toggle("haptics");
   updateSettingsUI();
-  saveSettings();
-  // Always trigger this one so user feels the toggle
+  // Always trigger this one so user feels the toggle (bypass settings check)
   if (
     typeof (window as unknown as { triggerHaptic?: (type: string) => void })
       .triggerHaptic === "function"
@@ -468,7 +463,7 @@ toggleHaptics.addEventListener("click", () => {
 
 // ============= INITIALIZATION =============
 
-function init(): void {
+async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
 
   updateSettingsUI();
@@ -476,6 +471,25 @@ function init(): void {
 
   // Start the game render loop (runs in background)
   game.start();
+
+  // Check for platform-injected room code for auto-join
+  if (window.__ROOM_CODE__) {
+    console.log("[Main] Platform injected room code:", window.__ROOM_CODE__);
+    try {
+      const success = await game.joinRoom(window.__ROOM_CODE__);
+      if (success) {
+        // Set player name from platform if provided
+        if (window.__PLAYER_NAME__) {
+          console.log("[Main] Setting player name:", window.__PLAYER_NAME__);
+          game.setPlayerName(window.__PLAYER_NAME__);
+        }
+      } else {
+        console.log("[Main] Failed to auto-join room, staying on start screen");
+      }
+    } catch (e) {
+      console.error("[Main] Error auto-joining room:", e);
+    }
+  }
 }
 
 // Start when DOM is ready

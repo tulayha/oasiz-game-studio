@@ -6,6 +6,8 @@ import { NetworkManager } from "./network/NetworkManager";
 import { Ship } from "./entities/Ship";
 import { Pilot } from "./entities/Pilot";
 import { Projectile } from "./entities/Projectile";
+import { SettingsManager } from "./SettingsManager";
+import { AudioManager } from "./AudioManager";
 import {
   GamePhase,
   GameStateSync,
@@ -154,12 +156,13 @@ export class Game {
         // Update UI to reflect new host status
         this.onPlayersUpdate?.([...this.players.values()]);
 
-        // If we become host mid-game, we need to handle it
+        // If we become host mid-game, award win to highest scorer
         if (this.phase === "PLAYING") {
-          // For now, end the game if host leaves mid-game
-          // Full host migration would require reconstructing physics state
           console.log("[Game] Previous host left mid-game, ending match");
-          this.endGame(this.network.getMyPlayerId() || "");
+          const sortedByKills = [...this.players.values()].sort(
+            (a, b) => b.kills - a.kills,
+          );
+          this.endGame(sortedByKills[0]?.id || this.network.getMyPlayerId() || "");
         }
 
         // If we become host during countdown, cancel and return to lobby
@@ -242,14 +245,14 @@ export class Game {
       return;
     }
 
-    // If joining during countdown and we're host, cancel countdown and return to lobby
+    // If joining during countdown and we're host, restart countdown to include new player
     if (this.phase === "COUNTDOWN" && this.network.isHost()) {
       console.log("[Game] Player joined during countdown, restarting countdown");
       if (this.countdownInterval) {
         clearInterval(this.countdownInterval);
         this.countdownInterval = null;
       }
-      // Don't go back to lobby, just restart countdown with new player
+      this.startCountdown();
     }
 
     const color = PLAYER_COLORS[playerIndex % PLAYER_COLORS.length];
@@ -314,6 +317,7 @@ export class Game {
 
   startGame(): void {
     if (!this.network.isHost()) return;
+    if (this.phase !== "LOBBY") return;
     if (this.network.getPlayerCount() < 2) return;
 
     this.startCountdown();
@@ -446,6 +450,8 @@ export class Game {
 
     this.onPlayersUpdate?.([...this.players.values()]);
     this.triggerHaptic("heavy");
+    AudioManager.playExplosion();
+    AudioManager.playPilotEject();
   }
 
   private killPilot(pilotPlayerId: string, killerId: string): void {
@@ -488,6 +494,8 @@ export class Game {
 
     this.onPlayersUpdate?.([...this.players.values()]);
     this.triggerHaptic("success");
+    AudioManager.playKill();
+    AudioManager.playPilotDeath();
   }
 
   private checkEliminationWin(): void {
@@ -545,6 +553,7 @@ export class Game {
     this.network.updatePlayerState(playerId, "ACTIVE");
 
     this.onPlayersUpdate?.([...this.players.values()]);
+    AudioManager.playRespawn();
   }
 
   private endGame(winnerId: string): void {
@@ -552,6 +561,16 @@ export class Game {
     this.setPhase("GAME_END");
     this.network.broadcastWinner(winnerId);
     this.triggerHaptic("success");
+    AudioManager.playWin();
+
+    // Submit local player's score to the platform
+    const myId = this.network.getMyPlayerId();
+    if (myId) {
+      const myPlayer = this.players.get(myId);
+      if (myPlayer) {
+        this.submitScore(myPlayer.kills);
+      }
+    }
   }
 
   async restartGame(): Promise<void> {
@@ -656,6 +675,16 @@ export class Game {
             playerId,
           );
           this.projectiles.push(projectile);
+
+          // Play fire sound for local player
+          if (playerId === this.network.getMyPlayerId()) {
+            AudioManager.playFire();
+          }
+        }
+
+        // Play dash sound for local player
+        if (input.dashTriggered && playerId === this.network.getMyPlayerId()) {
+          AudioManager.playDash();
         }
       });
 
@@ -837,13 +866,18 @@ export class Game {
   private triggerHaptic(
     type: "light" | "medium" | "heavy" | "success" | "error",
   ): void {
+    SettingsManager.triggerHaptic(type);
+  }
+
+  private submitScore(score: number): void {
+    console.log("[Game] Submitting score:", score);
     if (
-      typeof (window as unknown as { triggerHaptic?: (type: string) => void })
-        .triggerHaptic === "function"
+      typeof (window as unknown as { submitScore?: (score: number) => void })
+        .submitScore === "function"
     ) {
       (
-        window as unknown as { triggerHaptic: (type: string) => void }
-      ).triggerHaptic(type);
+        window as unknown as { submitScore: (score: number) => void }
+      ).submitScore(score);
     }
   }
 
@@ -899,5 +933,9 @@ export class Game {
 
     // Return to start screen
     this.setPhase("START");
+  }
+
+  setPlayerName(name: string): void {
+    this.network.setCustomName(name);
   }
 }

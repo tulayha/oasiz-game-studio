@@ -1,4 +1,5 @@
 import { PlayerInput } from "../types";
+import { SettingsManager } from "../SettingsManager";
 
 const DOUBLE_TAP_WINDOW = 300; // ms
 
@@ -122,14 +123,7 @@ export class InputManager {
   private triggerHaptic(
     type: "light" | "medium" | "heavy" | "success" | "error",
   ): void {
-    if (
-      typeof (window as unknown as { triggerHaptic?: (type: string) => void })
-        .triggerHaptic === "function"
-    ) {
-      (
-        window as unknown as { triggerHaptic: (type: string) => void }
-      ).triggerHaptic(type);
-    }
+    SettingsManager.triggerHaptic(type);
   }
 
   getIsMobile(): boolean {
