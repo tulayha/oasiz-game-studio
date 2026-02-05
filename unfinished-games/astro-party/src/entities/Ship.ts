@@ -19,11 +19,14 @@ export class Ship {
     y: number,
     playerId: string,
     color: PlayerColor,
+    initialAngle: number = 0,
   ) {
     this.physics = physics;
     this.playerId = playerId;
     this.color = color;
     this.body = physics.createShip(x, y, playerId);
+    // Set initial facing direction
+    Body.setAngle(this.body, initialAngle);
   }
 
   applyInput(
@@ -34,25 +37,21 @@ export class Ship {
 
     const angle = this.body.angle;
 
-    // ALWAYS apply base forward thrust - ship is never stationary
+    // ALWAYS apply base forward thrust in the direction the ship is facing
+    // When ship rotates, its facing direction changes, so thrust direction changes automatically
     Body.applyForce(this.body, this.body.position, {
       x: Math.cos(angle) * GAME_CONFIG.BASE_THRUST,
       y: Math.sin(angle) * GAME_CONFIG.BASE_THRUST,
     });
 
-    // Button A: Rotate clockwise + slight thrust bonus
+    // Button A: ONLY rotate the ship (no extra thrust)
+    // The thrust direction changes because the ship's angle changes
     if (input.buttonA) {
       Body.setAngularVelocity(this.body, 0);
       Body.rotate(this.body, GAME_CONFIG.ROTATION_SPEED * dt);
-
-      // Extra thrust while rotating
-      Body.applyForce(this.body, this.body.position, {
-        x: Math.cos(angle) * GAME_CONFIG.ROTATION_THRUST_BONUS,
-        y: Math.sin(angle) * GAME_CONFIG.ROTATION_THRUST_BONUS,
-      });
     }
 
-    // Button A double-tap: Super Dash
+    // Button A double-tap: Super Dash (burst of thrust)
     if (input.dashTriggered) {
       Body.applyForce(this.body, this.body.position, {
         x: Math.cos(angle) * GAME_CONFIG.DASH_FORCE,

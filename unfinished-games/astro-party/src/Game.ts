@@ -245,7 +245,14 @@ export class Game {
       playerIds.forEach((playerId, index) => {
         const spawn = spawnPoints[index];
         const color = PLAYER_COLORS[index % PLAYER_COLORS.length];
-        const ship = new Ship(this.physics, spawn.x, spawn.y, playerId, color);
+        const ship = new Ship(
+          this.physics,
+          spawn.x,
+          spawn.y,
+          playerId,
+          color,
+          spawn.angle,
+        );
         ship.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
         this.ships.set(playerId, ship);
 
@@ -263,18 +270,33 @@ export class Game {
     count: number,
     width: number,
     height: number,
-  ): { x: number; y: number }[] {
+  ): { x: number; y: number; angle: number }[] {
     const padding = 100;
-    const points: { x: number; y: number }[] = [];
 
-    // Corners
+    // Corners with angles facing toward arena center (first free direction clockwise after wall)
+    // Top-left: walls on top & left, clockwise from up -> first free after wall is RIGHT
+    // Top-right: walls on top & right, first free after right wall is DOWN
+    // Bottom-right: walls on right & bottom, first free after bottom wall is LEFT
+    // Bottom-left: walls on left & bottom, first free after left wall is UP
     const corners = [
-      { x: padding, y: padding },
-      { x: width - padding, y: padding },
-      { x: width - padding, y: height - padding },
-      { x: padding, y: height - padding },
+      { x: padding, y: padding, angle: 0 }, // Top-left -> face RIGHT
+      { x: width - padding, y: padding, angle: Math.PI / 2 }, // Top-right -> face DOWN
+      { x: width - padding, y: height - padding, angle: Math.PI }, // Bottom-right -> face LEFT
+      { x: padding, y: height - padding, angle: -Math.PI / 2 }, // Bottom-left -> face UP
     ];
 
+    // For 2 players: use opposite corners (diagonal)
+    if (count === 2) {
+      return [corners[0], corners[2]]; // Top-left and Bottom-right
+    }
+
+    // For 3 players: triangle formation
+    if (count === 3) {
+      return [corners[0], corners[1], corners[2]];
+    }
+
+    // For 4 players: all corners
+    const points: { x: number; y: number; angle: number }[] = [];
     for (let i = 0; i < count; i++) {
       points.push(corners[i % corners.length]);
     }
@@ -342,14 +364,31 @@ export class Game {
       killer.kills++;
       this.network.updateKills(killerId, killer.kills);
 
-      // Check win condition
+      // Check win condition by kills
       if (killer.kills >= GAME_CONFIG.KILLS_TO_WIN) {
         this.endGame(killerId);
+        return;
       }
     }
 
+    // Check win condition by elimination
+    // If only one player is not spectating, they win
+    this.checkEliminationWin();
+
     this.onPlayersUpdate?.([...this.players.values()]);
     this.triggerHaptic("success");
+  }
+
+  private checkEliminationWin(): void {
+    // Count players who are still alive (not spectating)
+    const alivePlayers = [...this.players.values()].filter(
+      (p) => p.state !== "SPECTATING",
+    );
+
+    // If only one player remains, they win
+    if (alivePlayers.length === 1 && this.players.size > 1) {
+      this.endGame(alivePlayers[0].id);
+    }
   }
 
   private respawnPlayer(
@@ -361,8 +400,23 @@ export class Game {
 
     const color = player.color;
 
-    // Spawn ship at the provided position (pilot's position)
-    const ship = new Ship(this.physics, position.x, position.y, playerId, color);
+    // Calculate angle to face toward arena center
+    const centerX = GAME_CONFIG.ARENA_WIDTH / 2;
+    const centerY = GAME_CONFIG.ARENA_HEIGHT / 2;
+    const angleToCenter = Math.atan2(
+      centerY - position.y,
+      centerX - position.x,
+    );
+
+    // Spawn ship at the provided position (pilot's position), facing center
+    const ship = new Ship(
+      this.physics,
+      position.x,
+      position.y,
+      playerId,
+      color,
+      angleToCenter,
+    );
     ship.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
     this.ships.set(playerId, ship);
 
@@ -417,8 +471,7 @@ export class Game {
 
     window.addEventListener("resize", () => {
       this.renderer.resize();
-      this.renderer.initStars();
-      // Walls don't need to be recreated - arena size is fixed
+      // Stars and walls don't need to be recreated - arena size is fixed
     });
 
     this.lastTime = performance.now();
@@ -530,17 +583,16 @@ export class Game {
   }
 
   private applyNetworkState(state: GameStateSync): void {
-    // Update phase
-    if (state.phase !== this.phase) {
-      this.phase = state.phase;
-      this.onPhaseChange?.(state.phase);
-    }
-
-    // Update players
+    // Update players FIRST so names are available
     state.players.forEach((playerData) => {
       this.players.set(playerData.id, playerData);
     });
     this.onPlayersUpdate?.([...this.players.values()]);
+
+    // Update winner BEFORE phase change so name is available in callback
+    if (state.winnerId) {
+      this.winnerId = state.winnerId;
+    }
 
     // Update countdown
     if (state.countdown !== undefined) {
@@ -548,9 +600,10 @@ export class Game {
       this.onCountdownUpdate?.(this.countdown);
     }
 
-    // Update winner
-    if (state.winnerId) {
-      this.winnerId = state.winnerId;
+    // Update phase LAST so all data is ready when callback fires
+    if (state.phase !== this.phase) {
+      this.phase = state.phase;
+      this.onPhaseChange?.(state.phase);
     }
 
     // Note: For a production game, we'd also sync entity positions
@@ -569,26 +622,27 @@ export class Game {
     this.renderer.clear();
     this.renderer.beginFrame();
 
-    // Draw background
+    // Draw background stars (in arena coordinates)
     this.renderer.drawStars();
+
+    // Draw arena border
+    this.renderer.drawArenaBorder();
 
     if (this.phase === "PLAYING" || this.phase === "GAME_END") {
       const isHost = this.network.isHost();
 
-      // Draw ships
+      // Draw ships (thrust animation always on since ship always thrusts forward)
       if (isHost) {
-        this.ships.forEach((ship, playerId) => {
+        this.ships.forEach((ship) => {
           if (ship.alive) {
-            const input = this.pendingInputs.get(playerId);
-            const isThrusting = input?.buttonB ?? false;
-            this.renderer.drawShip(ship.getState(), ship.color, isThrusting);
+            this.renderer.drawShip(ship.getState(), ship.color);
           }
         });
       } else {
         this.networkShips.forEach((state) => {
           if (state.alive) {
             const color = this.network.getPlayerColor(state.playerId);
-            this.renderer.drawShip(state, color, false);
+            this.renderer.drawShip(state, color);
           }
         });
       }
@@ -623,7 +677,7 @@ export class Game {
       this.renderer.drawParticles();
     }
 
-    // Draw countdown
+    // Draw countdown (in arena coordinates)
     if (this.phase === "COUNTDOWN" && this.countdown > 0) {
       this.renderer.drawCountdown(this.countdown);
     } else if (this.phase === "COUNTDOWN" && this.countdown === 0) {

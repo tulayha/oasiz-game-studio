@@ -92,7 +92,7 @@ export class Renderer {
 
   // ============= SHIP RENDERING =============
 
-  drawShip(state: ShipState, color: PlayerColor, isThrusting: boolean): void {
+  drawShip(state: ShipState, color: PlayerColor): void {
     const { ctx } = this;
     const { x, y, angle, invulnerableUntil } = state;
     const isInvulnerable = Date.now() < invulnerableUntil;
@@ -108,20 +108,20 @@ export class Renderer {
 
     const size = 15;
 
-    // Engine glow when thrusting
-    if (isThrusting) {
-      ctx.fillStyle = "#ff4400";
-      ctx.globalAlpha = (ctx.globalAlpha || 1) * 0.7;
-      ctx.beginPath();
-      ctx.moveTo(-size * 0.4, 0);
-      ctx.lineTo(-size * 0.7, -size * 0.3);
-      ctx.lineTo(-size * 1.2 - Math.random() * size * 0.3, 0);
-      ctx.lineTo(-size * 0.7, size * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.globalAlpha =
-        isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.5 : 1;
-    }
+    // Engine glow - ALWAYS on since ship always thrusts forward
+    // Use pre-calculated random offset to avoid flicker
+    const flameLength = size * 0.8 + Math.sin(Date.now() * 0.02) * size * 0.2;
+    ctx.fillStyle = "#ff4400";
+    const baseAlpha = isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.35 : 0.7;
+    ctx.globalAlpha = baseAlpha;
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.4, 0);
+    ctx.lineTo(-size * 0.7, -size * 0.3);
+    ctx.lineTo(-size * 0.4 - flameLength, 0);
+    ctx.lineTo(-size * 0.7, size * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.5 : 1;
 
     // Glow effect
     ctx.shadowColor = color.glow;
@@ -340,11 +340,14 @@ export class Renderer {
 
   initStars(): void {
     this.stars = [];
-    const count = Math.floor((this.canvas.width * this.canvas.height) / 3000);
+    // Stars are in arena coordinates (within the fixed arena size)
+    const count = Math.floor(
+      (GAME_CONFIG.ARENA_WIDTH * GAME_CONFIG.ARENA_HEIGHT) / 4000,
+    );
     for (let i = 0; i < count; i++) {
       this.stars.push({
-        x: Math.random() * this.canvas.width,
-        y: Math.random() * this.canvas.height,
+        x: Math.random() * GAME_CONFIG.ARENA_WIDTH,
+        y: Math.random() * GAME_CONFIG.ARENA_HEIGHT,
         size: 0.5 + Math.random() * 1.5,
         brightness: 0.3 + Math.random() * 0.7,
         twinkleSpeed: 1 + Math.random() * 3,
@@ -357,6 +360,7 @@ export class Renderer {
     const { ctx } = this;
     const time = performance.now() / 1000;
 
+    // Stars are drawn in arena coordinates (already transformed)
     for (const star of this.stars) {
       const twinkle =
         0.5 + 0.5 * Math.sin(time * star.twinkleSpeed + star.twinkleOffset);
@@ -368,12 +372,47 @@ export class Renderer {
     }
   }
 
+  // ============= ARENA BORDER =============
+
+  drawArenaBorder(): void {
+    const { ctx } = this;
+    const w = GAME_CONFIG.ARENA_WIDTH;
+    const h = GAME_CONFIG.ARENA_HEIGHT;
+    const borderWidth = 4;
+
+    // Neon border glow
+    ctx.save();
+    ctx.strokeStyle = "#00f0ff";
+    ctx.shadowColor = "#00f0ff";
+    ctx.shadowBlur = 20;
+    ctx.lineWidth = borderWidth;
+
+    // Draw rounded rectangle border
+    const radius = 20;
+    ctx.beginPath();
+    ctx.moveTo(radius, 0);
+    ctx.lineTo(w - radius, 0);
+    ctx.arcTo(w, 0, w, radius, radius);
+    ctx.lineTo(w, h - radius);
+    ctx.arcTo(w, h, w - radius, h, radius);
+    ctx.lineTo(radius, h);
+    ctx.arcTo(0, h, 0, h - radius, radius);
+    ctx.lineTo(0, radius);
+    ctx.arcTo(0, 0, radius, 0, radius);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Inner dim fill for area outside arena (corners if visible)
+    ctx.restore();
+  }
+
   // ============= UI ELEMENTS =============
 
   drawCountdown(count: number): void {
     const { ctx } = this;
     const text = count > 0 ? count.toString() : "FIGHT!";
 
+    // Countdown is drawn in arena coordinates (already transformed)
     ctx.save();
     ctx.font = "bold 80px Orbitron, sans-serif";
     ctx.fillStyle = count > 0 ? "#ffee00" : "#00ff88";
@@ -381,7 +420,12 @@ export class Renderer {
     ctx.textBaseline = "middle";
     ctx.shadowColor = ctx.fillStyle;
     ctx.shadowBlur = 30;
-    ctx.fillText(text, this.canvas.width / 2, this.canvas.height / 2);
+    // Center of arena
+    ctx.fillText(
+      text,
+      GAME_CONFIG.ARENA_WIDTH / 2,
+      GAME_CONFIG.ARENA_HEIGHT / 2,
+    );
     ctx.restore();
   }
 
