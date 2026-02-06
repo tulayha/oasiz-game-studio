@@ -6,6 +6,9 @@ const DOUBLE_TAP_WINDOW = 300; // ms
 export class InputManager {
   buttonA = false;
   buttonB = false;
+  // Dev keys for testing powerups
+  devKeyO = false;
+  devKeyP = false;
   private wasButtonA = false;
   private lastButtonATime = 0;
   private onDashDetected: (() => void) | null = null;
@@ -34,6 +37,15 @@ export class InputManager {
         e.preventDefault();
         this.buttonB = true;
       }
+      // Dev keys for testing powerups (O = Laser, P = Shield)
+      if (e.code === "KeyO") {
+        e.preventDefault();
+        this.devKeyO = true;
+      }
+      if (e.code === "KeyP") {
+        e.preventDefault();
+        this.devKeyP = true;
+      }
     });
 
     window.addEventListener("keyup", (e) => {
@@ -42,6 +54,12 @@ export class InputManager {
       }
       if (e.code === "KeyD" || e.code === "ArrowRight" || e.code === "Space") {
         this.buttonB = false;
+      }
+      if (e.code === "KeyO") {
+        this.devKeyO = false;
+      }
+      if (e.code === "KeyP") {
+        this.devKeyP = false;
       }
     });
   }
@@ -133,11 +151,21 @@ export class InputManager {
     return this.isMobile;
   }
 
+  // Dev keys for testing - returns which dev key was pressed
+  consumeDevKeys(): { laser: boolean; shield: boolean } {
+    const result = { laser: this.devKeyO, shield: this.devKeyP };
+    this.devKeyO = false;
+    this.devKeyP = false;
+    return result;
+  }
+
   // Clear all input state (call on round end)
   reset(): void {
     this.buttonA = false;
     this.buttonB = false;
     this.wasButtonA = false;
     this.lastButtonATime = 0;
+    this.devKeyO = false;
+    this.devKeyP = false;
   }
 }

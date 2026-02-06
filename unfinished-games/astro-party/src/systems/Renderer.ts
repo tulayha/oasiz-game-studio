@@ -3,6 +3,8 @@ import {
   PilotState,
   ProjectileState,
   AsteroidState,
+  PowerUpState,
+  LaserBeamState,
   Particle,
   PlayerColor,
   PLAYER_COLORS,
@@ -109,21 +111,67 @@ export class Renderer {
 
   // ============= SHIP RENDERING =============
 
-  drawShip(state: ShipState, color: PlayerColor): void {
+  drawShip(
+    state: ShipState,
+    color: PlayerColor,
+    shieldHits?: number,
+    laserCharges?: number,
+    laserCooldownProgress?: number,
+  ): void {
     const { ctx } = this;
     const { x, y, angle, invulnerableUntil } = state;
     const isInvulnerable = Date.now() < invulnerableUntil;
+    const size = 15;
 
     ctx.save();
     ctx.translate(x, y);
+
+    // Draw shield if present
+    if (shieldHits !== undefined && shieldHits < GAME_CONFIG.POWERUP_SHIELD_HITS) {
+      this.drawShield(0, 0, shieldHits);
+    }
+
+    // Draw laser cooldown circle (outside the rotation)
+    if (laserCooldownProgress !== undefined && laserCooldownProgress < 1) {
+      ctx.strokeStyle = "#ff0066";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * laserCooldownProgress);
+      ctx.stroke();
+    }
+
     ctx.rotate(angle);
+
+    // Draw laser charge indicators on ship tail
+    if (laserCharges !== undefined && laserCharges > 0) {
+      const maxCharges = GAME_CONFIG.POWERUP_LASER_CHARGES;
+      const dotSize = 3;
+      const spacing = 8;
+      const startX = -size * 0.8;
+      const startY = -((maxCharges - 1) * spacing) / 2;
+
+      for (let i = 0; i < maxCharges; i++) {
+        const dotX = startX - (i % 2) * 5; // Slight offset for visual interest
+        const dotY = startY + i * spacing;
+        
+        // Red if available, dark gray/black if used
+        const isAvailable = i < laserCharges;
+        ctx.fillStyle = isAvailable ? "#ff0044" : "#333333";
+        ctx.strokeStyle = isAvailable ? "#ff6688" : "#222222";
+        ctx.lineWidth = 1;
+        
+        // Draw bullet-like shape
+        ctx.beginPath();
+        ctx.ellipse(dotX, dotY, dotSize, dotSize * 1.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
 
     // Flash when invulnerable
     if (isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0) {
       ctx.globalAlpha = 0.5;
     }
-
-    const size = 15;
 
     // Engine glow - ALWAYS on since ship always thrusts forward
     // Use pre-calculated random offset to avoid flicker
@@ -428,6 +476,171 @@ export class Renderer {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+
+  // ============= POWER-UP RENDERING =============
+
+  drawPowerUp(state: PowerUpState): void {
+    const { ctx } = this;
+    const { x, y, type, spawnTime } = state;
+    const size = GAME_CONFIG.POWERUP_SIZE;
+    const remainingTime = Math.max(0, GAME_CONFIG.POWERUP_DESPAWN_TIME - (Date.now() - spawnTime));
+    const progress = remainingTime / GAME_CONFIG.POWERUP_DESPAWN_TIME;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Draw despawn ring
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.stroke();
+
+    // Draw power-up box
+    ctx.fillStyle = type === "LASER" ? "#ff0066" : "#00ccff";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+
+    // Glow effect
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 15;
+
+    // Draw square box
+    ctx.fillRect(-size / 2, -size / 2, size, size);
+    ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+    ctx.shadowBlur = 0;
+
+    // Draw symbol
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 14px Arial";
+    
+    if (type === "LASER") {
+      // Draw laser symbol (lightning bolt)
+      ctx.beginPath();
+      ctx.moveTo(2, -8);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(0, 0);
+      ctx.lineTo(-2, 8);
+      ctx.lineTo(4, 0);
+      ctx.lineTo(0, 0);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // Draw shield symbol (circle)
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // ============= LASER BEAM RENDERING =============
+
+  drawLaserBeam(state: LaserBeamState): void {
+    const { ctx } = this;
+    const { x, y, angle, id } = state;
+    const beamLength = GAME_CONFIG.POWERUP_BEAM_LENGTH;
+    const beamWidth = GAME_CONFIG.POWERUP_BEAM_WIDTH;
+    // Use deterministic offsets based on beam id to avoid flickering
+    const baseOffset = (id.charCodeAt(id.length - 1) % 10) / 10;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    // Main beam gradient
+    const gradient = ctx.createLinearGradient(0, -beamWidth / 2, 0, beamWidth / 2);
+    gradient.addColorStop(0, "rgba(255, 0, 100, 0.3)");
+    gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.9)");
+    gradient.addColorStop(1, "rgba(255, 0, 100, 0.3)");
+
+    // Draw main beam
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, -beamWidth / 2, beamLength, beamWidth);
+
+    // Core beam (bright white center)
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.fillRect(0, -beamWidth / 4, beamLength, beamWidth / 2);
+
+    // Wire-like effect (sharp lines) - deterministic based on id
+    ctx.strokeStyle = "rgba(255, 150, 200, 0.6)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      const offset = ((baseOffset + i * 0.2) % 1 - 0.5) * beamWidth * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(0, offset);
+      ctx.lineTo(beamLength, offset + Math.sin(i * 1.5 + baseOffset * Math.PI) * 5);
+      ctx.stroke();
+    }
+
+    // Glow effect at beam origin
+    const glowGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 30);
+    glowGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    glowGradient.addColorStop(0.5, "rgba(255, 0, 100, 0.5)");
+    glowGradient.addColorStop(1, "transparent");
+    ctx.fillStyle = glowGradient;
+    ctx.beginPath();
+    ctx.arc(0, 0, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ============= SHIELD RENDERING =============
+
+  drawShield(x: number, y: number, hits: number): void {
+    const { ctx } = this;
+    
+    // Color based on hits: 0 = blue, 1 = red
+    const isDamaged = hits >= 1;
+    const alpha = 0.4;
+    const color = isDamaged ? `rgba(255, 50, 50, ${alpha})` : `rgba(50, 150, 255, ${alpha})`;
+    const glowColor = isDamaged ? "#ff3333" : "#3399ff";
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Glow effect
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 20;
+
+    // Draw oval shield
+    ctx.fillStyle = color;
+    ctx.strokeStyle = glowColor;
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 25, 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  spawnShieldBreakDebris(x: number, y: number): void {
+    // Spawn glass-like debris when shield breaks
+    const pieceCount = 8 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < pieceCount; i++) {
+      const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
+      const speed = 40 + Math.random() * 60;
+      const life = 0.4 + Math.random() * 0.4;
+      
+      this.particles.push({
+        x: x + Math.cos(angle) * 20,
+        y: y + Math.sin(angle) * 15,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed + 30, // Add downward gravity effect
+        life,
+        maxLife: life,
+        size: 3 + Math.random() * 4,
+        color: "#88ccff",
+      });
+    }
   }
 
   // ============= STARS BACKGROUND =============

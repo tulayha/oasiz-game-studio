@@ -69,6 +69,35 @@ export interface AsteroidState {
   vertices: { x: number; y: number }[];
 }
 
+export interface PowerUpState {
+  id: string;
+  x: number;
+  y: number;
+  type: PowerUpType;
+  spawnTime: number;
+  alive: boolean;
+}
+
+export interface LaserBeamState {
+  id: string;
+  ownerId: string;
+  x: number;
+  y: number;
+  angle: number;
+  spawnTime: number;
+  alive: boolean;
+}
+
+export type PowerUpType = "LASER" | "SHIELD";
+
+export interface PlayerPowerUp {
+  type: PowerUpType;
+  charges: number;
+  maxCharges: number;
+  lastFireTime: number;
+  shieldHits: number;
+}
+
 // ============= PLAYER =============
 
 export interface PlayerData {
@@ -99,7 +128,10 @@ export interface GameStateSync {
   pilots: PilotState[];
   projectiles: ProjectileState[];
   asteroids: AsteroidState[];
+  powerUps: PowerUpState[];
+  laserBeams: LaserBeamState[];
   players: PlayerData[];
+  playerPowerUps: Record<string, PlayerPowerUp | null>;
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
 
@@ -179,4 +211,14 @@ export const GAME_CONFIG = {
   ASTEROID_SPAWN_BATCH_MIN: 1,
   ASTEROID_SPAWN_BATCH_MAX: 3,
   ASTEROID_SPAWN_MARGIN: 100, // Distance outside arena to spawn
+
+  // Power-ups
+  POWERUP_DESPAWN_TIME: 10000, // ms (10 seconds)
+  POWERUP_DROP_CHANCE: 0.3, // 30% chance from asteroid
+  POWERUP_SIZE: 25,
+  POWERUP_LASER_CHARGES: 3,
+  POWERUP_LASER_COOLDOWN: 2500, // ms (2.5 seconds between shots)
+  POWERUP_SHIELD_HITS: 2,
+  POWERUP_BEAM_LENGTH: 800, // Beam length - long but not game-breaking
+  POWERUP_BEAM_WIDTH: 8,
 } as const;

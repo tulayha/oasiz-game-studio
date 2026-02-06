@@ -32,6 +32,10 @@ export interface CollisionCallbacks {
     pilotPlayerId: string,
     asteroidBody: Matter.Body,
   ) => void;
+  onShipHitPowerUp: (
+    shipPlayerId: string,
+    powerUpBody: Matter.Body,
+  ) => void;
 }
 
 export function setupCollisions(
@@ -174,6 +178,20 @@ export function setupCollisions(
 
         if (pilotPlayerId) {
           callbacks.onPilotHitAsteroid(pilotPlayerId, asteroid);
+        }
+      }
+
+      // Ship hits PowerUp
+      if (
+        (labelA === "ship" && labelB === "powerup") ||
+        (labelA === "powerup" && labelB === "ship")
+      ) {
+        const ship = getBody("ship")!;
+        const powerUp = getBody("powerup")!;
+        const shipPlayerId = ship.plugin?.playerId as string;
+
+        if (shipPlayerId) {
+          callbacks.onShipHitPowerUp(shipPlayerId, powerUp);
         }
       }
     }

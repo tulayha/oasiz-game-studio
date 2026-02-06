@@ -114,7 +114,7 @@ export class Physics {
       density: 0.001,
       collisionFilter: {
         category: 0x0001, // Ship category
-        mask: 0x0002 | 0x0004 | 0x0008, // Collide with projectiles (2), asteroids (4), and walls (8)
+        mask: 0x0002 | 0x0004 | 0x0008 | 0x0010, // Collide with projectiles (2), asteroids (4), walls (8), and powerups (16)
       },
     });
 
@@ -214,6 +214,33 @@ export class Physics {
 
     body.plugin = body.plugin || {};
     body.plugin.entityType = "asteroid";
+
+    Composite.add(this.world, body);
+    return body;
+  }
+
+  createPowerUp(
+    x: number,
+    y: number,
+    type: import("../types").PowerUpType,
+  ): Matter.Body {
+    const size = GAME_CONFIG.POWERUP_SIZE;
+    const body = Bodies.rectangle(x, y, size, size, {
+      label: "powerup",
+      isStatic: true,
+      isSensor: true, // Power-ups are pickups, not physical obstacles
+      frictionAir: 0,
+      restitution: 0,
+      friction: 0,
+      collisionFilter: {
+        category: 0x0010, // Power-up category (16)
+        mask: 0x0001, // Only collide with ships (1)
+      },
+    });
+
+    body.plugin = body.plugin || {};
+    body.plugin.entityType = "powerup";
+    body.plugin.powerUpType = type;
 
     Composite.add(this.world, body);
     return body;
