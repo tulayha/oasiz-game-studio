@@ -9,8 +9,16 @@ import {
   getRoomCode,
   RPC,
   resetPlayersStates,
-  PlayerState as PlayroomPlayerState,
+  addBot,
+  PlayerState as BasePlayerState,
 } from "playroomkit";
+import { AstroBot } from "../entities/AstroBot";
+
+// Extend PlayroomKit PlayerState to include bot methods (not in official types yet)
+interface PlayroomPlayerState extends BasePlayerState {
+  isBot?: () => boolean;
+  bot?: AstroBot;
+}
 import {
   GameStateSync,
   GamePhase,
@@ -53,10 +61,15 @@ export class NetworkManager {
     await insertCoin({
       skipLobby: true,
       maxPlayersPerRoom: 4,
+      enableBots: true,
+      botOptions: {
+        botClass: AstroBot,
+      },
       defaultPlayerStates: {
         kills: 0,
         playerState: "ACTIVE",
         input: null,
+        botType: null, // 'ai' | 'local' | null
       },
     });
 
@@ -81,10 +94,15 @@ export class NetworkManager {
         skipLobby: true,
         maxPlayersPerRoom: 4,
         roomCode: roomCode,
+        enableBots: true,
+        botOptions: {
+          botClass: AstroBot,
+        },
         defaultPlayerStates: {
           kills: 0,
           playerState: "ACTIVE",
           input: null,
+          botType: null,
         },
       });
 
@@ -384,5 +402,161 @@ export class NetworkManager {
         window as unknown as { shareRoomCode: (code: string | null) => void }
       ).shareRoomCode(code);
     }
+  }
+
+  // ============= BOT MANAGEMENT =============
+
+  // Add an AI bot to the room (host only)
+  async addAIBot(): Promise<AstroBot | null> {
+    if (!isHost()) {
+      console.log("[NetworkManager] Only host can add bots");
+      return null;
+    }
+
+    if (this.players.size >= 4) {
+      console.log("[NetworkManager] Room is full");
+      return null;
+    }
+
+    try {
+      console.log("[NetworkManager] Adding AI bot...");
+      const bot = (await addBot()) as AstroBot;
+
+      // Mark this bot as AI type
+      const botPlayer = this.getPlayerByBot(bot);
+      if (botPlayer) {
+        botPlayer.setState("botType", "ai", true);
+        botPlayer.setState("customName", `Bot ${this.getBotCount()}`, true);
+      }
+
+      return bot;
+    } catch (e) {
+      console.error("[NetworkManager] Failed to add bot:", e);
+      return null;
+    }
+  }
+
+  // Add a local human bot (host only, offline only)
+  async addLocalBot(keySlot: number): Promise<AstroBot | null> {
+    if (!isHost()) {
+      console.log("[NetworkManager] Only host can add local players");
+      return null;
+    }
+
+    if (this.players.size >= 4) {
+      console.log("[NetworkManager] Room is full");
+      return null;
+    }
+
+    // Check if any remote players exist (local bots only allowed offline)
+    if (this.hasRemotePlayers()) {
+      console.log("[NetworkManager] Cannot add local players when remote players are in room");
+      return null;
+    }
+
+    try {
+      console.log("[NetworkManager] Adding local player with keySlot:", keySlot);
+      const bot = (await addBot()) as AstroBot;
+
+      // Mark this bot as local type with key slot
+      const botPlayer = this.getPlayerByBot(bot);
+      if (botPlayer) {
+        botPlayer.setState("botType", "local", true);
+        botPlayer.setState("keySlot", keySlot, true);
+        botPlayer.setState("customName", `Player ${this.players.size}`, true);
+      }
+
+      return bot;
+    } catch (e) {
+      console.error("[NetworkManager] Failed to add local player:", e);
+      return null;
+    }
+  }
+
+  // Remove a bot (host only)
+  async removeBot(playerId: string): Promise<boolean> {
+    if (!isHost()) {
+      console.log("[NetworkManager] Only host can remove bots");
+      return false;
+    }
+
+    const player = this.players.get(playerId);
+    if (!player) {
+      console.log("[NetworkManager] Player not found:", playerId);
+      return false;
+    }
+
+    if (!player.isBot?.()) {
+      console.log("[NetworkManager] Player is not a bot:", playerId);
+      return false;
+    }
+
+    try {
+      await player.kick();
+      console.log("[NetworkManager] Bot removed:", playerId);
+      return true;
+    } catch (e) {
+      console.error("[NetworkManager] Failed to remove bot:", e);
+      return false;
+    }
+  }
+
+  // Check if a player is a bot
+  isPlayerBot(playerId: string): boolean {
+    const player = this.players.get(playerId);
+    return player?.isBot?.() ?? false;
+  }
+
+  // Get bot type for a player ('ai' | 'local' | null)
+  getPlayerBotType(playerId: string): "ai" | "local" | null {
+    const player = this.players.get(playerId);
+    if (!player?.isBot?.()) return null;
+    return (player.getState("botType") as "ai" | "local") || "ai";
+  }
+
+  // Get key slot for local bot
+  getPlayerKeySlot(playerId: string): number {
+    const player = this.players.get(playerId);
+    return (player?.getState("keySlot") as number) ?? -1;
+  }
+
+  // Get the PlayroomKit player object
+  getPlayer(playerId: string): PlayroomPlayerState | undefined {
+    return this.players.get(playerId);
+  }
+
+  // Check if there are any remote (non-local) players besides the host
+  hasRemotePlayers(): boolean {
+    const myId = myPlayer()?.id;
+    for (const [playerId, player] of this.players) {
+      if (playerId !== myId && !player.isBot?.()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Get count of bots in the room
+  getBotCount(): number {
+    let count = 0;
+    for (const player of this.players.values()) {
+      if (player.isBot?.()) count++;
+    }
+    return count;
+  }
+
+  // Get bot instance from player
+  private getPlayerByBot(bot: AstroBot): PlayroomPlayerState | null {
+    // Find the player that has this bot instance
+    for (const player of this.players.values()) {
+      if (player.isBot?.()) {
+        // Check if this is the newly added bot by checking if we haven't set botType yet
+        const botType = player.getState("botType");
+        if (!botType) {
+          return player;
+        }
+      }
+    }
+    return null;
   }
 }

@@ -1,11 +1,13 @@
 import { Physics } from "./systems/Physics";
 import { Renderer } from "./systems/Renderer";
 import { InputManager } from "./systems/Input";
+import { MultiInputManager } from "./systems/MultiInputManager";
 import { setupCollisions } from "./systems/Collision";
 import { NetworkManager } from "./network/NetworkManager";
 import { Ship } from "./entities/Ship";
 import { Pilot } from "./entities/Pilot";
 import { Projectile } from "./entities/Projectile";
+import { BotVisibleData } from "./entities/AstroBot";
 import { SettingsManager } from "./SettingsManager";
 import { AudioManager } from "./AudioManager";
 import {
@@ -34,6 +36,8 @@ export class Game {
 
   private pendingInputs: Map<string, PlayerInput> = new Map();
   private pendingDashes: Set<string> = new Set(); // Dash requests received via RPC
+  private multiInput: MultiInputManager | null = null; // For local human bots
+  private localPlayerSlots: Map<string, number> = new Map(); // playerId -> keySlot
   private countdown: number = 0;
   private countdownInterval: ReturnType<typeof setInterval> | null = null;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -54,6 +58,7 @@ export class Game {
     this.renderer = new Renderer(canvas);
     this.input = new InputManager();
     this.network = new NetworkManager();
+    this.multiInput = new MultiInputManager();
 
     this.setupCollisions();
     this.input.setup();
@@ -742,6 +747,7 @@ export class Game {
     this.pendingInputs.clear();
     this.pendingDashes.clear();
     this.input.reset();
+    this.multiInput?.reset();
 
     // Reset player scores
     this.players.forEach((player) => {
@@ -796,17 +802,52 @@ export class Game {
     if (this.network.isHost()) {
       // Apply inputs to ships
       this.ships.forEach((ship, playerId) => {
-        const input = this.pendingInputs.get(playerId) || {
-          buttonA: false,
-          buttonB: false,
-          dashTriggered: false,
-          timestamp: 0,
-        };
+        let input: PlayerInput;
+        let shouldDash = false;
 
-        // Check for pending dash (received via RPC)
-        const shouldDash = this.pendingDashes.has(playerId);
-        if (shouldDash) {
-          this.pendingDashes.delete(playerId);
+        // Check if this player is a bot
+        const isBot = this.network.isPlayerBot(playerId);
+        const botType = this.network.getPlayerBotType(playerId);
+
+        if (isBot && botType === "ai") {
+          // AI bot - get decision from bot's AI
+          const player = this.network.getPlayer(playerId);
+          const bot = player?.bot;
+          if (bot) {
+            const botData = this.getBotVisibleData(playerId);
+            const action = bot.decideAction(botData);
+            input = {
+              buttonA: action.buttonA,
+              buttonB: action.buttonB,
+              timestamp: performance.now(),
+            };
+            shouldDash = action.dash;
+          } else {
+            input = { buttonA: false, buttonB: false, timestamp: 0 };
+          }
+        } else if (isBot && botType === "local") {
+          // Local human bot - get input from MultiInputManager
+          // (will be implemented in MultiInputManager task)
+          const keySlot = this.network.getPlayerKeySlot(playerId);
+          input = this.multiInput?.capture(keySlot) || {
+            buttonA: false,
+            buttonB: false,
+            timestamp: 0,
+          };
+          // Check for dash from multi-input
+          shouldDash = this.multiInput?.consumeDash(keySlot) || false;
+        } else {
+          // Human player - get input from network
+          input = this.pendingInputs.get(playerId) || {
+            buttonA: false,
+            buttonB: false,
+            timestamp: 0,
+          };
+          // Check for pending dash (received via RPC)
+          shouldDash = this.pendingDashes.has(playerId);
+          if (shouldDash) {
+            this.pendingDashes.delete(playerId);
+          }
         }
 
         const fireResult = ship.applyInput(input, shouldDash, dt);
@@ -1081,5 +1122,213 @@ export class Game {
 
   setPlayerName(name: string): void {
     this.network.setCustomName(name);
+  }
+
+  // ============= BOT MANAGEMENT =============
+
+  isPlayerBot(playerId: string): boolean {
+    return this.network.isPlayerBot(playerId);
+  }
+
+  getPlayerBotType(playerId: string): "ai" | "local" | null {
+    return this.network.getPlayerBotType(playerId);
+  }
+
+  getPlayerKeySlot(playerId: string): number {
+    return this.network.getPlayerKeySlot(playerId);
+  }
+
+  hasRemotePlayers(): boolean {
+    return this.network.hasRemotePlayers();
+  }
+
+  async addAIBot(): Promise<boolean> {
+    const bot = await this.network.addAIBot();
+    return bot !== null;
+  }
+
+  async addLocalBot(keySlot: number): Promise<boolean> {
+    const bot = await this.network.addLocalBot(keySlot);
+    if (bot) {
+      // Activate the key slot for this local player
+      this.multiInput?.activateSlot(keySlot);
+
+      // We need to find the player ID for this bot after it joins
+      // The bot is added as a player, so we track it when onPlayerJoined fires
+      // For now, we'll update the mapping in a delayed check
+      setTimeout(() => {
+        for (const [playerId] of this.players) {
+          const botType = this.network.getPlayerBotType(playerId);
+          const slot = this.network.getPlayerKeySlot(playerId);
+          if (botType === "local" && slot === keySlot) {
+            this.localPlayerSlots.set(playerId, keySlot);
+            break;
+          }
+        }
+      }, 100);
+
+      return true;
+    }
+    return false;
+  }
+
+  async removeBot(playerId: string): Promise<boolean> {
+    // Deactivate the key slot if this is a local player
+    const slot = this.localPlayerSlots.get(playerId);
+    if (slot !== undefined) {
+      this.multiInput?.deactivateSlot(slot);
+      this.localPlayerSlots.delete(playerId);
+    }
+
+    return this.network.removeBot(playerId);
+  }
+
+  // Get key slots that are already in use by local players
+  getUsedKeySlots(): number[] {
+    const slots: number[] = [];
+    // Slot 0 (WASD) is always used by the host player
+    slots.push(0);
+
+    for (const [playerId] of this.players) {
+      const botType = this.network.getPlayerBotType(playerId);
+      if (botType === "local") {
+        const slot = this.network.getPlayerKeySlot(playerId);
+        if (slot >= 0) slots.push(slot);
+      }
+    }
+    return slots;
+  }
+
+  // Get info for local players (for displaying key hints)
+  getLocalPlayersInfo(): Array<{ name: string; color: string; keyPreset: string }> {
+    const localPlayers: Array<{ name: string; color: string; keyPreset: string }> = [];
+
+    // First add the host player with WASD controls
+    const myId = this.network.getMyPlayerId();
+    const myPlayer = myId ? this.players.get(myId) : null;
+    if (myPlayer) {
+      localPlayers.push({
+        name: myPlayer.name,
+        color: myPlayer.color.primary,
+        keyPreset: "A/← rotate | D/→ fire",
+      });
+    }
+
+    // Then add local bot players
+    for (const [playerId, player] of this.players) {
+      const botType = this.network.getPlayerBotType(playerId);
+      if (botType === "local") {
+        const slot = this.network.getPlayerKeySlot(playerId);
+        const keyHints = this.getKeyHintForSlot(slot);
+        localPlayers.push({
+          name: player.name,
+          color: player.color.primary,
+          keyPreset: keyHints,
+        });
+      }
+    }
+
+    return localPlayers;
+  }
+
+  // Get key hint text for a slot
+  private getKeyHintForSlot(slot: number): string {
+    switch (slot) {
+      case 1:
+        return "← rotate | →/Space fire";
+      case 2:
+        return "J rotate | L/I fire";
+      case 3:
+        return "Num4 rotate | Num6/8 fire";
+      default:
+        return "A rotate | D fire";
+    }
+  }
+
+  // Check if there are any local players (for showing hints)
+  hasLocalPlayers(): boolean {
+    for (const [playerId] of this.players) {
+      const botType = this.network.getPlayerBotType(playerId);
+      if (botType === "local") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Provide game state data to AI bots for decision making
+  private getBotVisibleData(botPlayerId: string): BotVisibleData {
+    const myShip = this.ships.get(botPlayerId);
+    const myPilot = this.pilots.get(botPlayerId);
+
+    // Collect enemy ships
+    const enemyShips: BotVisibleData["enemyShips"] = [];
+    this.ships.forEach((ship, playerId) => {
+      if (playerId !== botPlayerId && ship.alive) {
+        enemyShips.push({
+          x: ship.body.position.x,
+          y: ship.body.position.y,
+          angle: ship.body.angle,
+          vx: ship.body.velocity.x,
+          vy: ship.body.velocity.y,
+          playerId,
+        });
+      }
+    });
+
+    // Collect enemy pilots
+    const enemyPilots: BotVisibleData["enemyPilots"] = [];
+    this.pilots.forEach((pilot, playerId) => {
+      if (playerId !== botPlayerId && pilot.alive) {
+        enemyPilots.push({
+          x: pilot.body.position.x,
+          y: pilot.body.position.y,
+          vx: pilot.body.velocity.x,
+          vy: pilot.body.velocity.y,
+          playerId,
+        });
+      }
+    });
+
+    // Collect all projectiles (except own)
+    const projectiles: BotVisibleData["projectiles"] = [];
+    this.projectiles.forEach((proj) => {
+      if (proj.ownerId !== botPlayerId) {
+        projectiles.push({
+          x: proj.body.position.x,
+          y: proj.body.position.y,
+          vx: proj.body.velocity.x,
+          vy: proj.body.velocity.y,
+          ownerId: proj.ownerId,
+        });
+      }
+    });
+
+    return {
+      myShip: myShip
+        ? {
+            x: myShip.body.position.x,
+            y: myShip.body.position.y,
+            angle: myShip.body.angle,
+            vx: myShip.body.velocity.x,
+            vy: myShip.body.velocity.y,
+            alive: myShip.alive,
+          }
+        : null,
+      myPilot: myPilot
+        ? {
+            x: myPilot.body.position.x,
+            y: myPilot.body.position.y,
+            vx: myPilot.body.velocity.x,
+            vy: myPilot.body.velocity.y,
+            alive: myPilot.alive,
+          }
+        : null,
+      enemyShips,
+      enemyPilots,
+      projectiles,
+      arenaWidth: GAME_CONFIG.ARENA_WIDTH,
+      arenaHeight: GAME_CONFIG.ARENA_HEIGHT,
+    };
   }
 }

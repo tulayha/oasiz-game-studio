@@ -259,6 +259,161 @@
       box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 15px rgba(255, 255, 255, 0.5);
     }
 
+    /* Bot indicator badge */
+    .bot-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 20px;
+      height: 20px;
+      background: var(--bg-darker);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .bot-badge svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    /* Remove bot button */
+    .remove-bot-btn {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 24px;
+      height: 24px;
+      background: #ef4444;
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      z-index: 10;
+    }
+
+    .player-slot:hover .remove-bot-btn {
+      display: flex;
+    }
+
+    .player-slot.bot {
+      position: relative;
+    }
+
+    /* Key preset label for local players */
+    .key-preset {
+      font-size: 0.65rem;
+      color: rgba(255, 255, 255, 0.6);
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-top: -4px;
+    }
+
+    /* Add Bot Section */
+    .add-bot-section {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .add-bot-section.hidden {
+      display: none;
+    }
+
+    .icon-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1rem;
+      font-size: 0.85rem;
+    }
+
+    .icon-btn svg {
+      flex-shrink: 0;
+    }
+
+    /* Key Selection Modal */
+    .key-options {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .key-option {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.25rem;
+      padding: 0.75rem 1rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      width: 100%;
+      text-align: left;
+    }
+
+    .key-option:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--cyan);
+    }
+
+    .key-option:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .key-option:disabled:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .key-name {
+      font-weight: 600;
+      color: #fff;
+      font-size: 1rem;
+    }
+
+    .key-hint {
+      font-size: 0.75rem;
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    /* Local Player Hints (in-game overlay) */
+    .local-hints {
+      position: fixed;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      display: flex;
+      gap: 1.5rem;
+      z-index: 100;
+      font-size: 0.75rem;
+    }
+
+    .local-hints.hidden {
+      display: none;
+    }
+
+    .hint-row {
+      white-space: nowrap;
+    }
+
     .lobby-status {
       color: #888;
       font-size: 0.9rem;
@@ -710,6 +865,18 @@
 
     <div class="players-list" id="playersList"></div>
 
+    <!-- Add Bot Section (host only) -->
+    <div id="addBotSection" class="add-bot-section hidden">
+      <button class="btn icon-btn" id="addAIBotBtn" title="Add AI Bot">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>
+        Add AI
+      </button>
+      <button class="btn icon-btn secondary" id="addLocalPlayerBtn" title="Add Local Player (same keyboard)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 10h-2V8h-2v2h-2v2h2v2h2v-2h2v-2zM4 10V8H2v2H0v2h2v2h2v-2h2v-2H4zm9-4h-2v2h2V6zm0 4h-2v2h2v-2zm0 4h-2v2h2v-2zm4-8h-2v2h2V6zm0 4h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
+        Add Local
+      </button>
+    </div>
+
     <p class="lobby-status" id="lobbyStatus">
       Waiting for players<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>
     </p>
@@ -774,6 +941,31 @@
     </div>
     <button class="btn settings-close" id="settingsClose">Done</button>
   </div>
+
+  <!-- Key Selection Modal (for local players) -->
+  <div class="settings-backdrop" id="keySelectBackdrop"></div>
+  <div class="settings-modal" id="keySelectModal">
+    <h3 class="settings-title">Select Controls</h3>
+    <p style="color: rgba(255,255,255,0.7); text-align: center; margin-bottom: 1rem; font-size: 0.9rem;">Choose keyboard controls for the local player</p>
+    <div class="key-options" id="keyOptions">
+      <button class="key-option" data-slot="1">
+        <span class="key-name">Arrows</span>
+        <span class="key-hint">Left: rotate | Right/Space: fire</span>
+      </button>
+      <button class="key-option" data-slot="2">
+        <span class="key-name">IJKL</span>
+        <span class="key-hint">J: rotate | L/I: fire</span>
+      </button>
+      <button class="key-option" data-slot="3">
+        <span class="key-name">Numpad</span>
+        <span class="key-hint">4: rotate | 6/8: fire</span>
+      </button>
+    </div>
+    <button class="btn secondary" id="keySelectCancel" style="margin-top: 1rem;">Cancel</button>
+  </div>
+
+  <!-- Local Player Hints (shown during game) -->
+  <div id="localPlayerHints" class="local-hints hidden"></div>
 
   <!-- Mobile Controls -->
   <div class="mobile-controls" id="mobileControls">

@@ -83,6 +83,24 @@ const toggleFx = document.getElementById("toggleFx")!;
 const toggleHaptics = document.getElementById("toggleHaptics")!;
 const settingsClose = document.getElementById("settingsClose")!;
 
+// Bot controls
+const addBotSection = document.getElementById("addBotSection")!;
+const addAIBotBtn = document.getElementById("addAIBotBtn") as HTMLButtonElement;
+const addLocalPlayerBtn = document.getElementById(
+  "addLocalPlayerBtn",
+) as HTMLButtonElement;
+
+// Key selection modal
+const keySelectModal = document.getElementById("keySelectModal")!;
+const keySelectBackdrop = document.getElementById("keySelectBackdrop")!;
+const keyOptions = document.getElementById("keyOptions")!;
+const keySelectCancel = document.getElementById(
+  "keySelectCancel",
+) as HTMLButtonElement;
+
+// Local player hints
+const localPlayerHints = document.getElementById("localPlayerHints")!;
+
 // Ping indicator
 const pingIndicator = document.getElementById("pingIndicator")!;
 
@@ -117,6 +135,31 @@ function showScreen(screen: "start" | "lobby" | "game" | "end"): void {
   const showPing =
     game.shouldShowPing() && (screen === "lobby" || screen === "game");
   pingIndicator.style.display = showPing ? "block" : "none";
+
+  // Show local player hints during gameplay (only when there are local players)
+  if (screen === "game" && game.hasLocalPlayers()) {
+    updateLocalPlayerHints();
+    localPlayerHints.classList.remove("hidden");
+  } else {
+    localPlayerHints.classList.add("hidden");
+  }
+}
+
+// Update local player hints overlay with current player info
+function updateLocalPlayerHints(): void {
+  const localPlayers = game.getLocalPlayersInfo();
+  if (localPlayers.length <= 1) {
+    // Only one player (the host), no need for hints
+    localPlayerHints.classList.add("hidden");
+    return;
+  }
+
+  localPlayerHints.innerHTML = localPlayers
+    .map(
+      (player) =>
+        `<div class="hint-row" style="color: ${player.color}">${escapeHtml(player.name)}: ${player.keyPreset}</div>`,
+    )
+    .join("");
 }
 
 // Update ping indicator display
@@ -167,6 +210,7 @@ function triggerHaptic(
 
 function updateLobbyUI(players: PlayerData[]): void {
   const myPlayerId = game.getMyPlayerId();
+  const isHost = game.isHost();
 
   // Update player list
   playersList.innerHTML = players
@@ -174,10 +218,33 @@ function updateLobbyUI(players: PlayerData[]): void {
       const isHostPlayer = index === 0; // First player in array is host (PlayroomKit convention)
       const isSelf = player.id === myPlayerId;
 
+      // Check if this player is a bot
+      const isBot = game.isPlayerBot(player.id);
+      const botType = game.getPlayerBotType(player.id);
+      const keySlot = game.getPlayerKeySlot(player.id);
+
       // Use SVG icons instead of emojis for cross-platform consistency
       // Host star is white to avoid conflict with yellow player color
       const hostIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#ffffff"><path d="M12 1L9 9l-7 1 5 5-1.5 7L12 18l6.5 4L17 15l5-5-7-1z"/></svg>`;
       const playerIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="${player.color.primary}"><path d="M12 2L4 12l3 1.5L12 22l5-8.5L20 12z"/></svg>`;
+
+      // Bot badge for AI bots
+      const botBadge =
+        botType === "ai"
+          ? `<div class="bot-badge"><svg viewBox="0 0 24 24" fill="${player.color.primary}"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/></svg></div>`
+          : "";
+
+      // Key preset label for local human players
+      const keyPresetLabel =
+        botType === "local" && keySlot >= 0
+          ? `<div class="key-preset">${getKeyPresetName(keySlot)}</div>`
+          : "";
+
+      // Remove button for bots (host only)
+      const removeBtn =
+        isHost && isBot
+          ? `<button class="remove-bot-btn" data-player-id="${player.id}" title="Remove">×</button>`
+          : "";
 
       // Show "(You)" suffix for local player
       const nameDisplay = isSelf
@@ -185,11 +252,14 @@ function updateLobbyUI(players: PlayerData[]): void {
         : escapeHtml(player.name);
 
       return `
-      <div class="player-slot ${isHostPlayer ? "host" : ""} ${isSelf ? "self" : ""}">
+      <div class="player-slot ${isHostPlayer ? "host" : ""} ${isSelf ? "self" : ""} ${isBot ? "bot" : ""}">
         <div class="player-avatar" style="background: ${player.color.primary}">
           ${isHostPlayer ? hostIcon : playerIcon}
+          ${botBadge}
         </div>
+        ${removeBtn}
         <div class="player-name">${nameDisplay}</div>
+        ${keyPresetLabel}
       </div>
     `;
     })
@@ -197,7 +267,6 @@ function updateLobbyUI(players: PlayerData[]): void {
 
   // Update status and start button based on host status
   const canStart = game.canStartGame();
-  const isHost = game.isHost();
 
   if (isHost) {
     startGameBtn.style.display = "block";
@@ -211,6 +280,56 @@ function updateLobbyUI(players: PlayerData[]): void {
     startGameBtn.style.display = "none";
     lobbyStatus.innerHTML = `Waiting for host to start<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
   }
+
+  // Show/hide bot controls (host only)
+  updateBotControlsVisibility(players.length, isHost);
+
+  // Attach remove button handlers
+  attachRemoveBotHandlers();
+}
+
+// Get key preset name by slot index
+function getKeyPresetName(slot: number): string {
+  const names = ["WASD", "Arrows", "IJKL", "Numpad"];
+  return names[slot] || `Keys ${slot}`;
+}
+
+// Update visibility of bot control buttons
+function updateBotControlsVisibility(playerCount: number, isHost: boolean): void {
+  if (!isHost) {
+    addBotSection.classList.add("hidden");
+    return;
+  }
+
+  // Show section if room not full
+  if (playerCount < 4) {
+    addBotSection.classList.remove("hidden");
+
+    // Add AI always available
+    addAIBotBtn.disabled = false;
+
+    // Add Local only available when no remote players (offline mode)
+    const hasRemote = game.hasRemotePlayers();
+    addLocalPlayerBtn.style.display = hasRemote ? "none" : "flex";
+  } else {
+    addBotSection.classList.add("hidden");
+  }
+}
+
+// Attach click handlers to remove bot buttons
+function attachRemoveBotHandlers(): void {
+  const removeButtons = document.querySelectorAll(".remove-bot-btn");
+  removeButtons.forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const playerId = (btn as HTMLElement).dataset.playerId;
+      if (playerId) {
+        triggerHaptic("light");
+        AudioManager.playUIClick();
+        await game.removeBot(playerId);
+      }
+    });
+  });
 }
 
 function updateScoreTrack(players: PlayerData[]): void {
@@ -416,6 +535,68 @@ copyCodeBtn.addEventListener("click", () => {
         '<svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
     }, 2000);
   });
+});
+
+// Bot controls
+addAIBotBtn.addEventListener("click", async () => {
+  triggerHaptic("light");
+  AudioManager.playUIClick();
+  addAIBotBtn.disabled = true;
+
+  try {
+    await game.addAIBot();
+  } catch (e) {
+    console.error("[Main] Failed to add AI bot:", e);
+  }
+
+  addAIBotBtn.disabled = false;
+});
+
+addLocalPlayerBtn.addEventListener("click", () => {
+  triggerHaptic("light");
+  AudioManager.playUIClick();
+  showKeySelectModal();
+});
+
+// Key selection modal
+function showKeySelectModal(): void {
+  keySelectModal.classList.add("active");
+  keySelectBackdrop.classList.add("active");
+
+  // Disable already-used key slots
+  const usedSlots = game.getUsedKeySlots();
+  const options = keyOptions.querySelectorAll(".key-option");
+  options.forEach((option) => {
+    const slot = parseInt((option as HTMLElement).dataset.slot || "0");
+    (option as HTMLButtonElement).disabled = usedSlots.includes(slot);
+  });
+}
+
+function hideKeySelectModal(): void {
+  keySelectModal.classList.remove("active");
+  keySelectBackdrop.classList.remove("active");
+}
+
+keySelectBackdrop.addEventListener("click", hideKeySelectModal);
+keySelectCancel.addEventListener("click", () => {
+  triggerHaptic("light");
+  hideKeySelectModal();
+});
+
+keyOptions.addEventListener("click", async (e) => {
+  const option = (e.target as HTMLElement).closest(".key-option") as HTMLButtonElement;
+  if (!option || option.disabled) return;
+
+  triggerHaptic("light");
+  AudioManager.playUIClick();
+  hideKeySelectModal();
+
+  const slot = parseInt(option.dataset.slot || "1");
+  try {
+    await game.addLocalBot(slot);
+  } catch (e) {
+    console.error("[Main] Failed to add local player:", e);
+  }
 });
 
 startGameBtn.addEventListener("click", () => {
