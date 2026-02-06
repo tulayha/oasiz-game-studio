@@ -7,6 +7,7 @@ import { NetworkManager } from "./network/NetworkManager";
 import { Ship } from "./entities/Ship";
 import { Pilot } from "./entities/Pilot";
 import { Projectile } from "./entities/Projectile";
+import { Asteroid } from "./entities/Asteroid";
 import { BotVisibleData } from "./entities/AstroBot";
 import { SettingsManager } from "./SettingsManager";
 import { AudioManager } from "./AudioManager";
@@ -32,6 +33,7 @@ export class Game {
   private ships: Map<string, Ship> = new Map();
   private pilots: Map<string, Pilot> = new Map();
   private projectiles: Projectile[] = [];
+  private asteroids: Asteroid[] = [];
   private players: Map<string, PlayerData> = new Map();
 
   private pendingInputs: Map<string, PlayerInput> = new Map();
@@ -41,6 +43,7 @@ export class Game {
   private countdown: number = 0;
   private countdownInterval: ReturnType<typeof setInterval> | null = null;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private asteroidSpawnTimeout: ReturnType<typeof setTimeout> | null = null;
   private lastTime: number = 0;
   private winnerId: string | null = null;
   private latencyMs: number = 0;
@@ -109,6 +112,81 @@ export class Game {
       onProjectileHitWall: (projectileBody) => {
         // Projectiles bounce off walls (handled by Matter.js restitution)
         // Could add particle effects here
+      },
+
+      onProjectileHitAsteroid: (projectileOwnerId, asteroidBody, projectileBody) => {
+        if (!this.network.isHost()) return;
+
+        // Find and destroy the asteroid
+        const asteroidIndex = this.asteroids.findIndex((a) => a.body === asteroidBody);
+        if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
+          const asteroid = this.asteroids[asteroidIndex];
+          const pos = asteroid.body.position;
+
+          // Spawn explosion and debris particles
+          this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+          this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+          this.renderer.addScreenShake(8, 0.2);
+
+          // Destroy asteroid
+          asteroid.destroy();
+          this.asteroids.splice(asteroidIndex, 1);
+        }
+
+        // Remove the projectile
+        this.removeProjectileByBody(projectileBody);
+      },
+
+      onShipHitAsteroid: (shipPlayerId, asteroidBody) => {
+        if (!this.network.isHost()) return;
+
+        const ship = this.ships.get(shipPlayerId);
+        if (ship && ship.alive && !ship.isInvulnerable()) {
+          // Find and destroy the asteroid
+          const asteroidIndex = this.asteroids.findIndex((a) => a.body === asteroidBody);
+          if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
+            const asteroid = this.asteroids[asteroidIndex];
+            const pos = asteroid.body.position;
+
+            // Spawn explosion and debris particles
+            this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.addScreenShake(10, 0.3);
+
+            // Destroy asteroid
+            asteroid.destroy();
+            this.asteroids.splice(asteroidIndex, 1);
+          }
+
+          // Destroy the ship
+          this.destroyShip(shipPlayerId);
+        }
+      },
+
+      onPilotHitAsteroid: (pilotPlayerId, asteroidBody) => {
+        if (!this.network.isHost()) return;
+
+        const pilot = this.pilots.get(pilotPlayerId);
+        if (pilot && pilot.alive) {
+          // Find and destroy the asteroid
+          const asteroidIndex = this.asteroids.findIndex((a) => a.body === asteroidBody);
+          if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
+            const asteroid = this.asteroids[asteroidIndex];
+            const pos = asteroid.body.position;
+
+            // Spawn explosion and debris particles
+            this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.addScreenShake(6, 0.2);
+
+            // Destroy asteroid
+            asteroid.destroy();
+            this.asteroids.splice(asteroidIndex, 1);
+          }
+
+          // Kill the pilot (no kill awarded for asteroid deaths)
+          this.killPilot(pilotPlayerId, "asteroid");
+        }
       },
     });
   }
@@ -508,10 +586,109 @@ export class Game {
           player.state = "ACTIVE";
         }
       });
+
+      // Start continuous asteroid spawning
+      this.scheduleNextAsteroidSpawn();
     }
 
     // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
     this.onPlayersUpdate?.(this.getPlayers());
+  }
+
+  private scheduleNextAsteroidSpawn(): void {
+    if (this.phase !== "PLAYING") return;
+
+    const delay =
+      GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MIN +
+      Math.random() *
+        (GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MAX - GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MIN);
+
+    this.asteroidSpawnTimeout = setTimeout(() => {
+      if (this.phase === "PLAYING" && this.network.isHost()) {
+        this.spawnAsteroidBatch();
+        this.scheduleNextAsteroidSpawn();
+      }
+    }, delay);
+  }
+
+  private spawnAsteroidBatch(): void {
+    if (!this.network.isHost()) return;
+
+    const batchSize =
+      GAME_CONFIG.ASTEROID_SPAWN_BATCH_MIN +
+      Math.floor(
+        Math.random() *
+          (GAME_CONFIG.ASTEROID_SPAWN_BATCH_MAX - GAME_CONFIG.ASTEROID_SPAWN_BATCH_MIN + 1),
+      );
+
+    for (let i = 0; i < batchSize; i++) {
+      this.spawnSingleAsteroidFromBorder();
+    }
+  }
+
+  private spawnSingleAsteroidFromBorder(): void {
+    const spawnMargin = 80; // Spawn just outside the visible area
+    const w = GAME_CONFIG.ARENA_WIDTH;
+    const h = GAME_CONFIG.ARENA_HEIGHT;
+
+    // Pick a random side (0: top, 1: right, 2: bottom, 3: left)
+    const side = Math.floor(Math.random() * 4);
+
+    let x: number, y: number;
+    let targetX: number, targetY: number;
+
+    switch (side) {
+      case 0: // Top - spawn above arena
+        x = Math.random() * w;
+        y = -spawnMargin;
+        targetX = Math.random() * w;
+        targetY = h * (0.3 + Math.random() * 0.4); // Aim toward middle 40% of arena
+        break;
+      case 1: // Right - spawn to the right of arena
+        x = w + spawnMargin;
+        y = Math.random() * h;
+        targetX = w * (0.3 + Math.random() * 0.4); // Aim toward middle 40% of arena
+        targetY = Math.random() * h;
+        break;
+      case 2: // Bottom - spawn below arena
+        x = Math.random() * w;
+        y = h + spawnMargin;
+        targetX = Math.random() * w;
+        targetY = h * (0.3 + Math.random() * 0.4); // Aim toward middle 40% of arena
+        break;
+      case 3: // Left - spawn to the left of arena
+      default:
+        x = -spawnMargin;
+        y = Math.random() * h;
+        targetX = w * (0.3 + Math.random() * 0.4); // Aim toward middle 40% of arena
+        targetY = Math.random() * h;
+        break;
+    }
+
+    // Calculate direction toward target point
+    const dx = targetX - x;
+    const dy = targetY - y;
+    const angle = Math.atan2(dy, dx);
+
+    // Add some randomness to the angle (±30 degrees)
+    const angleVariance = (Math.random() - 0.5) * (Math.PI / 3);
+    const finalAngle = angle + angleVariance;
+
+    // Set speed
+    const speed =
+      GAME_CONFIG.ASTEROID_MIN_SPEED +
+      Math.random() * (GAME_CONFIG.ASTEROID_MAX_SPEED - GAME_CONFIG.ASTEROID_MIN_SPEED);
+
+    const velocity = {
+      x: Math.cos(finalAngle) * speed,
+      y: Math.sin(finalAngle) * speed,
+    };
+
+    // Random angular velocity for rotation
+    const angularVelocity = (Math.random() - 0.5) * 0.02;
+
+    const asteroid = new Asteroid(this.physics, x, y, velocity, angularVelocity);
+    this.asteroids.push(asteroid);
   }
 
   private getSpawnPoints(
@@ -609,16 +786,18 @@ export class Game {
       this.network.updatePlayerState(pilotPlayerId, "SPECTATING");
     }
 
-    // Award kill to killer
-    const killer = this.players.get(killerId);
-    if (killer) {
-      killer.kills++;
-      this.network.updateKills(killerId, killer.kills);
+    // Award kill to killer (skip if killed by asteroid/environment)
+    if (killerId !== "asteroid") {
+      const killer = this.players.get(killerId);
+      if (killer) {
+        killer.kills++;
+        this.network.updateKills(killerId, killer.kills);
 
-      // Check win condition by kills
-      if (killer.kills >= GAME_CONFIG.KILLS_TO_WIN) {
-        this.endGame(killerId);
-        return;
+        // Check win condition by kills
+        if (killer.kills >= GAME_CONFIG.KILLS_TO_WIN) {
+          this.endGame(killerId);
+          return;
+        }
       }
     }
 
@@ -737,6 +916,15 @@ export class Game {
 
     this.projectiles.forEach((proj) => proj.destroy());
     this.projectiles = [];
+
+    this.asteroids.forEach((asteroid) => asteroid.destroy());
+    this.asteroids = [];
+
+    // Clear asteroid spawn timeout
+    if (this.asteroidSpawnTimeout) {
+      clearTimeout(this.asteroidSpawnTimeout);
+      this.asteroidSpawnTimeout = null;
+    }
 
     // Clear network state caches
     this.networkShips = [];
@@ -910,6 +1098,11 @@ export class Game {
         }
       }
 
+      // Wrap asteroids around the arena (space-style)
+      this.asteroids.forEach((asteroid) => {
+        this.physics.wrapAround(asteroid.body);
+      });
+
       // Broadcast state
       this.broadcastState();
     }
@@ -926,6 +1119,7 @@ export class Game {
       ships: [...this.ships.values()].map((s) => s.getState()),
       pilots: [...this.pilots.values()].map((p) => p.getState()),
       projectiles: this.projectiles.map((p) => p.getState()),
+      asteroids: this.asteroids.map((a) => a.getState()),
       players: [...this.players.values()],
     };
 
@@ -946,12 +1140,14 @@ export class Game {
     this.networkShips = state.ships;
     this.networkPilots = state.pilots;
     this.networkProjectiles = state.projectiles;
+    this.networkAsteroids = state.asteroids;
   }
 
   // Cached network state for rendering on clients
   private networkShips: ShipState[] = [];
   private networkPilots: PilotState[] = [];
   private networkProjectiles: ProjectileState[] = [];
+  private networkAsteroids: AsteroidState[] = [];
 
   private render(dt: number): void {
     this.renderer.clear();
@@ -1008,6 +1204,21 @@ export class Game {
       } else {
         this.networkProjectiles.forEach((state) => {
           this.renderer.drawProjectile(state);
+        });
+      }
+
+      // Draw asteroids
+      if (isHost) {
+        this.asteroids.forEach((asteroid) => {
+          if (asteroid.alive) {
+            this.renderer.drawAsteroid(asteroid.getState());
+          }
+        });
+      } else {
+        this.networkAsteroids.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawAsteroid(state);
+          }
         });
       }
 

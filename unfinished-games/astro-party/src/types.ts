@@ -56,6 +56,19 @@ export interface ProjectileState {
   spawnTime: number;
 }
 
+export interface AsteroidState {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  angularVelocity: number;
+  size: number;
+  alive: boolean;
+  vertices: { x: number; y: number }[];
+}
+
 // ============= PLAYER =============
 
 export interface PlayerData {
@@ -85,6 +98,7 @@ export interface GameStateSync {
   ships: ShipState[];
   pilots: PilotState[];
   projectiles: ProjectileState[];
+  asteroids: AsteroidState[];
   players: PlayerData[];
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
@@ -122,13 +136,13 @@ export const GAME_CONFIG = {
   ARENA_PADDING: 50,
 
   // Ship physics
-  BASE_THRUST: 0.00015, // Always-on forward thrust
-  ROTATION_SPEED: 4.5, // rad/s
-  ROTATION_THRUST_BONUS: 0.00008, // Extra thrust when rotating
-  RECOIL_FORCE: 0.0003, // Pushback when shooting
-  DASH_FORCE: 0.012,
-  SHIP_FRICTION_AIR: 0.002,
-  SHIP_RESTITUTION: 0.9,
+  BASE_THRUST: 0.00008, // Always-on forward thrust (reduced from 0.00015)
+  ROTATION_SPEED: 3.0, // rad/s (reduced from 4.5)
+  ROTATION_THRUST_BONUS: 0.00004, // Extra thrust when rotating (reduced from 0.00008)
+  RECOIL_FORCE: 0.00015, // Pushback when shooting (reduced from 0.0003)
+  DASH_FORCE: 0.006, // Reduced from 0.012
+  SHIP_FRICTION_AIR: 0.003, // Slightly increased friction (was 0.002)
+  SHIP_RESTITUTION: 0.5, // Reduced from 0.9 to reduce bouncing/spinning
 
   // Combat
   FIRE_COOLDOWN: 180, // ms
@@ -147,4 +161,22 @@ export const GAME_CONFIG = {
 
   // Countdown
   COUNTDOWN_DURATION: 3, // seconds
+
+  // Asteroids
+  ASTEROID_COUNT: 6, // Number of asteroids to spawn
+  ASTEROID_MIN_SIZE: 25,
+  ASTEROID_MAX_SIZE: 45,
+  ASTEROID_MIN_SPEED: 0.5,
+  ASTEROID_MAX_SPEED: 2.0,
+  ASTEROID_VERTICES_MIN: 6,
+  ASTEROID_VERTICES_MAX: 10,
+  ASTEROID_COLOR: "#ff8800",
+  ASTEROID_GLOW: "#ff4400",
+
+  // Asteroid Spawning
+  ASTEROID_SPAWN_INTERVAL_MIN: 2000, // ms
+  ASTEROID_SPAWN_INTERVAL_MAX: 5000, // ms
+  ASTEROID_SPAWN_BATCH_MIN: 1,
+  ASTEROID_SPAWN_BATCH_MAX: 3,
+  ASTEROID_SPAWN_MARGIN: 100, // Distance outside arena to spawn
 } as const;

@@ -19,6 +19,19 @@ export interface CollisionCallbacks {
     pilotBody: Matter.Body,
   ) => void;
   onProjectileHitWall: (projectileBody: Matter.Body) => void;
+  onProjectileHitAsteroid: (
+    projectileOwnerId: string,
+    asteroidBody: Matter.Body,
+    projectileBody: Matter.Body,
+  ) => void;
+  onShipHitAsteroid: (
+    shipPlayerId: string,
+    asteroidBody: Matter.Body,
+  ) => void;
+  onPilotHitAsteroid: (
+    pilotPlayerId: string,
+    asteroidBody: Matter.Body,
+  ) => void;
 }
 
 export function setupCollisions(
@@ -116,6 +129,52 @@ export function setupCollisions(
       ) {
         const projectile = getBody("projectile")!;
         callbacks.onProjectileHitWall(projectile);
+      }
+
+      // Projectile hits Asteroid
+      if (
+        (labelA === "projectile" && labelB === "asteroid") ||
+        (labelA === "asteroid" && labelB === "projectile")
+      ) {
+        const projectile = getBody("projectile")!;
+        const asteroid = getBody("asteroid")!;
+        const projectileOwnerId = projectile.plugin?.ownerId as string;
+
+        if (projectileOwnerId) {
+          callbacks.onProjectileHitAsteroid(
+            projectileOwnerId,
+            asteroid,
+            projectile,
+          );
+        }
+      }
+
+      // Ship hits Asteroid
+      if (
+        (labelA === "ship" && labelB === "asteroid") ||
+        (labelA === "asteroid" && labelB === "ship")
+      ) {
+        const ship = getBody("ship")!;
+        const asteroid = getBody("asteroid")!;
+        const shipPlayerId = ship.plugin?.playerId as string;
+
+        if (shipPlayerId) {
+          callbacks.onShipHitAsteroid(shipPlayerId, asteroid);
+        }
+      }
+
+      // Pilot hits Asteroid
+      if (
+        (labelA === "pilot" && labelB === "asteroid") ||
+        (labelA === "asteroid" && labelB === "pilot")
+      ) {
+        const pilot = getBody("pilot")!;
+        const asteroid = getBody("asteroid")!;
+        const pilotPlayerId = pilot.plugin?.playerId as string;
+
+        if (pilotPlayerId) {
+          callbacks.onPilotHitAsteroid(pilotPlayerId, asteroid);
+        }
       }
     }
   });

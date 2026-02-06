@@ -2,6 +2,7 @@ import {
   ShipState,
   PilotState,
   ProjectileState,
+  AsteroidState,
   Particle,
   PlayerColor,
   PLAYER_COLORS,
@@ -232,6 +233,52 @@ export class Renderer {
     ctx.restore();
   }
 
+  // ============= ASTEROID RENDERING =============
+
+  drawAsteroid(state: AsteroidState): void {
+    const { ctx } = this;
+    const { x, y, angle, vertices } = state;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    // Glow effect
+    ctx.shadowColor = GAME_CONFIG.ASTEROID_GLOW;
+    ctx.shadowBlur = 15;
+
+    // Asteroid body
+    ctx.fillStyle = GAME_CONFIG.ASTEROID_COLOR;
+    ctx.strokeStyle = "#ffaa00";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    if (vertices.length > 0) {
+      ctx.moveTo(vertices[0].x, vertices[0].y);
+      for (let i = 1; i < vertices.length; i++) {
+        ctx.lineTo(vertices[i].x, vertices[i].y);
+      }
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Add some surface detail (craters)
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+    ctx.beginPath();
+    ctx.arc(
+      vertices[0].x * 0.3,
+      vertices[0].y * 0.3,
+      Math.abs(vertices[0].x) * 0.25,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   // ============= PROJECTILE RENDERING =============
 
   drawProjectile(state: ProjectileState): void {
@@ -312,6 +359,46 @@ export class Renderer {
     }
     for (let i = 0; i < 10; i++) {
       this.spawnParticle(x, y, "#ffffff", "explosion");
+    }
+  }
+
+  spawnAsteroidDebris(x: number, y: number, size: number, color: string): void {
+    // Spawn debris pieces - purely visual, no collision
+    const pieceCount = 4 + Math.floor(Math.random() * 4); // 4-7 pieces
+    for (let i = 0; i < pieceCount; i++) {
+      const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
+      const speed = 30 + Math.random() * 50;
+      const life = 0.5 + Math.random() * 0.5;
+      const pieceSize = (size * 0.2) + Math.random() * (size * 0.3);
+
+      this.particles.push({
+        x: x + Math.cos(angle) * size * 0.3,
+        y: y + Math.sin(angle) * size * 0.3,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: pieceSize,
+        color,
+      });
+    }
+
+    // Add some dust/smaller particles
+    for (let i = 0; i < 8; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 20 + Math.random() * 40;
+      const life = 0.3 + Math.random() * 0.4;
+
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 2 + Math.random() * 3,
+        color: "#888888",
+      });
     }
   }
 

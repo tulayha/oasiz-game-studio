@@ -60,20 +60,24 @@ interface BotParams {
   keySlot?: number; // For local human bots
 }
 
-// AI tuning constants
+// AI tuning constants - EASY MODE
 const AI_CONFIG = {
   // Targeting
-  AIM_TOLERANCE: 0.25, // radians (~15 degrees) - fire when within this angle
-  LEAD_FACTOR: 0.15, // How much to lead moving targets
+  AIM_TOLERANCE: 0.6, // radians (~35 degrees) - much wider firing angle for easy mode
+  LEAD_FACTOR: 0.05, // Reduced leading for less accuracy
 
   // Avoidance
-  DANGER_RADIUS: 150, // Distance to consider projectile dangerous
-  DANGER_TIME: 0.5, // Seconds ahead to predict projectile position
-  WALL_MARGIN: 80, // Distance from wall to start avoiding
+  DANGER_RADIUS: 100, // Reduced detection range
+  DANGER_TIME: 0.3, // Shorter prediction time
+  WALL_MARGIN: 60, // React closer to walls
 
   // Behavior timing
-  FIRE_PROBABILITY: 0.7, // Chance to fire when aimed (adds unpredictability)
-  REACTION_DELAY: 100, // ms delay to simulate reaction time
+  FIRE_PROBABILITY: 0.4, // Only 40% chance to fire when aimed (much less aggressive)
+  REACTION_DELAY: 250, // Slower reaction time
+
+  // Easy mode randomness
+  AIM_ERROR: 0.3, // Add random error to aim
+  ROTATION_OVERSHOOT: 0.2, // Chance to overshoot rotation
 } as const;
 
 export class AstroBot extends Bot {
@@ -118,7 +122,8 @@ export class AstroBot extends Bot {
 
     // 1. Check for incoming danger (projectiles)
     const danger = this.detectDanger(ship, data.projectiles);
-    if (danger.inDanger) {
+    if (danger.inDanger && Math.random() < 0.5) {
+      // Only dash 50% of the time when in danger (easy mode)
       shouldDash = true;
       // Rotate away from danger
       shouldRotate = this.shouldRotateAwayFromDanger(ship, danger.dangerAngle);
@@ -137,8 +142,18 @@ export class AstroBot extends Bot {
       const aimResult = this.calculateAim(ship, target);
       shouldRotate = aimResult.shouldRotate;
 
-      // Fire if aimed at target
+      // Add random rotation errors for easy mode
+      if (Math.random() < AI_CONFIG.ROTATION_OVERSHOOT) {
+        shouldRotate = !shouldRotate; // Sometimes rotate wrong way
+      }
+
+      // Fire if aimed at target (with lower probability for easy mode)
       if (aimResult.isAimed && Math.random() < AI_CONFIG.FIRE_PROBABILITY) {
+        shouldFire = true;
+      }
+
+      // Sometimes fire randomly even when not aimed (spray and pray)
+      if (!aimResult.isAimed && Math.random() < 0.05) {
         shouldFire = true;
       }
     }
@@ -257,14 +272,17 @@ export class AstroBot extends Bot {
   ): { shouldRotate: boolean; isAimed: boolean } {
     if (!ship) return { shouldRotate: false, isAimed: false };
 
-    // Lead the target based on their velocity
+    // Lead the target based on their velocity (reduced for easy mode)
     const leadX = target.x + target.vx * AI_CONFIG.LEAD_FACTOR * 60;
     const leadY = target.y + target.vy * AI_CONFIG.LEAD_FACTOR * 60;
 
     // Calculate desired angle to target
     const dx = leadX - ship.x;
     const dy = leadY - ship.y;
-    const targetAngle = Math.atan2(dy, dx);
+    let targetAngle = Math.atan2(dy, dx);
+
+    // Add random aim error for easy mode
+    targetAngle += (Math.random() - 0.5) * AI_CONFIG.AIM_ERROR * 2;
 
     // Calculate angle difference
     const angleDiff = this.normalizeAngle(targetAngle - ship.angle);
