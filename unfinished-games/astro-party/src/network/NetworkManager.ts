@@ -33,8 +33,7 @@ export interface NetworkCallbacks {
   onInputReceived: (playerId: string, input: PlayerInput) => void;
   onHostChanged: () => void;
   onDisconnected: () => void;
-  onGamePhaseReceived: (phase: GamePhase) => void;
-  onWinnerReceived: (winnerId: string) => void;
+  onGamePhaseReceived: (phase: GamePhase, winnerId?: string, winnerName?: string) => void;
   onCountdownReceived: (count: number) => void;
   onGameSoundReceived: (type: string, playerId: string) => void;
   onDashRequested: (playerId: string) => void;
@@ -188,20 +187,15 @@ export class NetworkManager {
   }
 
   private setupRPCHandlers(): void {
-    // Handle game phase changes from host
+    // Handle game phase changes from host (GAME_END includes winner info)
     this.cleanupFunctions.push(
-      RPC.register("gamePhase", async (phase: GamePhase) => {
-        console.log("[NetworkManager] RPC gamePhase received:", phase);
-        this.callbacks?.onGamePhaseReceived(phase);
-      }),
-    );
-
-    // Handle winner announcement from host
-    this.cleanupFunctions.push(
-      RPC.register("gameWinner", async (winnerId: string) => {
-        console.log("[NetworkManager] RPC gameWinner received:", winnerId);
-        this.callbacks?.onWinnerReceived(winnerId);
-      }),
+      RPC.register(
+        "gamePhase",
+        async (data: { phase: GamePhase; winnerId?: string; winnerName?: string }) => {
+          console.log("[NetworkManager] RPC gamePhase received:", data.phase);
+          this.callbacks?.onGamePhaseReceived(data.phase, data.winnerId, data.winnerName);
+        },
+      ),
     );
 
     // Handle countdown updates from host
@@ -296,18 +290,11 @@ export class NetworkManager {
     setState("gameState", state, false); // Unreliable for frequent position updates
   }
 
-  // Broadcast game phase change via RPC (reliable one-time event)
-  broadcastGamePhase(phase: GamePhase): void {
+  // Broadcast game phase change via RPC (GAME_END includes winner info)
+  broadcastGamePhase(phase: GamePhase, winnerId?: string, winnerName?: string): void {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting game phase via RPC:", phase);
-    RPC.call("gamePhase", phase, RPC.Mode.ALL);
-  }
-
-  // Broadcast winner via RPC (reliable one-time event)
-  broadcastWinner(winnerId: string): void {
-    if (!isHost()) return;
-    console.log("[NetworkManager] Broadcasting winner via RPC:", winnerId);
-    RPC.call("gameWinner", winnerId, RPC.Mode.ALL);
+    RPC.call("gamePhase", { phase, winnerId, winnerName }, RPC.Mode.ALL);
   }
 
   // Broadcast countdown via RPC (reliable one-time event per tick)

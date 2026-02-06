@@ -52,6 +52,11 @@ export class Game {
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private lastTime: number = 0;
   private latencyMs: number = 0;
+  private lastBroadcastTime: number = 0;
+  private lastInputSendTime: number = 0;
+
+  // Host migration tracking (proper migration not supported)
+  private _originalHostLeft = false;
 
   static SHOW_PING = true;
 
@@ -218,6 +223,7 @@ export class Game {
 
       onHostChanged: () => {
         console.log("[Game] Host changed, we are now host");
+        this._originalHostLeft = true;
         this.emitPlayersUpdate();
 
         if (this.flowMgr.phase === "PLAYING") {
@@ -245,11 +251,17 @@ export class Game {
         this.handleDisconnected();
       },
 
-      onGamePhaseReceived: (phase) => {
+      onGamePhaseReceived: (phase, winnerId, winnerName) => {
         console.log("[Game] RPC phase received:", phase);
         if (!this.network.isHost()) {
           const oldPhase = this.flowMgr.phase;
           this.flowMgr.phase = phase;
+
+          if (phase === "GAME_END" && winnerId && winnerName) {
+            this.flowMgr.winnerId = winnerId;
+            this.flowMgr.winnerName = winnerName;
+            this.emitPlayersUpdate();
+          }
 
           if (phase === "LOBBY" && oldPhase === "GAME_END") {
             this.flowMgr.clearGameState(
@@ -264,15 +276,6 @@ export class Game {
 
           this.flowMgr.onPhaseChange?.(phase);
         }
-      },
-
-      onWinnerReceived: (winnerId) => {
-        console.log("[Game] RPC winner received:", winnerId);
-        this.flowMgr.winnerId = winnerId;
-        this.flowMgr.winnerName =
-          this.playerMgr.players.get(winnerId)?.name ??
-          this.network.getPlayerName(winnerId);
-        this.emitPlayersUpdate();
       },
 
       onCountdownReceived: (count) => {
@@ -370,6 +373,7 @@ export class Game {
       this.playerMgr.players,
     );
     this.playerMgr.clear();
+    this._originalHostLeft = false;
     this.flowMgr.setPhase("START");
   }
 
@@ -400,11 +404,15 @@ export class Game {
   private update(dt: number): void {
     if (this.flowMgr.phase !== "PLAYING") return;
 
-    // Send local input
+    // Send local input (throttled to sync rate)
+    const now = performance.now();
     const localInput = this.botMgr.useTouchForHost
       ? (this.multiInput?.capture(0) || { buttonA: false, buttonB: false, timestamp: 0 })
       : this.input.capture();
-    this.network.sendInput(localInput);
+    if (now - this.lastInputSendTime >= GAME_CONFIG.SYNC_INTERVAL) {
+      this.network.sendInput(localInput);
+      this.lastInputSendTime = now;
+    }
 
     // Host: process all inputs and update physics
     if (this.network.isHost()) {
@@ -526,7 +534,11 @@ export class Game {
         }
       }
 
-      this.broadcastState();
+      // Broadcast state (throttled to sync rate)
+      if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
+        this.broadcastState();
+        this.lastBroadcastTime = now;
+      }
     }
 
     // Update particles and effects
@@ -645,6 +657,10 @@ export class Game {
     return this.network.isHost();
   }
 
+  didHostLeave(): boolean {
+    return this._originalHostLeft;
+  }
+
   getMyPlayerId(): string | null {
     return this.network.getMyPlayerId();
   }
@@ -688,6 +704,7 @@ export class Game {
       this.playerMgr.players,
     );
     this.playerMgr.clear();
+    this._originalHostLeft = false;
 
     this.flowMgr.setPhase("START");
   }

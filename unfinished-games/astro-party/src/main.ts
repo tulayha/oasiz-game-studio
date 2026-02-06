@@ -382,10 +382,15 @@ function updateGameEnd(players: PlayerData[]): void {
     .join("");
 
   // Update button states based on host status
-  if (game.isHost()) {
+  if (game.didHostLeave()) {
+    // Host left — proper migration not supported, can only leave
+    playAgainBtn.style.display = "none";
+  } else if (game.isHost()) {
+    playAgainBtn.style.display = "block";
     playAgainBtn.textContent = "Play Again";
     playAgainBtn.disabled = false;
   } else {
+    playAgainBtn.style.display = "block";
     playAgainBtn.textContent = "Waiting for host...";
     playAgainBtn.disabled = true;
   }
@@ -438,6 +443,11 @@ game.setUICallbacks({
   onPlayersUpdate: (players: PlayerData[]) => {
     updateLobbyUI(players);
     updateScoreTrack(players);
+
+    // Refresh game end buttons when players/host changes during GAME_END
+    if (game.getPhase() === "GAME_END") {
+      updateGameEnd(players);
+    }
 
     // Update touch layout when players change (mobile only)
     if (isMobile && game.getPhase() === "PLAYING") {

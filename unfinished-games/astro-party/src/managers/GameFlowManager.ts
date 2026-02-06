@@ -42,7 +42,11 @@ export class GameFlowManager {
     this.onPhaseChange?.(phase);
 
     if (this.network.isHost()) {
-      this.network.broadcastGamePhase(phase);
+      this.network.broadcastGamePhase(
+        phase,
+        phase === "GAME_END" ? this.winnerId ?? undefined : undefined,
+        phase === "GAME_END" ? this.winnerName ?? undefined : undefined,
+      );
     }
   }
 
@@ -270,11 +274,8 @@ export class GameFlowManager {
 
   endGame(winnerId: string, players: Map<string, PlayerData>): void {
     this.winnerId = winnerId;
-    this.winnerName =
-      players.get(winnerId)?.name ??
-      this.network.getPlayerName(winnerId);
+    this.winnerName = this.network.getPlayerName(winnerId);
     this.setPhase("GAME_END");
-    this.network.broadcastWinner(winnerId);
     SettingsManager.triggerHaptic("success");
     this.network.broadcastGameSound("win", winnerId);
 
