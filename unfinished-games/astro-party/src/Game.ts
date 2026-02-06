@@ -17,6 +17,7 @@ import { GameFlowManager } from "./managers/GameFlowManager";
 import { BotManager } from "./managers/BotManager";
 import {
   GamePhase,
+  GameMode,
   GameStateSync,
   PlayerInput,
   PlayerData,
@@ -30,6 +31,7 @@ import {
   PlayerPowerUp,
   GAME_CONFIG,
 } from "./types";
+import { GameConfig } from "./GameConfig";
 
 export class Game {
   private physics: Physics;
@@ -670,6 +672,11 @@ export class Game {
           );
         }
       },
+
+      onGameModeReceived: (mode) => {
+        console.log("[Game] Game mode received:", mode);
+        GameConfig.setMode(mode);
+      },
     });
   }
 
@@ -1195,7 +1202,17 @@ export class Game {
     return Game.SHOW_PING;
   }
 
+  setGameMode(mode: GameMode): void {
+    GameConfig.setMode(mode);
+  }
+
+  getGameMode(): GameMode {
+    return GameConfig.getMode();
+  }
+
   startGame(): void {
+    // Broadcast mode to all clients before starting countdown
+    this.network.broadcastGameMode(GameConfig.getMode());
     this.flowMgr.startGame();
   }
 

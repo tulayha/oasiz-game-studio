@@ -1,5 +1,5 @@
 import { Game } from "./Game";
-import { GamePhase, PlayerData, GAME_CONFIG } from "./types";
+import { GamePhase, GameMode, PlayerData, GAME_CONFIG } from "./types";
 import { SettingsManager } from "./SettingsManager";
 import { AudioManager } from "./AudioManager";
 
@@ -89,6 +89,11 @@ const addAIBotBtn = document.getElementById("addAIBotBtn") as HTMLButtonElement;
 const addLocalPlayerBtn = document.getElementById(
   "addLocalPlayerBtn",
 ) as HTMLButtonElement;
+
+// Game mode toggle
+const gameModeSection = document.getElementById("gameModeSection")!;
+const modeChaotic = document.getElementById("modeChaotic") as HTMLButtonElement;
+const modeSane = document.getElementById("modeSane") as HTMLButtonElement;
 
 // Key selection modal
 const keySelectModal = document.getElementById("keySelectModal")!;
@@ -294,8 +299,9 @@ function updateLobbyUI(players: PlayerData[]): void {
     lobbyStatus.innerHTML = `Waiting for host to start<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
   }
 
-  // Show/hide bot controls (host only)
+  // Show/hide bot controls and game mode toggle (host only)
   updateBotControlsVisibility(players.length, isHost);
+  gameModeSection.classList.toggle("hidden", !isHost);
 
   // Attach remove button handlers
   attachRemoveBotHandlers();
@@ -657,6 +663,23 @@ startGameBtn.addEventListener("click", () => {
   if (!game.canStartGame()) return;
   triggerHaptic("medium");
   game.startGame();
+});
+
+// Game mode toggle
+function setModeUI(mode: GameMode): void {
+  modeChaotic.classList.toggle("active", mode === "CHAOTIC");
+  modeSane.classList.toggle("active", mode === "SANE");
+  game.setGameMode(mode);
+}
+
+modeChaotic.addEventListener("click", () => {
+  triggerHaptic("light");
+  setModeUI("CHAOTIC");
+});
+
+modeSane.addEventListener("click", () => {
+  triggerHaptic("light");
+  setModeUI("SANE");
 });
 
 leaveLobbyBtn.addEventListener("click", async () => {

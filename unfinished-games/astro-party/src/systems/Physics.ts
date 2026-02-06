@@ -1,5 +1,6 @@
 import Matter from "matter-js";
 import { GAME_CONFIG } from "../types";
+import { GameConfig } from "../GameConfig";
 
 const { Engine, World, Bodies, Body, Events, Composite } = Matter;
 
@@ -22,75 +23,26 @@ export class Physics {
     }
 
     const thickness = GAME_CONFIG.ARENA_PADDING;
+    const phys = GameConfig.physics;
+    const wallOpts = {
+      isStatic: true as const,
+      label: "wall",
+      restitution: phys.WALL_RESTITUTION,
+      friction: phys.WALL_FRICTION,
+      collisionFilter: {
+        category: 0x0008, // Wall category
+        mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
+      },
+    };
     this.walls = [
       // Top
-      Bodies.rectangle(
-        width / 2,
-        -thickness / 2,
-        width + thickness * 2,
-        thickness,
-        {
-          isStatic: true,
-          label: "wall",
-          restitution: 1,
-          friction: 0,
-          collisionFilter: {
-            category: 0x0008, // Wall category
-            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
-          },
-        },
-      ),
+      Bodies.rectangle(width / 2, -thickness / 2, width + thickness * 2, thickness, wallOpts),
       // Bottom
-      Bodies.rectangle(
-        width / 2,
-        height + thickness / 2,
-        width + thickness * 2,
-        thickness,
-        {
-          isStatic: true,
-          label: "wall",
-          restitution: 1,
-          friction: 0,
-          collisionFilter: {
-            category: 0x0008, // Wall category
-            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
-          },
-        },
-      ),
+      Bodies.rectangle(width / 2, height + thickness / 2, width + thickness * 2, thickness, wallOpts),
       // Left
-      Bodies.rectangle(
-        -thickness / 2,
-        height / 2,
-        thickness,
-        height + thickness * 2,
-        {
-          isStatic: true,
-          label: "wall",
-          restitution: 1,
-          friction: 0,
-          collisionFilter: {
-            category: 0x0008, // Wall category
-            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
-          },
-        },
-      ),
+      Bodies.rectangle(-thickness / 2, height / 2, thickness, height + thickness * 2, wallOpts),
       // Right
-      Bodies.rectangle(
-        width + thickness / 2,
-        height / 2,
-        thickness,
-        height + thickness * 2,
-        {
-          isStatic: true,
-          label: "wall",
-          restitution: 1,
-          friction: 0,
-          collisionFilter: {
-            category: 0x0008, // Wall category
-            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
-          },
-        },
-      ),
+      Bodies.rectangle(width + thickness / 2, height / 2, thickness, height + thickness * 2, wallOpts),
     ];
 
     Composite.add(this.world, this.walls);
@@ -106,17 +58,23 @@ export class Physics {
       { x: -size * 0.7, y: size * 0.6 }, // Right wing
     ];
 
+    const cfg = GameConfig.config;
+    const phys = GameConfig.physics;
     const body = Bodies.fromVertices(x, y, [vertices], {
       label: "ship",
-      frictionAir: GAME_CONFIG.SHIP_FRICTION_AIR,
-      restitution: GAME_CONFIG.SHIP_RESTITUTION,
-      friction: 0,
+      frictionAir: cfg.SHIP_FRICTION_AIR,
+      restitution: cfg.SHIP_RESTITUTION,
+      friction: phys.SHIP_FRICTION,
       density: 0.001,
       collisionFilter: {
         category: 0x0001, // Ship category
         mask: 0x0002 | 0x0004 | 0x0008 | 0x0010, // Collide with projectiles (2), asteroids (4), walls (8), and powerups (16)
       },
     });
+
+    if (phys.SHIP_ANGULAR_DAMPING > 0) {
+      (body as unknown as Record<string, number>).angularDamping = phys.SHIP_ANGULAR_DAMPING;
+    }
 
     // Store player ID in plugin data
     body.plugin = body.plugin || {};

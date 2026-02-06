@@ -90,6 +90,8 @@ export interface LaserBeamState {
 
 export type PowerUpType = "LASER" | "SHIELD";
 
+export type GameMode = "CHAOTIC" | "SANE";
+
 export interface PlayerPowerUp {
   type: PowerUpType;
   charges: number;
@@ -222,3 +224,32 @@ export const GAME_CONFIG = {
   POWERUP_BEAM_LENGTH: 800, // Beam length - long but not game-breaking
   POWERUP_BEAM_WIDTH: 8,
 } as const;
+
+// Mutable version of GAME_CONFIG type (widens literal types from `as const`)
+export type GameConfigType = { [K in keyof typeof GAME_CONFIG]: (typeof GAME_CONFIG)[K] extends number ? number : (typeof GAME_CONFIG)[K] extends string ? string : (typeof GAME_CONFIG)[K] };
+
+// Overrides for "Sane" game mode (slower, more controlled)
+export const SANE_OVERRIDES: Partial<GameConfigType> = {
+  BASE_THRUST: 0.00008,
+  ROTATION_SPEED: 3.0,
+  ROTATION_THRUST_BONUS: 0.00004,
+  RECOIL_FORCE: 0.00015,
+  DASH_FORCE: 0.006,
+  SHIP_FRICTION_AIR: 0.003,
+  SHIP_RESTITUTION: 0.5,
+};
+
+// Physics body-level overrides (not in GAME_CONFIG, applied in Physics.ts)
+export const SANE_PHYSICS = {
+  WALL_RESTITUTION: 0.5,
+  WALL_FRICTION: 0.5,
+  SHIP_FRICTION: 0.5,
+  SHIP_ANGULAR_DAMPING: 0.1,
+};
+
+export const CHAOTIC_PHYSICS = {
+  WALL_RESTITUTION: 1,
+  WALL_FRICTION: 0,
+  SHIP_FRICTION: 0,
+  SHIP_ANGULAR_DAMPING: 0,
+};

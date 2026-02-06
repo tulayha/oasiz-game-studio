@@ -1,5 +1,6 @@
 import Matter from "matter-js";
 import { GAME_CONFIG, PlayerInput, ShipState, PlayerColor } from "../types";
+import { GameConfig } from "../GameConfig";
 import { Physics } from "../systems/Physics";
 
 const { Body } = Matter;
@@ -40,23 +41,24 @@ export class Ship {
 
     // ALWAYS apply base forward thrust in the direction the ship is facing
     // When ship rotates, its facing direction changes, so thrust direction changes automatically
+    const cfg = GameConfig.config;
     Body.applyForce(this.body, this.body.position, {
-      x: Math.cos(angle) * GAME_CONFIG.BASE_THRUST,
-      y: Math.sin(angle) * GAME_CONFIG.BASE_THRUST,
+      x: Math.cos(angle) * cfg.BASE_THRUST,
+      y: Math.sin(angle) * cfg.BASE_THRUST,
     });
 
     // Button A: ONLY rotate the ship (no extra thrust)
     // The thrust direction changes because the ship's angle changes
     if (input.buttonA) {
       Body.setAngularVelocity(this.body, 0);
-      Body.rotate(this.body, GAME_CONFIG.ROTATION_SPEED * dt);
+      Body.rotate(this.body, cfg.ROTATION_SPEED * dt);
     }
 
     // Dash: Super Dash (burst of thrust) - received via RPC
     if (dash) {
       Body.applyForce(this.body, this.body.position, {
-        x: Math.cos(angle) * GAME_CONFIG.DASH_FORCE,
-        y: Math.sin(angle) * GAME_CONFIG.DASH_FORCE,
+        x: Math.cos(angle) * cfg.DASH_FORCE,
+        y: Math.sin(angle) * cfg.DASH_FORCE,
       });
     }
 
@@ -64,13 +66,13 @@ export class Ship {
     let fireResult: { shouldFire: boolean; fireAngle: number } | null = null;
     if (input.buttonB) {
       const now = Date.now();
-      if (now - this.lastFireTime > GAME_CONFIG.FIRE_COOLDOWN) {
+      if (now - this.lastFireTime > cfg.FIRE_COOLDOWN) {
         this.lastFireTime = now;
 
         // Apply recoil force (pushback opposite to firing direction)
         Body.applyForce(this.body, this.body.position, {
-          x: -Math.cos(angle) * GAME_CONFIG.RECOIL_FORCE,
-          y: -Math.sin(angle) * GAME_CONFIG.RECOIL_FORCE,
+          x: -Math.cos(angle) * cfg.RECOIL_FORCE,
+          y: -Math.sin(angle) * cfg.RECOIL_FORCE,
         });
 
         fireResult = {

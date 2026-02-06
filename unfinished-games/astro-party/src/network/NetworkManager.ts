@@ -18,6 +18,7 @@ import {
 import {
   GameStateSync,
   GamePhase,
+  GameMode,
   PlayerInput,
   PlayerData,
   PLAYER_COLORS,
@@ -39,6 +40,7 @@ export interface NetworkCallbacks {
   onDashRequested: (playerId: string) => void;
   onPingReceived: (latencyMs: number) => void;
   onPlayerListReceived: (playerOrder: string[]) => void;
+  onGameModeReceived: (mode: GameMode) => void;
 }
 
 export class NetworkManager {
@@ -241,6 +243,14 @@ export class NetworkManager {
         this.callbacks?.onPlayerListReceived(playerOrder);
       }),
     );
+
+    // Handle game mode selection from host
+    this.cleanupFunctions.push(
+      RPC.register("gameMode", async (mode: GameMode) => {
+        console.log("[NetworkManager] RPC gameMode received:", mode);
+        this.callbacks?.onGameModeReceived(mode);
+      }),
+    );
   }
 
   startSync(): void {
@@ -320,6 +330,13 @@ export class NetworkManager {
   broadcastPing(): void {
     if (!isHost()) return;
     RPC.call("ping", Date.now(), RPC.Mode.ALL);
+  }
+
+  // Broadcast game mode selection (host only, before countdown)
+  broadcastGameMode(mode: GameMode): void {
+    if (!isHost()) return;
+    console.log("[NetworkManager] Broadcasting game mode:", mode);
+    RPC.call("gameMode", mode, RPC.Mode.ALL);
   }
 
   // Broadcast player list (host only) - authoritative order for colors
