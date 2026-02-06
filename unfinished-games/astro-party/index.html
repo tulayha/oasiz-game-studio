@@ -230,6 +230,7 @@
     }
 
     .player-avatar {
+      position: relative;
       width: 50px;
       height: 50px;
       border-radius: 50%;
@@ -253,15 +254,9 @@
       white-space: nowrap;
     }
 
-    .player-slot.host .player-avatar::after {
-      content: '';
-      position: absolute;
-      top: -5px;
-      right: -5px;
-      width: 20px;
-      height: 20px;
-      background: var(--yellow);
-      border-radius: 50%;
+    /* Highlight self player with a white ring (neutral, doesn't conflict with player colors) */
+    .player-slot.self .player-avatar {
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 15px rgba(255, 255, 255, 0.5);
     }
 
     .lobby-status {
@@ -430,6 +425,25 @@
       height: 20px;
       fill: #fff;
     }
+
+    /* ============= PING INDICATOR ============= */
+    .ping-indicator {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 60;
+      font-family: 'Orbitron', monospace;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+      background: rgba(0, 0, 0, 0.3);
+      padding: 3px 6px;
+      border-radius: 3px;
+      display: none;
+    }
+
+    .ping-indicator.good { color: rgba(0, 255, 136, 0.7); }
+    .ping-indicator.medium { color: rgba(255, 238, 0, 0.7); }
+    .ping-indicator.bad { color: rgba(255, 0, 170, 0.7); }
 
     .settings-modal {
       position: fixed;
@@ -722,6 +736,9 @@
     <div class="score-track" id="scoreTrack"></div>
     <button class="leave-btn" id="leaveGameBtn">Leave</button>
   </div>
+
+  <!-- Ping Indicator -->
+  <div class="ping-indicator" id="pingIndicator"></div>
 
   <!-- Settings Button -->
   <button class="settings-btn" id="settingsBtn" style="display: none;">

@@ -81,13 +81,12 @@ export const PLAYER_COLORS: PlayerColor[] = [
 // ============= NETWORK SYNC =============
 
 export interface GameStateSync {
-  phase: GamePhase;
+  // Entity positions for rendering (broadcast every 50ms, unreliable)
   ships: ShipState[];
   pilots: PilotState[];
   projectiles: ProjectileState[];
   players: PlayerData[];
-  countdown?: number;
-  winnerId?: string;
+  // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
 
 // ============= SETTINGS =============

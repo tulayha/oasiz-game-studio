@@ -45,6 +45,17 @@ class AudioManagerClass {
     }
   }
 
+  // Helper to safely trigger sounds (Tone.js throws on rapid triggers)
+  private safeTrigger(
+    fn: () => void,
+  ): void {
+    try {
+      fn();
+    } catch {
+      // Ignore Tone.js timing errors - sounds still play
+    }
+  }
+
   private initSynths(): void {
     // Fire/shoot sound - sharp laser
     this.fireSynth = new Tone.Synth({
@@ -124,33 +135,39 @@ class AudioManagerClass {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Descending laser sound
-    const now = Tone.now();
-    this.fireSynth?.triggerAttackRelease("C6", "16n", now);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.fireSynth?.triggerAttackRelease("C6", "16n", now);
+    });
   }
 
   async playExplosion(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    this.explosionSynth?.triggerAttackRelease("8n");
+    this.safeTrigger(() => {
+      this.explosionSynth?.triggerAttackRelease("8n");
+    });
   }
 
   async playHit(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    this.hitSynth?.triggerAttackRelease("C2", "8n");
+    this.safeTrigger(() => {
+      this.hitSynth?.triggerAttackRelease("C2", "8n");
+    });
   }
 
   async playDash(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Rising whoosh
-    const now = Tone.now();
-    this.dashSynth?.triggerAttackRelease("C4", "16n", now);
-    this.dashSynth?.triggerAttackRelease("G4", "16n", now + 0.05);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.dashSynth?.triggerAttackRelease("C4", "16n", now);
+      this.dashSynth?.triggerAttackRelease("G4", "16n", now + 0.05);
+    });
   }
 
   async playCountdown(count: number): Promise<void> {
@@ -158,8 +175,9 @@ class AudioManagerClass {
     if (!(await this.ensureInitialized())) return;
 
     if (count > 0) {
-      // Regular countdown beep
-      this.countdownSynth?.triggerAttackRelease("C5", "8n");
+      this.safeTrigger(() => {
+        this.countdownSynth?.triggerAttackRelease("C5", "8n");
+      });
     }
   }
 
@@ -167,71 +185,79 @@ class AudioManagerClass {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Triumphant chord
-    const now = Tone.now();
-    this.fightSynth?.triggerAttackRelease(["C4", "E4", "G4"], "8n", now);
-    this.fightSynth?.triggerAttackRelease(["C5", "E5", "G5"], "4n", now + 0.15);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.fightSynth?.triggerAttackRelease(["C4", "E4", "G4"], "8n", now);
+      this.fightSynth?.triggerAttackRelease(["C5", "E5", "G5"], "4n", now + 0.15);
+    });
   }
 
   async playWin(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Victory fanfare
-    const now = Tone.now();
-    this.winSynth?.triggerAttackRelease(["C4", "E4", "G4"], "4n", now);
-    this.winSynth?.triggerAttackRelease(["C5", "E5", "G5"], "4n", now + 0.3);
-    this.winSynth?.triggerAttackRelease(["E5", "G5", "C6"], "2n", now + 0.6);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.winSynth?.triggerAttackRelease(["C4", "E4", "G4"], "4n", now);
+      this.winSynth?.triggerAttackRelease(["C5", "E5", "G5"], "4n", now + 0.3);
+      this.winSynth?.triggerAttackRelease(["E5", "G5", "C6"], "2n", now + 0.6);
+    });
   }
 
   async playKill(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Quick success arpeggio
-    const now = Tone.now();
-    this.killSynth?.triggerAttackRelease("E5", "16n", now);
-    this.killSynth?.triggerAttackRelease("G5", "16n", now + 0.05);
-    this.killSynth?.triggerAttackRelease("C6", "8n", now + 0.1);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.killSynth?.triggerAttackRelease("E5", "16n", now);
+      this.killSynth?.triggerAttackRelease("G5", "16n", now + 0.05);
+      this.killSynth?.triggerAttackRelease("C6", "8n", now + 0.1);
+    });
   }
 
   async playRespawn(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Gentle rising tone
-    const now = Tone.now();
-    this.respawnSynth?.triggerAttackRelease("C4", "8n", now);
-    this.respawnSynth?.triggerAttackRelease("E4", "8n", now + 0.1);
-    this.respawnSynth?.triggerAttackRelease("G4", "8n", now + 0.2);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.respawnSynth?.triggerAttackRelease("C4", "8n", now);
+      this.respawnSynth?.triggerAttackRelease("E4", "8n", now + 0.1);
+      this.respawnSynth?.triggerAttackRelease("G4", "8n", now + 0.2);
+    });
   }
 
   async playUIClick(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    this.uiClickSynth?.triggerAttackRelease("C5", "32n");
+    this.safeTrigger(() => {
+      this.uiClickSynth?.triggerAttackRelease("C5", "32n");
+    });
   }
 
   async playPilotEject(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Wobbly eject sound
-    const now = Tone.now();
-    this.dashSynth?.triggerAttackRelease("G3", "16n", now);
-    this.dashSynth?.triggerAttackRelease("E3", "16n", now + 0.05);
-    this.dashSynth?.triggerAttackRelease("C3", "8n", now + 0.1);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.dashSynth?.triggerAttackRelease("G3", "16n", now);
+      this.dashSynth?.triggerAttackRelease("E3", "16n", now + 0.05);
+      this.dashSynth?.triggerAttackRelease("C3", "8n", now + 0.1);
+    });
   }
 
   async playPilotDeath(): Promise<void> {
     if (!SettingsManager.shouldPlayFx()) return;
     if (!(await this.ensureInitialized())) return;
 
-    // Sad descending
-    const now = Tone.now();
-    this.hitSynth?.triggerAttackRelease("E3", "8n", now);
-    this.hitSynth?.triggerAttackRelease("C3", "8n", now + 0.1);
+    this.safeTrigger(() => {
+      const now = Tone.now();
+      this.hitSynth?.triggerAttackRelease("E3", "8n", now);
+      this.hitSynth?.triggerAttackRelease("C3", "8n", now + 0.1);
+    });
   }
 
   // ============= BACKGROUND MUSIC =============

@@ -132,4 +132,12 @@ export class InputManager {
   getIsMobile(): boolean {
     return this.isMobile;
   }
+
+  // Clear all input state (call on round end)
+  reset(): void {
+    this.buttonA = false;
+    this.buttonB = false;
+    this.wasButtonA = false;
+    this.lastButtonATime = 0;
+  }
 }

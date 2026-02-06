@@ -83,6 +83,9 @@ const toggleFx = document.getElementById("toggleFx")!;
 const toggleHaptics = document.getElementById("toggleHaptics")!;
 const settingsClose = document.getElementById("settingsClose")!;
 
+// Ping indicator
+const pingIndicator = document.getElementById("pingIndicator")!;
+
 // Mobile controls
 const mobileControls = document.getElementById("mobileControls")!;
 
@@ -109,6 +112,36 @@ function showScreen(screen: "start" | "lobby" | "game" | "end"): void {
   hud.classList.toggle("active", screen === "game");
   mobileControls.classList.toggle("active", screen === "game");
   settingsBtn.style.display = screen === "game" ? "flex" : "none";
+
+  // Show ping indicator in lobby and game screens (if enabled)
+  const showPing =
+    game.shouldShowPing() && (screen === "lobby" || screen === "game");
+  pingIndicator.style.display = showPing ? "block" : "none";
+}
+
+// Update ping indicator display
+function updatePingIndicator(): void {
+  if (!game.shouldShowPing()) return;
+
+  const latency = game.getLatencyMs();
+
+  // Don't show until we have a valid ping (latency > 0 means we received at least one ping)
+  if (latency === 0) {
+    pingIndicator.textContent = "";
+    return;
+  }
+
+  pingIndicator.textContent = `${latency}ms`;
+
+  // Color code based on latency
+  pingIndicator.classList.remove("good", "medium", "bad");
+  if (latency < 50) {
+    pingIndicator.classList.add("good");
+  } else if (latency < 150) {
+    pingIndicator.classList.add("medium");
+  } else {
+    pingIndicator.classList.add("bad");
+  }
 }
 
 function showJoinSection(): void {
@@ -133,19 +166,30 @@ function triggerHaptic(
 // ============= LOBBY UI =============
 
 function updateLobbyUI(players: PlayerData[]): void {
+  const myPlayerId = game.getMyPlayerId();
+
   // Update player list
   playersList.innerHTML = players
     .map((player, index) => {
-      const isHost = index === 0; // First player is usually host
+      const isHostPlayer = index === 0; // First player in array is host (PlayroomKit convention)
+      const isSelf = player.id === myPlayerId;
+
       // Use SVG icons instead of emojis for cross-platform consistency
-      const hostIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#ffee00"><path d="M12 1L9 9l-7 1 5 5-1.5 7L12 18l6.5 4L17 15l5-5-7-1z"/></svg>`;
+      // Host star is white to avoid conflict with yellow player color
+      const hostIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#ffffff"><path d="M12 1L9 9l-7 1 5 5-1.5 7L12 18l6.5 4L17 15l5-5-7-1z"/></svg>`;
       const playerIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="${player.color.primary}"><path d="M12 2L4 12l3 1.5L12 22l5-8.5L20 12z"/></svg>`;
+
+      // Show "(You)" suffix for local player
+      const nameDisplay = isSelf
+        ? `${escapeHtml(player.name)} <span style="opacity: 0.6">(You)</span>`
+        : escapeHtml(player.name);
+
       return `
-      <div class="player-slot ${isHost ? "host" : ""}">
+      <div class="player-slot ${isHostPlayer ? "host" : ""} ${isSelf ? "self" : ""}">
         <div class="player-avatar" style="background: ${player.color.primary}">
-          ${isHost ? hostIcon : playerIcon}
+          ${isHostPlayer ? hostIcon : playerIcon}
         </div>
-        <div class="player-name">${escapeHtml(player.name)}</div>
+        <div class="player-name">${nameDisplay}</div>
       </div>
     `;
     })
@@ -493,6 +537,9 @@ async function init(): Promise<void> {
 
   // Start the game render loop (runs in background)
   game.start();
+
+  // Update ping indicator periodically
+  setInterval(updatePingIndicator, 500);
 
   // Check for platform-injected room code for auto-join
   if (window.__ROOM_CODE__) {

@@ -36,8 +36,13 @@ export class Game {
   private pendingDashes: Set<string> = new Set(); // Dash requests received via RPC
   private countdown: number = 0;
   private countdownInterval: ReturnType<typeof setInterval> | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private lastTime: number = 0;
   private winnerId: string | null = null;
+  private latencyMs: number = 0;
+
+  // Enable to show ping indicator (can wire to settings later)
+  static SHOW_PING = true;
 
   // UI callbacks
   private onPhaseChange: ((phase: GamePhase) => void) | null = null;
@@ -155,7 +160,7 @@ export class Game {
         console.log("[Game] Host changed, we are now host");
 
         // Update UI to reflect new host status
-        this.onPlayersUpdate?.([...this.players.values()]);
+        this.onPlayersUpdate?.(this.getPlayers());
 
         // If we become host mid-game, award win to highest scorer
         if (this.phase === "PLAYING") {
@@ -201,7 +206,7 @@ export class Game {
         console.log("[Game] RPC winner received:", winnerId);
         this.winnerId = winnerId;
         // UI will pick this up on next phase change or can update immediately
-        this.onPlayersUpdate?.([...this.players.values()]);
+        this.onPlayersUpdate?.(this.getPlayers());
       },
 
       onCountdownReceived: (count) => {
@@ -244,6 +249,18 @@ export class Game {
           this.pendingDashes.add(playerId);
         }
       },
+
+      onPingReceived: (latencyMs) => {
+        this.latencyMs = latencyMs;
+      },
+
+      onPlayerListReceived: (playerOrder) => {
+        // Non-host receives authoritative player order from host
+        // Rebuild players map with correct indices/colors
+        if (!this.network.isHost()) {
+          this.rebuildPlayersFromOrder(playerOrder);
+        }
+      },
     });
 
     this.network.startSync();
@@ -253,7 +270,26 @@ export class Game {
       this.network.sendDashRequest();
     });
 
+    // Start ping interval for latency measurement (host broadcasts, all receive)
+    this.startPingInterval();
+
     this.setPhase("LOBBY");
+  }
+
+  private startPingInterval(): void {
+    if (this.pingInterval) return;
+    this.pingInterval = setInterval(() => {
+      if (this.network.isHost()) {
+        this.network.broadcastPing();
+      }
+    }, 1000);
+  }
+
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 
   private handleDisconnected(): void {
@@ -262,6 +298,9 @@ export class Game {
       clearInterval(this.countdownInterval);
       this.countdownInterval = null;
     }
+
+    // Stop ping interval
+    this.stopPingInterval();
 
     // Clear game state
     this.clearGameState();
@@ -289,7 +328,8 @@ export class Game {
         state: "SPECTATING",
       };
       this.players.set(playerId, player);
-      this.onPlayersUpdate?.([...this.players.values()]);
+      // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+      this.onPlayersUpdate?.(this.getPlayers());
       return;
     }
 
@@ -312,7 +352,38 @@ export class Game {
       state: "ACTIVE",
     };
     this.players.set(playerId, player);
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
+
+    // Host broadcasts authoritative player order after any join
+    if (this.network.isHost()) {
+      this.network.broadcastPlayerList();
+    }
+  }
+
+  // Rebuild players map from host's authoritative order
+  private rebuildPlayersFromOrder(playerOrder: string[]): void {
+    // Update each player's color based on host's order
+    playerOrder.forEach((playerId, index) => {
+      const existingPlayer = this.players.get(playerId);
+      if (existingPlayer) {
+        existingPlayer.color = PLAYER_COLORS[index % PLAYER_COLORS.length];
+      } else {
+        // Player not yet in our map, create them
+        const color = PLAYER_COLORS[index % PLAYER_COLORS.length];
+        const player: PlayerData = {
+          id: playerId,
+          name: this.network.getPlayerName(playerId),
+          color,
+          kills: 0,
+          state: "ACTIVE",
+        };
+        this.players.set(playerId, player);
+      }
+    });
+
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
   }
 
   private removePlayer(playerId: string): void {
@@ -329,7 +400,13 @@ export class Game {
     }
 
     this.players.delete(playerId);
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
+
+    // Host broadcasts updated player order after any leave
+    if (this.network.isHost()) {
+      this.network.broadcastPlayerList();
+    }
 
     // Handle based on current phase
     if (this.network.isHost()) {
@@ -428,7 +505,8 @@ export class Game {
       });
     }
 
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
   }
 
   private getSpawnPoints(
@@ -498,7 +576,8 @@ export class Game {
       this.network.updatePlayerState(playerId, "EJECTED");
     }
 
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
     this.triggerHaptic("heavy");
     // Broadcast explosion sound to all players
     this.network.broadcastGameSound("explosion", playerId);
@@ -542,7 +621,8 @@ export class Game {
     // If only one player is not spectating, they win
     this.checkEliminationWin();
 
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
     this.triggerHaptic("success");
     // Broadcast kill sound to all players
     this.network.broadcastGameSound("kill", pilotPlayerId);
@@ -602,7 +682,8 @@ export class Game {
     player.state = "ACTIVE";
     this.network.updatePlayerState(playerId, "ACTIVE");
 
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
     // Broadcast respawn sound to all players
     this.network.broadcastGameSound("respawn", playerId);
   }
@@ -637,7 +718,8 @@ export class Game {
 
     this.clearGameState();
     this.setPhase("LOBBY");
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
   }
 
   private clearGameState(): void {
@@ -656,8 +738,10 @@ export class Game {
     this.networkPilots = [];
     this.networkProjectiles = [];
 
-    // Clear input tracking
+    // Clear all input states to prevent stale inputs on next round
+    this.pendingInputs.clear();
     this.pendingDashes.clear();
+    this.input.reset();
 
     // Reset player scores
     this.players.forEach((player) => {
@@ -795,45 +879,27 @@ export class Game {
   }
 
   private broadcastState(): void {
+    // Note: phase, countdown, winnerId are sent via RPC (reliable)
+    // This broadcast only contains position data and player stats for rendering
     const state: GameStateSync = {
-      phase: this.phase,
       ships: [...this.ships.values()].map((s) => s.getState()),
       pilots: [...this.pilots.values()].map((p) => p.getState()),
       projectiles: this.projectiles.map((p) => p.getState()),
       players: [...this.players.values()],
-      countdown: this.countdown,
-      winnerId: this.winnerId ?? undefined,
     };
 
     this.network.broadcastGameState(state);
   }
 
   private applyNetworkState(state: GameStateSync): void {
-    // Update players FIRST so names are available
+    // Update players for UI display (names, colors, kills)
     state.players.forEach((playerData) => {
       this.players.set(playerData.id, playerData);
     });
-    this.onPlayersUpdate?.([...this.players.values()]);
+    // Use getPlayers() to ensure correct ordering from network.getPlayerIds()
+    this.onPlayersUpdate?.(this.getPlayers());
 
-    // Update winner BEFORE phase change so name is available in callback
-    if (state.winnerId) {
-      this.winnerId = state.winnerId;
-    }
-
-    // Note: countdown is now synced via RPC, not gameState, to avoid spam
-
-    // Handle phase transitions
-    if (state.phase !== this.phase) {
-      const oldPhase = this.phase;
-      this.phase = state.phase;
-
-      // If returning to LOBBY from GAME_END, clear game state on non-host
-      if (state.phase === "LOBBY" && oldPhase === "GAME_END") {
-        this.clearGameState();
-      }
-
-      this.onPhaseChange?.(state.phase);
-    }
+    // Note: phase, countdown, winnerId are synced via RPC (reliable), not here
 
     // Sync entity states for rendering on clients
     this.networkShips = state.ships;
@@ -869,8 +935,11 @@ export class Game {
       } else {
         this.networkShips.forEach((state) => {
           if (state.alive) {
-            const color = this.network.getPlayerColor(state.playerId);
-            this.renderer.drawShip(state, color);
+            // Use synced color from PlayerData, not local playerOrder
+            const player = this.players.get(state.playerId);
+            if (player) {
+              this.renderer.drawShip(state, player.color);
+            }
           }
         });
       }
@@ -942,7 +1011,16 @@ export class Game {
   }
 
   getPlayers(): PlayerData[] {
-    return [...this.players.values()];
+    // Return players in canonical order (host's playerOrder)
+    const playerIds = this.network.getPlayerIds();
+    const orderedPlayers: PlayerData[] = [];
+    for (const id of playerIds) {
+      const player = this.players.get(id);
+      if (player) {
+        orderedPlayers.push(player);
+      }
+    }
+    return orderedPlayers;
   }
 
   getWinnerId(): string | null {
@@ -962,12 +1040,24 @@ export class Game {
     return this.network.isHost();
   }
 
+  getMyPlayerId(): string | null {
+    return this.network.getMyPlayerId();
+  }
+
   getPlayerCount(): number {
     return this.network.getPlayerCount();
   }
 
   canStartGame(): boolean {
     return this.network.isHost() && this.network.getPlayerCount() >= 2;
+  }
+
+  getLatencyMs(): number {
+    return this.latencyMs;
+  }
+
+  shouldShowPing(): boolean {
+    return Game.SHOW_PING;
   }
 
   async leaveGame(): Promise<void> {

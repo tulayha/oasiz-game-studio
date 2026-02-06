@@ -13,6 +13,7 @@ import {
 } from "playroomkit";
 import {
   GameStateSync,
+  GamePhase,
   PlayerInput,
   PlayerData,
   PLAYER_COLORS,
@@ -26,11 +27,13 @@ export interface NetworkCallbacks {
   onInputReceived: (playerId: string, input: PlayerInput) => void;
   onHostChanged: () => void;
   onDisconnected: () => void;
-  onGamePhaseReceived: (phase: GameStateSync["phase"]) => void;
+  onGamePhaseReceived: (phase: GamePhase) => void;
   onWinnerReceived: (winnerId: string) => void;
   onCountdownReceived: (count: number) => void;
   onGameSoundReceived: (type: string, playerId: string) => void;
   onDashRequested: (playerId: string) => void;
+  onPingReceived: (latencyMs: number) => void;
+  onPlayerListReceived: (playerOrder: string[]) => void;
 }
 
 export class NetworkManager {
@@ -42,6 +45,9 @@ export class NetworkManager {
 
   async createRoom(): Promise<string> {
     console.log("[NetworkManager] Creating new room...");
+
+    // Clear state from any previous session
+    this.resetState();
 
     // Don't pass roomCode - let PlayroomKit generate one
     await insertCoin({
@@ -66,6 +72,9 @@ export class NetworkManager {
   async joinRoom(roomCode: string): Promise<boolean> {
     try {
       console.log("[NetworkManager] Joining room:", roomCode);
+
+      // Clear state from any previous session
+      this.resetState();
 
       // Pass roomCode to join existing room
       await insertCoin({
@@ -135,7 +144,7 @@ export class NetworkManager {
 
   private setupRPCHandlers(): void {
     // Handle game phase changes from host
-    RPC.register("gamePhase", async (phase: GameStateSync["phase"]) => {
+    RPC.register("gamePhase", async (phase: GamePhase) => {
       console.log("[NetworkManager] RPC gamePhase received:", phase);
       this.callbacks?.onGamePhaseReceived(phase);
     });
@@ -163,6 +172,21 @@ export class NetworkManager {
     // Handle dash request from any player (sent to host)
     RPC.register("dashRequest", async (playerId: string) => {
       this.callbacks?.onDashRequested(playerId);
+    });
+
+    // Handle ping from host (for latency display)
+    RPC.register("ping", async (hostTime: number) => {
+      const latency = Date.now() - hostTime;
+      this.callbacks?.onPingReceived(latency);
+    });
+
+    // Handle player list sync from host (authoritative order)
+    RPC.register("playerList", async (playerOrder: string[]) => {
+      // Update local playerOrder to match host's authoritative order
+      if (!isHost()) {
+        this.playerOrder = [...playerOrder];
+      }
+      this.callbacks?.onPlayerListReceived(playerOrder);
     });
   }
 
@@ -214,7 +238,7 @@ export class NetworkManager {
   }
 
   // Broadcast game phase change via RPC (reliable one-time event)
-  broadcastGamePhase(phase: GameStateSync["phase"]): void {
+  broadcastGamePhase(phase: GamePhase): void {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting game phase via RPC:", phase);
     RPC.call("gamePhase", phase, RPC.Mode.ALL);
@@ -244,6 +268,18 @@ export class NetworkManager {
     const playerId = myPlayer()?.id;
     if (!playerId) return;
     RPC.call("dashRequest", playerId, RPC.Mode.HOST);
+  }
+
+  // Broadcast ping for latency measurement (host only)
+  broadcastPing(): void {
+    if (!isHost()) return;
+    RPC.call("ping", Date.now(), RPC.Mode.ALL);
+  }
+
+  // Broadcast player list (host only) - authoritative order for colors
+  broadcastPlayerList(): void {
+    if (!isHost()) return;
+    RPC.call("playerList", this.playerOrder, RPC.Mode.ALL);
   }
 
   // Reset all player states (for game restart)
@@ -321,6 +357,7 @@ export class NetworkManager {
     this.stopSync();
     this.shareRoomCode(null);
     this.connected = false;
+    this.resetState();
     try {
       const player = myPlayer();
       if (player) {
@@ -329,6 +366,12 @@ export class NetworkManager {
     } catch (e) {
       console.log("[NetworkManager] Error leaving room:", e);
     }
+  }
+
+  // Clear all state (call between sessions)
+  private resetState(): void {
+    this.players.clear();
+    this.playerOrder = [];
   }
 
   private shareRoomCode(code: string | null): void {
