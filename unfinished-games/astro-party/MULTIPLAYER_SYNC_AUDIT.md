@@ -346,29 +346,29 @@ const botPlayer = this.getPlayerByBot(bot); // Searches players Map
 
 ### Critical (Gameplay-Breaking)
 
-| # | Bug | Impact | Root Cause | Affected Scenarios |
-|---|-----|--------|------------|-------------------|
-| B1 | **"Unknown" winner when bot wins** | Winner display broken | `getPlayerName()` can't resolve bot's winnerId — bot may be removed or state cleared | 13.1, 13.2 |
-| B2 | **Duplicate bot names ("Bot 2" x3)** | Confusing, indistinguishable bots | `getBotCount()` returns live count, not monotonic ID; race conditions in naming | 11.1 |
-| B3 | **Duplicate scoreboard entries** | 6 rows for 4 players, kills misattributed | Ghost bot entries persisting, or `players[]` array in GameStateSync contains stale data | 13.3 |
-| B4 | **`resetAllPlayerStates` wipes bot fields** | Bot AI stops working after "Play Again" | Only `customName` preserved; `botType`/`keySlot` reset to defaults | 14.1, 14.3, 14.4 |
+| # | Bug | Impact | Status | Fix Applied |
+|---|-----|--------|--------|-------------|
+| B1 | **"Unknown" winner when bot wins** | Winner display broken | **FIXED** | Winner name stored eagerly in `endGame()` and `onWinnerReceived` |
+| B2 | **Duplicate bot names ("Bot 2" x3)** | Confusing, indistinguishable bots | **FIXED** | Monotonic `botNameCounter` instead of `getBotCount()` |
+| B3 | **Duplicate scoreboard entries** | 6 rows for 4 players, kills misattributed | **FIXED** | Duplicate join guard in `onPlayerJoin` |
+| B4 | **`resetAllPlayerStates` wipes bot fields** | Bot AI stops working after "Play Again" | **FIXED** | Preserve list now includes `botType` and `keySlot` |
 
 ### High (Sync Issues)
 
-| # | Bug | Impact | Root Cause | Affected Scenarios |
-|---|-----|--------|------------|-------------------|
-| B5 | **No phase guard on bot addition** | Bot added during PLAYING with no ship/spawn logic | `addAIBot()` only checks player count, not phase | 11.2, 11.3 |
-| B6 | **Bot AI lost on host migration** | Zombie bots with no input after host leaves | AstroBot instances are host-local, not transferred | 15.4 |
-| B7 | **Orphaned bots on host leave** | Bots persist in room without cleanup | `leaveGame()` doesn't kick bots before leaving | 15.1 |
-| B8 | **`getPlayerByBot()` race condition** | Bot state (name/type/slot) never set if `onPlayerJoin` fires late | `addBot()` resolves before `onPlayerJoin` callback | 18.4 |
+| # | Bug | Impact | Status | Fix Applied |
+|---|-----|--------|--------|-------------|
+| B5 | **No phase guard on bot addition** | Bot added during PLAYING with no ship/spawn logic | **FIXED** | Phase guard (`this.phase !== "LOBBY"`) in `addAIBot()` / `addLocalBot()` |
+| B6 | **Bot AI lost on host migration** | Zombie bots with no input after host leaves | **BY DESIGN** | Match ends on host migration; bots restart naturally in next game |
+| B7 | **Orphaned bots on host leave** | Bots persist in room without cleanup | **BY DESIGN** | PlayroomKit destroys room when host leaves (solo) or assigns new host (multiplayer). Kicking bots before `leaveRoom()` corrupts PK state. |
+| B8 | **`getPlayerByBot()` race condition** | Bot state (name/type/slot) never set if `onPlayerJoin` fires late | **FIXED** | Uses `player.bot === bot` reference comparison with fallback |
 
 ### Medium (UX Issues)
 
-| # | Bug | Impact | Root Cause | Affected Scenarios |
-|---|-----|--------|------------|-------------------|
-| B9 | **No add-bot debounce** | Can exceed 4 player limit with rapid clicks | Multiple async `addBot()` calls pass size check simultaneously | 18.1 |
-| B10 | **Duplicate keySlot allowed** | Two local bots share same keyboard inputs | No keySlot uniqueness check in `addLocalBot()` | 18.6 |
-| B11 | **Remote joins after local bots** | Local bots exist in online room — input only on host | No enforcement to prevent remote joins into local-bot rooms | 12.3 |
+| # | Bug | Impact | Status | Fix Applied |
+|---|-----|--------|--------|-------------|
+| B9 | **No add-bot debounce** | Can exceed 4 player limit with rapid clicks | **FIXED** | `addingBot` flag prevents concurrent adds |
+| B10 | **Duplicate keySlot allowed** | Two local bots share same keyboard inputs | **FIXED** | `getUsedKeySlots()` check before `addLocalBot()` |
+| B11 | **Remote joins after local bots** | Local bots exist in online room — input only on host | **KNOWN** | Low priority — local bot rooms are effectively private |
 
 ---
 

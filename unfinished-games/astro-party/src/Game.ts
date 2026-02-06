@@ -38,11 +38,13 @@ export class Game {
   private pendingDashes: Set<string> = new Set(); // Dash requests received via RPC
   private multiInput: MultiInputManager | null = null; // For local human bots
   private localPlayerSlots: Map<string, number> = new Map(); // playerId -> keySlot
+  private useTouchForHost = false; // On mobile with touch zones, host input comes from MultiInputManager
   private countdown: number = 0;
   private countdownInterval: ReturnType<typeof setInterval> | null = null;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private lastTime: number = 0;
   private winnerId: string | null = null;
+  private winnerName: string | null = null;
   private latencyMs: number = 0;
 
   // Enable to show ping indicator (can wire to settings later)
@@ -126,20 +128,24 @@ export class Game {
   // ============= NETWORK =============
 
   async createRoom(): Promise<string> {
+    this.registerNetworkCallbacks();
     const code = await this.network.createRoom();
-    this.setupNetworkCallbacks();
+    this.initializeNetworkSession();
     return code;
   }
 
   async joinRoom(code: string): Promise<boolean> {
+    this.registerNetworkCallbacks();
     const success = await this.network.joinRoom(code);
     if (success) {
-      this.setupNetworkCallbacks();
+      this.initializeNetworkSession();
     }
     return success;
   }
 
-  private setupNetworkCallbacks(): void {
+  // Set callbacks on NetworkManager so onPlayerJoin (which fires immediately
+  // for existing players per PK docs) can find them during setupListeners()
+  private registerNetworkCallbacks(): void {
     this.network.setCallbacks({
       onPlayerJoined: (playerId, playerIndex) => {
         this.addPlayer(playerId, playerIndex);
@@ -210,6 +216,9 @@ export class Game {
       onWinnerReceived: (winnerId) => {
         console.log("[Game] RPC winner received:", winnerId);
         this.winnerId = winnerId;
+        this.winnerName =
+          this.players.get(winnerId)?.name ??
+          this.network.getPlayerName(winnerId);
         // UI will pick this up on next phase change or can update immediately
         this.onPlayersUpdate?.(this.getPlayers());
       },
@@ -267,7 +276,10 @@ export class Game {
         }
       },
     });
+  }
 
+  // Start sync, ping, and transition to lobby — must be called after room exists
+  private initializeNetworkSession(): void {
     this.network.startSync();
 
     // Set up dash detection callback - sends RPC when double-tap detected
@@ -695,6 +707,9 @@ export class Game {
 
   private endGame(winnerId: string): void {
     this.winnerId = winnerId;
+    this.winnerName =
+      this.players.get(winnerId)?.name ??
+      this.network.getPlayerName(winnerId);
     this.setPhase("GAME_END");
     this.network.broadcastWinner(winnerId);
     this.triggerHaptic("success");
@@ -756,6 +771,7 @@ export class Game {
     });
 
     this.winnerId = null;
+    this.winnerName = null;
   }
 
   private removeProjectileByBody(body: Matter.Body): void {
@@ -794,8 +810,10 @@ export class Game {
   private update(dt: number): void {
     if (this.phase !== "PLAYING") return;
 
-    // Send local input
-    const localInput = this.input.capture();
+    // Send local input - use touch zones if active on mobile, otherwise InputManager
+    const localInput = this.useTouchForHost
+      ? (this.multiInput?.capture(0) || { buttonA: false, buttonB: false, timestamp: 0 })
+      : this.input.capture();
     this.network.sendInput(localInput);
 
     // Host: process all inputs and update physics
@@ -837,16 +855,29 @@ export class Game {
           // Check for dash from multi-input
           shouldDash = this.multiInput?.consumeDash(keySlot) || false;
         } else {
-          // Human player - get input from network
-          input = this.pendingInputs.get(playerId) || {
-            buttonA: false,
-            buttonB: false,
-            timestamp: 0,
-          };
-          // Check for pending dash (received via RPC)
-          shouldDash = this.pendingDashes.has(playerId);
-          if (shouldDash) {
-            this.pendingDashes.delete(playerId);
+          // Human player - get input from network or touch zones
+          const myId = this.network.getMyPlayerId();
+          const isMe = playerId === myId;
+
+          if (isMe && this.useTouchForHost) {
+            // Host using touch zones - input already captured above, get from multiInput slot 0
+            input = this.multiInput?.capture(0) || {
+              buttonA: false,
+              buttonB: false,
+              timestamp: 0,
+            };
+            shouldDash = this.multiInput?.consumeDash(0) || false;
+          } else {
+            input = this.pendingInputs.get(playerId) || {
+              buttonA: false,
+              buttonB: false,
+              timestamp: 0,
+            };
+            // Check for pending dash (received via RPC)
+            shouldDash = this.pendingDashes.has(playerId);
+            if (shouldDash) {
+              this.pendingDashes.delete(playerId);
+            }
           }
         }
 
@@ -1069,8 +1100,7 @@ export class Game {
   }
 
   getWinnerName(): string | null {
-    if (!this.winnerId) return null;
-    return this.network.getPlayerName(this.winnerId);
+    return this.winnerName;
   }
 
   getRoomCode(): string {
@@ -1108,8 +1138,11 @@ export class Game {
       this.countdownInterval = null;
     }
 
-    // Properly leave room using PlayroomKit's native leaveRoom()
-    // This triggers onQuit for other players
+    // Stop ping interval before disconnecting to prevent RPC calls during teardown
+    this.stopPingInterval();
+
+    // Leave room — PlayroomKit handles bot cleanup when room closes
+    // Don't kick bots individually as it corrupts PlayroomKit state before disconnect
     await this.network.disconnect();
 
     // Clear local state
@@ -1122,6 +1155,76 @@ export class Game {
 
   setPlayerName(name: string): void {
     this.network.setCustomName(name);
+  }
+
+  // ============= TOUCH LAYOUT MANAGEMENT =============
+
+  /**
+   * Update the mobile touch control layout based on current local player count.
+   * Called from main.ts when players change or on phase transitions.
+   */
+  updateTouchLayout(): void {
+    if (!this.multiInput) return;
+
+    const isMobile = window.matchMedia("(pointer: coarse)").matches;
+    if (!isMobile) {
+      this.useTouchForHost = false;
+      this.multiInput.destroyTouchZones();
+      return;
+    }
+
+    // Count local players (host + local bots)
+    let localCount = 1; // Host is always local
+    for (const [playerId] of this.players) {
+      if (this.network.getPlayerBotType(playerId) === "local") {
+        localCount++;
+      }
+    }
+
+    // Build slot-to-color-index mapping
+    const slotToColorIndex = new Map<number, number>();
+    const orderedPlayers = this.getPlayers();
+    const myId = this.network.getMyPlayerId();
+
+    // Host is always slot 0
+    const hostIdx = orderedPlayers.findIndex((p) => p.id === myId);
+    if (hostIdx >= 0) {
+      slotToColorIndex.set(0, hostIdx);
+    }
+
+    // Map each local bot's key slot to their color index
+    orderedPlayers.forEach((player, colorIndex) => {
+      const botType = this.network.getPlayerBotType(player.id);
+      if (botType === "local") {
+        const keySlot = this.network.getPlayerKeySlot(player.id);
+        slotToColorIndex.set(keySlot, colorIndex);
+      }
+    });
+
+    // Determine layout
+    let layout: "single" | "dual" | "corner";
+    if (localCount <= 1) {
+      layout = "single";
+    } else if (localCount === 2) {
+      layout = "dual";
+    } else {
+      layout = "corner";
+    }
+
+    // Activate slot 0 for the host on mobile touch
+    this.multiInput.activateSlot(0);
+
+    // Set up touch zones
+    this.multiInput.setupTouchZones(layout, localCount, slotToColorIndex);
+    this.useTouchForHost = true;
+  }
+
+  /**
+   * Tear down touch zones (e.g., when leaving game)
+   */
+  clearTouchLayout(): void {
+    this.useTouchForHost = false;
+    this.multiInput?.destroyTouchZones();
   }
 
   // ============= BOT MANAGEMENT =============
@@ -1143,11 +1246,24 @@ export class Game {
   }
 
   async addAIBot(): Promise<boolean> {
+    if (this.phase !== "LOBBY") {
+      console.log("[Game] Cannot add bots outside lobby phase");
+      return false;
+    }
     const bot = await this.network.addAIBot();
     return bot !== null;
   }
 
   async addLocalBot(keySlot: number): Promise<boolean> {
+    if (this.phase !== "LOBBY") {
+      console.log("[Game] Cannot add bots outside lobby phase");
+      return false;
+    }
+    // Check if keySlot is already in use
+    if (this.getUsedKeySlots().includes(keySlot)) {
+      console.log("[Game] Key slot already in use:", keySlot);
+      return false;
+    }
     const bot = await this.network.addLocalBot(keySlot);
     if (bot) {
       // Activate the key slot for this local player

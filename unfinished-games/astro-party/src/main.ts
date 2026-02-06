@@ -111,6 +111,7 @@ const mobileControls = document.getElementById("mobileControls")!;
 
 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
 const game = new Game(canvas);
+let addingBot = false;
 
 // ============= SETTINGS =============
 
@@ -128,16 +129,28 @@ function showScreen(screen: "start" | "lobby" | "game" | "end"): void {
   lobbyScreen.classList.toggle("hidden", screen !== "lobby");
   gameEndScreen.classList.toggle("hidden", screen !== "end");
   hud.classList.toggle("active", screen === "game");
-  mobileControls.classList.toggle("active", screen === "game");
   settingsBtn.style.display = screen === "game" ? "flex" : "none";
+
+  // On mobile: use adaptive touch zones instead of old mobile-controls
+  if (isMobile) {
+    // Old mobile controls are disabled on mobile - touch zones handle everything
+    mobileControls.classList.remove("active");
+    if (screen === "game") {
+      game.updateTouchLayout();
+    } else {
+      game.clearTouchLayout();
+    }
+  } else {
+    mobileControls.classList.toggle("active", screen === "game");
+  }
 
   // Show ping indicator in lobby and game screens (if enabled)
   const showPing =
     game.shouldShowPing() && (screen === "lobby" || screen === "game");
   pingIndicator.style.display = showPing ? "block" : "none";
 
-  // Show local player hints during gameplay (only when there are local players)
-  if (screen === "game" && game.hasLocalPlayers()) {
+  // Show local player hints during gameplay (only when there are local players, desktop only)
+  if (screen === "game" && game.hasLocalPlayers() && !isMobile) {
     updateLocalPlayerHints();
     localPlayerHints.classList.remove("hidden");
   } else {
@@ -425,6 +438,11 @@ game.setUICallbacks({
   onPlayersUpdate: (players: PlayerData[]) => {
     updateLobbyUI(players);
     updateScoreTrack(players);
+
+    // Update touch layout when players change (mobile only)
+    if (isMobile && game.getPhase() === "PLAYING") {
+      game.updateTouchLayout();
+    }
   },
 
   onCountdownUpdate: (count: number) => {
@@ -539,6 +557,8 @@ copyCodeBtn.addEventListener("click", () => {
 
 // Bot controls
 addAIBotBtn.addEventListener("click", async () => {
+  if (addingBot) return;
+  addingBot = true;
   triggerHaptic("light");
   AudioManager.playUIClick();
   addAIBotBtn.disabled = true;
@@ -550,12 +570,34 @@ addAIBotBtn.addEventListener("click", async () => {
   }
 
   addAIBotBtn.disabled = false;
+  addingBot = false;
 });
 
-addLocalPlayerBtn.addEventListener("click", () => {
+addLocalPlayerBtn.addEventListener("click", async () => {
   triggerHaptic("light");
   AudioManager.playUIClick();
-  showKeySelectModal();
+
+  if (isMobile) {
+    // On mobile, skip key selection - auto-assign next available touch slot
+    const usedSlots = game.getUsedKeySlots();
+    // Find first unused slot starting from 1 (slot 0 is host's WASD/touch)
+    let nextSlot = -1;
+    for (let i = 1; i < 4; i++) {
+      if (!usedSlots.includes(i)) {
+        nextSlot = i;
+        break;
+      }
+    }
+    if (nextSlot >= 0) {
+      try {
+        await game.addLocalBot(nextSlot);
+      } catch (e) {
+        console.error("[Main] Failed to add local player:", e);
+      }
+    }
+  } else {
+    showKeySelectModal();
+  }
 });
 
 // Key selection modal
@@ -585,8 +627,9 @@ keySelectCancel.addEventListener("click", () => {
 
 keyOptions.addEventListener("click", async (e) => {
   const option = (e.target as HTMLElement).closest(".key-option") as HTMLButtonElement;
-  if (!option || option.disabled) return;
+  if (!option || option.disabled || addingBot) return;
 
+  addingBot = true;
   triggerHaptic("light");
   AudioManager.playUIClick();
   hideKeySelectModal();
@@ -597,6 +640,7 @@ keyOptions.addEventListener("click", async (e) => {
   } catch (e) {
     console.error("[Main] Failed to add local player:", e);
   }
+  addingBot = false;
 });
 
 startGameBtn.addEventListener("click", () => {
@@ -710,8 +754,19 @@ toggleHaptics.addEventListener("click", () => {
 
 // ============= INITIALIZATION =============
 
+const isMobile = window.matchMedia("(pointer: coarse)").matches;
+
 async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
+
+  // Attempt to lock orientation to landscape on mobile
+  if (isMobile) {
+    try {
+      await (screen.orientation as any)?.lock?.("landscape");
+    } catch {
+      // Orientation lock not supported or not allowed - CSS overlay handles this
+    }
+  }
 
   updateSettingsUI();
   showScreen("start");

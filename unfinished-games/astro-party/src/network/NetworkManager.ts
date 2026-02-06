@@ -50,6 +50,8 @@ export class NetworkManager {
   private callbacks: NetworkCallbacks | null = null;
   private syncInterval: ReturnType<typeof setInterval> | null = null;
   private connected = false;
+  private botNameCounter = 0;
+  private cleanupFunctions: (() => void)[] = [];
 
   async createRoom(): Promise<string> {
     console.log("[NetworkManager] Creating new room...");
@@ -72,6 +74,9 @@ export class NetworkManager {
         botType: null, // 'ai' | 'local' | null
       },
     });
+
+    // Register PK listeners fresh for this session
+    this.setupListeners();
 
     this.connected = true;
     const roomCode = getRoomCode() || "";
@@ -106,6 +111,9 @@ export class NetworkManager {
         },
       });
 
+      // Register PK listeners fresh for this session
+      this.setupListeners();
+
       this.connected = true;
       console.log("[NetworkManager] Joined room! Code:", getRoomCode());
 
@@ -118,94 +126,123 @@ export class NetworkManager {
     }
   }
 
+  // Store callbacks reference only — listeners are registered per-session in setupListeners()
   setCallbacks(callbacks: NetworkCallbacks): void {
     this.callbacks = callbacks;
+  }
 
-    // Register RPC handlers for game events
-    this.setupRPCHandlers();
-
+  // Register all PlayroomKit event/RPC listeners and store their cleanup functions
+  private setupListeners(): void {
     // Setup player join/leave handlers
-    onPlayerJoin((player) => {
-      console.log("[NetworkManager] Player joined:", player.id);
-      this.players.set(player.id, player);
-      this.playerOrder.push(player.id);
+    this.cleanupFunctions.push(
+      onPlayerJoin((player) => {
+        // Guard against duplicate join events
+        if (this.players.has(player.id)) {
+          console.log("[NetworkManager] Duplicate join ignored:", player.id);
+          return;
+        }
+        console.log("[NetworkManager] Player joined:", player.id);
+        this.players.set(player.id, player);
+        this.playerOrder.push(player.id);
 
-      const playerIndex = this.playerOrder.indexOf(player.id);
-      this.callbacks?.onPlayerJoined(player.id, playerIndex);
+        const playerIndex = this.playerOrder.indexOf(player.id);
+        this.callbacks?.onPlayerJoined(player.id, playerIndex);
 
-      // Check if we became host
-      if (isHost() && myPlayer()?.id === player.id) {
-        this.callbacks?.onHostChanged();
-      }
-
-      player.onQuit(() => {
-        console.log("[NetworkManager] Player left:", player.id);
-        this.players.delete(player.id);
-        this.playerOrder = this.playerOrder.filter((id) => id !== player.id);
-        this.callbacks?.onPlayerLeft(player.id);
-
-        // Check if we became host after someone left
-        if (isHost()) {
+        // Check if we became host
+        if (isHost() && myPlayer()?.id === player.id) {
           this.callbacks?.onHostChanged();
         }
-      });
-    });
+
+        player.onQuit(() => {
+          console.log("[NetworkManager] Player left:", player.id);
+          this.players.delete(player.id);
+          this.playerOrder = this.playerOrder.filter(
+            (id) => id !== player.id,
+          );
+          this.callbacks?.onPlayerLeft(player.id);
+
+          // Check if we became host after someone left
+          if (isHost()) {
+            this.callbacks?.onHostChanged();
+          }
+        });
+      }),
+    );
 
     // Setup disconnect handler (for when current player disconnects/leaves)
-    onDisconnect((e) => {
-      console.log("[NetworkManager] Disconnected:", e.code, e.reason);
-      this.connected = false;
-      this.stopSync();
-      this.callbacks?.onDisconnected();
-    });
+    this.cleanupFunctions.push(
+      onDisconnect((e) => {
+        console.log("[NetworkManager] Disconnected:", e.code, e.reason);
+        this.connected = false;
+        this.stopSync();
+        this.callbacks?.onDisconnected();
+      }),
+    );
+
+    // Register RPC handlers
+    this.setupRPCHandlers();
   }
 
   private setupRPCHandlers(): void {
     // Handle game phase changes from host
-    RPC.register("gamePhase", async (phase: GamePhase) => {
-      console.log("[NetworkManager] RPC gamePhase received:", phase);
-      this.callbacks?.onGamePhaseReceived(phase);
-    });
+    this.cleanupFunctions.push(
+      RPC.register("gamePhase", async (phase: GamePhase) => {
+        console.log("[NetworkManager] RPC gamePhase received:", phase);
+        this.callbacks?.onGamePhaseReceived(phase);
+      }),
+    );
 
     // Handle winner announcement from host
-    RPC.register("gameWinner", async (winnerId: string) => {
-      console.log("[NetworkManager] RPC gameWinner received:", winnerId);
-      this.callbacks?.onWinnerReceived(winnerId);
-    });
+    this.cleanupFunctions.push(
+      RPC.register("gameWinner", async (winnerId: string) => {
+        console.log("[NetworkManager] RPC gameWinner received:", winnerId);
+        this.callbacks?.onWinnerReceived(winnerId);
+      }),
+    );
 
     // Handle countdown updates from host
-    RPC.register("countdown", async (count: number) => {
-      console.log("[NetworkManager] RPC countdown received:", count);
-      this.callbacks?.onCountdownReceived(count);
-    });
+    this.cleanupFunctions.push(
+      RPC.register("countdown", async (count: number) => {
+        console.log("[NetworkManager] RPC countdown received:", count);
+        this.callbacks?.onCountdownReceived(count);
+      }),
+    );
 
     // Handle game sound events from host
-    RPC.register(
-      "gameSound",
-      async (data: { type: string; playerId: string }) => {
-        this.callbacks?.onGameSoundReceived(data.type, data.playerId);
-      },
+    this.cleanupFunctions.push(
+      RPC.register(
+        "gameSound",
+        async (data: { type: string; playerId: string }) => {
+          this.callbacks?.onGameSoundReceived(data.type, data.playerId);
+        },
+      ),
     );
 
     // Handle dash request from any player (sent to host)
-    RPC.register("dashRequest", async (playerId: string) => {
-      this.callbacks?.onDashRequested(playerId);
-    });
+    this.cleanupFunctions.push(
+      RPC.register("dashRequest", async (playerId: string) => {
+        this.callbacks?.onDashRequested(playerId);
+      }),
+    );
 
     // Handle ping from host (for latency display)
-    RPC.register("ping", async (hostTime: number) => {
-      const latency = Date.now() - hostTime;
-      this.callbacks?.onPingReceived(latency);
-    });
+    this.cleanupFunctions.push(
+      RPC.register("ping", async (hostTime: number) => {
+        const latency = Date.now() - hostTime;
+        this.callbacks?.onPingReceived(latency);
+      }),
+    );
 
     // Handle player list sync from host (authoritative order)
-    RPC.register("playerList", async (playerOrder: string[]) => {
-      // Update local playerOrder to match host's authoritative order
-      if (!isHost()) {
-        this.playerOrder = [...playerOrder];
-      }
-      this.callbacks?.onPlayerListReceived(playerOrder);
-    });
+    this.cleanupFunctions.push(
+      RPC.register("playerList", async (playerOrder: string[]) => {
+        // Update local playerOrder to match host's authoritative order
+        if (!isHost()) {
+          this.playerOrder = [...playerOrder];
+        }
+        this.callbacks?.onPlayerListReceived(playerOrder);
+      }),
+    );
   }
 
   startSync(): void {
@@ -304,7 +341,7 @@ export class NetworkManager {
   async resetAllPlayerStates(): Promise<void> {
     if (!isHost()) return;
     console.log("[NetworkManager] Resetting all player states");
-    await resetPlayersStates(["customName"]); // Keep custom names
+    await resetPlayersStates(["customName", "botType", "keySlot"]); // Keep bot identity fields
   }
 
   // Update player kill count
@@ -375,6 +412,17 @@ export class NetworkManager {
     this.stopSync();
     this.shareRoomCode(null);
     this.connected = false;
+
+    // Deregister all PK event/RPC listeners from this session
+    for (const cleanup of this.cleanupFunctions) {
+      try {
+        cleanup();
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+    this.cleanupFunctions = [];
+
     this.resetState();
     try {
       const player = myPlayer();
@@ -390,6 +438,7 @@ export class NetworkManager {
   private resetState(): void {
     this.players.clear();
     this.playerOrder = [];
+    this.botNameCounter = 0;
   }
 
   private shareRoomCode(code: string | null): void {
@@ -426,7 +475,8 @@ export class NetworkManager {
       const botPlayer = this.getPlayerByBot(bot);
       if (botPlayer) {
         botPlayer.setState("botType", "ai", true);
-        botPlayer.setState("customName", `Bot ${this.getBotCount()}`, true);
+        this.botNameCounter++;
+        botPlayer.setState("customName", `Bot ${this.botNameCounter}`, true);
       }
 
       return bot;
@@ -450,7 +500,9 @@ export class NetworkManager {
 
     // Check if any remote players exist (local bots only allowed offline)
     if (this.hasRemotePlayers()) {
-      console.log("[NetworkManager] Cannot add local players when remote players are in room");
+      console.log(
+        "[NetworkManager] Cannot add local players when remote players are in room",
+      );
       return null;
     }
 
@@ -547,14 +599,16 @@ export class NetworkManager {
 
   // Get bot instance from player
   private getPlayerByBot(bot: AstroBot): PlayroomPlayerState | null {
-    // Find the player that has this bot instance
+    // Match by bot instance reference
     for (const player of this.players.values()) {
-      if (player.isBot?.()) {
-        // Check if this is the newly added bot by checking if we haven't set botType yet
-        const botType = player.getState("botType");
-        if (!botType) {
-          return player;
-        }
+      if (player.isBot?.() && player.bot === bot) {
+        return player;
+      }
+    }
+    // Fallback: find any untyped bot (for cases where player.bot isn't set)
+    for (const player of this.players.values()) {
+      if (player.isBot?.() && !player.getState("botType")) {
+        return player;
       }
     }
     return null;
