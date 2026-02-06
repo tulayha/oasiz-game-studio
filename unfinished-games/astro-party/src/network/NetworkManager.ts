@@ -56,6 +56,9 @@ export class NetworkManager {
   async createRoom(): Promise<string> {
     console.log("[NetworkManager] Creating new room...");
 
+    // Deregister stale listeners from any previous PK session
+    this.cleanupPreviousListeners();
+
     // Clear state from any previous session
     this.resetState();
 
@@ -90,6 +93,9 @@ export class NetworkManager {
   async joinRoom(roomCode: string): Promise<boolean> {
     try {
       console.log("[NetworkManager] Joining room:", roomCode);
+
+      // Deregister stale listeners from any previous PK session
+      this.cleanupPreviousListeners();
 
       // Clear state from any previous session
       this.resetState();
@@ -412,18 +418,11 @@ export class NetworkManager {
     this.stopSync();
     this.shareRoomCode(null);
     this.connected = false;
-
-    // Deregister all PK event/RPC listeners from this session
-    for (const cleanup of this.cleanupFunctions) {
-      try {
-        cleanup();
-      } catch (e) {
-        // Ignore cleanup errors
-      }
-    }
-    this.cleanupFunctions = [];
-
     this.resetState();
+
+    // Call leaveRoom WITH listeners still active — PK needs them to
+    // properly tear down internal state (bots subsystem, etc.)
+    // Listener cleanup is deferred to the next createRoom/joinRoom call.
     try {
       const player = myPlayer();
       if (player) {
@@ -432,6 +431,18 @@ export class NetworkManager {
     } catch (e) {
       console.log("[NetworkManager] Error leaving room:", e);
     }
+  }
+
+  // Deregister PK listeners from a previous session (called before new insertCoin)
+  private cleanupPreviousListeners(): void {
+    for (const cleanup of this.cleanupFunctions) {
+      try {
+        cleanup();
+      } catch (e) {
+        // Ignore cleanup errors from stale listeners
+      }
+    }
+    this.cleanupFunctions = [];
   }
 
   // Clear all state (call between sessions)
