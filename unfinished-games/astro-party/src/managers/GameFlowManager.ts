@@ -204,14 +204,17 @@ export class GameFlowManager {
       this.network.updatePlayerState(pilotPlayerId, "SPECTATING");
     }
 
-    const killer = players.get(killerId);
-    if (killer) {
-      killer.kills++;
-      this.network.updateKills(killerId, killer.kills);
+    // Award kill to killer (skip if killed by asteroid/environment)
+    if (killerId !== "asteroid") {
+      const killer = players.get(killerId);
+      if (killer) {
+        killer.kills++;
+        this.network.updateKills(killerId, killer.kills);
 
-      if (killer.kills >= GAME_CONFIG.KILLS_TO_WIN) {
-        this.endGame(killerId, players);
-        return;
+        if (killer.kills >= GAME_CONFIG.KILLS_TO_WIN) {
+          this.endGame(killerId, players);
+          return;
+        }
       }
     }
 

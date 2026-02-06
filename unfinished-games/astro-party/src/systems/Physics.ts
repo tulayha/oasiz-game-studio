@@ -34,6 +34,10 @@ export class Physics {
           label: "wall",
           restitution: 1,
           friction: 0,
+          collisionFilter: {
+            category: 0x0008, // Wall category
+            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
+          },
         },
       ),
       // Bottom
@@ -47,6 +51,10 @@ export class Physics {
           label: "wall",
           restitution: 1,
           friction: 0,
+          collisionFilter: {
+            category: 0x0008, // Wall category
+            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
+          },
         },
       ),
       // Left
@@ -60,6 +68,10 @@ export class Physics {
           label: "wall",
           restitution: 1,
           friction: 0,
+          collisionFilter: {
+            category: 0x0008, // Wall category
+            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
+          },
         },
       ),
       // Right
@@ -73,6 +85,10 @@ export class Physics {
           label: "wall",
           restitution: 1,
           friction: 0,
+          collisionFilter: {
+            category: 0x0008, // Wall category
+            mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
+          },
         },
       ),
     ];
@@ -96,6 +112,10 @@ export class Physics {
       restitution: GAME_CONFIG.SHIP_RESTITUTION,
       friction: 0,
       density: 0.001,
+      collisionFilter: {
+        category: 0x0001, // Ship category
+        mask: 0x0002 | 0x0004 | 0x0008 | 0x0010, // Collide with projectiles (2), asteroids (4), walls (8), and powerups (16)
+      },
     });
 
     // Store player ID in plugin data
@@ -149,6 +169,10 @@ export class Physics {
       friction: 0,
       density: 0.0001,
       isSensor: false,
+      collisionFilter: {
+        category: 0x0002, // Projectile category
+        mask: 0x0001 | 0x0004 | 0x0008, // Collide with ships (1), asteroids (4), and walls (8)
+      },
     });
 
     Body.setVelocity(body, {
@@ -163,6 +187,88 @@ export class Physics {
 
     Composite.add(this.world, body);
     return body;
+  }
+
+  createAsteroid(
+    x: number,
+    y: number,
+    vertices: { x: number; y: number }[],
+    velocity: { x: number; y: number },
+  ): Matter.Body {
+    const body = Matter.Bodies.fromVertices(x, y, [vertices], {
+      label: "asteroid",
+      frictionAir: 0,
+      restitution: 1,
+      friction: 0,
+      density: 0.001,
+      collisionFilter: {
+        category: 0x0004, // Asteroid category
+        mask: 0x0001 | 0x0002, // Collide with ships (1) and projectiles (2), NOT walls
+      },
+    });
+
+    Matter.Body.setVelocity(body, velocity);
+
+    body.plugin = body.plugin || {};
+    body.plugin.entityType = "asteroid";
+
+    Composite.add(this.world, body);
+    return body;
+  }
+
+  createPowerUp(
+    x: number,
+    y: number,
+    type: import("../types").PowerUpType,
+  ): Matter.Body {
+    const size = GAME_CONFIG.POWERUP_SIZE;
+    const body = Bodies.rectangle(x, y, size, size, {
+      label: "powerup",
+      isStatic: true,
+      isSensor: true, // Power-ups are pickups, not physical obstacles
+      frictionAir: 0,
+      restitution: 0,
+      friction: 0,
+      collisionFilter: {
+        category: 0x0010, // Power-up category (16)
+        mask: 0x0001, // Only collide with ships (1)
+      },
+    });
+
+    body.plugin = body.plugin || {};
+    body.plugin.entityType = "powerup";
+    body.plugin.powerUpType = type;
+
+    Composite.add(this.world, body);
+    return body;
+  }
+
+  wrapAround(body: Matter.Body): void {
+    const margin = 50;
+    const w = GAME_CONFIG.ARENA_WIDTH;
+    const h = GAME_CONFIG.ARENA_HEIGHT;
+    let wrapped = false;
+
+    if (body.position.x < -margin) {
+      Matter.Body.setPosition(body, { x: w + margin, y: body.position.y });
+      wrapped = true;
+    } else if (body.position.x > w + margin) {
+      Matter.Body.setPosition(body, { x: -margin, y: body.position.y });
+      wrapped = true;
+    }
+
+    if (body.position.y < -margin) {
+      Matter.Body.setPosition(body, { x: body.position.x, y: h + margin });
+      wrapped = true;
+    } else if (body.position.y > h + margin) {
+      Matter.Body.setPosition(body, { x: body.position.x, y: -margin });
+      wrapped = true;
+    }
+
+    if (wrapped) {
+      // Clear velocity to prevent weirdness
+      Matter.Body.setVelocity(body, body.velocity);
+    }
   }
 
   removeBody(body: Matter.Body): void {

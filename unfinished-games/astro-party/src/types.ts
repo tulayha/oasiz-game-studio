@@ -56,6 +56,48 @@ export interface ProjectileState {
   spawnTime: number;
 }
 
+export interface AsteroidState {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  angularVelocity: number;
+  size: number;
+  alive: boolean;
+  vertices: { x: number; y: number }[];
+}
+
+export interface PowerUpState {
+  id: string;
+  x: number;
+  y: number;
+  type: PowerUpType;
+  spawnTime: number;
+  alive: boolean;
+}
+
+export interface LaserBeamState {
+  id: string;
+  ownerId: string;
+  x: number;
+  y: number;
+  angle: number;
+  spawnTime: number;
+  alive: boolean;
+}
+
+export type PowerUpType = "LASER" | "SHIELD";
+
+export interface PlayerPowerUp {
+  type: PowerUpType;
+  charges: number;
+  maxCharges: number;
+  lastFireTime: number;
+  shieldHits: number;
+}
+
 // ============= PLAYER =============
 
 export interface PlayerData {
@@ -85,7 +127,11 @@ export interface GameStateSync {
   ships: ShipState[];
   pilots: PilotState[];
   projectiles: ProjectileState[];
+  asteroids: AsteroidState[];
+  powerUps: PowerUpState[];
+  laserBeams: LaserBeamState[];
   players: PlayerData[];
+  playerPowerUps: Record<string, PlayerPowerUp | null>;
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
 
@@ -147,4 +193,32 @@ export const GAME_CONFIG = {
 
   // Countdown
   COUNTDOWN_DURATION: 3, // seconds
+
+  // Asteroids
+  ASTEROID_COUNT: 6, // Number of asteroids to spawn
+  ASTEROID_MIN_SIZE: 25,
+  ASTEROID_MAX_SIZE: 45,
+  ASTEROID_MIN_SPEED: 0.5,
+  ASTEROID_MAX_SPEED: 2.0,
+  ASTEROID_VERTICES_MIN: 6,
+  ASTEROID_VERTICES_MAX: 10,
+  ASTEROID_COLOR: "#ff8800",
+  ASTEROID_GLOW: "#ff4400",
+
+  // Asteroid Spawning
+  ASTEROID_SPAWN_INTERVAL_MIN: 2000, // ms
+  ASTEROID_SPAWN_INTERVAL_MAX: 5000, // ms
+  ASTEROID_SPAWN_BATCH_MIN: 1,
+  ASTEROID_SPAWN_BATCH_MAX: 3,
+  ASTEROID_SPAWN_MARGIN: 100, // Distance outside arena to spawn
+
+  // Power-ups
+  POWERUP_DESPAWN_TIME: 10000, // ms (10 seconds)
+  POWERUP_DROP_CHANCE: 0.3, // 30% chance from asteroid
+  POWERUP_SIZE: 25,
+  POWERUP_LASER_CHARGES: 3,
+  POWERUP_LASER_COOLDOWN: 2500, // ms (2.5 seconds between shots)
+  POWERUP_SHIELD_HITS: 2,
+  POWERUP_BEAM_LENGTH: 800, // Beam length - long but not game-breaking
+  POWERUP_BEAM_WIDTH: 8,
 } as const;

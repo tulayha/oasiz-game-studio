@@ -7,7 +7,11 @@ import { NetworkManager } from "./network/NetworkManager";
 import { Ship } from "./entities/Ship";
 import { Pilot } from "./entities/Pilot";
 import { Projectile } from "./entities/Projectile";
+import { Asteroid } from "./entities/Asteroid";
+import { PowerUp } from "./entities/PowerUp";
+import { LaserBeam } from "./entities/LaserBeam";
 import { AudioManager } from "./AudioManager";
+import { SettingsManager } from "./SettingsManager";
 import { PlayerManager } from "./managers/PlayerManager";
 import { GameFlowManager } from "./managers/GameFlowManager";
 import { BotManager } from "./managers/BotManager";
@@ -19,6 +23,11 @@ import {
   ShipState,
   PilotState,
   ProjectileState,
+  AsteroidState,
+  PowerUpState,
+  LaserBeamState,
+  PowerUpType,
+  PlayerPowerUp,
   GAME_CONFIG,
 } from "./types";
 
@@ -38,6 +47,10 @@ export class Game {
   private ships: Map<string, Ship> = new Map();
   private pilots: Map<string, Pilot> = new Map();
   private projectiles: Projectile[] = [];
+  private asteroids: Asteroid[] = [];
+  private powerUps: PowerUp[] = [];
+  private laserBeams: LaserBeam[] = [];
+  private playerPowerUps: Map<string, PlayerPowerUp | null> = new Map();
 
   // Input state
   private pendingInputs: Map<string, PlayerInput> = new Map();
@@ -47,9 +60,13 @@ export class Game {
   private networkShips: ShipState[] = [];
   private networkPilots: PilotState[] = [];
   private networkProjectiles: ProjectileState[] = [];
+  private networkAsteroids: AsteroidState[] = [];
+  private networkPowerUps: PowerUpState[] = [];
+  private networkLaserBeams: LaserBeamState[] = [];
 
   // Timing
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private asteroidSpawnTimeout: ReturnType<typeof setTimeout> | null = null;
   private lastTime: number = 0;
   private latencyMs: number = 0;
   private lastBroadcastTime: number = 0;
@@ -80,8 +97,11 @@ export class Game {
 
     // Wire flow manager callbacks
     this.flowMgr.onPlayersUpdate = () => this.emitPlayersUpdate();
-    this.flowMgr.onBeginMatch = () =>
+    this.flowMgr.onBeginMatch = () => {
       this.flowMgr.beginMatch(this.playerMgr.players, this.ships);
+      // Start continuous asteroid spawning after match begins
+      this.scheduleNextAsteroidSpawn();
+    };
 
     // Setup collision callbacks
     setupCollisions(this.physics, {
@@ -89,12 +109,27 @@ export class Game {
         if (!this.network.isHost()) return;
         const ship = this.ships.get(shipPlayerId);
         if (ship && ship.alive && !ship.isInvulnerable()) {
+          // Check if ship has shield
+          const powerUp = this.playerPowerUps.get(shipPlayerId);
+          if (powerUp?.type === "SHIELD") {
+            powerUp.shieldHits++;
+            this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
+            this.renderer.addScreenShake(3, 0.1);
+            if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
+              this.renderer.spawnShieldBreakDebris(ship.body.position.x, ship.body.position.y);
+              this.playerPowerUps.delete(shipPlayerId);
+              SettingsManager.triggerHaptic("medium");
+            }
+            return;
+          }
+
           this.flowMgr.destroyShip(
             shipPlayerId,
             this.ships,
             this.pilots,
             this.playerMgr.players,
           );
+          this.playerPowerUps.delete(shipPlayerId);
           this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
         }
       },
@@ -121,9 +156,325 @@ export class Game {
         if (!this.network.isHost()) return;
         this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
       },
+      onProjectileHitAsteroid: (projectileOwnerId, asteroidBody, projectileBody) => {
+        if (!this.network.isHost()) return;
+
+        const asteroidIndex = this.asteroids.findIndex((a) => a.body === asteroidBody);
+        if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
+          const asteroid = this.asteroids[asteroidIndex];
+          const pos = asteroid.body.position;
+
+          this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+          this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+          this.renderer.addScreenShake(8, 0.2);
+
+          asteroid.destroy();
+          this.asteroids.splice(asteroidIndex, 1);
+
+          this.trySpawnPowerUp(pos.x, pos.y);
+        }
+
+        this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
+      },
+      onShipHitAsteroid: (shipPlayerId, asteroidBody) => {
+        if (!this.network.isHost()) return;
+
+        const ship = this.ships.get(shipPlayerId);
+        if (ship && ship.alive && !ship.isInvulnerable()) {
+          // Check if ship has shield
+          const powerUp = this.playerPowerUps.get(shipPlayerId);
+          if (powerUp?.type === "SHIELD") {
+            powerUp.shieldHits++;
+
+            const asteroidIndex = this.asteroids.findIndex((a) => a.body === asteroidBody);
+            if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
+              const asteroid = this.asteroids[asteroidIndex];
+              const pos = asteroid.body.position;
+              this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+              this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+              this.renderer.addScreenShake(10, 0.3);
+              asteroid.destroy();
+              this.asteroids.splice(asteroidIndex, 1);
+              this.trySpawnPowerUp(pos.x, pos.y);
+            }
+
+            this.renderer.addScreenShake(3, 0.1);
+            if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
+              this.renderer.spawnShieldBreakDebris(ship.body.position.x, ship.body.position.y);
+              this.playerPowerUps.delete(shipPlayerId);
+              SettingsManager.triggerHaptic("medium");
+            }
+            return;
+          }
+
+          // Destroy asteroid
+          const asteroidIndex = this.asteroids.findIndex((a) => a.body === asteroidBody);
+          if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
+            const asteroid = this.asteroids[asteroidIndex];
+            const pos = asteroid.body.position;
+            this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.addScreenShake(10, 0.3);
+            asteroid.destroy();
+            this.asteroids.splice(asteroidIndex, 1);
+            this.trySpawnPowerUp(pos.x, pos.y);
+          }
+
+          this.flowMgr.destroyShip(
+            shipPlayerId,
+            this.ships,
+            this.pilots,
+            this.playerMgr.players,
+          );
+          this.playerPowerUps.delete(shipPlayerId);
+        }
+      },
+      onPilotHitAsteroid: (pilotPlayerId, asteroidBody) => {
+        if (!this.network.isHost()) return;
+
+        const pilot = this.pilots.get(pilotPlayerId);
+        if (pilot && pilot.alive) {
+          const asteroidIndex = this.asteroids.findIndex((a) => a.body === asteroidBody);
+          if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
+            const asteroid = this.asteroids[asteroidIndex];
+            const pos = asteroid.body.position;
+            this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+            this.renderer.addScreenShake(6, 0.2);
+            asteroid.destroy();
+            this.asteroids.splice(asteroidIndex, 1);
+            this.trySpawnPowerUp(pos.x, pos.y);
+          }
+
+          this.flowMgr.killPilot(
+            pilotPlayerId,
+            "asteroid",
+            this.pilots,
+            this.playerMgr.players,
+          );
+        }
+      },
+      onShipHitPowerUp: (shipPlayerId, powerUpBody) => {
+        if (!this.network.isHost()) return;
+
+        const existingPowerUp = this.playerPowerUps.get(shipPlayerId);
+        if (existingPowerUp) return;
+
+        const powerUpIndex = this.powerUps.findIndex((p) => p.body === powerUpBody);
+        if (powerUpIndex !== -1 && this.powerUps[powerUpIndex].alive) {
+          const powerUp = this.powerUps[powerUpIndex];
+          this.grantPowerUp(shipPlayerId, powerUp.type);
+          powerUp.destroy();
+          this.powerUps.splice(powerUpIndex, 1);
+          SettingsManager.triggerHaptic("medium");
+        }
+      },
     });
 
     this.input.setup();
+  }
+
+  // ============= ASTEROID & POWERUP LOGIC =============
+
+  private scheduleNextAsteroidSpawn(): void {
+    if (this.flowMgr.phase !== "PLAYING") return;
+
+    const delay =
+      GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MIN +
+      Math.random() *
+        (GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MAX - GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MIN);
+
+    this.asteroidSpawnTimeout = setTimeout(() => {
+      if (this.flowMgr.phase === "PLAYING" && this.network.isHost()) {
+        this.spawnAsteroidBatch();
+        this.scheduleNextAsteroidSpawn();
+      }
+    }, delay);
+  }
+
+  private spawnAsteroidBatch(): void {
+    if (!this.network.isHost()) return;
+
+    const batchSize =
+      GAME_CONFIG.ASTEROID_SPAWN_BATCH_MIN +
+      Math.floor(
+        Math.random() *
+          (GAME_CONFIG.ASTEROID_SPAWN_BATCH_MAX - GAME_CONFIG.ASTEROID_SPAWN_BATCH_MIN + 1),
+      );
+
+    for (let i = 0; i < batchSize; i++) {
+      this.spawnSingleAsteroidFromBorder();
+    }
+  }
+
+  private spawnSingleAsteroidFromBorder(): void {
+    const spawnMargin = 80;
+    const w = GAME_CONFIG.ARENA_WIDTH;
+    const h = GAME_CONFIG.ARENA_HEIGHT;
+
+    const side = Math.floor(Math.random() * 4);
+    let x: number, y: number;
+    let targetX: number, targetY: number;
+
+    switch (side) {
+      case 0:
+        x = Math.random() * w;
+        y = -spawnMargin;
+        targetX = Math.random() * w;
+        targetY = h * (0.3 + Math.random() * 0.4);
+        break;
+      case 1:
+        x = w + spawnMargin;
+        y = Math.random() * h;
+        targetX = w * (0.3 + Math.random() * 0.4);
+        targetY = Math.random() * h;
+        break;
+      case 2:
+        x = Math.random() * w;
+        y = h + spawnMargin;
+        targetX = Math.random() * w;
+        targetY = h * (0.3 + Math.random() * 0.4);
+        break;
+      case 3:
+      default:
+        x = -spawnMargin;
+        y = Math.random() * h;
+        targetX = w * (0.3 + Math.random() * 0.4);
+        targetY = Math.random() * h;
+        break;
+    }
+
+    const dx = targetX - x;
+    const dy = targetY - y;
+    const angle = Math.atan2(dy, dx);
+    const angleVariance = (Math.random() - 0.5) * (Math.PI / 3);
+    const finalAngle = angle + angleVariance;
+
+    const speed =
+      GAME_CONFIG.ASTEROID_MIN_SPEED +
+      Math.random() * (GAME_CONFIG.ASTEROID_MAX_SPEED - GAME_CONFIG.ASTEROID_MIN_SPEED);
+
+    const velocity = {
+      x: Math.cos(finalAngle) * speed,
+      y: Math.sin(finalAngle) * speed,
+    };
+
+    const angularVelocity = (Math.random() - 0.5) * 0.02;
+    const asteroid = new Asteroid(this.physics, x, y, velocity, angularVelocity);
+    this.asteroids.push(asteroid);
+  }
+
+  private trySpawnPowerUp(x: number, y: number): void {
+    if (Math.random() > GAME_CONFIG.POWERUP_DROP_CHANCE) return;
+    const type: PowerUpType = Math.random() < 0.5 ? "LASER" : "SHIELD";
+    const powerUp = new PowerUp(this.physics, x, y, type);
+    this.powerUps.push(powerUp);
+  }
+
+  private grantPowerUp(playerId: string, type: PowerUpType): void {
+    if (type === "LASER") {
+      this.playerPowerUps.set(playerId, {
+        type: "LASER",
+        charges: GAME_CONFIG.POWERUP_LASER_CHARGES,
+        maxCharges: GAME_CONFIG.POWERUP_LASER_CHARGES,
+        lastFireTime: 0,
+        shieldHits: 0,
+      });
+    } else if (type === "SHIELD") {
+      this.playerPowerUps.set(playerId, {
+        type: "SHIELD",
+        charges: 0,
+        maxCharges: 0,
+        lastFireTime: 0,
+        shieldHits: 0,
+      });
+    }
+  }
+
+  private applyLaserDamage(
+    ownerId: string,
+    startX: number,
+    startY: number,
+    angle: number,
+  ): void {
+    const beamLength = GAME_CONFIG.POWERUP_BEAM_LENGTH;
+    const endX = startX + Math.cos(angle) * beamLength;
+    const endY = startY + Math.sin(angle) * beamLength;
+
+    this.ships.forEach((ship, shipPlayerId) => {
+      if (shipPlayerId === ownerId || !ship.alive || ship.isInvulnerable()) return;
+
+      if (this.checkLineCircleCollision(
+        startX, startY, endX, endY,
+        ship.body.position.x, ship.body.position.y, 25
+      )) {
+        this.flowMgr.destroyShip(
+          shipPlayerId,
+          this.ships,
+          this.pilots,
+          this.playerMgr.players,
+        );
+        this.playerPowerUps.delete(shipPlayerId);
+      }
+    });
+
+    for (let i = this.asteroids.length - 1; i >= 0; i--) {
+      const asteroid = this.asteroids[i];
+      if (!asteroid.alive) continue;
+
+      if (this.checkLineCircleCollision(
+        startX, startY, endX, endY,
+        asteroid.body.position.x, asteroid.body.position.y, asteroid.size
+      )) {
+        const pos = asteroid.body.position;
+        this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
+        this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, GAME_CONFIG.ASTEROID_COLOR);
+        this.trySpawnPowerUp(pos.x, pos.y);
+        asteroid.destroy();
+        this.asteroids.splice(i, 1);
+      }
+    }
+
+    this.pilots.forEach((pilot, pilotPlayerId) => {
+      if (!pilot.alive) return;
+
+      if (this.checkLineCircleCollision(
+        startX, startY, endX, endY,
+        pilot.body.position.x, pilot.body.position.y, 10
+      )) {
+        this.flowMgr.killPilot(
+          pilotPlayerId,
+          ownerId,
+          this.pilots,
+          this.playerMgr.players,
+        );
+      }
+    });
+  }
+
+  private checkLineCircleCollision(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    cx: number, cy: number,
+    radius: number
+  ): boolean {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+
+    if (lenSq === 0) {
+      const distSq = (cx - x1) ** 2 + (cy - y1) ** 2;
+      return distSq <= radius * radius;
+    }
+
+    let t = ((cx - x1) * dx + (cy - y1) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+
+    const closestX = x1 + t * dx;
+    const closestY = y1 + t * dy;
+    const distSq = (cx - closestX) ** 2 + (cy - closestY) ** 2;
+
+    return distSq <= radius * radius;
   }
 
   // ============= UI CALLBACKS =============
@@ -135,7 +486,6 @@ export class Game {
   }): void {
     this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
-    // Store players update callback — we wrap it to pass ordered players
     this._onPlayersUpdate = callbacks.onPlayersUpdate;
   }
 
@@ -176,7 +526,6 @@ export class Game {
       },
 
       onPlayerLeft: (playerId) => {
-        // Clean up entities
         const ship = this.ships.get(playerId);
         if (ship) {
           ship.destroy();
@@ -187,10 +536,10 @@ export class Game {
           pilot.destroy();
           this.pilots.delete(playerId);
         }
+        this.playerPowerUps.delete(playerId);
 
         this.playerMgr.removePlayer(playerId, () => this.emitPlayersUpdate());
 
-        // Handle phase-specific logic
         if (this.network.isHost()) {
           if (this.flowMgr.phase === "PLAYING") {
             this.flowMgr.checkEliminationWin(this.playerMgr.players);
@@ -264,14 +613,7 @@ export class Game {
           }
 
           if (phase === "LOBBY" && oldPhase === "GAME_END") {
-            this.flowMgr.clearGameState(
-              this.ships,
-              this.pilots,
-              this.projectiles,
-              this.pendingInputs,
-              this.pendingDashes,
-              this.playerMgr.players,
-            );
+            this.clearAllGameState();
           }
 
           this.flowMgr.onPhaseChange?.(phase);
@@ -364,6 +706,14 @@ export class Game {
       this.flowMgr.countdownInterval = null;
     }
     this.stopPingInterval();
+    this.clearAllGameState();
+    this.playerMgr.clear();
+    this._originalHostLeft = false;
+    this.flowMgr.setPhase("START");
+  }
+
+  /** Clear all entity/game state including asteroid/powerup/laser entities */
+  private clearAllGameState(): void {
     this.flowMgr.clearGameState(
       this.ships,
       this.pilots,
@@ -372,9 +722,29 @@ export class Game {
       this.pendingDashes,
       this.playerMgr.players,
     );
-    this.playerMgr.clear();
-    this._originalHostLeft = false;
-    this.flowMgr.setPhase("START");
+
+    this.asteroids.forEach((asteroid) => asteroid.destroy());
+    this.asteroids = [];
+
+    this.powerUps.forEach((powerUp) => powerUp.destroy());
+    this.powerUps = [];
+
+    this.laserBeams.forEach((beam) => beam.destroy());
+    this.laserBeams = [];
+
+    this.playerPowerUps.clear();
+
+    if (this.asteroidSpawnTimeout) {
+      clearTimeout(this.asteroidSpawnTimeout);
+      this.asteroidSpawnTimeout = null;
+    }
+
+    this.networkShips = [];
+    this.networkPilots = [];
+    this.networkProjectiles = [];
+    this.networkAsteroids = [];
+    this.networkPowerUps = [];
+    this.networkLaserBeams = [];
   }
 
   // ============= GAME LOOP =============
@@ -412,6 +782,25 @@ export class Game {
     if (now - this.lastInputSendTime >= GAME_CONFIG.SYNC_INTERVAL) {
       this.network.sendInput(localInput);
       this.lastInputSendTime = now;
+    }
+
+    // Check dev keys for testing powerups (only for local player on host)
+    const devKeys = this.input.consumeDevKeys();
+    const myPlayerId = this.network.getMyPlayerId();
+    if (myPlayerId && this.network.isHost()) {
+      const myShip = this.ships.get(myPlayerId);
+      const existingPowerUp = this.playerPowerUps.get(myPlayerId);
+
+      if (myShip && myShip.alive && !existingPowerUp) {
+        if (devKeys.laser) {
+          console.log("[Dev] Granting LASER powerup");
+          this.grantPowerUp(myPlayerId, "LASER");
+        }
+        if (devKeys.shield) {
+          console.log("[Dev] Granting SHIELD powerup");
+          this.grantPowerUp(myPlayerId, "SHIELD");
+        }
+      }
     }
 
     // Host: process all inputs and update physics
@@ -478,15 +867,44 @@ export class Game {
         const fireResult = ship.applyInput(input, shouldDash, dt);
         if (fireResult?.shouldFire) {
           const firePos = ship.getFirePosition();
-          const projectile = new Projectile(
-            this.physics,
-            firePos.x,
-            firePos.y,
-            fireResult.fireAngle,
-            playerId,
-          );
-          this.projectiles.push(projectile);
-          this.network.broadcastGameSound("fire", playerId);
+
+          // Check if player has a laser power-up
+          const playerPowerUp = this.playerPowerUps.get(playerId);
+
+          if (playerPowerUp?.type === "LASER" && playerPowerUp.charges > 0) {
+            const fireNow = Date.now();
+            if (fireNow - playerPowerUp.lastFireTime > GAME_CONFIG.POWERUP_LASER_COOLDOWN) {
+              playerPowerUp.lastFireTime = fireNow;
+              playerPowerUp.charges--;
+
+              const beam = new LaserBeam(
+                playerId,
+                firePos.x,
+                firePos.y,
+                fireResult.fireAngle,
+              );
+              this.laserBeams.push(beam);
+
+              this.applyLaserDamage(playerId, firePos.x, firePos.y, fireResult.fireAngle);
+              this.network.broadcastGameSound("fire", playerId);
+              SettingsManager.triggerHaptic("heavy");
+
+              if (playerPowerUp.charges <= 0) {
+                this.playerPowerUps.delete(playerId);
+              }
+            }
+          } else {
+            // Regular projectile
+            const projectile = new Projectile(
+              this.physics,
+              firePos.x,
+              firePos.y,
+              fireResult.fireAngle,
+              playerId,
+            );
+            this.projectiles.push(projectile);
+            this.network.broadcastGameSound("fire", playerId);
+          }
         }
 
         if (shouldDash) {
@@ -534,6 +952,27 @@ export class Game {
         }
       }
 
+      // Wrap asteroids around the arena
+      this.asteroids.forEach((asteroid) => {
+        this.physics.wrapAround(asteroid.body);
+      });
+
+      // Clean up expired power-ups
+      for (let i = this.powerUps.length - 1; i >= 0; i--) {
+        if (this.powerUps[i].isExpired()) {
+          this.powerUps[i].destroy();
+          this.powerUps.splice(i, 1);
+        }
+      }
+
+      // Clean up expired laser beams
+      for (let i = this.laserBeams.length - 1; i >= 0; i--) {
+        if (this.laserBeams[i].isExpired()) {
+          this.laserBeams[i].destroy();
+          this.laserBeams.splice(i, 1);
+        }
+      }
+
       // Broadcast state (throttled to sync rate)
       if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.broadcastState();
@@ -547,11 +986,20 @@ export class Game {
   }
 
   private broadcastState(): void {
+    const playerPowerUpsRecord: Record<string, PlayerPowerUp | null> = {};
+    this.playerPowerUps.forEach((powerUp, playerId) => {
+      playerPowerUpsRecord[playerId] = powerUp;
+    });
+
     const state: GameStateSync = {
       ships: [...this.ships.values()].map((s) => s.getState()),
       pilots: [...this.pilots.values()].map((p) => p.getState()),
       projectiles: this.projectiles.map((p) => p.getState()),
+      asteroids: this.asteroids.map((a) => a.getState()),
+      powerUps: this.powerUps.map((p) => p.getState()),
+      laserBeams: this.laserBeams.map((b) => b.getState()),
       players: [...this.playerMgr.players.values()],
+      playerPowerUps: playerPowerUpsRecord,
     };
 
     this.network.broadcastGameState(state);
@@ -566,6 +1014,15 @@ export class Game {
     this.networkShips = state.ships;
     this.networkPilots = state.pilots;
     this.networkProjectiles = state.projectiles;
+    this.networkAsteroids = state.asteroids;
+    this.networkPowerUps = state.powerUps;
+    this.networkLaserBeams = state.laserBeams;
+
+    if (state.playerPowerUps) {
+      Object.entries(state.playerPowerUps).forEach(([playerId, powerUp]) => {
+        this.playerPowerUps.set(playerId, powerUp);
+      });
+    }
   }
 
   private render(dt: number): void {
@@ -581,7 +1038,13 @@ export class Game {
       if (isHost) {
         this.ships.forEach((ship) => {
           if (ship.alive) {
-            this.renderer.drawShip(ship.getState(), ship.color);
+            const powerUp = this.playerPowerUps.get(ship.playerId);
+            const shieldHits = powerUp?.type === "SHIELD" ? powerUp.shieldHits : undefined;
+            const laserCharges = powerUp?.type === "LASER" ? powerUp.charges : undefined;
+            const laserCooldownProgress = powerUp?.type === "LASER" && powerUp.charges < GAME_CONFIG.POWERUP_LASER_CHARGES
+              ? Math.min(1, (Date.now() - powerUp.lastFireTime) / GAME_CONFIG.POWERUP_LASER_COOLDOWN)
+              : undefined;
+            this.renderer.drawShip(ship.getState(), ship.color, shieldHits, laserCharges, laserCooldownProgress);
           }
         });
       } else {
@@ -589,7 +1052,13 @@ export class Game {
           if (state.alive) {
             const player = this.playerMgr.players.get(state.playerId);
             if (player) {
-              this.renderer.drawShip(state, player.color);
+              const powerUp = this.playerPowerUps.get(state.playerId);
+              const shieldHits = powerUp?.type === "SHIELD" ? powerUp.shieldHits : undefined;
+              const laserCharges = powerUp?.type === "LASER" ? powerUp.charges : undefined;
+              const laserCooldownProgress = powerUp?.type === "LASER" && powerUp.charges < GAME_CONFIG.POWERUP_LASER_CHARGES
+                ? Math.min(1, (Date.now() - powerUp.lastFireTime) / GAME_CONFIG.POWERUP_LASER_COOLDOWN)
+                : undefined;
+              this.renderer.drawShip(state, player.color, shieldHits, laserCharges, laserCooldownProgress);
             }
           }
         });
@@ -616,6 +1085,51 @@ export class Game {
       } else {
         this.networkProjectiles.forEach((state) => {
           this.renderer.drawProjectile(state);
+        });
+      }
+
+      // Draw asteroids
+      if (isHost) {
+        this.asteroids.forEach((asteroid) => {
+          if (asteroid.alive) {
+            this.renderer.drawAsteroid(asteroid.getState());
+          }
+        });
+      } else {
+        this.networkAsteroids.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawAsteroid(state);
+          }
+        });
+      }
+
+      // Draw power-ups
+      if (isHost) {
+        this.powerUps.forEach((powerUp) => {
+          if (powerUp.alive) {
+            this.renderer.drawPowerUp(powerUp.getState());
+          }
+        });
+      } else {
+        this.networkPowerUps.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawPowerUp(state);
+          }
+        });
+      }
+
+      // Draw laser beams
+      if (isHost) {
+        this.laserBeams.forEach((beam) => {
+          if (beam.alive) {
+            this.renderer.drawLaserBeam(beam.getState());
+          }
+        });
+      } else {
+        this.networkLaserBeams.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawLaserBeam(state);
+          }
         });
       }
 
@@ -695,14 +1209,7 @@ export class Game {
 
     await this.network.disconnect();
 
-    this.flowMgr.clearGameState(
-      this.ships,
-      this.pilots,
-      this.projectiles,
-      this.pendingInputs,
-      this.pendingDashes,
-      this.playerMgr.players,
-    );
+    this.clearAllGameState();
     this.playerMgr.clear();
     this._originalHostLeft = false;
 
@@ -710,14 +1217,16 @@ export class Game {
   }
 
   async restartGame(): Promise<void> {
-    await this.flowMgr.restartGame(
-      this.playerMgr.players,
-      this.ships,
-      this.pilots,
-      this.projectiles,
-      this.pendingInputs,
-      this.pendingDashes,
-    );
+    if (!this.network.isHost()) {
+      console.log("[Game] Non-host cannot restart game, waiting for host");
+      return;
+    }
+
+    await this.network.resetAllPlayerStates();
+
+    this.clearAllGameState();
+    this.flowMgr.setPhase("LOBBY");
+    this.emitPlayersUpdate();
   }
 
   setPlayerName(name: string): void {
