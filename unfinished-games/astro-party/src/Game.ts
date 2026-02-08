@@ -771,7 +771,7 @@ export class Game {
         this.latencyMs = latencyMs;
       },
 
-      onPlayerListReceived: (playerOrder) => {
+      onPlayerListReceived: (playerOrder, _meta) => {
         if (!this.network.isHost()) {
           this.playerMgr.rebuildPlayersFromOrder(playerOrder, () =>
             this.emitPlayersUpdate(),

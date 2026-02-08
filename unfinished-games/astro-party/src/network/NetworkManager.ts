@@ -40,9 +40,20 @@ export interface NetworkCallbacks {
   onGameSoundReceived: (type: string, playerId: string) => void;
   onDashRequested: (playerId: string) => void;
   onPingReceived: (latencyMs: number) => void;
-  onPlayerListReceived: (playerOrder: string[]) => void;
+  onPlayerListReceived: (playerOrder: string[], meta?: PlayerMetaMap) => void;
   onGameModeReceived: (mode: GameMode) => void;
 }
+
+interface PlayerMeta {
+  id: string;
+  customName?: string;
+  profileName?: string;
+  botType?: "ai" | "local";
+  colorIndex?: number;
+  keySlot?: number;
+}
+
+type PlayerMetaMap = Map<string, PlayerMeta>;
 
 export class NetworkManager {
   private players: Map<string, PlayroomPlayerState> = new Map();
@@ -55,6 +66,7 @@ export class NetworkManager {
   private hostId: string | null = null;
   private colorUsed = new Set<number>();
   private colorIndexById = new Map<string, number>();
+  private playerMetaById: PlayerMetaMap = new Map();
 
   async createRoom(): Promise<string> {
     console.log("[NetworkManager] Creating new room...");
@@ -271,20 +283,29 @@ export class NetworkManager {
       }),
     );
 
-    // Handle player list sync from host (authoritative order)
+    // Handle player list sync from host (authoritative order + metadata)
     this.cleanupFunctions.push(
-      RPC.register("playerList", async (playerOrder: string[]) => {
-        // Update local playerOrder to match host's authoritative order
-        if (!isHost()) {
-          this.playerOrder = [...playerOrder];
-          console.log(
-            "[NetworkManager] playerList received:",
-            this.playerOrder.length,
-            this.playerOrder,
+      RPC.register(
+        "playerList",
+        async (payload: { order: string[]; meta: PlayerMeta[] }) => {
+          if (!isHost()) {
+            this.playerOrder = [...payload.order];
+            this.playerMetaById.clear();
+            for (const meta of payload.meta) {
+              this.playerMetaById.set(meta.id, meta);
+            }
+            console.log(
+              "[NetworkManager] playerList received:",
+              this.playerOrder.length,
+              this.playerOrder,
+            );
+          }
+          this.callbacks?.onPlayerListReceived(
+            payload.order,
+            this.playerMetaById,
           );
-        }
-        this.callbacks?.onPlayerListReceived(playerOrder);
-      }),
+        },
+      ),
     );
 
     // Handle game mode selection from host
@@ -390,12 +411,23 @@ export class NetworkManager {
   broadcastPlayerList(): void {
     if (!isHost()) return;
     this.updateHostState();
+    const meta: PlayerMeta[] = this.playerOrder.map((playerId) => {
+      const player = this.players.get(playerId);
+      return {
+        id: playerId,
+        customName: (player?.getState("customName") as string) || undefined,
+        profileName: player?.getProfile()?.name || undefined,
+        botType: (player?.getState("botType") as "ai" | "local") || undefined,
+        colorIndex: (player?.getState("colorIndex") as number) ?? undefined,
+        keySlot: (player?.getState("keySlot") as number) ?? undefined,
+      };
+    });
     console.log(
       "[NetworkManager] Broadcasting playerList:",
       this.playerOrder.length,
       this.playerOrder,
     );
-    RPC.call("playerList", this.playerOrder, RPC.Mode.ALL);
+    RPC.call("playerList", { order: this.playerOrder, meta }, RPC.Mode.ALL);
   }
 
   // Reset all player states (for game restart)
@@ -447,6 +479,13 @@ export class NetworkManager {
 
   getPlayerColor(playerId: string): { primary: string; glow: string } {
     const player = this.players.get(playerId);
+    if (!isHost()) {
+      const meta = this.playerMetaById.get(playerId);
+      const metaIndex = meta?.colorIndex;
+      if (Number.isFinite(metaIndex)) {
+        return PLAYER_COLORS[(metaIndex as number) % PLAYER_COLORS.length];
+      }
+    }
     const colorIndex = player?.getState("colorIndex") as number | undefined;
     if (Number.isFinite(colorIndex)) {
       return PLAYER_COLORS[(colorIndex as number) % PLAYER_COLORS.length];
@@ -457,6 +496,11 @@ export class NetworkManager {
 
   getPlayerName(playerId: string): string {
     const player = this.players.get(playerId);
+    if (!isHost()) {
+      const meta = this.playerMetaById.get(playerId);
+      if (meta?.customName) return meta.customName;
+      if (meta?.profileName) return meta.profileName;
+    }
     if (player) {
       const customName = player.getState("customName") as string;
       if (customName) return customName;
@@ -519,6 +563,7 @@ export class NetworkManager {
     this.hostId = null;
     this.colorUsed.clear();
     this.colorIndexById.clear();
+    this.playerMetaById.clear();
   }
 
   private updateHostState(): void {
@@ -635,10 +680,18 @@ export class NetworkManager {
   }
 
   getPlayerBotType(playerId: string): "ai" | "local" | null {
+    if (!isHost()) {
+      const meta = this.playerMetaById.get(playerId);
+      if (meta?.botType) return meta.botType;
+    }
     return this.botMgr.getPlayerBotType(playerId);
   }
 
   getPlayerKeySlot(playerId: string): number {
+    if (!isHost()) {
+      const meta = this.playerMetaById.get(playerId);
+      if (Number.isFinite(meta?.keySlot)) return meta?.keySlot as number;
+    }
     return this.botMgr.getPlayerKeySlot(playerId);
   }
 
