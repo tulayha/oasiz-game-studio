@@ -90,7 +90,7 @@ export interface LaserBeamState {
 
 export type PowerUpType = "LASER" | "SHIELD";
 
-export type GameMode = "CHAOTIC" | "SANE";
+export type GameMode = "STANDARD" | "SANE" | "CHAOTIC";
 
 export interface PlayerPowerUp {
   type: PowerUpType;
@@ -177,6 +177,12 @@ export const GAME_CONFIG = {
   DASH_FORCE: 0.012,
   SHIP_FRICTION_AIR: 0.002,
   SHIP_RESTITUTION: 0.9,
+  SHIP_TARGET_SPEED: 4.4,
+  SHIP_SPEED_RESPONSE: 7,
+  SHIP_DASH_BOOST: 2.0,
+  SHIP_DASH_DURATION: 0.18,
+  SHIP_RECOIL_SLOWDOWN: 0.7,
+  SHIP_RECOIL_DURATION: 0.08,
 
   // Combat
   FIRE_COOLDOWN: 180, // ms
@@ -197,11 +203,18 @@ export const GAME_CONFIG = {
   COUNTDOWN_DURATION: 3, // seconds
 
   // Asteroids
-  ASTEROID_COUNT: 6, // Number of asteroids to spawn
-  ASTEROID_MIN_SIZE: 25,
-  ASTEROID_MAX_SIZE: 45,
-  ASTEROID_MIN_SPEED: 0.5,
-  ASTEROID_MAX_SPEED: 2.0,
+  ASTEROID_INITIAL_MIN: 5,
+  ASTEROID_INITIAL_MAX: 7,
+  ASTEROID_LARGE_MIN: 30,
+  ASTEROID_LARGE_MAX: 38,
+  ASTEROID_SMALL_MIN: 16,
+  ASTEROID_SMALL_MAX: 22,
+  ASTEROID_DRIFT_MIN_SPEED: 0.6,
+  ASTEROID_DRIFT_MAX_SPEED: 1.6,
+  ASTEROID_SPLIT_COUNT: 2,
+  ASTEROID_RESTITUTION: 0.6,
+  ASTEROID_FRICTION: 0.02,
+  ASTEROID_DAMAGE_SHIPS: false,
   ASTEROID_VERTICES_MIN: 6,
   ASTEROID_VERTICES_MAX: 10,
   ASTEROID_COLOR: "#ff8800",
@@ -234,6 +247,17 @@ export type GameConfigType = {
       : (typeof GAME_CONFIG)[K];
 };
 
+// Overrides for "Standard" game mode (controlled, default)
+export const STANDARD_OVERRIDES: Partial<GameConfigType> = {
+  BASE_THRUST: 0,
+  ROTATION_SPEED: 3.2,
+  ROTATION_THRUST_BONUS: 0,
+  RECOIL_FORCE: 0,
+  DASH_FORCE: 0,
+  SHIP_FRICTION_AIR: 0,
+  SHIP_RESTITUTION: 0.0,
+};
+
 // Overrides for "Sane" game mode (slower, more controlled)
 export const SANE_OVERRIDES: Partial<GameConfigType> = {
   BASE_THRUST: 0.00008,
@@ -246,6 +270,13 @@ export const SANE_OVERRIDES: Partial<GameConfigType> = {
 };
 
 // Physics body-level overrides (not in GAME_CONFIG, applied in Physics.ts)
+export const STANDARD_PHYSICS = {
+  WALL_RESTITUTION: 0,
+  WALL_FRICTION: 0.04,
+  SHIP_FRICTION: 0.02,
+  SHIP_ANGULAR_DAMPING: 0.4,
+};
+
 export const SANE_PHYSICS = {
   WALL_RESTITUTION: 0.5,
   WALL_FRICTION: 0.5,

@@ -2,10 +2,13 @@ import Matter from "matter-js";
 import { AsteroidState, GAME_CONFIG } from "../types";
 import { Physics } from "../systems/Physics";
 
+type AsteroidTier = "LARGE" | "SMALL";
+
 export class Asteroid {
   body: Matter.Body;
   alive: boolean = true;
   size: number;
+  tier: AsteroidTier;
   private physics: Physics;
   private vertices: { x: number; y: number }[];
 
@@ -15,12 +18,20 @@ export class Asteroid {
     y: number,
     velocity: { x: number; y: number },
     angularVelocity: number,
+    tier: AsteroidTier = "LARGE",
+    size?: number,
   ) {
     this.physics = physics;
-    this.size =
-      GAME_CONFIG.ASTEROID_MIN_SIZE +
-      Math.random() *
-        (GAME_CONFIG.ASTEROID_MAX_SIZE - GAME_CONFIG.ASTEROID_MIN_SIZE);
+    this.tier = tier;
+    const minSize =
+      tier === "LARGE"
+        ? GAME_CONFIG.ASTEROID_LARGE_MIN
+        : GAME_CONFIG.ASTEROID_SMALL_MIN;
+    const maxSize =
+      tier === "LARGE"
+        ? GAME_CONFIG.ASTEROID_LARGE_MAX
+        : GAME_CONFIG.ASTEROID_SMALL_MAX;
+    this.size = size ?? minSize + Math.random() * (maxSize - minSize);
 
     // Generate random jagged vertices for the asteroid
     this.vertices = this.generateVertices();
@@ -58,6 +69,10 @@ export class Asteroid {
   destroy(): void {
     this.alive = false;
     this.physics.removeBody(this.body);
+  }
+
+  isLarge(): boolean {
+    return this.tier === "LARGE";
   }
 
   getState(): AsteroidState {

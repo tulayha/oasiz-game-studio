@@ -1,29 +1,77 @@
 import {
   GAME_CONFIG,
   GameConfigType,
+  STANDARD_OVERRIDES,
+  STANDARD_PHYSICS,
   SANE_OVERRIDES,
   SANE_PHYSICS,
   CHAOTIC_PHYSICS,
   GameMode,
 } from "./types";
 
-type PhysicsOverrides = typeof SANE_PHYSICS;
+type PhysicsOverrides = typeof STANDARD_PHYSICS;
 
-let currentMode: GameMode = "CHAOTIC";
-let activeConfig: GameConfigType = { ...GAME_CONFIG };
-let activePhysics: PhysicsOverrides = { ...CHAOTIC_PHYSICS };
+const MODE_CONFIG_OVERRIDES: Record<GameMode, Partial<GameConfigType>> = {
+  STANDARD: STANDARD_OVERRIDES,
+  SANE: SANE_OVERRIDES,
+  CHAOTIC: {},
+};
+
+const MODE_PHYSICS: Record<GameMode, PhysicsOverrides> = {
+  STANDARD: STANDARD_PHYSICS,
+  SANE: SANE_PHYSICS,
+  CHAOTIC: CHAOTIC_PHYSICS,
+};
+
+let currentMode: GameMode = "STANDARD";
+let advancedConfigOverrides: Partial<GameConfigType> | null = null;
+let advancedPhysicsOverrides: Partial<PhysicsOverrides> | null = null;
+let activeConfig: GameConfigType = {
+  ...GAME_CONFIG,
+  ...STANDARD_OVERRIDES,
+} as GameConfigType;
+let activePhysics: PhysicsOverrides = { ...STANDARD_PHYSICS };
+
+function rebuildActive(): void {
+  const modeConfig = MODE_CONFIG_OVERRIDES[currentMode];
+  const modePhysics = MODE_PHYSICS[currentMode];
+  activeConfig = {
+    ...GAME_CONFIG,
+    ...modeConfig,
+    ...(advancedConfigOverrides ?? {}),
+  } as GameConfigType;
+  activePhysics = {
+    ...modePhysics,
+    ...(advancedPhysicsOverrides ?? {}),
+  };
+}
 
 export const GameConfig = {
   setMode(mode: GameMode): void {
     currentMode = mode;
-    if (mode === "SANE") {
-      activeConfig = { ...GAME_CONFIG, ...SANE_OVERRIDES } as GameConfigType;
-      activePhysics = { ...SANE_PHYSICS };
-    } else {
-      activeConfig = { ...GAME_CONFIG };
-      activePhysics = { ...CHAOTIC_PHYSICS };
-    }
+    rebuildActive();
     console.log("[GameConfig] Mode set to:", mode);
+  },
+
+  setAdvancedOverrides(
+    configOverrides?: Partial<GameConfigType>,
+    physicsOverrides?: Partial<PhysicsOverrides>,
+  ): void {
+    advancedConfigOverrides = configOverrides
+      ? { ...configOverrides }
+      : null;
+    advancedPhysicsOverrides = physicsOverrides
+      ? { ...physicsOverrides }
+      : null;
+    rebuildActive();
+    console.log("[GameConfig] Advanced overrides updated");
+  },
+
+  clearAdvancedOverrides(): void {
+    advancedConfigOverrides = null;
+    advancedPhysicsOverrides = null;
+    rebuildActive();
+    console.log("[GameConfig] Advanced overrides cleared");
   },
 
   getMode(): GameMode {

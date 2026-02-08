@@ -48,15 +48,17 @@
       --box-bottom: 100vh;
       --box-width: 100vw;
       --box-height: 100vh;
-      --hud-top-gap: 45px;
+      --vv-offset-x: 0px;
+      --vv-offset-y: 0px;
       --hud-side-gap: 20px;
-      --hud-bottom-gap: 20px;
+      --hud-bottom-gap: 0px;
+      --hud-top-pad: 6px;
     }
 
     #game-wrapper {
       position: fixed;
-      top: 0;
-      left: 0;
+      top: var(--vv-offset-y);
+      left: var(--vv-offset-x);
       width: var(--vw);
       height: var(--vh);
       overflow: hidden;
@@ -505,28 +507,6 @@
     }
 
     /* Local Player Hints (in-game overlay) */
-    .local-hints {
-      position: fixed;
-      top: calc(var(--box-top) + var(--hud-top-gap) + 8px);
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.7);
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      display: flex;
-      gap: 1.5rem;
-      z-index: 100;
-      font-size: 0.75rem;
-    }
-
-    .local-hints.hidden {
-      display: none;
-    }
-
-    .hint-row {
-      white-space: nowrap;
-    }
-
     .lobby-status {
       color: #888;
       font-size: 0.9rem;
@@ -557,7 +537,7 @@
 
     /* ============= SCORE TRACK HUD ============= */
     .hud {
-      position: fixed;
+      position: absolute;
       top: var(--box-top);
       left: var(--box-left);
       width: var(--box-width);
@@ -574,7 +554,7 @@
 
     .score-track {
       position: absolute;
-      top: var(--hud-top-gap);
+      top: 0;
       left: 50%;
       transform: translateX(-50%);
       background: #0a0a12;
@@ -629,7 +609,7 @@
 
     .leave-btn {
       position: absolute;
-      top: var(--hud-top-gap);
+      top: var(--hud-top-pad);
       left: var(--hud-side-gap);
       font-family: 'Orbitron', sans-serif;
       font-size: 0.7rem;
@@ -651,8 +631,8 @@
 
     /* ============= SETTINGS ============= */
     .settings-btn {
-      position: fixed;
-      top: calc(var(--box-top) + var(--hud-top-gap));
+      position: absolute;
+      top: calc(var(--box-top) + var(--hud-top-pad));
       right: calc(100% - var(--box-right) + var(--hud-side-gap));
       z-index: 60;
       width: 44px;
@@ -677,9 +657,24 @@
       fill: #fff;
     }
 
+    .settings-center-hotspot {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 45%;
+      height: 45%;
+      background: transparent;
+      border: none;
+      border-radius: 16px;
+      pointer-events: auto;
+      display: none;
+      z-index: 60;
+    }
+
     /* ============= PING INDICATOR ============= */
     .ping-indicator {
-      position: fixed;
+      position: absolute;
       bottom: calc(100% - var(--box-bottom) + var(--hud-bottom-gap));
       right: calc(100% - var(--box-right) + var(--hud-side-gap));
       z-index: 60;
@@ -1300,8 +1295,8 @@
         height: var(--vw);
         transform: rotate(-90deg);
         transform-origin: top left;
-        top: var(--vh);
-        left: 0;
+        top: calc(var(--vh) + var(--vv-offset-y));
+        left: var(--vv-offset-x);
         overflow: hidden;
       }
     }
@@ -1402,9 +1397,8 @@
       }
 
       :root {
-        --hud-top-gap: 120px;
         --hud-side-gap: 24px;
-        --hud-bottom-gap: 24px;
+        --hud-top-pad: 12px;
       }
     }
   </style>
@@ -1492,8 +1486,9 @@
 
             <div id="gameModeSection" class="game-mode-section hidden">
               <div class="mode-pill">
-                <button class="mode-option active" id="modeChaotic" data-mode="CHAOTIC">CHAOTIC</button>
+                <button class="mode-option active" id="modeStandard" data-mode="STANDARD">STANDARD</button>
                 <button class="mode-option" id="modeSane" data-mode="SANE">SANE</button>
+                <button class="mode-option" id="modeChaotic" data-mode="CHAOTIC">CHAOTIC</button>
               </div>
             </div>
 
@@ -1536,6 +1531,13 @@
   <div class="hud" id="hud">
     <div class="score-track" id="scoreTrack"></div>
     <button class="leave-btn" id="leaveGameBtn">Leave</button>
+    <button
+      class="settings-center-hotspot"
+      id="settingsCenterHotspot"
+      type="button"
+      aria-label="Open Settings"
+      title="Open Settings"
+    ></button>
   </div>
 
   <!-- Ping Indicator -->
@@ -1573,6 +1575,13 @@
       <span class="settings-label">Haptics</span>
       <div class="toggle active" id="toggleHaptics"></div>
     </div>
+    <button
+      class="btn"
+      id="settingsLeaveBtn"
+      style="margin-top: 1rem; background: #ef4444;"
+    >
+      Leave Game
+    </button>
     <button class="btn settings-close" id="settingsClose">Done</button>
   </div>
 
@@ -1599,10 +1608,8 @@
   </div>
 
   <!-- Local Player Hints (shown during game) -->
-  <div id="localPlayerHints" class="local-hints hidden"></div>
-
-  <!-- Mobile Controls (single-player online) -->
-  <div class="mobile-controls" id="mobileControls">
+    <!-- Mobile Controls (single-player online) -->
+    <div class="mobile-controls" id="mobileControls">
     <div class="control-zone control-zone-left" id="control-zone-left">
       <div class="zone-label">
         ROTATE

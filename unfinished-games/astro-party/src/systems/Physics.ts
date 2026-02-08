@@ -31,7 +31,7 @@ export class Physics {
       friction: phys.WALL_FRICTION,
       collisionFilter: {
         category: 0x0008, // Wall category
-        mask: 0x0001 | 0x0002, // Only collide with ships (1) and projectiles (2)
+        mask: 0x0001 | 0x0002 | 0x0004, // Collide with ships (1), projectiles (2), and asteroids (4)
       },
     };
     this.walls = [
@@ -181,12 +181,12 @@ export class Physics {
     const body = Matter.Bodies.fromVertices(x, y, [vertices], {
       label: "asteroid",
       frictionAir: 0,
-      restitution: 1,
-      friction: 0,
+      restitution: GAME_CONFIG.ASTEROID_RESTITUTION,
+      friction: GAME_CONFIG.ASTEROID_FRICTION,
       density: 0.001,
       collisionFilter: {
         category: 0x0004, // Asteroid category
-        mask: 0x0001 | 0x0002, // Collide with ships (1) and projectiles (2), NOT walls
+        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008, // Collide with ships (1), projectiles (2), asteroids (4), and walls (8)
       },
     });
 

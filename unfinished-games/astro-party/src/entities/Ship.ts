@@ -13,6 +13,8 @@ export class Ship {
   invulnerableUntil: number = 0;
   private lastFireTime: number = 0;
   private physics: Physics;
+  private dashTimer: number = 0;
+  private recoilTimer: number = 0;
 
   constructor(
     physics: Physics,
@@ -38,28 +40,70 @@ export class Ship {
     if (!this.alive) return null;
 
     const angle = this.body.angle;
-
-    // ALWAYS apply base forward thrust in the direction the ship is facing
-    // When ship rotates, its facing direction changes, so thrust direction changes automatically
     const cfg = GameConfig.config;
-    Body.applyForce(this.body, this.body.position, {
-      x: Math.cos(angle) * cfg.BASE_THRUST,
-      y: Math.sin(angle) * cfg.BASE_THRUST,
-    });
+    const mode = GameConfig.getMode();
 
-    // Button A: ONLY rotate the ship (no extra thrust)
-    // The thrust direction changes because the ship's angle changes
-    if (input.buttonA) {
+    if (mode === "STANDARD") {
+      // Prevent uncontrolled spin from collisions
       Body.setAngularVelocity(this.body, 0);
-      Body.rotate(this.body, cfg.ROTATION_SPEED * dt);
-    }
 
-    // Dash: Super Dash (burst of thrust) - received via RPC
-    if (dash) {
-      Body.applyForce(this.body, this.body.position, {
-        x: Math.cos(angle) * cfg.DASH_FORCE,
-        y: Math.sin(angle) * cfg.DASH_FORCE,
+      if (input.buttonA) {
+        Body.rotate(this.body, cfg.ROTATION_SPEED * dt);
+      }
+
+      if (dash) {
+        this.dashTimer = cfg.SHIP_DASH_DURATION;
+      }
+
+      if (this.dashTimer > 0) {
+        this.dashTimer = Math.max(0, this.dashTimer - dt);
+      }
+
+      if (this.recoilTimer > 0) {
+        this.recoilTimer = Math.max(0, this.recoilTimer - dt);
+      }
+
+      const dashBoost = this.dashTimer > 0 ? cfg.SHIP_DASH_BOOST : 0;
+      const recoilSlowdown =
+        this.recoilTimer > 0 ? cfg.SHIP_RECOIL_SLOWDOWN : 0;
+      const targetSpeed = Math.max(
+        0,
+        cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown,
+      );
+      const forwardX = Math.cos(angle);
+      const forwardY = Math.sin(angle);
+      const desiredVx = forwardX * targetSpeed;
+      const desiredVy = forwardY * targetSpeed;
+      const response = cfg.SHIP_SPEED_RESPONSE;
+      const t = 1 - Math.exp(-response * dt);
+      const currentVx = this.body.velocity.x;
+      const currentVy = this.body.velocity.y;
+      Body.setVelocity(this.body, {
+        x: currentVx + (desiredVx - currentVx) * t,
+        y: currentVy + (desiredVy - currentVy) * t,
       });
+    } else {
+      // ALWAYS apply base forward thrust in the direction the ship is facing
+      // When ship rotates, its facing direction changes, so thrust direction changes automatically
+      Body.applyForce(this.body, this.body.position, {
+        x: Math.cos(angle) * cfg.BASE_THRUST,
+        y: Math.sin(angle) * cfg.BASE_THRUST,
+      });
+
+      // Button A: ONLY rotate the ship (no extra thrust)
+      // The thrust direction changes because the ship's angle changes
+      if (input.buttonA) {
+        Body.setAngularVelocity(this.body, 0);
+        Body.rotate(this.body, cfg.ROTATION_SPEED * dt);
+      }
+
+      // Dash: Super Dash (burst of thrust) - received via RPC
+      if (dash) {
+        Body.applyForce(this.body, this.body.position, {
+          x: Math.cos(angle) * cfg.DASH_FORCE,
+          y: Math.sin(angle) * cfg.DASH_FORCE,
+        });
+      }
     }
 
     // Button B: Fire with recoil
@@ -69,11 +113,15 @@ export class Ship {
       if (now - this.lastFireTime > cfg.FIRE_COOLDOWN) {
         this.lastFireTime = now;
 
-        // Apply recoil force (pushback opposite to firing direction)
-        Body.applyForce(this.body, this.body.position, {
-          x: -Math.cos(angle) * cfg.RECOIL_FORCE,
-          y: -Math.sin(angle) * cfg.RECOIL_FORCE,
-        });
+        if (mode === "STANDARD") {
+          this.recoilTimer = cfg.SHIP_RECOIL_DURATION;
+        } else {
+          // Apply recoil force (pushback opposite to firing direction)
+          Body.applyForce(this.body, this.body.position, {
+            x: -Math.cos(angle) * cfg.RECOIL_FORCE,
+            y: -Math.sin(angle) * cfg.RECOIL_FORCE,
+          });
+        }
 
         fireResult = {
           shouldFire: true,

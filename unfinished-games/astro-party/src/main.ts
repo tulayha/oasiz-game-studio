@@ -63,6 +63,9 @@ const scoreTrack = document.getElementById("scoreTrack")!;
 const leaveGameBtn = document.getElementById(
   "leaveGameBtn",
 ) as HTMLButtonElement;
+const settingsCenterHotspot = document.getElementById(
+  "settingsCenterHotspot",
+) as HTMLButtonElement;
 
 // Leave confirmation modal
 const leaveModal = document.getElementById("leaveModal")!;
@@ -77,6 +80,9 @@ const leaveConfirmBtn = document.getElementById(
 // Settings
 const settingsBtn = document.getElementById("settingsBtn")!;
 const settingsModal = document.getElementById("settingsModal")!;
+const settingsLeaveBtn = document.getElementById(
+  "settingsLeaveBtn",
+) as HTMLButtonElement;
 const settingsBackdrop = document.getElementById("settingsBackdrop")!;
 const toggleMusic = document.getElementById("toggleMusic")!;
 const toggleFx = document.getElementById("toggleFx")!;
@@ -95,6 +101,9 @@ const advancedSettingsBtn = document.getElementById(
 
 // Game mode toggle
 const gameModeSection = document.getElementById("gameModeSection")!;
+const modeStandard = document.getElementById(
+  "modeStandard",
+) as HTMLButtonElement;
 const modeChaotic = document.getElementById("modeChaotic") as HTMLButtonElement;
 const modeSane = document.getElementById("modeSane") as HTMLButtonElement;
 
@@ -105,9 +114,6 @@ const keyOptions = document.getElementById("keyOptions")!;
 const keySelectCancel = document.getElementById(
   "keySelectCancel",
 ) as HTMLButtonElement;
-
-// Local player hints
-const localPlayerHints = document.getElementById("localPlayerHints")!;
 
 // Ping indicator
 const pingIndicator = document.getElementById("pingIndicator")!;
@@ -132,12 +138,29 @@ function updateSettingsUI(): void {
 
 // ============= UI HELPERS =============
 
-function showScreen(screen: "start" | "lobby" | "game" | "end"): void {
-  startScreen.classList.toggle("hidden", screen !== "start");
-  lobbyScreen.classList.toggle("hidden", screen !== "lobby");
-  gameEndScreen.classList.toggle("hidden", screen !== "end");
-  hud.classList.toggle("active", screen === "game");
-  settingsBtn.style.display = screen === "game" ? "flex" : "none";
+  let activeScreen: "start" | "lobby" | "game" | "end" = "start";
+
+  function updateHudControlsVisibility(): void {
+    if (activeScreen !== "game") {
+      leaveGameBtn.style.display = "none";
+      settingsBtn.style.display = "none";
+      settingsCenterHotspot.style.display = "none";
+      return;
+    }
+
+    const localMobile = isMobile && game.hasLocalPlayers();
+    leaveGameBtn.style.display = localMobile ? "none" : "block";
+    settingsBtn.style.display = localMobile ? "none" : "flex";
+    settingsCenterHotspot.style.display = localMobile ? "block" : "none";
+  }
+
+  function showScreen(screen: "start" | "lobby" | "game" | "end"): void {
+    activeScreen = screen;
+    startScreen.classList.toggle("hidden", screen !== "start");
+    lobbyScreen.classList.toggle("hidden", screen !== "lobby");
+    gameEndScreen.classList.toggle("hidden", screen !== "end");
+    hud.classList.toggle("active", screen === "game");
+    updateHudControlsVisibility();
 
   // On mobile: use adaptive touch zones instead of old mobile-controls
   if (isMobile) {
@@ -157,30 +180,6 @@ function showScreen(screen: "start" | "lobby" | "game" | "end"): void {
     game.shouldShowPing() && (screen === "lobby" || screen === "game");
   pingIndicator.style.display = showPing ? "block" : "none";
 
-  // Show local player hints during gameplay (only when there are local players, desktop only)
-  if (screen === "game" && game.hasLocalPlayers() && !isMobile) {
-    updateLocalPlayerHints();
-    localPlayerHints.classList.remove("hidden");
-  } else {
-    localPlayerHints.classList.add("hidden");
-  }
-}
-
-// Update local player hints overlay with current player info
-function updateLocalPlayerHints(): void {
-  const localPlayers = game.getLocalPlayersInfo();
-  if (localPlayers.length <= 1) {
-    // Only one player (the host), no need for hints
-    localPlayerHints.classList.add("hidden");
-    return;
-  }
-
-  localPlayerHints.innerHTML = localPlayers
-    .map(
-      (player) =>
-        `<div class="hint-row" style="color: ${player.color}">${escapeHtml(player.name)}: ${player.keyPreset}</div>`,
-    )
-    .join("");
 }
 
 // Update ping indicator display
@@ -317,6 +316,7 @@ function updateLobbyUI(players: PlayerData[]): void {
   updateBotControlsVisibility(players.length, isHost);
   gameModeSection.classList.toggle("hidden", false);
   gameModeSection.classList.toggle("readonly", !isHost);
+  modeStandard.disabled = !isHost;
   modeChaotic.disabled = !isHost;
   modeSane.disabled = !isHost;
   advancedSettingsBtn.style.display = isHost ? "block" : "none";
@@ -495,6 +495,7 @@ game.setUICallbacks({
   onPlayersUpdate: (players: PlayerData[]) => {
     updateLobbyUI(players);
     updateScoreTrack(players);
+    updateHudControlsVisibility();
 
     // Refresh game end buttons when players/host changes during GAME_END
     if (game.getPhase() === "GAME_END") {
@@ -717,17 +718,23 @@ startGameBtn.addEventListener("click", () => {
 });
 
 // Game mode toggle
-  function setModeUI(
-    mode: GameMode,
-    source: "local" | "remote" = "local",
-  ): void {
-    modeChaotic.classList.toggle("active", mode === "CHAOTIC");
-    modeSane.classList.toggle("active", mode === "SANE");
-    game.setGameMode(mode);
-    if (source === "local" && game.isHost()) {
-      game.broadcastGameMode(mode);
-    }
+function setModeUI(
+  mode: GameMode,
+  source: "local" | "remote" = "local",
+): void {
+  modeStandard.classList.toggle("active", mode === "STANDARD");
+  modeChaotic.classList.toggle("active", mode === "CHAOTIC");
+  modeSane.classList.toggle("active", mode === "SANE");
+  game.setGameMode(mode);
+  if (source === "local" && game.isHost()) {
+    game.broadcastGameMode(mode);
   }
+}
+
+modeStandard.addEventListener("click", () => {
+  triggerHaptic("light");
+  setModeUI("STANDARD");
+});
 
 modeChaotic.addEventListener("click", () => {
   triggerHaptic("light");
@@ -747,10 +754,20 @@ leaveLobbyBtn.addEventListener("click", async () => {
 });
 
 // Leave game button (during gameplay) - shows in-game modal
-leaveGameBtn.addEventListener("click", () => {
+function openSettingsModal(): void {
+  triggerHaptic("light");
+  settingsModal.classList.add("active");
+  settingsBackdrop.classList.add("active");
+}
+
+function openLeaveModal(): void {
   triggerHaptic("light");
   leaveModal.classList.add("active");
   leaveBackdrop.classList.add("active");
+}
+
+leaveGameBtn.addEventListener("click", () => {
+  openLeaveModal();
 });
 
 // Leave modal - cancel
@@ -798,9 +815,17 @@ leaveEndBtn.addEventListener("click", async () => {
 
 // Settings
 settingsBtn.addEventListener("click", () => {
-  triggerHaptic("light");
-  settingsModal.classList.add("active");
-  settingsBackdrop.classList.add("active");
+  openSettingsModal();
+});
+
+settingsCenterHotspot.addEventListener("click", () => {
+  openSettingsModal();
+});
+
+settingsLeaveBtn.addEventListener("click", () => {
+  settingsModal.classList.remove("active");
+  settingsBackdrop.classList.remove("active");
+  openLeaveModal();
 });
 
 settingsBackdrop.addEventListener("click", () => {
@@ -849,13 +874,17 @@ function parsePx(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function updateViewportVars(): void {
-  const root = document.documentElement;
-  const vv = window.visualViewport;
-  const width = vv?.width ?? window.innerWidth;
-  const height = vv?.height ?? window.innerHeight;
-  root.style.setProperty("--vw", width + "px");
-  root.style.setProperty("--vh", height + "px");
+  function updateViewportVars(): void {
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    const width = vv?.width ?? window.innerWidth;
+    const height = vv?.height ?? window.innerHeight;
+    root.style.setProperty("--vw", width + "px");
+    root.style.setProperty("--vh", height + "px");
+    const offsetX = vv?.offsetLeft ?? 0;
+    const offsetY = vv?.offsetTop ?? 0;
+    root.style.setProperty("--vv-offset-x", offsetX + "px");
+    root.style.setProperty("--vv-offset-y", offsetY + "px");
 
   const styles = getComputedStyle(root);
   const safeTop = parsePx(styles.getPropertyValue("--safe-top"));
@@ -889,14 +918,15 @@ function updateViewportVars(): void {
     boxBottom = layoutHeight - safeBottom;
   }
 
-  const boxWidth = Math.max(0, boxRight - boxLeft);
-  const boxHeight = Math.max(0, boxBottom - boxTop);
-  root.style.setProperty("--box-left", boxLeft + "px");
-  root.style.setProperty("--box-top", boxTop + "px");
-  root.style.setProperty("--box-right", boxRight + "px");
-  root.style.setProperty("--box-bottom", boxBottom + "px");
-  root.style.setProperty("--box-width", boxWidth + "px");
-  root.style.setProperty("--box-height", boxHeight + "px");
+    const boxWidth = Math.max(0, boxRight - boxLeft);
+    const boxHeight = Math.max(0, boxBottom - boxTop);
+    root.style.setProperty("--box-left", boxLeft + "px");
+    root.style.setProperty("--box-top", boxTop + "px");
+    root.style.setProperty("--box-right", boxRight + "px");
+    root.style.setProperty("--box-bottom", boxBottom + "px");
+    root.style.setProperty("--box-width", boxWidth + "px");
+    root.style.setProperty("--box-height", boxHeight + "px");
+
 
   const layoutMode = boxWidth < 720 ? "narrow" : "wide";
   root.dataset.layout = layoutMode;

@@ -101,8 +101,7 @@ export class Game {
     this.flowMgr.onPlayersUpdate = () => this.emitPlayersUpdate();
     this.flowMgr.onBeginMatch = () => {
       this.flowMgr.beginMatch(this.playerMgr.players, this.ships);
-      // Start continuous asteroid spawning after match begins
-      this.scheduleNextAsteroidSpawn();
+      this.spawnInitialAsteroids();
     };
 
     // Setup collision callbacks
@@ -202,13 +201,18 @@ export class Game {
           asteroid.destroy();
           this.asteroids.splice(asteroidIndex, 1);
 
-          this.trySpawnPowerUp(pos.x, pos.y);
+          if (asteroid.isLarge()) {
+            this.splitAsteroid(asteroid, pos.x, pos.y);
+          } else {
+            this.trySpawnPowerUp(pos.x, pos.y);
+          }
         }
 
         this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
       },
       onShipHitAsteroid: (shipPlayerId, asteroidBody) => {
         if (!this.network.isHost()) return;
+        if (!GAME_CONFIG.ASTEROID_DAMAGE_SHIPS) return;
 
         const ship = this.ships.get(shipPlayerId);
         if (ship && ship.alive && !ship.isInvulnerable()) {
@@ -287,6 +291,7 @@ export class Game {
       },
       onPilotHitAsteroid: (pilotPlayerId, asteroidBody) => {
         if (!this.network.isHost()) return;
+        if (!GAME_CONFIG.ASTEROID_DAMAGE_SHIPS) return;
 
         const pilot = this.pilots.get(pilotPlayerId);
         if (pilot && pilot.alive) {
@@ -344,6 +349,140 @@ export class Game {
   }
 
   // ============= ASTEROID & POWERUP LOGIC =============
+
+  private spawnInitialAsteroids(): void {
+    if (!this.network.isHost()) return;
+
+    const count = this.randomInt(
+      GAME_CONFIG.ASTEROID_INITIAL_MIN,
+      GAME_CONFIG.ASTEROID_INITIAL_MAX,
+    );
+    const centerX = GAME_CONFIG.ARENA_WIDTH / 2;
+    const centerY = GAME_CONFIG.ARENA_HEIGHT / 2;
+    const spreadX = GAME_CONFIG.ARENA_WIDTH * 0.28;
+    const spreadY = GAME_CONFIG.ARENA_HEIGHT * 0.28;
+    const maxAttempts = 20;
+
+    for (let i = 0; i < count; i++) {
+      const tier = i === 0 ? "LARGE" : this.rollAsteroidTier();
+      const size = this.randomAsteroidSize(tier);
+      let spawnX = centerX;
+      let spawnY = centerY;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const candidateX =
+          centerX + (Math.random() * 2 - 1) * spreadX;
+        const candidateY =
+          centerY + (Math.random() * 2 - 1) * spreadY;
+        if (this.isAsteroidSpawnClear(candidateX, candidateY, size)) {
+          spawnX = candidateX;
+          spawnY = candidateY;
+          break;
+        }
+      }
+
+      const velocity = this.randomAsteroidVelocity();
+      const angularVelocity = this.randomAsteroidAngularVelocity();
+      const asteroid = new Asteroid(
+        this.physics,
+        spawnX,
+        spawnY,
+        velocity,
+        angularVelocity,
+        tier,
+        size,
+      );
+      this.asteroids.push(asteroid);
+    }
+  }
+
+  private splitAsteroid(asteroid: Asteroid, x: number, y: number): void {
+    const count = GAME_CONFIG.ASTEROID_SPLIT_COUNT;
+    const baseVx = asteroid.body.velocity.x * 0.4;
+    const baseVy = asteroid.body.velocity.y * 0.4;
+
+    for (let i = 0; i < count; i++) {
+      const angle =
+        (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+      const speed = this.randomRange(
+        GAME_CONFIG.ASTEROID_DRIFT_MIN_SPEED,
+        GAME_CONFIG.ASTEROID_DRIFT_MAX_SPEED,
+      );
+      const offset = 10 + Math.random() * 6;
+      const spawnX = x + Math.cos(angle) * offset;
+      const spawnY = y + Math.sin(angle) * offset;
+      const velocity = {
+        x: baseVx + Math.cos(angle) * speed,
+        y: baseVy + Math.sin(angle) * speed,
+      };
+      const angularVelocity = this.randomAsteroidAngularVelocity();
+      const size = this.randomAsteroidSize("SMALL");
+      const child = new Asteroid(
+        this.physics,
+        spawnX,
+        spawnY,
+        velocity,
+        angularVelocity,
+        "SMALL",
+        size,
+      );
+      this.asteroids.push(child);
+    }
+  }
+
+  private isAsteroidSpawnClear(
+    x: number,
+    y: number,
+    size: number,
+  ): boolean {
+    const minDistance = size * 1.8;
+    for (const asteroid of this.asteroids) {
+      if (!asteroid.alive) continue;
+      const dx = asteroid.body.position.x - x;
+      const dy = asteroid.body.position.y - y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < minDistance + asteroid.size) return false;
+    }
+    return true;
+  }
+
+  private rollAsteroidTier(): "LARGE" | "SMALL" {
+    return Math.random() < 0.6 ? "LARGE" : "SMALL";
+  }
+
+  private randomAsteroidSize(tier: "LARGE" | "SMALL"): number {
+    const min =
+      tier === "LARGE"
+        ? GAME_CONFIG.ASTEROID_LARGE_MIN
+        : GAME_CONFIG.ASTEROID_SMALL_MIN;
+    const max =
+      tier === "LARGE"
+        ? GAME_CONFIG.ASTEROID_LARGE_MAX
+        : GAME_CONFIG.ASTEROID_SMALL_MAX;
+    return min + Math.random() * (max - min);
+  }
+
+  private randomAsteroidVelocity(): { x: number; y: number } {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = this.randomRange(
+      GAME_CONFIG.ASTEROID_DRIFT_MIN_SPEED,
+      GAME_CONFIG.ASTEROID_DRIFT_MAX_SPEED,
+    );
+    return { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
+  }
+
+  private randomAsteroidAngularVelocity(): number {
+    const spread = 0.02;
+    return (Math.random() - 0.5) * spread;
+  }
+
+  private randomInt(min: number, max: number): number {
+    return min + Math.floor(Math.random() * (max - min + 1));
+  }
+
+  private randomRange(min: number, max: number): number {
+    return min + Math.random() * (max - min);
+  }
 
   private scheduleNextAsteroidSpawn(): void {
     if (this.flowMgr.phase !== "PLAYING") return;
@@ -422,23 +561,27 @@ export class Game {
     const angleVariance = (Math.random() - 0.5) * (Math.PI / 3);
     const finalAngle = angle + angleVariance;
 
-    const speed =
-      GAME_CONFIG.ASTEROID_MIN_SPEED +
-      Math.random() *
-        (GAME_CONFIG.ASTEROID_MAX_SPEED - GAME_CONFIG.ASTEROID_MIN_SPEED);
+    const speed = this.randomRange(
+      GAME_CONFIG.ASTEROID_DRIFT_MIN_SPEED,
+      GAME_CONFIG.ASTEROID_DRIFT_MAX_SPEED,
+    );
 
     const velocity = {
       x: Math.cos(finalAngle) * speed,
       y: Math.sin(finalAngle) * speed,
     };
 
-    const angularVelocity = (Math.random() - 0.5) * 0.02;
+    const angularVelocity = this.randomAsteroidAngularVelocity();
+    const tier = this.rollAsteroidTier();
+    const size = this.randomAsteroidSize(tier);
     const asteroid = new Asteroid(
       this.physics,
       x,
       y,
       velocity,
       angularVelocity,
+      tier,
+      size,
     );
     this.asteroids.push(asteroid);
   }
@@ -528,9 +671,13 @@ export class Game {
           asteroid.size,
           GAME_CONFIG.ASTEROID_COLOR,
         );
-        this.trySpawnPowerUp(pos.x, pos.y);
         asteroid.destroy();
         this.asteroids.splice(i, 1);
+        if (asteroid.isLarge()) {
+          this.splitAsteroid(asteroid, pos.x, pos.y);
+        } else {
+          this.trySpawnPowerUp(pos.x, pos.y);
+        }
       }
     }
 
