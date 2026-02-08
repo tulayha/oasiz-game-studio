@@ -13,12 +13,23 @@ export interface PlayroomPlayerState extends BasePlayerState {
 }
 
 export class NetworkBotManager {
-  private botNameCounter = 0;
+  private pendingAssignments: Array<{
+    type: "ai" | "local";
+    keySlot?: number;
+  }> = [];
+  private aiUsed = new Set<number>();
+  private localUsed = new Set<number>();
+  private botTypeById = new Map<string, "ai" | "local">();
+  private botIndexById = new Map<string, number>();
 
   constructor(private players: Map<string, PlayroomPlayerState>) {}
 
   resetCounter(): void {
-    this.botNameCounter = 0;
+    this.pendingAssignments = [];
+    this.aiUsed.clear();
+    this.localUsed.clear();
+    this.botTypeById.clear();
+    this.botIndexById.clear();
   }
 
   async addAIBot(): Promise<AstroBot | null> {
@@ -34,17 +45,13 @@ export class NetworkBotManager {
 
     try {
       console.log("[NetworkManager] Adding AI bot...");
+      const assignment = { type: "ai" as const };
+      this.pendingAssignments.push(assignment);
       const bot = (await addBot()) as AstroBot;
-
-      const botPlayer = this.getPlayerByBot(bot);
-      if (botPlayer) {
-        botPlayer.setState("botType", "ai", true);
-        this.botNameCounter++;
-        botPlayer.setState("customName", `Bot ${this.botNameCounter}`, true);
-      }
 
       return bot;
     } catch (e) {
+      this.pendingAssignments.pop();
       console.error("[NetworkManager] Failed to add bot:", e);
       return null;
     }
@@ -69,18 +76,17 @@ export class NetworkBotManager {
     }
 
     try {
-      console.log("[NetworkManager] Adding local player with keySlot:", keySlot);
+      console.log(
+        "[NetworkManager] Adding local player with keySlot:",
+        keySlot,
+      );
+      const assignment = { type: "local" as const, keySlot };
+      this.pendingAssignments.push(assignment);
       const bot = (await addBot()) as AstroBot;
-
-      const botPlayer = this.getPlayerByBot(bot);
-      if (botPlayer) {
-        botPlayer.setState("botType", "local", true);
-        botPlayer.setState("keySlot", keySlot, true);
-        botPlayer.setState("customName", `Player ${this.players.size}`, true);
-      }
 
       return bot;
     } catch (e) {
+      this.pendingAssignments.pop();
       console.error("[NetworkManager] Failed to add local player:", e);
       return null;
     }
@@ -151,17 +157,81 @@ export class NetworkBotManager {
     return count;
   }
 
-  private getPlayerByBot(bot: AstroBot): PlayroomPlayerState | null {
-    for (const player of this.players.values()) {
-      if (player.isBot?.() && player.bot === bot) {
-        return player;
+  assignBotOnJoin(player: PlayroomPlayerState): void {
+    if (!player.isBot?.()) return;
+
+    let type = player.getState("botType") as "ai" | "local" | null;
+    if (!type) {
+      const assignment = this.pendingAssignments.shift();
+      type = assignment?.type ?? "ai";
+      player.setState("botType", type, true);
+      if (type === "local") {
+        player.setState("keySlot", assignment?.keySlot ?? -1, true);
       }
     }
-    for (const player of this.players.values()) {
-      if (player.isBot?.() && !player.getState("botType")) {
-        return player;
+
+    this.botTypeById.set(player.id, type);
+
+    const existingName = (player.getState("customName") as string) || "";
+    const existingIndex = this.extractIndex(existingName, type);
+    if (existingIndex && !this.isIndexUsed(type, existingIndex)) {
+      this.reserveIndex(type, player.id, existingIndex);
+      return;
+    }
+
+    const nextIndex = this.getNextAvailableIndex(type);
+    this.reserveIndex(type, player.id, nextIndex);
+    const prefix = type === "local" ? "Player" : "Bot";
+    player.setState("customName", `${prefix} ${nextIndex}`, true);
+  }
+
+  releaseBot(playerId: string): void {
+    const type = this.botTypeById.get(playerId);
+    if (!type) return;
+    const index = this.botIndexById.get(playerId);
+    if (index !== undefined) {
+      if (type === "local") {
+        this.localUsed.delete(index);
+      } else {
+        this.aiUsed.delete(index);
       }
     }
-    return null;
+    this.botTypeById.delete(playerId);
+    this.botIndexById.delete(playerId);
+  }
+
+  private getNextAvailableIndex(type: "ai" | "local"): number {
+    const used = type === "local" ? this.localUsed : this.aiUsed;
+    let i = 1;
+    while (used.has(i)) i++;
+    return i;
+  }
+
+  private reserveIndex(
+    type: "ai" | "local",
+    playerId: string,
+    index: number,
+  ): void {
+    if (type === "local") {
+      this.localUsed.add(index);
+    } else {
+      this.aiUsed.add(index);
+    }
+    this.botIndexById.set(playerId, index);
+    this.botTypeById.set(playerId, type);
+  }
+
+  private isIndexUsed(type: "ai" | "local", index: number): boolean {
+    return type === "local"
+      ? this.localUsed.has(index)
+      : this.aiUsed.has(index);
+  }
+
+  private extractIndex(name: string, type: "ai" | "local"): number | null {
+    const prefix = type === "local" ? "Player" : "Bot";
+    const match = name.match(new RegExp(`^${prefix}\\s+(\\d+)$`, "i"));
+    if (!match) return null;
+    const num = Number.parseInt(match[1], 10);
+    return Number.isFinite(num) ? num : null;
   }
 }

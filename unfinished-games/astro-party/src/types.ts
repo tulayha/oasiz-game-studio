@@ -226,7 +226,13 @@ export const GAME_CONFIG = {
 } as const;
 
 // Mutable version of GAME_CONFIG type (widens literal types from `as const`)
-export type GameConfigType = { [K in keyof typeof GAME_CONFIG]: (typeof GAME_CONFIG)[K] extends number ? number : (typeof GAME_CONFIG)[K] extends string ? string : (typeof GAME_CONFIG)[K] };
+export type GameConfigType = {
+  [K in keyof typeof GAME_CONFIG]: (typeof GAME_CONFIG)[K] extends number
+    ? number
+    : (typeof GAME_CONFIG)[K] extends string
+      ? string
+      : (typeof GAME_CONFIG)[K];
+};
 
 // Overrides for "Sane" game mode (slower, more controlled)
 export const SANE_OVERRIDES: Partial<GameConfigType> = {

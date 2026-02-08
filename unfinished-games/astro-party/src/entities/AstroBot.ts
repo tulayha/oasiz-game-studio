@@ -84,7 +84,11 @@ export class AstroBot extends Bot {
   private botType: "ai" | "local";
   private keySlot: number;
   private lastDecisionTime = 0;
-  private cachedAction: BotAction = { buttonA: false, buttonB: false, dash: false };
+  private cachedAction: BotAction = {
+    buttonA: false,
+    buttonB: false,
+    dash: false,
+  };
 
   constructor(botParams?: BotParams) {
     super(botParams || {});
@@ -130,14 +134,22 @@ export class AstroBot extends Bot {
     }
 
     // 2. Check for wall proximity
-    const wallDanger = this.detectWallDanger(ship, data.arenaWidth, data.arenaHeight);
+    const wallDanger = this.detectWallDanger(
+      ship,
+      data.arenaWidth,
+      data.arenaHeight,
+    );
     if (wallDanger.nearWall && !shouldDash) {
       // Rotate away from wall
       shouldRotate = this.shouldRotateAwayFromWall(ship, wallDanger.wallAngle);
     }
 
     // 3. Find and target nearest enemy
-    const target = this.findNearestTarget(ship, data.enemyShips, data.enemyPilots);
+    const target = this.findNearestTarget(
+      ship,
+      data.enemyShips,
+      data.enemyPilots,
+    );
     if (target && !danger.inDanger && !wallDanger.nearWall) {
       const aimResult = this.calculateAim(ship, target);
       shouldRotate = aimResult.shouldRotate;
@@ -169,7 +181,7 @@ export class AstroBot extends Bot {
 
   private detectDanger(
     ship: BotVisibleData["myShip"],
-    projectiles: BotVisibleData["projectiles"]
+    projectiles: BotVisibleData["projectiles"],
   ): { inDanger: boolean; dangerAngle: number } {
     if (!ship) return { inDanger: false, dangerAngle: 0 };
 
@@ -193,7 +205,7 @@ export class AstroBot extends Bot {
       if (dist < AI_CONFIG.DANGER_RADIUS) {
         // Will it hit us?
         const futureDist = Math.sqrt(
-          (futureX - ship.x) ** 2 + (futureY - ship.y) ** 2
+          (futureX - ship.x) ** 2 + (futureY - ship.y) ** 2,
         );
         if (futureDist < AI_CONFIG.DANGER_RADIUS) {
           return { inDanger: true, dangerAngle: projDir };
@@ -207,7 +219,7 @@ export class AstroBot extends Bot {
   private detectWallDanger(
     ship: BotVisibleData["myShip"],
     arenaWidth: number,
-    arenaHeight: number
+    arenaHeight: number,
   ): { nearWall: boolean; wallAngle: number } {
     if (!ship) return { nearWall: false, wallAngle: 0 };
 
@@ -238,7 +250,7 @@ export class AstroBot extends Bot {
   private findNearestTarget(
     ship: BotVisibleData["myShip"],
     enemyShips: BotVisibleData["enemyShips"],
-    enemyPilots: BotVisibleData["enemyPilots"]
+    enemyPilots: BotVisibleData["enemyPilots"],
   ): { x: number; y: number; vx: number; vy: number } | null {
     if (!ship) return null;
 
@@ -268,7 +280,7 @@ export class AstroBot extends Bot {
 
   private calculateAim(
     ship: BotVisibleData["myShip"],
-    target: { x: number; y: number; vx: number; vy: number }
+    target: { x: number; y: number; vx: number; vy: number },
   ): { shouldRotate: boolean; isAimed: boolean } {
     if (!ship) return { shouldRotate: false, isAimed: false };
 
@@ -300,7 +312,7 @@ export class AstroBot extends Bot {
 
   private shouldRotateAwayFromDanger(
     ship: BotVisibleData["myShip"],
-    dangerAngle: number
+    dangerAngle: number,
   ): boolean {
     if (!ship) return false;
     // Rotate to face perpendicular to danger
@@ -311,7 +323,7 @@ export class AstroBot extends Bot {
 
   private shouldRotateAwayFromWall(
     ship: BotVisibleData["myShip"],
-    wallAngle: number
+    wallAngle: number,
   ): boolean {
     if (!ship) return false;
     // Face away from wall

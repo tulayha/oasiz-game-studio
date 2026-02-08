@@ -18,7 +18,7 @@ export class PlayerManager {
       console.log(
         "[Game] Player tried to join during active game, setting as spectator",
       );
-      const color = PLAYER_COLORS[playerIndex % PLAYER_COLORS.length];
+      const color = this.network.getPlayerColor(playerId);
       const player: PlayerData = {
         id: playerId,
         name: this.network.getPlayerName(playerId),
@@ -33,11 +33,13 @@ export class PlayerManager {
 
     // If joining during countdown and we're host, restart countdown
     if (phase === "COUNTDOWN" && this.network.isHost()) {
-      console.log("[Game] Player joined during countdown, restarting countdown");
+      console.log(
+        "[Game] Player joined during countdown, restarting countdown",
+      );
       onRestartCountdown?.();
     }
 
-    const color = PLAYER_COLORS[playerIndex % PLAYER_COLORS.length];
+    const color = this.network.getPlayerColor(playerId);
     const player: PlayerData = {
       id: playerId,
       name: this.network.getPlayerName(playerId),
@@ -47,24 +49,11 @@ export class PlayerManager {
     };
     this.players.set(playerId, player);
     onPlayersUpdate?.();
-
-    // Host broadcasts authoritative player order after any join
-    if (this.network.isHost()) {
-      this.network.broadcastPlayerList();
-    }
   }
 
-  removePlayer(
-    playerId: string,
-    onPlayersUpdate: (() => void) | null,
-  ): void {
+  removePlayer(playerId: string, onPlayersUpdate: (() => void) | null): void {
     this.players.delete(playerId);
     onPlayersUpdate?.();
-
-    // Host broadcasts updated player order after any leave
-    if (this.network.isHost()) {
-      this.network.broadcastPlayerList();
-    }
   }
 
   rebuildPlayersFromOrder(
@@ -74,9 +63,10 @@ export class PlayerManager {
     playerOrder.forEach((playerId, index) => {
       const existingPlayer = this.players.get(playerId);
       if (existingPlayer) {
-        existingPlayer.color = PLAYER_COLORS[index % PLAYER_COLORS.length];
+        existingPlayer.color = this.network.getPlayerColor(playerId);
+        existingPlayer.name = this.network.getPlayerName(playerId);
       } else {
-        const color = PLAYER_COLORS[index % PLAYER_COLORS.length];
+        const color = this.network.getPlayerColor(playerId);
         const player: PlayerData = {
           id: playerId,
           name: this.network.getPlayerName(playerId),

@@ -24,18 +24,12 @@ export interface CollisionCallbacks {
     asteroidBody: Matter.Body,
     projectileBody: Matter.Body,
   ) => void;
-  onShipHitAsteroid: (
-    shipPlayerId: string,
-    asteroidBody: Matter.Body,
-  ) => void;
+  onShipHitAsteroid: (shipPlayerId: string, asteroidBody: Matter.Body) => void;
   onPilotHitAsteroid: (
     pilotPlayerId: string,
     asteroidBody: Matter.Body,
   ) => void;
-  onShipHitPowerUp: (
-    shipPlayerId: string,
-    powerUpBody: Matter.Body,
-  ) => void;
+  onShipHitPowerUp: (shipPlayerId: string, powerUpBody: Matter.Body) => void;
 }
 
 export function setupCollisions(

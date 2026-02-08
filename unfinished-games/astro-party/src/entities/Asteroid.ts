@@ -37,7 +37,8 @@ export class Asteroid {
       GAME_CONFIG.ASTEROID_VERTICES_MIN +
       Math.floor(
         Math.random() *
-          (GAME_CONFIG.ASTEROID_VERTICES_MAX - GAME_CONFIG.ASTEROID_VERTICES_MIN +
+          (GAME_CONFIG.ASTEROID_VERTICES_MAX -
+            GAME_CONFIG.ASTEROID_VERTICES_MIN +
             1),
       );
 

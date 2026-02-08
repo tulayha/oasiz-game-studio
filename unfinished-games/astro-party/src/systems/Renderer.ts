@@ -37,9 +37,13 @@ export class Renderer {
       rootStyles.getPropertyValue("--layout-height"),
     );
     const targetWidth =
-      Number.isFinite(layoutWidth) && layoutWidth > 0 ? layoutWidth : rect.width;
+      Number.isFinite(layoutWidth) && layoutWidth > 0
+        ? layoutWidth
+        : rect.width;
     const targetHeight =
-      Number.isFinite(layoutHeight) && layoutHeight > 0 ? layoutHeight : rect.height;
+      Number.isFinite(layoutHeight) && layoutHeight > 0
+        ? layoutHeight
+        : rect.height;
 
     this.canvas.width = Math.max(1, Math.round(targetWidth));
     this.canvas.height = Math.max(1, Math.round(targetHeight));
@@ -140,7 +144,10 @@ export class Renderer {
     ctx.translate(x, y);
 
     // Draw shield if present
-    if (shieldHits !== undefined && shieldHits < GAME_CONFIG.POWERUP_SHIELD_HITS) {
+    if (
+      shieldHits !== undefined &&
+      shieldHits < GAME_CONFIG.POWERUP_SHIELD_HITS
+    ) {
       this.drawShield(0, 0, shieldHits);
     }
 
@@ -149,7 +156,13 @@ export class Renderer {
       ctx.strokeStyle = "#ff0066";
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * laserCooldownProgress);
+      ctx.arc(
+        0,
+        0,
+        22,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * laserCooldownProgress,
+      );
       ctx.stroke();
     }
 
@@ -166,13 +179,13 @@ export class Renderer {
       for (let i = 0; i < maxCharges; i++) {
         const dotX = startX - (i % 2) * 5; // Slight offset for visual interest
         const dotY = startY + i * spacing;
-        
+
         // Red if available, dark gray/black if used
         const isAvailable = i < laserCharges;
         ctx.fillStyle = isAvailable ? "#ff0044" : "#333333";
         ctx.strokeStyle = isAvailable ? "#ff6688" : "#222222";
         ctx.lineWidth = 1;
-        
+
         // Draw bullet-like shape
         ctx.beginPath();
         ctx.ellipse(dotX, dotY, dotSize, dotSize * 1.5, 0, 0, Math.PI * 2);
@@ -190,7 +203,8 @@ export class Renderer {
     // Use pre-calculated random offset to avoid flicker
     const flameLength = size * 0.8 + Math.sin(Date.now() * 0.02) * size * 0.2;
     ctx.fillStyle = "#ff4400";
-    const baseAlpha = isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.35 : 0.7;
+    const baseAlpha =
+      isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.35 : 0.7;
     ctx.globalAlpha = baseAlpha;
     ctx.beginPath();
     ctx.moveTo(-size * 0.4, 0);
@@ -199,7 +213,8 @@ export class Renderer {
     ctx.lineTo(-size * 0.7, size * 0.3);
     ctx.closePath();
     ctx.fill();
-    ctx.globalAlpha = isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.5 : 1;
+    ctx.globalAlpha =
+      isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.5 : 1;
 
     // Glow effect
     ctx.shadowColor = color.glow;
@@ -430,7 +445,7 @@ export class Renderer {
       const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
       const speed = 30 + Math.random() * 50;
       const life = 0.5 + Math.random() * 0.5;
-      const pieceSize = (size * 0.2) + Math.random() * (size * 0.3);
+      const pieceSize = size * 0.2 + Math.random() * (size * 0.3);
 
       this.particles.push({
         x: x + Math.cos(angle) * size * 0.3,
@@ -497,7 +512,10 @@ export class Renderer {
     const { ctx } = this;
     const { x, y, type, spawnTime } = state;
     const size = GAME_CONFIG.POWERUP_SIZE;
-    const remainingTime = Math.max(0, GAME_CONFIG.POWERUP_DESPAWN_TIME - (Date.now() - spawnTime));
+    const remainingTime = Math.max(
+      0,
+      GAME_CONFIG.POWERUP_DESPAWN_TIME - (Date.now() - spawnTime),
+    );
     const progress = remainingTime / GAME_CONFIG.POWERUP_DESPAWN_TIME;
 
     ctx.save();
@@ -507,7 +525,13 @@ export class Renderer {
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.arc(
+      0,
+      0,
+      size * 0.8,
+      -Math.PI / 2,
+      -Math.PI / 2 + Math.PI * 2 * progress,
+    );
     ctx.stroke();
 
     // Draw power-up box
@@ -530,7 +554,7 @@ export class Renderer {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = "bold 14px Arial";
-    
+
     if (type === "LASER") {
       // Draw laser symbol (lightning bolt)
       ctx.beginPath();
@@ -567,7 +591,12 @@ export class Renderer {
     ctx.rotate(angle);
 
     // Main beam gradient
-    const gradient = ctx.createLinearGradient(0, -beamWidth / 2, 0, beamWidth / 2);
+    const gradient = ctx.createLinearGradient(
+      0,
+      -beamWidth / 2,
+      0,
+      beamWidth / 2,
+    );
     gradient.addColorStop(0, "rgba(255, 0, 100, 0.3)");
     gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.9)");
     gradient.addColorStop(1, "rgba(255, 0, 100, 0.3)");
@@ -584,10 +613,13 @@ export class Renderer {
     ctx.strokeStyle = "rgba(255, 150, 200, 0.6)";
     ctx.lineWidth = 1;
     for (let i = 0; i < 5; i++) {
-      const offset = ((baseOffset + i * 0.2) % 1 - 0.5) * beamWidth * 0.8;
+      const offset = (((baseOffset + i * 0.2) % 1) - 0.5) * beamWidth * 0.8;
       ctx.beginPath();
       ctx.moveTo(0, offset);
-      ctx.lineTo(beamLength, offset + Math.sin(i * 1.5 + baseOffset * Math.PI) * 5);
+      ctx.lineTo(
+        beamLength,
+        offset + Math.sin(i * 1.5 + baseOffset * Math.PI) * 5,
+      );
       ctx.stroke();
     }
 
@@ -608,11 +640,13 @@ export class Renderer {
 
   drawShield(x: number, y: number, hits: number): void {
     const { ctx } = this;
-    
+
     // Color based on hits: 0 = blue, 1 = red
     const isDamaged = hits >= 1;
     const alpha = 0.4;
-    const color = isDamaged ? `rgba(255, 50, 50, ${alpha})` : `rgba(50, 150, 255, ${alpha})`;
+    const color = isDamaged
+      ? `rgba(255, 50, 50, ${alpha})`
+      : `rgba(50, 150, 255, ${alpha})`;
     const glowColor = isDamaged ? "#ff3333" : "#3399ff";
 
     ctx.save();
@@ -642,7 +676,7 @@ export class Renderer {
       const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
       const speed = 40 + Math.random() * 60;
       const life = 0.4 + Math.random() * 0.4;
-      
+
       this.particles.push({
         x: x + Math.cos(angle) * 20,
         y: y + Math.sin(angle) * 15,

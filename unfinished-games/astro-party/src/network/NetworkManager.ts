@@ -11,10 +11,7 @@ import {
   resetPlayersStates,
 } from "playroomkit";
 import { AstroBot } from "../entities/AstroBot";
-import {
-  NetworkBotManager,
-  PlayroomPlayerState,
-} from "./NetworkBotManager";
+import { NetworkBotManager, PlayroomPlayerState } from "./NetworkBotManager";
 import {
   GameStateSync,
   GamePhase,
@@ -34,7 +31,11 @@ export interface NetworkCallbacks {
   onInputReceived: (playerId: string, input: PlayerInput) => void;
   onHostChanged: () => void;
   onDisconnected: () => void;
-  onGamePhaseReceived: (phase: GamePhase, winnerId?: string, winnerName?: string) => void;
+  onGamePhaseReceived: (
+    phase: GamePhase,
+    winnerId?: string,
+    winnerName?: string,
+  ) => void;
   onCountdownReceived: (count: number) => void;
   onGameSoundReceived: (type: string, playerId: string) => void;
   onDashRequested: (playerId: string) => void;
@@ -51,6 +52,9 @@ export class NetworkManager {
   private connected = false;
   private cleanupFunctions: (() => void)[] = [];
   private botMgr = new NetworkBotManager(this.players);
+  private hostId: string | null = null;
+  private colorUsed = new Set<number>();
+  private colorIndexById = new Map<string, number>();
 
   async createRoom(): Promise<string> {
     console.log("[NetworkManager] Creating new room...");
@@ -83,6 +87,7 @@ export class NetworkManager {
     this.connected = true;
     const roomCode = getRoomCode() || "";
     console.log("[NetworkManager] Room created! Code:", roomCode);
+    this.updateHostState();
 
     // Share room code with platform
     this.shareRoomCode(roomCode);
@@ -121,6 +126,7 @@ export class NetworkManager {
 
       this.connected = true;
       console.log("[NetworkManager] Joined room! Code:", getRoomCode());
+      this.updateHostState();
 
       // Share room code with platform
       this.shareRoomCode(roomCode);
@@ -147,28 +153,52 @@ export class NetworkManager {
           return;
         }
         console.log("[NetworkManager] Player joined:", player.id);
-        this.players.set(player.id, player);
-        this.playerOrder.push(player.id);
+        const botPlayer = player as PlayroomPlayerState;
+        this.players.set(player.id, botPlayer);
+        if (isHost()) {
+          this.assignColorOnJoin(botPlayer);
+          if (botPlayer.isBot?.()) {
+            this.botMgr.assignBotOnJoin(botPlayer);
+          }
+          if (!this.playerOrder.includes(botPlayer.id)) {
+            this.playerOrder.push(botPlayer.id);
+          }
+          console.log(
+            "[NetworkManager] playerOrder (after join):",
+            this.playerOrder.length,
+            this.playerOrder,
+          );
 
-        const playerIndex = this.playerOrder.indexOf(player.id);
-        this.callbacks?.onPlayerJoined(player.id, playerIndex);
+          const playerIndex = this.playerOrder.indexOf(botPlayer.id);
+          this.callbacks?.onPlayerJoined(botPlayer.id, playerIndex);
+          this.broadcastPlayerList();
+        }
 
         // Check if we became host
-        if (isHost() && myPlayer()?.id === player.id) {
+        if (isHost() && myPlayer()?.id === botPlayer.id) {
           this.callbacks?.onHostChanged();
+          this.updateHostState();
         }
 
         player.onQuit(() => {
           console.log("[NetworkManager] Player left:", player.id);
           this.players.delete(player.id);
-          this.playerOrder = this.playerOrder.filter(
-            (id) => id !== player.id,
-          );
-          this.callbacks?.onPlayerLeft(player.id);
+          if (isHost()) {
+            this.playerOrder = this.playerOrder.filter(
+              (id) => id !== player.id,
+            );
+            this.releaseColor(player.id);
+            this.botMgr.releaseBot(player.id);
+            this.callbacks?.onPlayerLeft(player.id);
+            this.broadcastPlayerList();
+          } else {
+            this.callbacks?.onPlayerLeft(player.id);
+          }
 
           // Check if we became host after someone left
           if (isHost()) {
             this.callbacks?.onHostChanged();
+            this.updateHostState();
           }
         });
       }),
@@ -193,9 +223,17 @@ export class NetworkManager {
     this.cleanupFunctions.push(
       RPC.register(
         "gamePhase",
-        async (data: { phase: GamePhase; winnerId?: string; winnerName?: string }) => {
+        async (data: {
+          phase: GamePhase;
+          winnerId?: string;
+          winnerName?: string;
+        }) => {
           console.log("[NetworkManager] RPC gamePhase received:", data.phase);
-          this.callbacks?.onGamePhaseReceived(data.phase, data.winnerId, data.winnerName);
+          this.callbacks?.onGamePhaseReceived(
+            data.phase,
+            data.winnerId,
+            data.winnerName,
+          );
         },
       ),
     );
@@ -239,6 +277,11 @@ export class NetworkManager {
         // Update local playerOrder to match host's authoritative order
         if (!isHost()) {
           this.playerOrder = [...playerOrder];
+          console.log(
+            "[NetworkManager] playerList received:",
+            this.playerOrder.length,
+            this.playerOrder,
+          );
         }
         this.callbacks?.onPlayerListReceived(playerOrder);
       }),
@@ -301,7 +344,11 @@ export class NetworkManager {
   }
 
   // Broadcast game phase change via RPC (GAME_END includes winner info)
-  broadcastGamePhase(phase: GamePhase, winnerId?: string, winnerName?: string): void {
+  broadcastGamePhase(
+    phase: GamePhase,
+    winnerId?: string,
+    winnerName?: string,
+  ): void {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting game phase via RPC:", phase);
     RPC.call("gamePhase", { phase, winnerId, winnerName }, RPC.Mode.ALL);
@@ -342,6 +389,12 @@ export class NetworkManager {
   // Broadcast player list (host only) - authoritative order for colors
   broadcastPlayerList(): void {
     if (!isHost()) return;
+    this.updateHostState();
+    console.log(
+      "[NetworkManager] Broadcasting playerList:",
+      this.playerOrder.length,
+      this.playerOrder,
+    );
     RPC.call("playerList", this.playerOrder, RPC.Mode.ALL);
   }
 
@@ -393,6 +446,11 @@ export class NetworkManager {
   }
 
   getPlayerColor(playerId: string): { primary: string; glow: string } {
+    const player = this.players.get(playerId);
+    const colorIndex = player?.getState("colorIndex") as number | undefined;
+    if (Number.isFinite(colorIndex)) {
+      return PLAYER_COLORS[(colorIndex as number) % PLAYER_COLORS.length];
+    }
     const index = this.getPlayerIndex(playerId);
     return PLAYER_COLORS[index % PLAYER_COLORS.length];
   }
@@ -407,6 +465,12 @@ export class NetworkManager {
     }
     const index = this.getPlayerIndex(playerId);
     return `Player ${index + 1}`;
+  }
+
+  getHostId(): string | null {
+    const stateHost = getState("hostId") as string | undefined;
+    if (stateHost) return stateHost;
+    return this.hostId;
   }
 
   setCustomName(name: string): void {
@@ -452,6 +516,21 @@ export class NetworkManager {
     this.players.clear();
     this.playerOrder = [];
     this.botMgr.resetCounter();
+    this.hostId = null;
+    this.colorUsed.clear();
+    this.colorIndexById.clear();
+  }
+
+  private updateHostState(): void {
+    if (!isHost()) return;
+    const myId = myPlayer()?.id;
+    if (!myId) return;
+    const hostChanged = this.hostId !== myId;
+    this.hostId = myId;
+    setState("hostId", myId, true);
+    if (hostChanged) {
+      this.rebuildColorUsage();
+    }
   }
 
   private shareRoomCode(code: string | null): void {
@@ -466,6 +545,49 @@ export class NetworkManager {
     }
   }
 
+  private assignColorOnJoin(player: PlayroomPlayerState): void {
+    const existing = player.getState("colorIndex") as number | undefined;
+    const index = this.pickColorIndex(existing);
+    this.colorUsed.add(index);
+    this.colorIndexById.set(player.id, index);
+    if (!Number.isFinite(existing) || existing !== index) {
+      player.setState("colorIndex", index, true);
+    }
+  }
+
+  private releaseColor(playerId: string): void {
+    const index = this.colorIndexById.get(playerId);
+    if (index !== undefined) {
+      this.colorUsed.delete(index);
+      this.colorIndexById.delete(playerId);
+    }
+  }
+
+  private rebuildColorUsage(): void {
+    this.colorUsed.clear();
+    this.colorIndexById.clear();
+    for (const [playerId, player] of this.players) {
+      if (!isHost()) return;
+      const existing = player.getState("colorIndex") as number | undefined;
+      const index = this.pickColorIndex(existing);
+      this.colorUsed.add(index);
+      this.colorIndexById.set(playerId, index);
+      if (!Number.isFinite(existing) || existing !== index) {
+        player.setState("colorIndex", index, true);
+      }
+    }
+  }
+
+  private pickColorIndex(existing?: number): number {
+    if (Number.isFinite(existing) && !this.colorUsed.has(existing as number)) {
+      return existing as number;
+    }
+    for (let i = 0; i < PLAYER_COLORS.length; i++) {
+      if (!this.colorUsed.has(i)) return i;
+    }
+    return 0;
+  }
+
   // ============= BOT MANAGEMENT (delegated to NetworkBotManager) =============
 
   async addAIBot(): Promise<AstroBot | null> {
@@ -478,6 +600,34 @@ export class NetworkManager {
 
   async removeBot(playerId: string): Promise<boolean> {
     return this.botMgr.removeBot(playerId);
+  }
+
+  async kickPlayer(playerId: string): Promise<boolean> {
+    if (!isHost()) {
+      console.log("[NetworkManager] Only host can kick players");
+      return false;
+    }
+
+    const myId = myPlayer()?.id;
+    if (myId && playerId === myId) {
+      console.log("[NetworkManager] Host cannot kick themselves");
+      return false;
+    }
+
+    const player = this.players.get(playerId);
+    if (!player) {
+      console.log("[NetworkManager] Player not found:", playerId);
+      return false;
+    }
+
+    try {
+      await player.kick();
+      console.log("[NetworkManager] Player kicked:", playerId);
+      return true;
+    } catch (e) {
+      console.error("[NetworkManager] Failed to kick player:", e);
+      return false;
+    }
   }
 
   isPlayerBot(playerId: string): boolean {

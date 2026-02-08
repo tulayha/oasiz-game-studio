@@ -10,12 +10,7 @@ export class LaserBeam {
   alive: boolean = true;
   private duration: number = 150; // ms - how long the beam stays visible
 
-  constructor(
-    ownerId: string,
-    x: number,
-    y: number,
-    angle: number,
-  ) {
+  constructor(ownerId: string, x: number, y: number, angle: number) {
     this.id = `beam_${Date.now()}_${Math.random()}`;
     this.ownerId = ownerId;
     this.x = x;

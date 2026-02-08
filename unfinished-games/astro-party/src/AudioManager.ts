@@ -46,9 +46,7 @@ class AudioManagerClass {
   }
 
   // Helper to safely trigger sounds (Tone.js throws on rapid triggers)
-  private safeTrigger(
-    fn: () => void,
-  ): void {
+  private safeTrigger(fn: () => void): void {
     try {
       fn();
     } catch {
@@ -188,7 +186,11 @@ class AudioManagerClass {
     this.safeTrigger(() => {
       const now = Tone.now();
       this.fightSynth?.triggerAttackRelease(["C4", "E4", "G4"], "8n", now);
-      this.fightSynth?.triggerAttackRelease(["C5", "E5", "G5"], "4n", now + 0.15);
+      this.fightSynth?.triggerAttackRelease(
+        ["C5", "E5", "G5"],
+        "4n",
+        now + 0.15,
+      );
     });
   }
 

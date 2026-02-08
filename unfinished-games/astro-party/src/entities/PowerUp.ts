@@ -9,12 +9,7 @@ export class PowerUp {
   spawnTime: number;
   private physics: Physics;
 
-  constructor(
-    physics: Physics,
-    x: number,
-    y: number,
-    type: PowerUpType,
-  ) {
+  constructor(physics: Physics, x: number, y: number, type: PowerUpType) {
     this.physics = physics;
     this.type = type;
     this.spawnTime = Date.now();

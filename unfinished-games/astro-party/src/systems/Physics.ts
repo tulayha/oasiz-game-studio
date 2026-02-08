@@ -36,13 +36,37 @@ export class Physics {
     };
     this.walls = [
       // Top
-      Bodies.rectangle(width / 2, -thickness / 2, width + thickness * 2, thickness, wallOpts),
+      Bodies.rectangle(
+        width / 2,
+        -thickness / 2,
+        width + thickness * 2,
+        thickness,
+        wallOpts,
+      ),
       // Bottom
-      Bodies.rectangle(width / 2, height + thickness / 2, width + thickness * 2, thickness, wallOpts),
+      Bodies.rectangle(
+        width / 2,
+        height + thickness / 2,
+        width + thickness * 2,
+        thickness,
+        wallOpts,
+      ),
       // Left
-      Bodies.rectangle(-thickness / 2, height / 2, thickness, height + thickness * 2, wallOpts),
+      Bodies.rectangle(
+        -thickness / 2,
+        height / 2,
+        thickness,
+        height + thickness * 2,
+        wallOpts,
+      ),
       // Right
-      Bodies.rectangle(width + thickness / 2, height / 2, thickness, height + thickness * 2, wallOpts),
+      Bodies.rectangle(
+        width + thickness / 2,
+        height / 2,
+        thickness,
+        height + thickness * 2,
+        wallOpts,
+      ),
     ];
 
     Composite.add(this.world, this.walls);
@@ -73,7 +97,8 @@ export class Physics {
     });
 
     if (phys.SHIP_ANGULAR_DAMPING > 0) {
-      (body as unknown as Record<string, number>).angularDamping = phys.SHIP_ANGULAR_DAMPING;
+      (body as unknown as Record<string, number>).angularDamping =
+        phys.SHIP_ANGULAR_DAMPING;
     }
 
     // Store player ID in plugin data

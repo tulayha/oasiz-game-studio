@@ -100,7 +100,11 @@ export class BotManager {
   getLocalPlayersInfo(
     players: Map<string, PlayerData>,
   ): Array<{ name: string; color: string; keyPreset: string }> {
-    const localPlayers: Array<{ name: string; color: string; keyPreset: string }> = [];
+    const localPlayers: Array<{
+      name: string;
+      color: string;
+      keyPreset: string;
+    }> = [];
 
     const myId = this.network.getMyPlayerId();
     const myPlayer = myId ? players.get(myId) : null;

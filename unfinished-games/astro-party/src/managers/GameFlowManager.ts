@@ -44,8 +44,8 @@ export class GameFlowManager {
     if (this.network.isHost()) {
       this.network.broadcastGamePhase(
         phase,
-        phase === "GAME_END" ? this.winnerId ?? undefined : undefined,
-        phase === "GAME_END" ? this.winnerName ?? undefined : undefined,
+        phase === "GAME_END" ? (this.winnerId ?? undefined) : undefined,
+        phase === "GAME_END" ? (this.winnerName ?? undefined) : undefined,
       );
     }
   }
@@ -79,10 +79,7 @@ export class GameFlowManager {
     }, 1000);
   }
 
-  beginMatch(
-    players: Map<string, PlayerData>,
-    ships: Map<string, Ship>,
-  ): void {
+  beginMatch(players: Map<string, PlayerData>, ships: Map<string, Ship>): void {
     this.setPhase("PLAYING");
 
     this.physics.createWalls(GAME_CONFIG.ARENA_WIDTH, GAME_CONFIG.ARENA_HEIGHT);
@@ -307,7 +304,14 @@ export class GameFlowManager {
 
     await this.network.resetAllPlayerStates();
 
-    this.clearGameState(ships, pilots, projectiles, pendingInputs, pendingDashes, players);
+    this.clearGameState(
+      ships,
+      pilots,
+      projectiles,
+      pendingInputs,
+      pendingDashes,
+      players,
+    );
     this.setPhase("LOBBY");
     this.onPlayersUpdate?.();
   }
@@ -343,10 +347,7 @@ export class GameFlowManager {
     this.winnerName = null;
   }
 
-  removeProjectileByBody(
-    body: Matter.Body,
-    projectiles: Projectile[],
-  ): void {
+  removeProjectileByBody(body: Matter.Body, projectiles: Projectile[]): void {
     const index = projectiles.findIndex((p) => p.body === body);
     if (index !== -1) {
       projectiles[index].destroy();
