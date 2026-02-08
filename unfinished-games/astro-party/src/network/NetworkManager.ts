@@ -186,15 +186,12 @@ export class NetworkManager {
           this.broadcastPlayerList();
         }
 
-        // Check if we became host
-        if (isHost() && myPlayer()?.id === botPlayer.id) {
-          this.callbacks?.onHostChanged();
-          this.updateHostState();
-        }
-
         player.onQuit(() => {
           console.log("[NetworkManager] Player left:", player.id);
           this.players.delete(player.id);
+          if (player.id === this.hostId) {
+            this.callbacks?.onHostChanged();
+          }
           if (isHost()) {
             this.playerOrder = this.playerOrder.filter(
               (id) => id !== player.id,
@@ -207,11 +204,6 @@ export class NetworkManager {
             this.callbacks?.onPlayerLeft(player.id);
           }
 
-          // Check if we became host after someone left
-          if (isHost()) {
-            this.callbacks?.onHostChanged();
-            this.updateHostState();
-          }
         });
       }),
     );
@@ -287,12 +279,19 @@ export class NetworkManager {
     this.cleanupFunctions.push(
       RPC.register(
         "playerList",
-        async (payload: { order: string[]; meta: PlayerMeta[] }) => {
+        async (payload: {
+          order: string[];
+          meta: PlayerMeta[];
+          hostId?: string | null;
+        }) => {
           if (!isHost()) {
             this.playerOrder = [...payload.order];
             this.playerMetaById.clear();
             for (const meta of payload.meta) {
               this.playerMetaById.set(meta.id, meta);
+            }
+            if (payload.hostId) {
+              this.hostId = payload.hostId;
             }
             console.log(
               "[NetworkManager] playerList received:",
@@ -427,7 +426,11 @@ export class NetworkManager {
       this.playerOrder.length,
       this.playerOrder,
     );
-    RPC.call("playerList", { order: this.playerOrder, meta }, RPC.Mode.ALL);
+    RPC.call(
+      "playerList",
+      { order: this.playerOrder, meta, hostId: this.hostId },
+      RPC.Mode.ALL,
+    );
   }
 
   // Reset all player states (for game restart)

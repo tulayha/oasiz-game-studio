@@ -517,6 +517,9 @@ game.setUICallbacks({
       AudioManager.playFight();
     }
   },
+  onGameModeChange: (mode: GameMode) => {
+    setModeUI(mode, "remote");
+  },
 });
 
 // ============= EVENT LISTENERS =============
@@ -714,11 +717,17 @@ startGameBtn.addEventListener("click", () => {
 });
 
 // Game mode toggle
-function setModeUI(mode: GameMode): void {
-  modeChaotic.classList.toggle("active", mode === "CHAOTIC");
-  modeSane.classList.toggle("active", mode === "SANE");
-  game.setGameMode(mode);
-}
+  function setModeUI(
+    mode: GameMode,
+    source: "local" | "remote" = "local",
+  ): void {
+    modeChaotic.classList.toggle("active", mode === "CHAOTIC");
+    modeSane.classList.toggle("active", mode === "SANE");
+    game.setGameMode(mode);
+    if (source === "local" && game.isHost()) {
+      game.broadcastGameMode(mode);
+    }
+  }
 
 modeChaotic.addEventListener("click", () => {
   triggerHaptic("light");

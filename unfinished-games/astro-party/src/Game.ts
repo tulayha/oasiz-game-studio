@@ -592,13 +592,16 @@ export class Game {
     onPhaseChange: (phase: GamePhase) => void;
     onPlayersUpdate: (players: PlayerData[]) => void;
     onCountdownUpdate: (count: number) => void;
+    onGameModeChange?: (mode: GameMode) => void;
   }): void {
     this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
     this._onPlayersUpdate = callbacks.onPlayersUpdate;
+    this._onGameModeChange = callbacks.onGameModeChange ?? null;
   }
 
   private _onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
+  private _onGameModeChange: ((mode: GameMode) => void) | null = null;
 
   private emitPlayersUpdate(): void {
     this._onPlayersUpdate?.(this.getPlayers());
@@ -680,28 +683,8 @@ export class Game {
       },
 
       onHostChanged: () => {
-        console.log("[Game] Host changed, we are now host");
-        this._originalHostLeft = true;
-        this.emitPlayersUpdate();
-
-        if (this.flowMgr.phase === "PLAYING") {
-          console.log("[Game] Previous host left mid-game, ending match");
-          const sortedByKills = [...this.playerMgr.players.values()].sort(
-            (a, b) => b.kills - a.kills,
-          );
-          this.flowMgr.endGame(
-            sortedByKills[0]?.id || this.network.getMyPlayerId() || "",
-            this.playerMgr.players,
-          );
-        }
-
-        if (this.flowMgr.phase === "COUNTDOWN") {
-          if (this.flowMgr.countdownInterval) {
-            clearInterval(this.flowMgr.countdownInterval);
-            this.flowMgr.countdownInterval = null;
-          }
-          this.flowMgr.setPhase("LOBBY");
-        }
+        console.log("[Game] Host left, leaving room");
+        void this.leaveGame();
       },
 
       onDisconnected: () => {
@@ -782,6 +765,7 @@ export class Game {
       onGameModeReceived: (mode) => {
         console.log("[Game] Game mode received:", mode);
         GameConfig.setMode(mode);
+        this._onGameModeChange?.(mode);
       },
     });
   }
@@ -1361,6 +1345,10 @@ export class Game {
 
   setGameMode(mode: GameMode): void {
     GameConfig.setMode(mode);
+  }
+
+  broadcastGameMode(mode: GameMode): void {
+    this.network.broadcastGameMode(mode);
   }
 
   getGameMode(): GameMode {
