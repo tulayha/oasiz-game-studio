@@ -230,58 +230,39 @@ function updateLobbyUI(players: PlayerData[]): void {
   const myPlayerId = game.getMyPlayerId();
   const isHost = game.isHost();
 
-  // Update player list
-  playersList.innerHTML = players
-    .map((player, index) => {
-      const isHostPlayer = index === 0; // First player in array is host (PlayroomKit convention)
-      const isSelf = player.id === myPlayerId;
+  const shipIcon = (color: string) =>
+    `<svg viewBox="0 0 24 24" fill="${color}"><path d="M12 2L4 12l3 1.5L12 22l5-8.5L20 12z"/></svg>`;
+  const crownIcon =
+    '<svg viewBox="0 0 24 24"><path d="M5 19h14l1-9-4.5 3.5L12 6 8.5 13.5 4 10l1 9z"/></svg>';
 
-      // Check if this player is a bot
-      const isBot = game.isPlayerBot(player.id);
-      const botType = game.getPlayerBotType(player.id);
-      const keySlot = game.getPlayerKeySlot(player.id);
+  const rows = players.map((player, index) => {
+    const isHostPlayer = index === 0;
+    const isSelf = player.id === myPlayerId;
+    const nameDisplay = isSelf
+      ? `${escapeHtml(player.name)} <span style="opacity: 0.6">(You)</span>`
+      : escapeHtml(player.name);
 
-      // Use SVG icons instead of emojis for cross-platform consistency
-      // Host star is white to avoid conflict with yellow player color
-      const hostIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#ffffff"><path d="M12 1L9 9l-7 1 5 5-1.5 7L12 18l6.5 4L17 15l5-5-7-1z"/></svg>`;
-      const playerIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="${player.color.primary}"><path d="M12 2L4 12l3 1.5L12 22l5-8.5L20 12z"/></svg>`;
-
-      // Bot badge for AI bots
-      const botBadge =
-        botType === "ai"
-          ? `<div class="bot-badge"><svg viewBox="0 0 24 24" fill="${player.color.primary}"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/></svg></div>`
-          : "";
-
-      // Key preset label for local human players
-      const keyPresetLabel =
-        botType === "local" && keySlot >= 0
-          ? `<div class="key-preset">${getKeyPresetName(keySlot)}</div>`
-          : "";
-
-      // Remove button for bots (host only)
-      const removeBtn =
-        isHost && isBot
-          ? `<button class="remove-bot-btn" data-player-id="${player.id}" title="Remove">×</button>`
-          : "";
-
-      // Show "(You)" suffix for local player
-      const nameDisplay = isSelf
-        ? `${escapeHtml(player.name)} <span style="opacity: 0.6">(You)</span>`
-        : escapeHtml(player.name);
-
-      return `
-      <div class="player-slot ${isHostPlayer ? "host" : ""} ${isSelf ? "self" : ""} ${isBot ? "bot" : ""}">
-        <div class="player-avatar" style="background: ${player.color.primary}">
-          ${isHostPlayer ? hostIcon : playerIcon}
-          ${botBadge}
-        </div>
-        ${removeBtn}
+    return `
+      <div class="player-row">
+        <div class="player-ship">${shipIcon(player.color.primary)}</div>
         <div class="player-name">${nameDisplay}</div>
-        ${keyPresetLabel}
+        <div class="player-host">${isHostPlayer ? crownIcon : ""}</div>
       </div>
     `;
-    })
-    .join("");
+  });
+
+  const emptyCount = Math.max(0, 4 - players.length);
+  for (let i = 0; i < emptyCount; i++) {
+    rows.push(`
+      <div class="player-row empty">
+        <div class="player-ship"></div>
+        <div class="player-name">Waiting for player...</div>
+        <div class="player-loader"></div>
+      </div>
+    `);
+  }
+
+  playersList.innerHTML = rows.join("");
 
   // Update status and start button based on host status
   const canStart = game.canStartGame();
@@ -685,10 +666,8 @@ modeSane.addEventListener("click", () => {
 leaveLobbyBtn.addEventListener("click", async () => {
   triggerHaptic("light");
   leaveLobbyBtn.disabled = true;
-  leaveLobbyBtn.textContent = "Leaving...";
   await game.leaveGame();
   leaveLobbyBtn.disabled = false;
-  leaveLobbyBtn.textContent = "Leave";
 });
 
 // Leave game button (during gameplay) - shows in-game modal
@@ -789,8 +768,74 @@ toggleHaptics.addEventListener("click", () => {
 
 const isMobile = window.matchMedia("(pointer: coarse)").matches;
 
+function parsePx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function updateViewportVars(): void {
+  const root = document.documentElement;
+  const vv = window.visualViewport;
+  const width = vv?.width ?? window.innerWidth;
+  const height = vv?.height ?? window.innerHeight;
+  root.style.setProperty("--vw", width + "px");
+  root.style.setProperty("--vh", height + "px");
+
+  const styles = getComputedStyle(root);
+  const safeTop = parsePx(styles.getPropertyValue("--safe-top"));
+  const safeRight = parsePx(styles.getPropertyValue("--safe-right"));
+  const safeBottom = parsePx(styles.getPropertyValue("--safe-bottom"));
+  const safeLeft = parsePx(styles.getPropertyValue("--safe-left"));
+
+  const isPortrait = height > width;
+  const layoutWidth = isMobile && isPortrait ? height : width;
+  const layoutHeight = isMobile && isPortrait ? width : height;
+  let boxLeft = 0;
+  let boxTop = 0;
+  let boxRight = layoutWidth;
+  let boxBottom = layoutHeight;
+
+  if (isMobile && isPortrait) {
+    const rotTop = safeLeft;
+    const rotBottom = safeRight;
+    const rotLeft = safeBottom;
+    const rotRight = safeTop;
+    boxLeft = rotLeft;
+    boxTop = rotTop;
+    boxRight = layoutWidth - rotRight;
+    boxBottom = layoutHeight - rotBottom;
+  } else {
+    boxLeft = safeLeft;
+    boxTop = safeTop;
+    boxRight = layoutWidth - safeRight;
+    boxBottom = layoutHeight - safeBottom;
+  }
+
+  const boxWidth = Math.max(0, boxRight - boxLeft);
+  const boxHeight = Math.max(0, boxBottom - boxTop);
+  root.style.setProperty("--box-left", boxLeft + "px");
+  root.style.setProperty("--box-top", boxTop + "px");
+  root.style.setProperty("--box-right", boxRight + "px");
+  root.style.setProperty("--box-bottom", boxBottom + "px");
+  root.style.setProperty("--box-width", boxWidth + "px");
+  root.style.setProperty("--box-height", boxHeight + "px");
+}
+
+// CSS rotation handles portrait mode on mobile, so hide the rotate overlay
+if (isMobile) {
+  document.getElementById("rotateOverlay")?.remove();
+}
+
 async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
+
+  updateViewportVars();
+
+  window.addEventListener("resize", updateViewportVars);
+  window.addEventListener("orientationchange", updateViewportVars);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", updateViewportVars);
+  }
 
   // Attempt to lock orientation to landscape on mobile
   if (isMobile) {

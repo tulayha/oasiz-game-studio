@@ -28,8 +28,9 @@ export class Renderer {
   }
 
   resize(): void {
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvas.width = Math.max(1, Math.round(rect.width));
+    this.canvas.height = Math.max(1, Math.round(rect.height));
 
     // Calculate scale to fit fixed arena in window while maintaining aspect ratio
     const scaleX = this.canvas.width / GAME_CONFIG.ARENA_WIDTH;
