@@ -89,6 +89,9 @@ const addAIBotBtn = document.getElementById("addAIBotBtn") as HTMLButtonElement;
 const addLocalPlayerBtn = document.getElementById(
   "addLocalPlayerBtn",
 ) as HTMLButtonElement;
+const advancedSettingsBtn = document.getElementById(
+  "advancedSettingsBtn",
+) as HTMLButtonElement;
 
 // Game mode toggle
 const gameModeSection = document.getElementById("gameModeSection")!;
@@ -229,24 +232,45 @@ function triggerHaptic(
 function updateLobbyUI(players: PlayerData[]): void {
   const myPlayerId = game.getMyPlayerId();
   const isHost = game.isHost();
+  lobbyScreen.classList.toggle("is-host", isHost);
 
   const shipIcon = (color: string) =>
     `<svg viewBox="0 0 24 24" fill="${color}"><path d="M12 2L4 12l3 1.5L12 22l5-8.5L20 12z"/></svg>`;
   const crownIcon =
     '<svg viewBox="0 0 24 24"><path d="M5 19h14l1-9-4.5 3.5L12 6 8.5 13.5 4 10l1 9z"/></svg>';
+  const botIcon =
+    '<svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>';
+  const localIcon =
+    '<svg viewBox="0 0 24 24"><path d="M4 6h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2zm2 3h2v2H6V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9z"/></svg>';
+  const remoteIcon =
+    '<svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 8 8h2c0-5.52-4.48-10-10-10S2 6.48 2 12h2a8 8 0 0 1 8-8zm0 4a4 4 0 0 1 4 4h2a6 6 0 0 0-12 0h2a4 4 0 0 1 4-4zm0 6a2 2 0 0 1 2 2h2a4 4 0 0 0-8 0h2a2 2 0 0 1 2-2z"/></svg>';
 
   const rows = players.map((player, index) => {
     const isHostPlayer = index === 0;
     const isSelf = player.id === myPlayerId;
     const nameDisplay = isSelf
-      ? `${escapeHtml(player.name)} <span style="opacity: 0.6">(You)</span>`
+      ? `${escapeHtml(player.name)} <span class="player-self">(You)</span>`
       : escapeHtml(player.name);
+    const botType = game.getPlayerBotType(player.id);
+    let typeBadge = "";
+    if (botType === "ai") {
+      typeBadge = `<span class="player-type ai" title="AI Bot">${botIcon}</span>`;
+    } else if (botType === "local") {
+      typeBadge = `<span class="player-type local" title="Local Player">${localIcon}</span>`;
+    } else if (isSelf) {
+      typeBadge = `<span class="player-type local" title="You">${localIcon}</span>`;
+    } else {
+      typeBadge = `<span class="player-type remote" title="Online Player">${remoteIcon}</span>`;
+    }
 
     return `
       <div class="player-row">
         <div class="player-ship">${shipIcon(player.color.primary)}</div>
-        <div class="player-name">${nameDisplay}</div>
-        <div class="player-host">${isHostPlayer ? crownIcon : ""}</div>
+        <div class="player-name" title="${escapeHtml(player.name)}">${nameDisplay}</div>
+        <div class="player-badges">
+          ${typeBadge}
+          <span class="player-host">${isHostPlayer ? crownIcon : ""}</span>
+        </div>
       </div>
     `;
   });
@@ -282,7 +306,15 @@ function updateLobbyUI(players: PlayerData[]): void {
 
   // Show/hide bot controls and game mode toggle (host only)
   updateBotControlsVisibility(players.length, isHost);
-  gameModeSection.classList.toggle("hidden", !isHost);
+  gameModeSection.classList.toggle("hidden", false);
+  gameModeSection.classList.toggle("readonly", !isHost);
+  modeChaotic.disabled = !isHost;
+  modeSane.disabled = !isHost;
+  advancedSettingsBtn.style.display = isHost ? "block" : "none";
+  const actionsBox = gameModeSection.closest(".lobby-actions");
+  if (actionsBox) {
+    actionsBox.classList.toggle("readonly", !isHost);
+  }
 
   // Attach remove button handlers
   attachRemoveBotHandlers();
@@ -790,6 +822,8 @@ function updateViewportVars(): void {
   const isPortrait = height > width;
   const layoutWidth = isMobile && isPortrait ? height : width;
   const layoutHeight = isMobile && isPortrait ? width : height;
+  root.style.setProperty("--layout-width", layoutWidth + "px");
+  root.style.setProperty("--layout-height", layoutHeight + "px");
   let boxLeft = 0;
   let boxTop = 0;
   let boxRight = layoutWidth;
@@ -819,6 +853,11 @@ function updateViewportVars(): void {
   root.style.setProperty("--box-bottom", boxBottom + "px");
   root.style.setProperty("--box-width", boxWidth + "px");
   root.style.setProperty("--box-height", boxHeight + "px");
+
+  const layoutMode = boxWidth < 720 ? "narrow" : "wide";
+  root.dataset.layout = layoutMode;
+
+  game.handleResize();
 }
 
 // CSS rotation handles portrait mode on mobile, so hide the rotate overlay

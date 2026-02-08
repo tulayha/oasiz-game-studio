@@ -768,6 +768,10 @@ export class Game {
     requestAnimationFrame((t) => this.loop(t));
   }
 
+  handleResize(): void {
+    this.renderer.resize();
+  }
+
   private loop(timestamp: number): void {
     const dt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
     this.lastTime = timestamp;

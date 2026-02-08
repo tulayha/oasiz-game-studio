@@ -29,8 +29,20 @@ export class Renderer {
 
   resize(): void {
     const rect = this.canvas.getBoundingClientRect();
-    this.canvas.width = Math.max(1, Math.round(rect.width));
-    this.canvas.height = Math.max(1, Math.round(rect.height));
+    const rootStyles = getComputedStyle(document.documentElement);
+    const layoutWidth = Number.parseFloat(
+      rootStyles.getPropertyValue("--layout-width"),
+    );
+    const layoutHeight = Number.parseFloat(
+      rootStyles.getPropertyValue("--layout-height"),
+    );
+    const targetWidth =
+      Number.isFinite(layoutWidth) && layoutWidth > 0 ? layoutWidth : rect.width;
+    const targetHeight =
+      Number.isFinite(layoutHeight) && layoutHeight > 0 ? layoutHeight : rect.height;
+
+    this.canvas.width = Math.max(1, Math.round(targetWidth));
+    this.canvas.height = Math.max(1, Math.round(targetHeight));
 
     // Calculate scale to fit fixed arena in window while maintaining aspect ratio
     const scaleX = this.canvas.width / GAME_CONFIG.ARENA_WIDTH;

@@ -36,6 +36,8 @@
       --bg-panel: rgba(10, 10, 18, 0.95);
       --vw: 100vw;
       --vh: 100vh;
+      --layout-width: 100vw;
+      --layout-height: 100vh;
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-right: env(safe-area-inset-right, 0px);
       --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -46,6 +48,9 @@
       --box-bottom: 100vh;
       --box-width: 100vw;
       --box-height: 100vh;
+      --hud-top-gap: 45px;
+      --hud-side-gap: 20px;
+      --hud-bottom-gap: 20px;
     }
 
     #game-wrapper {
@@ -96,19 +101,97 @@
       padding: 0;
     }
 
-    .ui-stack {
+    .screen-shell {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+      align-items: stretch;
+      padding: 16px 20px;
+    }
+
+    .screen-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .screen-body {
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .screen-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .screen-center {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .start-shell .screen-header {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .start-shell .screen-body {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .start-shell {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      width: 100%;
-      max-width: 900px;
-      max-height: 100%;
-      min-height: 100%;
-      overflow: hidden;
-      gap: 0.75rem;
-      padding: 16px 20px;
+      gap: 18px;
       text-align: center;
+    }
+
+    .start-body {
+      flex-direction: column;
+      gap: 16px;
+      padding-top: 0;
+    }
+
+    .start-footer {
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+    }
+
+    .start-actions {
+      width: min(640px, 100%);
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    .start-actions .btn {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+    }
+
+    .start-helper {
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.5);
+      max-width: 560px;
+      margin: 0 auto;
+      display: none;
+    }
+
+    html[data-layout="narrow"] .screen-shell {
+      padding: 12px;
+      gap: 12px;
     }
 
     /* ============= START SCREEN ============= */
@@ -128,7 +211,7 @@
       font-size: clamp(0.7rem, 2.5vw, 1rem);
       color: var(--magenta);
       letter-spacing: 0.3em;
-      margin-bottom: 3rem;
+      margin-bottom: 1.5rem;
       text-transform: uppercase;
     }
 
@@ -145,6 +228,11 @@
       letter-spacing: 0.15em;
       transition: all 0.2s ease;
       margin: 0.5rem;
+    }
+
+    .btn.primary {
+      background: rgba(0, 240, 255, 0.12);
+      box-shadow: 0 0 18px rgba(0, 240, 255, 0.2);
     }
 
     .btn:hover {
@@ -166,6 +254,23 @@
       box-shadow: 0 0 20px rgba(255, 0, 170, 0.4);
     }
 
+    .btn.tertiary {
+      border-color: rgba(255, 0, 170, 0.35);
+      color: rgba(255, 0, 170, 0.7);
+      background: transparent;
+    }
+
+    .btn.tertiary:hover {
+      background: rgba(255, 0, 170, 0.08);
+      box-shadow: 0 0 14px rgba(255, 0, 170, 0.25);
+    }
+
+    .btn.compact {
+      padding: 0.6rem 0.9rem;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+    }
+
     .btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
@@ -175,6 +280,20 @@
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
+    }
+
+    .join-section {
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .join-section .btn-group {
+      width: 100%;
+    }
+
+    .join-section .btn {
+      width: 100%;
+      margin: 0;
     }
 
     /* ============= JOIN ROOM ============= */
@@ -217,144 +336,38 @@
     }
 
     /* ============= LOBBY SCREEN ============= */
-    .room-code-display {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      margin-bottom: 2rem;
-    }
-
     .room-code {
       font-family: 'Orbitron', sans-serif;
-      font-size: clamp(2rem, 8vw, 3rem);
-      font-weight: 900;
+      font-size: clamp(1.2rem, 3.5vw, 2rem);
+      font-weight: 800;
       color: var(--yellow);
-      text-shadow: 0 0 20px var(--yellow);
+      text-shadow: 0 0 14px rgba(255, 238, 0, 0.6);
       letter-spacing: 0.2em;
     }
 
     .copy-btn {
-      background: none;
-      border: none;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
       cursor: pointer;
-      padding: 0.5rem;
-      opacity: 0.7;
-      transition: opacity 0.2s;
+      padding: 6px;
+      opacity: 0.8;
+      transition: opacity 0.2s, background 0.2s;
     }
 
     .copy-btn:hover {
       opacity: 1;
+      background: rgba(255, 255, 255, 0.12);
     }
 
     .copy-btn svg {
-      width: 24px;
-      height: 24px;
+      width: 18px;
+      height: 18px;
       fill: var(--yellow);
     }
 
     .players-list {
       display: none;
-    }
-
-    .player-slot {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 1rem;
-      background: var(--bg-panel);
-      border: 2px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      min-width: 80px;
-    }
-
-    .player-avatar {
-      position: relative;
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .player-avatar svg {
-      width: 28px;
-      height: 28px;
-    }
-
-    .player-name {
-      font-size: 0.8rem;
-      color: #fff;
-      text-align: center;
-      max-width: 80px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    /* Highlight self player with a white ring (neutral, doesn't conflict with player colors) */
-    .player-slot.self .player-avatar {
-      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 0 15px rgba(255, 255, 255, 0.5);
-    }
-
-    /* Bot indicator badge */
-    .bot-badge {
-      position: absolute;
-      top: -4px;
-      right: -4px;
-      width: 20px;
-      height: 20px;
-      background: var(--bg-darker);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-    }
-
-    .bot-badge svg {
-      width: 12px;
-      height: 12px;
-    }
-
-    /* Remove bot button */
-    .remove-bot-btn {
-      position: absolute;
-      top: -8px;
-      right: -8px;
-      width: 24px;
-      height: 24px;
-      background: #ef4444;
-      border: none;
-      border-radius: 50%;
-      color: white;
-      font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      line-height: 1;
-      z-index: 10;
-    }
-
-    .player-slot:hover .remove-bot-btn {
-      display: flex;
-    }
-
-    .player-slot.bot {
-      position: relative;
-    }
-
-    /* Key preset label for local players */
-    .key-preset {
-      font-size: 0.65rem;
-      color: rgba(255, 255, 255, 0.6);
-      background: rgba(255, 255, 255, 0.1);
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-top: -4px;
     }
 
     /* Add Bot Section */
@@ -410,6 +423,11 @@
     .mode-option:not(.active):hover {
       color: rgba(255, 255, 255, 0.7);
       background: rgba(255, 255, 255, 0.08);
+    }
+
+    .mode-option:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     .icon-btn {
@@ -475,7 +493,7 @@
     /* Local Player Hints (in-game overlay) */
     .local-hints {
       position: fixed;
-      top: calc(var(--box-top) + 8px);
+      top: calc(var(--box-top) + var(--hud-top-gap) + 8px);
       left: 50%;
       transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.7);
@@ -542,10 +560,10 @@
 
     .score-track {
       position: absolute;
-      top: 0;
+      top: var(--hud-top-gap);
       left: 50%;
       transform: translateX(-50%);
-      background: var(--bg-panel);
+      background: #0a0a12;
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 12px;
       padding: 0.8rem 1.2rem;
@@ -597,8 +615,8 @@
 
     .leave-btn {
       position: absolute;
-      top: 0;
-      left: 20px;
+      top: var(--hud-top-gap);
+      left: var(--hud-side-gap);
       font-family: 'Orbitron', sans-serif;
       font-size: 0.7rem;
       padding: 0.5rem 1rem;
@@ -620,8 +638,8 @@
     /* ============= SETTINGS ============= */
     .settings-btn {
       position: fixed;
-      top: var(--box-top);
-      right: calc(100% - var(--box-right) + 20px);
+      top: calc(var(--box-top) + var(--hud-top-gap));
+      right: calc(100% - var(--box-right) + var(--hud-side-gap));
       z-index: 60;
       width: 44px;
       height: 44px;
@@ -648,8 +666,8 @@
     /* ============= PING INDICATOR ============= */
     .ping-indicator {
       position: fixed;
-      bottom: calc(100% - var(--box-bottom) + 20px);
-      right: calc(100% - var(--box-right) + 20px);
+      bottom: calc(100% - var(--box-bottom) + var(--hud-bottom-gap));
+      right: calc(100% - var(--box-right) + var(--hud-side-gap));
       z-index: 60;
       font-family: 'Orbitron', monospace;
       font-size: 11px;
@@ -872,7 +890,7 @@
       color: #666;
       font-size: 0.8rem;
       text-align: center;
-      margin-top: 2rem;
+      margin-top: 0.5rem;
       line-height: 1.8;
     }
 
@@ -885,12 +903,13 @@
     }
 
     /* ============= LOBBY LAYOUT ============= */
-    .lobby-grid {
-      width: 100%;
-      height: 100%;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 12px;
+    .lobby-shell {
+      padding: 12px 16px;
+    }
+
+    .lobby-shell .screen-body {
+      align-items: stretch;
+      justify-content: stretch;
     }
 
     .lobby-topbar {
@@ -932,6 +951,10 @@
       align-items: center;
       gap: 10px;
       justify-self: end;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     .lobby-room-label {
@@ -942,10 +965,12 @@
 
     .lobby-body {
       display: grid;
-      grid-template-columns: minmax(240px, 1.1fr) minmax(220px, 0.9fr);
+      grid-template-columns: minmax(260px, 1.1fr) minmax(240px, 0.9fr);
       gap: 16px;
       align-items: stretch;
       min-height: 0;
+      width: 100%;
+      height: 100%;
     }
 
     .lobby-players {
@@ -957,11 +982,12 @@
       border-radius: 16px;
       padding: 12px;
       min-height: 0;
+      overflow: hidden;
     }
 
     .player-row {
       display: grid;
-      grid-template-columns: 28px 1fr auto;
+      grid-template-columns: 26px minmax(0, 1fr) auto;
       align-items: center;
       gap: 10px;
       padding: 10px 12px;
@@ -981,35 +1007,77 @@
 
     .player-row .player-name {
       text-align: left;
-      white-space: nowrap;
+      white-space: normal;
       overflow: hidden;
-      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      line-height: 1.2;
+    }
+
+    .player-self {
+      opacity: 0.6;
+      font-size: 0.85em;
     }
 
     .player-ship {
-      width: 24px;
-      height: 24px;
+      width: 22px;
+      height: 22px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
     }
 
     .player-ship svg {
-      width: 22px;
-      height: 22px;
+      width: 20px;
+      height: 20px;
+    }
+
+    .player-badges {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .player-type {
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .player-type.ai {
+      color: var(--cyan);
+    }
+
+    .player-type.local {
+      color: var(--magenta);
+    }
+
+    .player-type.remote {
+      color: rgba(255, 255, 255, 0.65);
+    }
+
+    .player-type svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
     }
 
     .player-host {
-      width: 20px;
-      height: 20px;
+      width: 16px;
+      height: 16px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
     }
 
     .player-host svg {
-      width: 18px;
-      height: 18px;
+      width: 14px;
+      height: 14px;
       fill: #ffd700;
     }
 
@@ -1041,10 +1109,12 @@
 
     .lobby-actions .btn {
       width: 100%;
+      margin: 0;
     }
 
     .lobby-actions .add-bot-section {
-      flex-direction: column;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
       margin: 0;
     }
@@ -1053,6 +1123,10 @@
       display: flex;
       justify-content: flex-start;
       margin: 0;
+    }
+
+    .lobby-actions.readonly {
+      opacity: 0.8;
     }
 
     .lobby-bottombar {
@@ -1069,28 +1143,60 @@
       text-align: left;
     }
 
-    @media (pointer: coarse) {
-      .lobby-body {
-        grid-template-columns: 1fr;
-      }
-      .lobby-actions {
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-      .lobby-actions .btn {
-        width: auto;
-        flex: 1 1 140px;
-      }
-      .lobby-actions .add-bot-section {
-        width: 100%;
-        flex-direction: row;
-        flex-wrap: wrap;
-      }
-      .lobby-actions .game-mode-section {
-        width: 100%;
-        justify-content: flex-start;
-      }
+    html[data-layout="narrow"] .lobby-shell {
+      padding: 10px 12px;
+    }
+
+    html[data-layout="narrow"] .lobby-body {
+      grid-template-columns: 1fr;
+    }
+
+    html[data-layout="narrow"] .lobby-actions {
+      flex-direction: column;
+    }
+
+    #lobbyScreen:not(.is-host) #addBotSection {
+      display: none;
+    }
+
+    #lobbyScreen:not(.is-host) #advancedSettingsBtn {
+      display: none;
+    }
+
+    #lobbyScreen:not(.is-host) #startGameBtn {
+      display: none;
+    }
+
+    #lobbyScreen:not(.is-host) .lobby-body {
+      grid-template-columns: 1fr;
+    }
+
+    #lobbyScreen:not(.is-host) .lobby-actions {
+      background: transparent;
+      border: none;
+      padding: 0;
+      align-items: flex-start;
+    }
+
+    #lobbyScreen:not(.is-host) .game-mode-section {
+      display: flex;
+      opacity: 0.7;
+      pointer-events: none;
+      justify-content: flex-start;
+    }
+
+    .end-actions {
+      width: 100%;
+    }
+
+    .end-actions .btn {
+      flex: 1;
+      margin: 0;
+    }
+
+    html[data-layout="narrow"] .end-actions {
+      flex-direction: column;
+      align-items: stretch;
     }
 
     @media (pointer: coarse) {
@@ -1214,16 +1320,16 @@
         font-size: 0.85rem;
       }
 
-      .copy-btn {
-        width: 44px;
-        height: 44px;
-        padding: 0.5rem;
+      .start-body {
+        transform: translateY(10px);
       }
 
-      .remove-bot-btn {
-        width: 36px;
-        height: 36px;
-        font-size: 1.2rem;
+      .start-footer {
+        transform: translateY(14px);
+      }
+
+      .start-helper {
+        display: block;
       }
 
       /* Prevent overflow on all overlay screens */
@@ -1238,24 +1344,17 @@
 
       .subtitle {
         letter-spacing: 0.15em;
-        margin-bottom: 1.5rem;
-      }
-
-      .btn {
-        max-width: 80vw;
-      }
-
-      .btn-group {
-        max-width: 80vw;
-        width: 100%;
+        margin-bottom: 0.5rem;
       }
 
       .winner-name {
         font-size: clamp(1.5rem, 6vw, 3rem);
       }
 
-      .final-scores {
-        max-width: 85vw;
+      :root {
+        --hud-top-gap: 120px;
+        --hud-side-gap: 24px;
+        --hud-bottom-gap: 24px;
       }
     }
   </style>
@@ -1267,28 +1366,35 @@
   <!-- Start Screen -->
   <div id="startScreen" class="overlay">
     <div class="ui-box">
-      <div class="ui-stack">
-        <h1 class="game-title">ASTRO PARTY</h1>
-        <p class="subtitle">Multiplayer Arena</p>
-
-        <div class="btn-group" id="mainButtons">
-          <button class="btn" id="createRoomBtn">Create Room</button>
-          <button class="btn secondary" id="joinRoomBtn">Join Room</button>
-        </div>
-
-        <div class="join-section" id="joinSection">
-          <input type="text" class="room-input" id="roomCodeInput" placeholder="CODE" maxlength="4" autocomplete="off">
-          <p class="error-message" id="joinError">Could not join room</p>
-          <div class="btn-group">
-            <button class="btn" id="submitJoinBtn">Join</button>
-            <button class="btn secondary" id="backToStartBtn">Back</button>
+      <div class="screen-shell start-shell">
+        <div class="screen-header screen-center start-header">
+          <div>
+            <h1 class="game-title">ASTRO PARTY</h1>
+            <p class="subtitle">Multiplayer Arena</p>
           </div>
         </div>
+        <div class="screen-body start-body">
+          <div class="controls-info">
+            Ship always thrusts forward!<br>
+            <kbd>A</kbd> / <kbd>←</kbd> Rotate &nbsp;&nbsp; <kbd>D</kbd> / <kbd>→</kbd> / <kbd>Space</kbd> Fire (recoil pushes you back)<br>
+            Double-tap <kbd>A</kbd> for Super Dash
+          </div>
+          <p class="start-helper">Create a room to host or join a match with a 4-letter code.</p>
+        </div>
+        <div class="screen-footer start-footer">
+          <div class="start-actions" id="mainButtons">
+            <button class="btn" id="createRoomBtn">Create Room</button>
+            <button class="btn secondary" id="joinRoomBtn">Join Room</button>
+          </div>
 
-        <div class="controls-info">
-          Ship always thrusts forward!<br>
-          <kbd>A</kbd> / <kbd>←</kbd> Rotate &nbsp;&nbsp; <kbd>D</kbd> / <kbd>→</kbd> / <kbd>Space</kbd> Fire (recoil pushes you back)<br>
-          Double-tap <kbd>A</kbd> for Super Dash
+          <div class="join-section" id="joinSection">
+            <input type="text" class="room-input" id="roomCodeInput" placeholder="CODE" maxlength="4" autocomplete="off">
+            <p class="error-message" id="joinError">Could not join room</p>
+            <div class="btn-group">
+              <button class="btn" id="submitJoinBtn">Join</button>
+              <button class="btn secondary" id="backToStartBtn">Back</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1297,53 +1403,51 @@
   <!-- Lobby Screen -->
   <div id="lobbyScreen" class="overlay hidden">
     <div class="ui-box">
-      <div class="ui-stack">
-        <div class="lobby-grid">
-          <div class="lobby-topbar">
-            <button class="back-btn" id="leaveLobbyBtn" aria-label="Back">
-              <svg viewBox="0 0 24 24"><path d="M15.5 5.5L9 12l6.5 6.5-1.5 1.5L6 12l8-8 1.5 1.5z"/></svg>
+      <div class="screen-shell lobby-shell">
+        <div class="screen-header lobby-topbar">
+          <button class="back-btn" id="leaveLobbyBtn" aria-label="Back">
+            <svg viewBox="0 0 24 24"><path d="M15.5 5.5L9 12l6.5 6.5-1.5 1.5L6 12l8-8 1.5 1.5z"/></svg>
+          </button>
+          <div class="lobby-title">LOBBY</div>
+          <div class="lobby-room">
+            <span class="lobby-room-label">ROOM</span>
+            <span class="room-code" id="roomCodeDisplay">----</span>
+            <button class="copy-btn" id="copyCodeBtn" aria-label="Copy room code">
+              <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
             </button>
-            <div class="lobby-title">LOBBY</div>
-            <div class="lobby-room">
-              <span class="lobby-room-label">ROOM</span>
-              <span class="room-code" id="roomCodeDisplay">----</span>
-              <button class="copy-btn" id="copyCodeBtn" aria-label="Copy room code">
-                <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          </div>
+        </div>
+
+        <div class="screen-body lobby-body">
+          <div class="lobby-players" id="playersList"></div>
+          <div class="lobby-actions">
+            <div id="addBotSection" class="add-bot-section hidden">
+              <button class="btn icon-btn compact" id="addAIBotBtn" title="Add AI Bot">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>
+                + AI
+              </button>
+              <button class="btn icon-btn secondary compact" id="addLocalPlayerBtn" title="Add Local Player (same keyboard)">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 10h-2V8h-2v2h-2v2h2v2h2v-2h2v-2zM4 10V8H2v2H0v2h2v2h2v-2h2v-2H4zm9-4h-2v2h2V6zm0 4h-2v2h2v-2zm0 4h-2v2h2v-2zm4-8h-2v2h2V6zm0 4h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
+                + Local
               </button>
             </div>
-          </div>
 
-          <div class="lobby-body">
-            <div class="lobby-players" id="playersList"></div>
-            <div class="lobby-actions">
-              <div id="addBotSection" class="add-bot-section hidden">
-                <button class="btn icon-btn" id="addAIBotBtn" title="Add AI Bot">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>
-                  Add AI
-                </button>
-                <button class="btn icon-btn secondary" id="addLocalPlayerBtn" title="Add Local Player (same keyboard)">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 10h-2V8h-2v2h-2v2h2v2h2v-2h2v-2zM4 10V8H2v2H0v2h2v2h2v-2h2v-2H4zm9-4h-2v2h2V6zm0 4h-2v2h2v-2zm0 4h-2v2h2v-2zm4-8h-2v2h2V6zm0 4h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
-                  Add Local
-                </button>
+            <div id="gameModeSection" class="game-mode-section hidden">
+              <div class="mode-pill">
+                <button class="mode-option active" id="modeChaotic" data-mode="CHAOTIC">CHAOTIC</button>
+                <button class="mode-option" id="modeSane" data-mode="SANE">SANE</button>
               </div>
-
-              <div id="gameModeSection" class="game-mode-section hidden">
-                <div class="mode-pill">
-                  <button class="mode-option active" id="modeChaotic" data-mode="CHAOTIC">CHAOTIC</button>
-                  <button class="mode-option" id="modeSane" data-mode="SANE">SANE</button>
-                </div>
-              </div>
-
-              <button class="btn secondary" id="advancedSettingsBtn" disabled>Advanced Settings</button>
             </div>
-          </div>
 
-          <div class="lobby-bottombar">
-            <p class="lobby-status" id="lobbyStatus">
-              Waiting for players<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>
-            </p>
-            <button class="btn" id="startGameBtn" disabled>Start Game</button>
+            <button class="btn tertiary compact" id="advancedSettingsBtn" disabled>Advanced Settings</button>
           </div>
+        </div>
+
+        <div class="screen-footer lobby-bottombar">
+          <p class="lobby-status" id="lobbyStatus">
+            Waiting for players<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>
+          </p>
+          <button class="btn primary" id="startGameBtn" disabled>Start Game</button>
         </div>
       </div>
     </div>
@@ -1352,13 +1456,17 @@
   <!-- Game End Screen -->
   <div id="gameEndScreen" class="overlay hidden">
     <div class="ui-box">
-      <div class="ui-stack">
-        <p class="winner-title">WINNER</p>
-        <h2 class="winner-name" id="winnerName">Player 1</h2>
-
-        <div class="final-scores" id="finalScores"></div>
-
-        <div class="btn-group">
+      <div class="screen-shell end-shell">
+        <div class="screen-header screen-center">
+          <div>
+            <p class="winner-title">WINNER</p>
+            <h2 class="winner-name" id="winnerName">Player 1</h2>
+          </div>
+        </div>
+        <div class="screen-body">
+          <div class="final-scores" id="finalScores"></div>
+        </div>
+        <div class="screen-footer end-actions">
           <button class="btn" id="playAgainBtn">Play Again</button>
           <button class="btn secondary" id="leaveEndBtn">Leave</button>
         </div>
