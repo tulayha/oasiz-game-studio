@@ -12,6 +12,7 @@ import {
   GamePhase,
   PlayerData,
   PlayerInput,
+  RoundResultPayload,
   GAME_CONFIG,
   PLAYER_COLORS,
 } from "../types";
@@ -20,14 +21,21 @@ export class GameFlowManager {
   phase: GamePhase = "START";
   countdown: number = 0;
   countdownInterval: ReturnType<typeof setInterval> | null = null;
+  roundEndTimeout: ReturnType<typeof setTimeout> | null = null;
   winnerId: string | null = null;
   winnerName: string | null = null;
+  currentRound: number = 1;
+  roundWinnerId: string | null = null;
+  roundWinnerName: string | null = null;
+  roundIsTie: boolean = false;
 
   // Callbacks
   onPhaseChange: ((phase: GamePhase) => void) | null = null;
   onPlayersUpdate: (() => void) | null = null;
   onCountdownUpdate: ((count: number) => void) | null = null;
   onBeginMatch: (() => void) | null = null;
+  onRoundResult: ((payload: RoundResultPayload) => void) | null = null;
+  onResetRound: (() => void) | null = null;
 
   constructor(
     private network: NetworkManager,
@@ -54,6 +62,11 @@ export class GameFlowManager {
     if (!this.network.isHost()) return;
     if (this.phase !== "LOBBY") return;
     if (this.network.getPlayerCount() < 2) return;
+
+    this.currentRound = 1;
+    this.roundWinnerId = null;
+    this.roundWinnerName = null;
+    this.roundIsTie = false;
 
     this.startCountdown();
   }
@@ -207,11 +220,6 @@ export class GameFlowManager {
       if (killer) {
         killer.kills++;
         this.network.updateKills(killerId, killer.kills);
-
-        if (killer.kills >= GAME_CONFIG.KILLS_TO_WIN) {
-          this.endGame(killerId, players);
-          return;
-        }
       }
     }
 
@@ -228,12 +236,9 @@ export class GameFlowManager {
     );
 
     if (alivePlayers.length === 1) {
-      this.endGame(alivePlayers[0].id, players);
+      this.endRound(players, alivePlayers[0].id);
     } else if (alivePlayers.length === 0 && players.size > 0) {
-      const sortedByKills = [...players.values()].sort(
-        (a, b) => b.kills - a.kills,
-      );
-      this.endGame(sortedByKills[0].id, players);
+      this.endRound(players, null);
     }
   }
 
@@ -272,6 +277,67 @@ export class GameFlowManager {
     this.network.broadcastGameSound("respawn", playerId);
   }
 
+  endRound(players: Map<string, PlayerData>, winnerId: string | null): void {
+    if (!this.network.isHost()) return;
+    if (this.phase !== "PLAYING") return;
+
+    if (this.roundEndTimeout) {
+      clearTimeout(this.roundEndTimeout);
+      this.roundEndTimeout = null;
+    }
+
+    const isTie = winnerId === null;
+    let winnerName: string | null = null;
+
+    if (!isTie && winnerId) {
+      const winner = players.get(winnerId);
+      if (winner) {
+        winner.roundWins += 1;
+        this.network.updateRoundWins(winnerId, winner.roundWins);
+        winnerName = this.network.getPlayerName(winnerId);
+      }
+    }
+
+    this.roundWinnerId = winnerId;
+    this.roundWinnerName = winnerName;
+    this.roundIsTie = isTie;
+
+    const roundWinsById: Record<string, number> = {};
+    players.forEach((player) => {
+      roundWinsById[player.id] = player.roundWins;
+    });
+
+    const payload: RoundResultPayload = {
+      roundNumber: this.currentRound,
+      winnerId: winnerId ?? undefined,
+      winnerName: winnerName ?? undefined,
+      isTie,
+      roundWinsById,
+    };
+
+    this.onRoundResult?.(payload);
+    this.network.broadcastRoundResult(payload);
+
+    if (!isTie && winnerId) {
+      const winner = players.get(winnerId);
+      if (winner && winner.roundWins >= GAME_CONFIG.ROUNDS_TO_WIN) {
+        this.endGame(winnerId, players);
+        return;
+      }
+    }
+
+    this.setPhase("ROUND_END");
+
+    this.roundEndTimeout = setTimeout(() => {
+      this.roundEndTimeout = null;
+      if (!this.network.isHost()) return;
+      if (this.phase !== "ROUND_END") return;
+      this.currentRound += 1;
+      this.onResetRound?.();
+      this.startCountdown();
+    }, GAME_CONFIG.ROUND_RESULTS_DURATION * 1000);
+  }
+
   endGame(winnerId: string, players: Map<string, PlayerData>): void {
     this.winnerId = winnerId;
     this.winnerName = this.network.getPlayerName(winnerId);
@@ -284,7 +350,7 @@ export class GameFlowManager {
     if (myId) {
       const myPlayer = players.get(myId);
       if (myPlayer) {
-        this.submitScore(myPlayer.kills);
+        this.submitScore(myPlayer.roundWins);
       }
     }
   }
@@ -323,7 +389,17 @@ export class GameFlowManager {
     pendingInputs: Map<string, PlayerInput>,
     pendingDashes: Set<string>,
     players: Map<string, PlayerData>,
+    resetScores: boolean = true,
   ): void {
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+    if (this.roundEndTimeout) {
+      clearTimeout(this.roundEndTimeout);
+      this.roundEndTimeout = null;
+    }
+
     ships.forEach((ship) => ship.destroy());
     ships.clear();
 
@@ -339,12 +415,21 @@ export class GameFlowManager {
     this.multiInput?.reset();
 
     players.forEach((player) => {
-      player.kills = 0;
+      if (resetScores) {
+        player.kills = 0;
+        player.roundWins = 0;
+      }
       player.state = "ACTIVE";
     });
 
     this.winnerId = null;
     this.winnerName = null;
+    this.roundWinnerId = null;
+    this.roundWinnerName = null;
+    this.roundIsTie = false;
+    if (resetScores) {
+      this.currentRound = 1;
+    }
   }
 
   removeProjectileByBody(body: Matter.Body, projectiles: Projectile[]): void {

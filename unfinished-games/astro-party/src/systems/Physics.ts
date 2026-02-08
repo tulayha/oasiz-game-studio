@@ -92,7 +92,7 @@ export class Physics {
       density: 0.001,
       collisionFilter: {
         category: 0x0001, // Ship category
-        mask: 0x0002 | 0x0004 | 0x0008 | 0x0010, // Collide with projectiles (2), asteroids (4), walls (8), and powerups (16)
+        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010, // Collide with ships (1), projectiles (2), asteroids (4), walls (8), and powerups (16)
       },
     });
 

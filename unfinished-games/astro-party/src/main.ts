@@ -89,6 +89,11 @@ const toggleFx = document.getElementById("toggleFx")!;
 const toggleHaptics = document.getElementById("toggleHaptics")!;
 const settingsClose = document.getElementById("settingsClose")!;
 
+// Round result overlay
+const roundResult = document.getElementById("roundResult")!;
+const roundResultTitle = document.getElementById("roundResultTitle")!;
+const roundResultSubtitle = document.getElementById("roundResultSubtitle")!;
+
 // Bot controls
 const addBotSection = document.getElementById("addBotSection")!;
 const addAIBotBtn = document.getElementById("addAIBotBtn") as HTMLButtonElement;
@@ -161,6 +166,10 @@ function updateSettingsUI(): void {
     gameEndScreen.classList.toggle("hidden", screen !== "end");
     hud.classList.toggle("active", screen === "game");
     updateHudControlsVisibility();
+    game.setKeyboardInputEnabled(screen === "game");
+    if (screen !== "game") {
+      roundResult.classList.add("hidden");
+    }
 
   // On mobile: use adaptive touch zones instead of old mobile-controls
   if (isMobile) {
@@ -204,6 +213,21 @@ function updatePingIndicator(): void {
     pingIndicator.classList.add("medium");
   } else {
     pingIndicator.classList.add("bad");
+  }
+}
+
+function updateRoundResultOverlay(): void {
+  const result = game.getRoundResult();
+  if (!result) {
+    roundResult.classList.add("hidden");
+    return;
+  }
+
+  roundResultTitle.textContent = `ROUND ${result.roundNumber}`;
+  if (result.isTie) {
+    roundResultSubtitle.textContent = "TIE";
+  } else {
+    roundResultSubtitle.textContent = `WINNER: ${result.winnerName ?? "UNKNOWN"}`;
   }
 }
 
@@ -400,8 +424,8 @@ function attachKickHandlers(): void {
 function updateScoreTrack(players: PlayerData[]): void {
   scoreTrack.innerHTML = players
     .map((player) => {
-      const dots = Array.from({ length: GAME_CONFIG.KILLS_TO_WIN }, (_, i) => {
-        const filled = i < player.kills;
+      const dots = Array.from({ length: GAME_CONFIG.ROUNDS_TO_WIN }, (_, i) => {
+        const filled = i < player.roundWins;
         return `<div class="score-dot ${filled ? "filled" : ""}" style="color: ${player.color.primary}"></div>`;
       }).join("");
 
@@ -409,7 +433,7 @@ function updateScoreTrack(players: PlayerData[]): void {
       <div class="score-row">
         <span class="score-player-name" style="color: ${player.color.primary}">${escapeHtml(player.name)}</span>
         <div class="score-dots">${dots}</div>
-        <span class="score-kills">${player.kills}</span>
+        <span class="score-kills">${player.kills}K</span>
       </div>
     `;
     })
@@ -421,13 +445,16 @@ function updateGameEnd(players: PlayerData[]): void {
   winnerName.textContent = winner || "Unknown";
 
   // Sort by kills descending
-  const sorted = [...players].sort((a, b) => b.kills - a.kills);
+  const sorted = [...players].sort((a, b) => {
+    if (b.roundWins !== a.roundWins) return b.roundWins - a.roundWins;
+    return b.kills - a.kills;
+  });
   finalScores.innerHTML = sorted
     .map(
       (player) => `
     <div class="final-score-row">
       <span class="final-score-name" style="color: ${player.color.primary}">${escapeHtml(player.name)}</span>
-      <span class="final-score-kills">${player.kills} kills</span>
+      <span class="final-score-kills">${player.roundWins} pts • ${player.kills} kills</span>
     </div>
   `,
     )
@@ -483,6 +510,12 @@ game.setUICallbacks({
       case "COUNTDOWN":
       case "PLAYING":
         showScreen("game");
+        roundResult.classList.add("hidden");
+        break;
+      case "ROUND_END":
+        showScreen("game");
+        updateRoundResultOverlay();
+        roundResult.classList.remove("hidden");
         break;
       case "GAME_END":
         showScreen("end");
@@ -496,6 +529,7 @@ game.setUICallbacks({
     updateLobbyUI(players);
     updateScoreTrack(players);
     updateHudControlsVisibility();
+    game.setAllowAltKeyBindings(game.getLocalPlayerCount() <= 1);
 
     // Refresh game end buttons when players/host changes during GAME_END
     if (game.getPhase() === "GAME_END") {
@@ -520,6 +554,9 @@ game.setUICallbacks({
   },
   onGameModeChange: (mode: GameMode) => {
     setModeUI(mode, "remote");
+  },
+  onRoundResult: () => {
+    updateRoundResultOverlay();
   },
 });
 
@@ -640,6 +677,9 @@ addAIBotBtn.addEventListener("click", async () => {
 });
 
 addLocalPlayerBtn.addEventListener("click", async () => {
+  if (addingBot) return;
+  addingBot = true;
+  addLocalPlayerBtn.disabled = true;
   triggerHaptic("light");
   AudioManager.playUIClick();
 
@@ -664,6 +704,8 @@ addLocalPlayerBtn.addEventListener("click", async () => {
   } else {
     showKeySelectModal();
   }
+  addLocalPlayerBtn.disabled = false;
+  addingBot = false;
 });
 
 // Key selection modal

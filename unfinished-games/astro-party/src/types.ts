@@ -5,6 +5,7 @@ export type GamePhase =
   | "LOBBY" // Waiting for players
   | "COUNTDOWN" // 3-2-1-FIGHT
   | "PLAYING" // Active gameplay
+  | "ROUND_END" // Between rounds
   | "GAME_END"; // Winner determined
 
 export type PlayerState =
@@ -107,6 +108,7 @@ export interface PlayerData {
   name: string;
   color: PlayerColor;
   kills: number;
+  roundWins: number;
   state: PlayerState;
 }
 
@@ -137,6 +139,14 @@ export interface GameStateSync {
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
 
+export interface RoundResultPayload {
+  roundNumber: number;
+  winnerId?: string;
+  winnerName?: string;
+  isTie: boolean;
+  roundWinsById: Record<string, number>;
+}
+
 // ============= SETTINGS =============
 
 export interface Settings {
@@ -163,6 +173,7 @@ export interface Particle {
 export const GAME_CONFIG = {
   // Win condition
   KILLS_TO_WIN: 5,
+  ROUNDS_TO_WIN: 3,
 
   // Arena - FIXED SIZE (scales to fit window)
   ARENA_WIDTH: 1200,
@@ -201,6 +212,7 @@ export const GAME_CONFIG = {
 
   // Countdown
   COUNTDOWN_DURATION: 3, // seconds
+  ROUND_RESULTS_DURATION: 2.5, // seconds
 
   // Asteroids
   ASTEROID_INITIAL_MIN: 5,

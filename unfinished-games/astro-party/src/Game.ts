@@ -30,6 +30,7 @@ import {
   PowerUpType,
   PlayerPowerUp,
   GAME_CONFIG,
+  RoundResultPayload,
 } from "./types";
 import { GameConfig } from "./GameConfig";
 
@@ -77,6 +78,8 @@ export class Game {
   // Host migration tracking (proper migration not supported)
   private _originalHostLeft = false;
 
+  private roundResult: RoundResultPayload | null = null;
+
   static SHOW_PING = true;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -102,6 +105,12 @@ export class Game {
     this.flowMgr.onBeginMatch = () => {
       this.flowMgr.beginMatch(this.playerMgr.players, this.ships);
       this.spawnInitialAsteroids();
+    };
+    this.flowMgr.onRoundResult = (payload) => {
+      this.applyRoundResult(payload);
+    };
+    this.flowMgr.onResetRound = () => {
+      this.resetForNextRound();
     };
 
     // Setup collision callbacks
@@ -740,15 +749,18 @@ export class Game {
     onPlayersUpdate: (players: PlayerData[]) => void;
     onCountdownUpdate: (count: number) => void;
     onGameModeChange?: (mode: GameMode) => void;
+    onRoundResult?: (payload: RoundResultPayload) => void;
   }): void {
     this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
     this._onPlayersUpdate = callbacks.onPlayersUpdate;
     this._onGameModeChange = callbacks.onGameModeChange ?? null;
+    this._onRoundResult = callbacks.onRoundResult ?? null;
   }
 
   private _onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
   private _onGameModeChange: ((mode: GameMode) => void) | null = null;
+  private _onRoundResult: ((payload: RoundResultPayload) => void) | null = null;
 
   private emitPlayersUpdate(): void {
     this._onPlayersUpdate?.(this.getPlayers());
@@ -914,6 +926,12 @@ export class Game {
         GameConfig.setMode(mode);
         this._onGameModeChange?.(mode);
       },
+
+      onRoundResultReceived: (payload) => {
+        if (!this.network.isHost()) {
+          this.applyRoundResult(payload);
+        }
+      },
     });
   }
 
@@ -965,6 +983,7 @@ export class Game {
       this.pendingInputs,
       this.pendingDashes,
       this.playerMgr.players,
+      true,
     );
 
     this.asteroids.forEach((asteroid) => asteroid.destroy());
@@ -989,6 +1008,37 @@ export class Game {
     this.networkAsteroids = [];
     this.networkPowerUps = [];
     this.networkLaserBeams = [];
+    this.roundResult = null;
+  }
+
+  private resetForNextRound(): void {
+    this.flowMgr.clearGameState(
+      this.ships,
+      this.pilots,
+      this.projectiles,
+      this.pendingInputs,
+      this.pendingDashes,
+      this.playerMgr.players,
+      false,
+    );
+
+    this.asteroids.forEach((asteroid) => asteroid.destroy());
+    this.asteroids = [];
+
+    this.powerUps.forEach((powerUp) => powerUp.destroy());
+    this.powerUps = [];
+
+    this.laserBeams.forEach((beam) => beam.destroy());
+    this.laserBeams = [];
+
+    this.playerPowerUps.clear();
+
+    if (this.asteroidSpawnTimeout) {
+      clearTimeout(this.asteroidSpawnTimeout);
+      this.asteroidSpawnTimeout = null;
+    }
+
+    this.roundResult = null;
   }
 
   // ============= GAME LOOP =============
@@ -1285,6 +1335,18 @@ export class Game {
     }
   }
 
+  private applyRoundResult(payload: RoundResultPayload): void {
+    this.roundResult = payload;
+    Object.entries(payload.roundWinsById).forEach(([playerId, wins]) => {
+      const player = this.playerMgr.players.get(playerId);
+      if (player) {
+        player.roundWins = wins;
+      }
+    });
+    this.emitPlayersUpdate();
+    this._onRoundResult?.(payload);
+  }
+
   private render(dt: number): void {
     this.renderer.clear();
     this.renderer.beginFrame();
@@ -1490,6 +1552,10 @@ export class Game {
     return Game.SHOW_PING;
   }
 
+  getRoundResult(): RoundResultPayload | null {
+    return this.roundResult;
+  }
+
   setGameMode(mode: GameMode): void {
     GameConfig.setMode(mode);
   }
@@ -1505,6 +1571,7 @@ export class Game {
   startGame(): void {
     // Broadcast mode to all clients before starting countdown
     this.network.broadcastGameMode(GameConfig.getMode());
+    this.roundResult = null;
     this.flowMgr.startGame();
   }
 
@@ -1599,6 +1666,10 @@ export class Game {
     return this.botMgr.getUsedKeySlots(this.playerMgr.players);
   }
 
+  getLocalPlayerCount(): number {
+    return this.botMgr.getLocalPlayerCount(this.playerMgr.players);
+  }
+
   getLocalPlayersInfo(): Array<{
     name: string;
     color: string;
@@ -1609,6 +1680,16 @@ export class Game {
 
   hasLocalPlayers(): boolean {
     return this.botMgr.hasLocalPlayers(this.playerMgr.players);
+  }
+
+  setKeyboardInputEnabled(enabled: boolean): void {
+    this.input.setKeyboardEnabled(enabled);
+    this.multiInput?.setKeyboardEnabled(enabled);
+  }
+
+  setAllowAltKeyBindings(allow: boolean): void {
+    this.input.setAllowAltKeys(allow);
+    this.multiInput?.setAllowAltKeys(allow);
   }
 
   // ============= TOUCH LAYOUT DELEGATION =============

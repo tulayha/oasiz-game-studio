@@ -24,6 +24,7 @@ export class PlayerManager {
         name: this.network.getPlayerName(playerId),
         color,
         kills: 0,
+        roundWins: 0,
         state: "SPECTATING",
       };
       this.players.set(playerId, player);
@@ -45,6 +46,7 @@ export class PlayerManager {
       name: this.network.getPlayerName(playerId),
       color,
       kills: 0,
+      roundWins: 0,
       state: "ACTIVE",
     };
     this.players.set(playerId, player);
@@ -72,6 +74,7 @@ export class PlayerManager {
           name: this.network.getPlayerName(playerId),
           color,
           kills: 0,
+          roundWins: 0,
           state: "ACTIVE",
         };
         this.players.set(playerId, player);
@@ -104,6 +107,7 @@ export class PlayerManager {
   resetScores(): void {
     this.players.forEach((player) => {
       player.kills = 0;
+      player.roundWins = 0;
       player.state = "ACTIVE";
     });
   }

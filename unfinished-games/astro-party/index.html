@@ -557,7 +557,7 @@
       top: 0;
       left: 50%;
       transform: translateX(-50%);
-      background: #0a0a12;
+      background: rgba(10, 10, 18, 0.75);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 12px;
       padding: 0.8rem 1.2rem;
@@ -607,6 +607,43 @@
       text-align: right;
     }
 
+    .round-result {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 70;
+      pointer-events: none;
+      text-align: center;
+      padding: 18px 28px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(10, 10, 18, 0.75);
+      box-shadow: 0 0 30px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(6px);
+    }
+
+    .round-result.hidden {
+      display: none;
+    }
+
+    .round-result-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(1.1rem, 4vw, 1.8rem);
+      color: var(--yellow);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .round-result-subtitle {
+      margin-top: 0.35rem;
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(0.9rem, 3vw, 1.3rem);
+      color: #fff;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
     .leave-btn {
       position: absolute;
       top: var(--hud-top-pad);
@@ -614,7 +651,7 @@
       font-family: 'Orbitron', sans-serif;
       font-size: 0.7rem;
       padding: 0.5rem 1rem;
-      background: var(--bg-panel);
+      background: rgba(10, 10, 18, 0.6);
       border: 1px solid rgba(255, 100, 100, 0.5);
       border-radius: 8px;
       color: #ff6666;
@@ -626,7 +663,7 @@
     }
 
     .leave-btn:hover {
-      background: rgba(255, 100, 100, 0.2);
+      background: var(--bg-panel);
     }
 
     /* ============= SETTINGS ============= */
@@ -637,7 +674,7 @@
       z-index: 60;
       width: 44px;
       height: 44px;
-      background: var(--bg-panel);
+      background: rgba(10, 10, 18, 0.6);
       border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 50%;
       cursor: pointer;
@@ -648,7 +685,7 @@
     }
 
     .settings-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--bg-panel);
     }
 
     .settings-btn svg {
@@ -1540,6 +1577,12 @@
     ></button>
   </div>
 
+  <!-- Round Result Overlay -->
+  <div class="round-result hidden" id="roundResult">
+    <div class="round-result-title" id="roundResultTitle">ROUND 1</div>
+    <div class="round-result-subtitle" id="roundResultSubtitle">WINNER</div>
+  </div>
+
   <!-- Ping Indicator -->
   <div class="ping-indicator" id="pingIndicator"></div>
 
@@ -1593,15 +1636,15 @@
     <div class="key-options" id="keyOptions">
       <button class="key-option" data-slot="1">
         <span class="key-name">Arrows</span>
-        <span class="key-hint">Left: rotate | Right/Space: fire</span>
+        <span class="key-hint">Left: rotate | Right: fire</span>
       </button>
       <button class="key-option" data-slot="2">
         <span class="key-name">IJKL</span>
-        <span class="key-hint">J: rotate | L/I: fire</span>
+        <span class="key-hint">J: rotate | L: fire</span>
       </button>
       <button class="key-option" data-slot="3">
         <span class="key-name">Numpad</span>
-        <span class="key-hint">4: rotate | 6/8: fire</span>
+        <span class="key-hint">4: rotate | 6: fire</span>
       </button>
     </div>
     <button class="btn secondary" id="keySelectCancel" style="margin-top: 1rem;">Cancel</button>

@@ -11,23 +11,31 @@ import { SettingsManager } from "../SettingsManager";
 const KEY_PRESETS = [
   {
     name: "WASD",
-    buttonA: ["KeyA", "KeyQ"],
-    buttonB: ["KeyD", "KeyE", "KeyW"],
+    primaryA: ["KeyA"],
+    primaryB: ["KeyD"],
+    altA: ["KeyQ"],
+    altB: ["KeyE", "KeyW"],
   },
   {
     name: "Arrows",
-    buttonA: ["ArrowLeft"],
-    buttonB: ["ArrowRight", "Space"],
+    primaryA: ["ArrowLeft"],
+    primaryB: ["ArrowRight"],
+    altA: [],
+    altB: ["Space"],
   },
   {
     name: "IJKL",
-    buttonA: ["KeyJ"],
-    buttonB: ["KeyL", "KeyI"],
+    primaryA: ["KeyJ"],
+    primaryB: ["KeyL"],
+    altA: [],
+    altB: ["KeyI"],
   },
   {
     name: "Numpad",
-    buttonA: ["Numpad4"],
-    buttonB: ["Numpad6", "Numpad8"],
+    primaryA: ["Numpad4"],
+    primaryB: ["Numpad6"],
+    altA: [],
+    altB: ["Numpad8"],
   },
 ];
 
@@ -59,6 +67,8 @@ export class MultiInputManager {
   private keyToSlot: Map<string, { slot: number; button: "A" | "B" }> =
     new Map();
   private keyboardSetupDone = false;
+  private keyboardEnabled = true;
+  private allowAltKeys = true;
   private isMobile: boolean;
 
   // Touch zone state
@@ -119,17 +129,28 @@ export class MultiInputManager {
       const preset = KEY_PRESETS[slot];
       if (!preset) continue;
 
-      for (const key of preset.buttonA) {
+      for (const key of preset.primaryA) {
         this.keyToSlot.set(key, { slot, button: "A" });
       }
-      for (const key of preset.buttonB) {
+      for (const key of preset.primaryB) {
         this.keyToSlot.set(key, { slot, button: "B" });
+      }
+      if (this.allowAltKeys) {
+        for (const key of preset.altA) {
+          this.keyToSlot.set(key, { slot, button: "A" });
+        }
+        for (const key of preset.altB) {
+          this.keyToSlot.set(key, { slot, button: "B" });
+        }
       }
     }
   }
 
   private setupKeyboardListeners(): void {
     window.addEventListener("keydown", (e) => {
+      if (!this.keyboardEnabled || this.isEditableTarget(e.target)) {
+        return;
+      }
       const mapping = this.keyToSlot.get(e.code);
       if (!mapping) return;
 
@@ -156,6 +177,9 @@ export class MultiInputManager {
     });
 
     window.addEventListener("keyup", (e) => {
+      if (!this.keyboardEnabled || this.isEditableTarget(e.target)) {
+        return;
+      }
       const mapping = this.keyToSlot.get(e.code);
       if (!mapping) return;
 
@@ -177,13 +201,13 @@ export class MultiInputManager {
    * Dynamically creates DOM elements positioned based on layout type.
    *
    * @param layout - 'single' (1 player, bottom buttons), 'dual' (2 players, left/right edges), 'corner' (3-4 players)
-   * @param localPlayerCount - Total local players including host (2, 3, or 4)
-   * @param slotToColorIndex - Map of slot number to player color index
+   * @param localSlotOrder - Slots in local player order (spawn order)
+   * @param slotToColor - Map of slot number to player primary color
    */
   setupTouchZones(
     layout: TouchLayout,
-    localPlayerCount: number,
-    slotToColorIndex: Map<number, number>,
+    localSlotOrder: number[],
+    slotToColor: Map<number, string>,
   ): void {
     if (!this.isMobile || !this.touchZoneContainer) return;
 
@@ -193,13 +217,13 @@ export class MultiInputManager {
 
     switch (layout) {
       case "single":
-        this.createSingleLayout(slotToColorIndex);
+        this.createSingleLayout(localSlotOrder, slotToColor);
         break;
       case "dual":
-        this.createDualLayout(slotToColorIndex);
+        this.createDualLayout(localSlotOrder, slotToColor);
         break;
       case "corner":
-        this.createCornerLayout(localPlayerCount, slotToColorIndex);
+        this.createCornerLayout(localSlotOrder, slotToColor);
         break;
     }
 
@@ -209,13 +233,17 @@ export class MultiInputManager {
   /**
    * Layout A: Single player - two buttons at bottom of screen
    */
-  private createSingleLayout(slotToColorIndex: Map<number, number>): void {
-    const colorIdx = slotToColorIndex.get(0) ?? 0;
-    const color = PLAYER_COLORS[colorIdx % PLAYER_COLORS.length].primary;
+  private createSingleLayout(
+    localSlotOrder: number[],
+    slotToColor: Map<number, string>,
+  ): void {
+    const slot = localSlotOrder[0] ?? 0;
+    const fallbackColor = PLAYER_COLORS[0].primary;
+    const color = slotToColor.get(slot) ?? fallbackColor;
 
     // Left button (rotate) - bottom left
     this.createTouchZone({
-      slot: 0,
+      slot,
       button: "A",
       label: "ROTATE",
       sublabel: "double-tap: dash",
@@ -231,7 +259,7 @@ export class MultiInputManager {
 
     // Right button (fire) - bottom right
     this.createTouchZone({
-      slot: 0,
+      slot,
       button: "B",
       label: "FIRE",
       sublabel: "recoil pushes back",
@@ -250,21 +278,28 @@ export class MultiInputManager {
    * Layout B: 2 players - controls on left/right edges, stacked vertically
    * Player 1 (slot 0) = left edge, Player 2 (slot 1+) = right edge
    */
-  private createDualLayout(slotToColorIndex: Map<number, number>): void {
-    const slots = this.getSortedActiveSlots();
-    const leftSlot = 0; // Host is always slot 0
-    const rightSlot = slots.find((s) => s !== 0) ?? 1;
+  private createDualLayout(
+    localSlotOrder: number[],
+    slotToColor: Map<number, string>,
+  ): void {
+    const container = this.touchZoneContainer;
+    const rect = container?.getBoundingClientRect();
+    const width = rect?.width ?? 0;
+    const height = rect?.height ?? 0;
+    const inset = 8;
+    const gap = 12;
+    const zoneWidthPx = Math.max(90, Math.min(160, Math.round(width * 0.18)));
+    const zoneHeightPx = Math.max(
+      120,
+      Math.floor((height - inset * 2 - gap) / 2),
+    );
+    const leftSlot = localSlotOrder[0] ?? 0;
+    const rightSlot = localSlotOrder[1] ?? 1;
 
-    const leftColorIdx = slotToColorIndex.get(leftSlot) ?? 0;
-    const rightColorIdx = slotToColorIndex.get(rightSlot) ?? 1;
     const leftColor =
-      PLAYER_COLORS[leftColorIdx % PLAYER_COLORS.length].primary;
+      slotToColor.get(leftSlot) ?? PLAYER_COLORS[0].primary;
     const rightColor =
-      PLAYER_COLORS[rightColorIdx % PLAYER_COLORS.length].primary;
-
-    const zoneWidth = "18%";
-    const zoneHeight = "45%";
-    const gap = "8px";
+      slotToColor.get(rightSlot) ?? PLAYER_COLORS[1].primary;
 
     // Left player - rotate (top) and fire (bottom)
     this.createTouchZone({
@@ -274,10 +309,10 @@ export class MultiInputManager {
       sublabel: "2x: dash",
       color: leftColor,
       style: {
-        left: "8px",
-        top: "8px",
-        width: zoneWidth,
-        height: zoneHeight,
+        left: `${inset}px`,
+        top: `${inset}px`,
+        width: `${zoneWidthPx}px`,
+        height: `${zoneHeightPx}px`,
         borderRadius: "12px",
       },
     });
@@ -288,10 +323,10 @@ export class MultiInputManager {
       sublabel: "",
       color: leftColor,
       style: {
-        left: "8px",
-        bottom: gap,
-        width: zoneWidth,
-        height: zoneHeight,
+        left: `${inset}px`,
+        bottom: `${inset}px`,
+        width: `${zoneWidthPx}px`,
+        height: `${zoneHeightPx}px`,
         borderRadius: "12px",
       },
     });
@@ -304,10 +339,10 @@ export class MultiInputManager {
       sublabel: "2x: dash",
       color: rightColor,
       style: {
-        right: "8px",
-        top: "8px",
-        width: zoneWidth,
-        height: zoneHeight,
+        right: `${inset}px`,
+        top: `${inset}px`,
+        width: `${zoneWidthPx}px`,
+        height: `${zoneHeightPx}px`,
         borderRadius: "12px",
       },
     });
@@ -318,10 +353,10 @@ export class MultiInputManager {
       sublabel: "",
       color: rightColor,
       style: {
-        right: "8px",
-        bottom: gap,
-        width: zoneWidth,
-        height: zoneHeight,
+        right: `${inset}px`,
+        bottom: `${inset}px`,
+        width: `${zoneWidthPx}px`,
+        height: `${zoneHeightPx}px`,
         borderRadius: "12px",
       },
     });
@@ -332,23 +367,39 @@ export class MultiInputManager {
    * Each corner has 2 buttons on adjacent edges of the arena border
    */
   private createCornerLayout(
-    playerCount: number,
-    slotToColorIndex: Map<number, number>,
+    localSlotOrder: number[],
+    slotToColor: Map<number, string>,
   ): void {
-    const slots = this.getSortedActiveSlots();
-    // Include host (slot 0) as first player
-    const allSlots = [0, ...slots.filter((s) => s !== 0)];
-    const count = Math.min(playerCount, 4);
+    const count = Math.min(localSlotOrder.length, 4);
+    const container = this.touchZoneContainer;
+    const rect = container?.getBoundingClientRect();
+    const width = rect?.width ?? 0;
+    const height = rect?.height ?? 0;
+    const inset = 8;
+    const gap = 12;
 
     // Zone sizing
-    const edgeLength = "38%"; // Length along the edge
-    const edgeThickness = "60px"; // Thickness perpendicular to edge
+    const edgeThicknessPx = Math.max(
+      48,
+      Math.min(80, Math.round(Math.min(width, height) * 0.12)),
+    );
+    const verticalMax = Math.max(
+      80,
+      Math.floor((height - 2 * (edgeThicknessPx + gap)) / 2),
+    );
+    const horizontalMax = Math.max(
+      100,
+      Math.floor((width - inset * 2 - gap) / 2),
+    );
+    let edgeLengthPx = Math.round(Math.min(width, height) * 0.34);
+    edgeLengthPx = Math.min(edgeLengthPx, verticalMax, horizontalMax);
+    edgeLengthPx = Math.max(80, edgeLengthPx);
 
     for (let i = 0; i < count; i++) {
-      const slot = allSlots[i] ?? i;
+      const slot = localSlotOrder[i] ?? i;
       const corner = CORNER_POSITIONS[i];
-      const colorIdx = slotToColorIndex.get(slot) ?? i;
-      const color = PLAYER_COLORS[colorIdx % PLAYER_COLORS.length].primary;
+      const fallbackColor = PLAYER_COLORS[i % PLAYER_COLORS.length].primary;
+      const color = slotToColor.get(slot) ?? fallbackColor;
 
       const isTop = corner.corner.includes("top");
       const isLeft = corner.corner.includes("left");
@@ -362,10 +413,10 @@ export class MultiInputManager {
         sublabel: "",
         color,
         style: {
-          [isTop ? "top" : "bottom"]: "4px",
-          [isLeft ? "left" : "right"]: "4px",
-          width: edgeLength,
-          height: edgeThickness,
+          [isTop ? "top" : "bottom"]: `${inset}px`,
+          [isLeft ? "left" : "right"]: `${inset}px`,
+          width: `${edgeLengthPx}px`,
+          height: `${edgeThicknessPx}px`,
           borderRadius: "8px",
         },
       });
@@ -379,10 +430,10 @@ export class MultiInputManager {
         sublabel: "",
         color,
         style: {
-          [isLeft ? "left" : "right"]: "4px",
-          [isTop ? "top" : "bottom"]: `calc(${edgeThickness} + 12px)`,
-          width: edgeThickness,
-          height: edgeLength,
+          [isLeft ? "left" : "right"]: `${inset}px`,
+          [isTop ? "top" : "bottom"]: `${edgeThicknessPx + gap}px`,
+          width: `${edgeThicknessPx}px`,
+          height: `${edgeLengthPx}px`,
           borderRadius: "8px",
         },
       });
@@ -538,10 +589,6 @@ export class MultiInputManager {
   /**
    * Get sorted active slots (ascending)
    */
-  private getSortedActiveSlots(): number[] {
-    return [...this.activeSlots].sort((a, b) => a - b);
-  }
-
   // ============= INPUT CAPTURE =============
 
   // Capture input for a specific slot
@@ -598,5 +645,24 @@ export class MultiInputManager {
     for (const el of this.touchZoneElements) {
       el.classList.remove("pressed");
     }
+  }
+
+  setKeyboardEnabled(enabled: boolean): void {
+    this.keyboardEnabled = enabled;
+    if (!enabled) {
+      this.reset();
+    }
+  }
+
+  setAllowAltKeys(allow: boolean): void {
+    this.allowAltKeys = allow;
+    this.rebuildKeyMap();
+  }
+
+  private isEditableTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    if (target.isContentEditable) return true;
+    const tag = target.tagName.toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select";
   }
 }

@@ -9,6 +9,7 @@ import { GamePhase, PlayerData, GAME_CONFIG } from "../types";
 export class BotManager {
   readonly localPlayerSlots: Map<string, number> = new Map();
   useTouchForHost = false;
+  private reservedLocalSlots: Set<number> = new Set();
 
   constructor(
     private network: NetworkManager,
@@ -49,10 +50,14 @@ export class BotManager {
       console.log("[Game] Cannot add bots outside lobby phase");
       return false;
     }
-    if (this.getUsedKeySlots(players).includes(keySlot)) {
+    if (
+      this.getUsedKeySlots(players).includes(keySlot) ||
+      this.reservedLocalSlots.has(keySlot)
+    ) {
       console.log("[Game] Key slot already in use:", keySlot);
       return false;
     }
+    this.reservedLocalSlots.add(keySlot);
     const bot = await this.network.addLocalBot(keySlot);
     if (bot) {
       this.multiInput?.activateSlot(keySlot);
@@ -63,6 +68,7 @@ export class BotManager {
           const slot = this.network.getPlayerKeySlot(playerId);
           if (botType === "local" && slot === keySlot) {
             this.localPlayerSlots.set(playerId, keySlot);
+            this.reservedLocalSlots.delete(keySlot);
             break;
           }
         }
@@ -70,6 +76,7 @@ export class BotManager {
 
       return true;
     }
+    this.reservedLocalSlots.delete(keySlot);
     return false;
   }
 
@@ -78,6 +85,7 @@ export class BotManager {
     if (slot !== undefined) {
       this.multiInput?.deactivateSlot(slot);
       this.localPlayerSlots.delete(playerId);
+      this.reservedLocalSlots.delete(slot);
     }
 
     return this.network.removeBot(playerId);
@@ -92,6 +100,11 @@ export class BotManager {
       if (botType === "local") {
         const slot = this.network.getPlayerKeySlot(playerId);
         if (slot >= 0) slots.push(slot);
+      }
+    }
+    for (const slot of this.reservedLocalSlots) {
+      if (!slots.includes(slot)) {
+        slots.push(slot);
       }
     }
     return slots;
@@ -112,7 +125,7 @@ export class BotManager {
       localPlayers.push({
         name: myPlayer.name,
         color: myPlayer.color.primary,
-        keyPreset: "A/← rotate | D/→ fire",
+        keyPreset: "A rotate | D fire",
       });
     }
 
@@ -135,14 +148,29 @@ export class BotManager {
   getKeyHintForSlot(slot: number): string {
     switch (slot) {
       case 1:
-        return "← rotate | →/Space fire";
+        return "← rotate | → fire";
       case 2:
-        return "J rotate | L/I fire";
+        return "J rotate | L fire";
       case 3:
-        return "Num4 rotate | Num6/8 fire";
+        return "Num4 rotate | Num6 fire";
       default:
         return "A rotate | D fire";
     }
+  }
+
+  getLocalPlayerCount(players: Map<string, PlayerData>): number {
+    let count = 0;
+    const myId = this.network.getMyPlayerId();
+    if (myId && players.has(myId)) {
+      count += 1;
+    }
+    for (const [playerId] of players) {
+      const botType = this.network.getPlayerBotType(playerId);
+      if (botType === "local") {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   hasLocalPlayers(players: Map<string, PlayerData>): boolean {
@@ -167,29 +195,31 @@ export class BotManager {
       return;
     }
 
-    let localCount = 1; // Host is always local
-    for (const player of orderedPlayers) {
-      if (this.network.getPlayerBotType(player.id) === "local") {
-        localCount++;
-      }
-    }
-
-    const slotToColorIndex = new Map<number, number>();
+    const slotToColor = new Map<number, string>();
+    const localSlotOrder: number[] = [];
     const myId = this.network.getMyPlayerId();
 
-    const hostIdx = orderedPlayers.findIndex((p) => p.id === myId);
-    if (hostIdx >= 0) {
-      slotToColorIndex.set(0, hostIdx);
+    for (const player of orderedPlayers) {
+      const isHostPlayer = myId !== null && player.id === myId;
+      const botType = this.network.getPlayerBotType(player.id);
+      const isLocal = isHostPlayer || botType === "local";
+      if (!isLocal) continue;
+
+      const slot = isHostPlayer ? 0 : this.network.getPlayerKeySlot(player.id);
+      if (slot < 0) continue;
+
+      if (!localSlotOrder.includes(slot)) {
+        localSlotOrder.push(slot);
+      }
+      slotToColor.set(slot, player.color.primary);
     }
 
-    orderedPlayers.forEach((player, colorIndex) => {
-      const botType = this.network.getPlayerBotType(player.id);
-      if (botType === "local") {
-        const keySlot = this.network.getPlayerKeySlot(player.id);
-        slotToColorIndex.set(keySlot, colorIndex);
-      }
-    });
-
+    const localCount = localSlotOrder.length;
+    if (localCount === 0) {
+      this.multiInput.destroyTouchZones();
+      this.useTouchForHost = false;
+      return;
+    }
     let layout: "single" | "dual" | "corner";
     if (localCount <= 1) {
       layout = "single";
@@ -199,9 +229,12 @@ export class BotManager {
       layout = "corner";
     }
 
-    this.multiInput.activateSlot(0);
-    this.multiInput.setupTouchZones(layout, localCount, slotToColorIndex);
-    this.useTouchForHost = true;
+    for (const slot of localSlotOrder) {
+      this.multiInput.activateSlot(slot);
+    }
+
+    this.multiInput.setupTouchZones(layout, localSlotOrder, slotToColor);
+    this.useTouchForHost = localSlotOrder.includes(0);
   }
 
   clearTouchLayout(): void {

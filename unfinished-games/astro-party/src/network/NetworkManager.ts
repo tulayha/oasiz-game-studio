@@ -20,6 +20,7 @@ import {
   PlayerData,
   PLAYER_COLORS,
   GAME_CONFIG,
+  RoundResultPayload,
 } from "../types";
 
 export type { PlayroomPlayerState } from "./NetworkBotManager";
@@ -42,6 +43,7 @@ export interface NetworkCallbacks {
   onPingReceived: (latencyMs: number) => void;
   onPlayerListReceived: (playerOrder: string[], meta?: PlayerMetaMap) => void;
   onGameModeReceived: (mode: GameMode) => void;
+  onRoundResultReceived: (payload: RoundResultPayload) => void;
 }
 
 interface PlayerMeta {
@@ -87,6 +89,7 @@ export class NetworkManager {
       },
       defaultPlayerStates: {
         kills: 0,
+        roundWins: 0,
         playerState: "ACTIVE",
         input: null,
         botType: null, // 'ai' | 'local' | null
@@ -126,11 +129,12 @@ export class NetworkManager {
           botClass: AstroBot,
         },
         defaultPlayerStates: {
-          kills: 0,
-          playerState: "ACTIVE",
-          input: null,
-          botType: null,
-        },
+        kills: 0,
+        roundWins: 0,
+        playerState: "ACTIVE",
+        input: null,
+        botType: null,
+      },
       });
 
       // Register PK listeners fresh for this session
@@ -314,6 +318,14 @@ export class NetworkManager {
         this.callbacks?.onGameModeReceived(mode);
       }),
     );
+
+    // Handle round results from host
+    this.cleanupFunctions.push(
+      RPC.register("roundResult", async (payload: RoundResultPayload) => {
+        console.log("[NetworkManager] RPC roundResult received");
+        this.callbacks?.onRoundResultReceived(payload);
+      }),
+    );
   }
 
   startSync(): void {
@@ -406,6 +418,12 @@ export class NetworkManager {
     RPC.call("gameMode", mode, RPC.Mode.ALL);
   }
 
+  broadcastRoundResult(payload: RoundResultPayload): void {
+    if (!isHost()) return;
+    console.log("[NetworkManager] Broadcasting round result");
+    RPC.call("roundResult", payload, RPC.Mode.ALL);
+  }
+
   // Broadcast player list (host only) - authoritative order for colors
   broadcastPlayerList(): void {
     if (!isHost()) return;
@@ -445,6 +463,13 @@ export class NetworkManager {
     const player = this.players.get(playerId);
     if (player) {
       player.setState("kills", kills, true);
+    }
+  }
+
+  updateRoundWins(playerId: string, wins: number): void {
+    const player = this.players.get(playerId);
+    if (player) {
+      player.setState("roundWins", wins, true);
     }
   }
 
