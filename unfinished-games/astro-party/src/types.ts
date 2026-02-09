@@ -34,6 +34,11 @@ export interface ShipState {
   vy: number;
   alive: boolean;
   invulnerableUntil: number;
+  ammo: number;
+  maxAmmo: number;
+  lastShotTime: number;
+  reloadStartTime: number;
+  isReloading: boolean;
 }
 
 export interface PilotState {
@@ -199,6 +204,11 @@ export const GAME_CONFIG = {
   FIRE_COOLDOWN: 180, // ms
   PROJECTILE_SPEED: 14,
   PROJECTILE_LIFETIME: 2500, // ms
+
+  // Ammo system
+  MAX_AMMO: 3,
+  AMMO_RELOAD_TIME: 1200, // ms (1.2 seconds per bullet)
+  AMMO_BURST_DELAY: 150, // ms (small delay between burst shots)
 
   // Pilot
   PILOT_SURVIVAL_TIME: 5000, // ms
