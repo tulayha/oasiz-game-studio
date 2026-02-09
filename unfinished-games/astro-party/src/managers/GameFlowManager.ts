@@ -170,11 +170,26 @@ export class GameFlowManager {
 
     const pos = ship.body.position;
     const vel = ship.body.velocity;
+    const angle = ship.body.angle;
+    const angularVelocity = ship.body.angularVelocity;
+    const isBot = this.network.isPlayerBot(playerId);
+    const botType = this.network.getPlayerBotType(playerId);
+    const controlMode: "player" | "ai" =
+      isBot && botType === "ai" ? "ai" : "player";
 
     this.renderer.spawnExplosion(pos.x, pos.y, ship.color.primary);
     this.renderer.addScreenShake(15, 0.4);
 
-    const pilot = new Pilot(this.physics, pos.x, pos.y, playerId, vel);
+    const pilot = new Pilot(
+      this.physics,
+      pos.x,
+      pos.y,
+      playerId,
+      vel,
+      controlMode,
+      angle,
+      angularVelocity * 0.6,
+    );
     pilots.set(playerId, pilot);
 
     ship.destroy();

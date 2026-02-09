@@ -1,5 +1,6 @@
 import Matter from "matter-js";
-import { PilotState, GAME_CONFIG } from "../types";
+import { PilotState, GAME_CONFIG, PlayerInput } from "../types";
+import { GameConfig } from "../GameConfig";
 import { Physics } from "../systems/Physics";
 
 const { Body } = Matter;
@@ -9,6 +10,8 @@ export class Pilot {
   playerId: string;
   spawnTime: number;
   alive: boolean = true;
+  controlMode: "player" | "ai";
+  private lastDashTime: number = 0;
   private physics: Physics;
   private aiThinkTimer: number = 0;
   private targetDirection: { x: number; y: number } = { x: 0, y: 0 };
@@ -19,15 +22,38 @@ export class Pilot {
     y: number,
     playerId: string,
     inheritedVelocity: Matter.Vector,
+    controlMode: "player" | "ai",
+    initialAngle: number,
+    initialAngularVelocity: number = 0,
   ) {
     this.physics = physics;
     this.playerId = playerId;
     this.spawnTime = Date.now();
-    this.body = physics.createPilot(x, y, playerId, inheritedVelocity);
+    this.controlMode = controlMode;
+    this.body = physics.createPilot(
+      x,
+      y,
+      playerId,
+      inheritedVelocity,
+      initialAngle,
+      initialAngularVelocity,
+    );
   }
 
-  update(dt: number, threats: { x: number; y: number }[]): void {
+  update(
+    dt: number,
+    threats: { x: number; y: number }[],
+    input?: PlayerInput,
+    rotationDirection: number = 1,
+  ): void {
     if (!this.alive) return;
+
+    if (this.controlMode === "player") {
+      if (input) {
+        this.applyInput(input, rotationDirection, dt);
+      }
+      return;
+    }
 
     this.aiThinkTimer -= dt;
     if (this.aiThinkTimer <= 0) {
@@ -41,6 +67,33 @@ export class Pilot {
       x: this.targetDirection.x * speed,
       y: this.targetDirection.y * speed,
     });
+  }
+
+  applyInput(
+    input: PlayerInput,
+    rotationDirection: number,
+    dt: number,
+  ): void {
+    const cfg = GameConfig.config;
+    let angle = this.body.angle;
+
+    if (input.buttonA) {
+      Body.setAngularVelocity(this.body, 0);
+      Body.rotate(this.body, cfg.PILOT_ROTATION_SPEED * dt * rotationDirection);
+      angle = this.body.angle;
+    }
+
+    const now = performance.now();
+    if (
+      input.buttonB &&
+      now - this.lastDashTime >= cfg.PILOT_DASH_COOLDOWN
+    ) {
+      this.lastDashTime = now;
+      Body.applyForce(this.body, this.body.position, {
+        x: Math.cos(angle) * cfg.PILOT_DASH_FORCE,
+        y: Math.sin(angle) * cfg.PILOT_DASH_FORCE,
+      });
+    }
   }
 
   private updateAI(threats: { x: number; y: number }[]): void {
@@ -103,6 +156,7 @@ export class Pilot {
       y: this.body.position.y,
       vx: this.body.velocity.x,
       vy: this.body.velocity.y,
+      angle: this.body.angle,
       spawnTime: this.spawnTime,
       alive: this.alive,
     };

@@ -314,15 +314,23 @@ export class Renderer {
 
   // ============= PILOT RENDERING =============
 
-  drawPilot(state: PilotState): void {
+  drawPilot(state: PilotState, color: PlayerColor): void {
     const { ctx } = this;
-    const { x, y, spawnTime } = state;
+    const { x, y, spawnTime, vx, vy, angle, id } = state;
     const survivalProgress = Math.min(
       1,
       (Date.now() - spawnTime) / GAME_CONFIG.PILOT_SURVIVAL_TIME,
     );
     const isFlashing =
       survivalProgress > 0.6 && Math.floor(Date.now() / 150) % 2 === 0;
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    const swayAmount = Math.min(1, speed / 4);
+    let phase = 0;
+    for (let i = 0; i < id.length; i++) {
+      phase = (phase + id.charCodeAt(i) * 0.17) % (Math.PI * 2);
+    }
+    const time = Date.now() * 0.01;
+    const limbSway = Math.sin(time + phase) * 3 * swayAmount;
 
     ctx.save();
     ctx.translate(x, y);
@@ -344,35 +352,62 @@ export class Renderer {
     );
     ctx.stroke();
 
-    // Parachute
-    ctx.fillStyle = "#ff00aa";
-    ctx.beginPath();
-    ctx.arc(0, -10, 10, Math.PI, Math.PI * 2);
-    ctx.fill();
+    // Astronaut
+    ctx.save();
+    ctx.rotate(angle);
 
-    // Strings
-    ctx.strokeStyle = "#888888";
-    ctx.lineWidth = 1;
+    // Backpack
+    ctx.fillStyle = "#d6d6d6";
+    ctx.fillRect(-10, -4, 4, 8);
+
+    // Body suit
+    ctx.fillStyle = "#f5f5f5";
+    ctx.strokeStyle = "#dcdcdc";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(-8, -6);
-    ctx.lineTo(0, 4);
-    ctx.moveTo(8, -6);
-    ctx.lineTo(0, 4);
-    ctx.moveTo(0, -10);
-    ctx.lineTo(0, 4);
+    ctx.rect(-6, -5, 12, 10);
+    ctx.fill();
     ctx.stroke();
 
-    // Pilot body (circle)
-    ctx.fillStyle = "#ffcc88";
+    // Accent stripes
+    ctx.fillStyle = color.primary;
+    ctx.fillRect(-5, -3, 2, 6);
+    ctx.fillRect(3, -3, 2, 6);
+
+    // Arms
+    ctx.strokeStyle = "#e2e2e2";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(0, 6, 5, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(-4, -2);
+    ctx.lineTo(-8, -3 - limbSway * 0.3);
+    ctx.moveTo(-4, 2);
+    ctx.lineTo(-8, 3 + limbSway * 0.3);
+    ctx.stroke();
+
+    // Legs
+    ctx.beginPath();
+    ctx.moveTo(-2, 5);
+    ctx.lineTo(-4, 9 + limbSway);
+    ctx.moveTo(2, 5);
+    ctx.lineTo(4, 9 - limbSway);
+    ctx.stroke();
 
     // Helmet
     ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#dcdcdc";
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(0, 4, 4, 0, Math.PI * 2);
+    ctx.arc(8, 0, 4.5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.stroke();
+
+    // Visor
+    ctx.fillStyle = "#1cc7c7";
+    ctx.beginPath();
+    ctx.ellipse(9, 0, 2.6, 1.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
 
     ctx.restore();
   }

@@ -48,6 +48,7 @@ export interface PilotState {
   y: number;
   vx: number;
   vy: number;
+  angle: number;
   spawnTime: number;
   alive: boolean;
 }
@@ -225,7 +226,12 @@ export const GAME_CONFIG = {
 
   // Pilot
   PILOT_SURVIVAL_TIME: 5000, // ms
-  PILOT_FRICTION_AIR: 0.01,
+  PILOT_FRICTION_AIR: 0.05,
+  PILOT_ROTATION_SPEED: 3.8,
+  PILOT_DASH_FORCE: 0.006,
+  PILOT_DASH_COOLDOWN: 250, // ms
+  PILOT_EJECT_VELOCITY_SCALE: 0.7,
+  PILOT_ANGULAR_DAMPING: 0.08,
 
   // Respawn
   INVULNERABLE_TIME: 2000, // ms

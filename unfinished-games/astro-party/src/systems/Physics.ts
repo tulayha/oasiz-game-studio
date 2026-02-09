@@ -115,6 +115,8 @@ export class Physics {
     y: number,
     playerId: string,
     velocity: Matter.Vector,
+    initialAngle: number,
+    initialAngularVelocity: number = 0,
   ): Matter.Body {
     const body = Bodies.circle(x, y, 8, {
       label: "pilot",
@@ -126,9 +128,16 @@ export class Physics {
 
     // Inherit some momentum from the ship
     Body.setVelocity(body, {
-      x: velocity.x * 0.5,
-      y: velocity.y * 0.5,
+      x: velocity.x * GAME_CONFIG.PILOT_EJECT_VELOCITY_SCALE,
+      y: velocity.y * GAME_CONFIG.PILOT_EJECT_VELOCITY_SCALE,
     });
+    Body.setAngle(body, initialAngle);
+    Body.setAngularVelocity(body, initialAngularVelocity);
+
+    if (GAME_CONFIG.PILOT_ANGULAR_DAMPING > 0) {
+      (body as unknown as Record<string, number>).angularDamping =
+        GAME_CONFIG.PILOT_ANGULAR_DAMPING;
+    }
 
     body.plugin = body.plugin || {};
     body.plugin.playerId = playerId;

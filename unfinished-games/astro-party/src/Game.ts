@@ -1483,7 +1483,11 @@ export class Game {
       });
 
       this.pilots.forEach((pilot, playerId) => {
-        pilot.update(dt, threats);
+        const input =
+          pilot.controlMode === "player"
+            ? this.getPilotInputForPlayer(playerId)
+            : undefined;
+        pilot.update(dt, threats, input, this.rotationDirection);
 
         if (pilot.hasSurvived()) {
           const pilotPosition = {
@@ -1668,6 +1672,42 @@ export class Game {
     this._onRoundResult?.(payload);
   }
 
+  private getPilotInputForPlayer(playerId: string): PlayerInput {
+    const isBot = this.network.isPlayerBot(playerId);
+    const botType = this.network.getPlayerBotType(playerId);
+
+    if (isBot && botType === "local") {
+      const keySlot = this.network.getPlayerKeySlot(playerId);
+      return (
+        this.multiInput?.capture(keySlot) || {
+          buttonA: false,
+          buttonB: false,
+          timestamp: 0,
+        }
+      );
+    }
+
+    const myId = this.network.getMyPlayerId();
+    const isMe = playerId === myId;
+    if (isMe && this.botMgr.useTouchForHost) {
+      return (
+        this.multiInput?.capture(0) || {
+          buttonA: false,
+          buttonB: false,
+          timestamp: 0,
+        }
+      );
+    }
+
+    return (
+      this.pendingInputs.get(playerId) || {
+        buttonA: false,
+        buttonB: false,
+        timestamp: 0,
+      }
+    );
+  }
+
   private render(dt: number): void {
     this.renderer.clear();
     this.renderer.beginFrame();
@@ -1764,13 +1804,19 @@ export class Game {
       if (isHost) {
         this.pilots.forEach((pilot) => {
           if (pilot.alive) {
-            this.renderer.drawPilot(pilot.getState());
+            const player = this.playerMgr.players.get(pilot.playerId);
+            if (player) {
+              this.renderer.drawPilot(pilot.getState(), player.color);
+            }
           }
         });
       } else {
         this.networkPilots.forEach((state) => {
           if (state.alive) {
-            this.renderer.drawPilot(state);
+            const player = this.playerMgr.players.get(state.playerId);
+            if (player) {
+              this.renderer.drawPilot(state, player.color);
+            }
           }
         });
       }
