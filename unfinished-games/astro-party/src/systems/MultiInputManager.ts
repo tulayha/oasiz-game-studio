@@ -214,6 +214,7 @@ export class MultiInputManager {
     // Clear existing zones
     this.destroyTouchZones();
     this.currentLayout = layout;
+    this.touchZoneContainer.classList.add("active");
 
     switch (layout) {
       case "single":
@@ -227,7 +228,6 @@ export class MultiInputManager {
         break;
     }
 
-    this.touchZoneContainer.classList.add("active");
   }
 
   /**
@@ -282,16 +282,24 @@ export class MultiInputManager {
     localSlotOrder: number[],
     slotToColor: Map<number, string>,
   ): void {
-    const container = this.touchZoneContainer;
-    const rect = container?.getBoundingClientRect();
-    const width = rect?.width ?? 0;
-    const height = rect?.height ?? 0;
+    const bounds = this.getTouchZoneBounds();
+    const width = bounds.width;
+    const height = bounds.height;
     const inset = 8;
-    const gap = 12;
-    const zoneWidthPx = Math.max(90, Math.min(160, Math.round(width * 0.18)));
-    const zoneHeightPx = Math.max(
+    const gap = 10;
+    const shortSide = Math.min(width, height);
+    const desiredHeightPx = Math.round(shortSide * 0.32);
+    const availableHeight = height - inset * 2 - gap;
+    const heightScale =
+      desiredHeightPx > 0
+        ? Math.min(1, availableHeight / (2 * desiredHeightPx))
+        : 1;
+    const zoneHeightPx = Math.round(desiredHeightPx * heightScale);
+    const desiredWidthPx = Math.round(width * 0.25);
+    const maxWidthPx = Math.max(0, Math.floor((width - inset * 2) / 2));
+    const zoneWidthPx = Math.max(
       120,
-      Math.floor((height - inset * 2 - gap) / 2),
+      Math.min(desiredWidthPx, maxWidthPx),
     );
     const leftSlot = localSlotOrder[0] ?? 0;
     const rightSlot = localSlotOrder[1] ?? 1;
@@ -371,29 +379,16 @@ export class MultiInputManager {
     slotToColor: Map<number, string>,
   ): void {
     const count = Math.min(localSlotOrder.length, 4);
-    const container = this.touchZoneContainer;
-    const rect = container?.getBoundingClientRect();
-    const width = rect?.width ?? 0;
-    const height = rect?.height ?? 0;
+    const bounds = this.getTouchZoneBounds();
+    const width = bounds.width;
+    const height = bounds.height;
     const inset = 8;
-    const gap = 12;
+    const gap = 10;
 
-    // Zone sizing
-    const edgeThicknessPx = Math.max(
-      48,
-      Math.min(80, Math.round(Math.min(width, height) * 0.12)),
-    );
-    const verticalMax = Math.max(
-      80,
-      Math.floor((height - 2 * (edgeThicknessPx + gap)) / 2),
-    );
-    const horizontalMax = Math.max(
-      100,
-      Math.floor((width - inset * 2 - gap) / 2),
-    );
-    let edgeLengthPx = Math.round(Math.min(width, height) * 0.34);
-    edgeLengthPx = Math.min(edgeLengthPx, verticalMax, horizontalMax);
-    edgeLengthPx = Math.max(80, edgeLengthPx);
+    // Zone sizing: diagonal corner edges
+    const shortSide = Math.min(width, height);
+    const edgeLengthPx = Math.round(shortSide * 0.4);
+    const edgeThicknessPx = Math.round(shortSide * 0.14);
 
     for (let i = 0; i < count; i++) {
       const slot = localSlotOrder[i] ?? i;
@@ -404,8 +399,7 @@ export class MultiInputManager {
       const isTop = corner.corner.includes("top");
       const isLeft = corner.corner.includes("left");
 
-      // Button on the horizontal edge (top or bottom)
-      // This is the ROTATE button (outer, along the horizontal edge)
+      // ROT on one edge of the corner
       this.createTouchZone({
         slot,
         button: "A",
@@ -421,8 +415,7 @@ export class MultiInputManager {
         },
       });
 
-      // Button on the vertical edge (left or right)
-      // This is the FIRE button (inner, along the vertical edge)
+      // FIRE on the adjacent edge of the corner
       this.createTouchZone({
         slot,
         button: "B",
@@ -431,7 +424,7 @@ export class MultiInputManager {
         color,
         style: {
           [isLeft ? "left" : "right"]: `${inset}px`,
-          [isTop ? "top" : "bottom"]: `${edgeThicknessPx + gap}px`,
+          [isTop ? "top" : "bottom"]: `${inset + edgeThicknessPx + gap}px`,
           width: `${edgeThicknessPx}px`,
           height: `${edgeLengthPx}px`,
           borderRadius: "8px",
@@ -664,5 +657,27 @@ export class MultiInputManager {
     if (target.isContentEditable) return true;
     const tag = target.tagName.toLowerCase();
     return tag === "input" || tag === "textarea" || tag === "select";
+  }
+
+  private getTouchZoneBounds(): { width: number; height: number } {
+    const root = document.documentElement;
+    const styles = getComputedStyle(root);
+    const parsePx = (value: string): number => {
+      const num = Number.parseFloat(value);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    const width = parsePx(styles.getPropertyValue("--box-width"));
+    const height = parsePx(styles.getPropertyValue("--box-height"));
+    if (width > 0 && height > 0) {
+      return { width, height };
+    }
+
+    const rect = this.touchZoneContainer?.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return { width: rect.width, height: rect.height };
+    }
+
+    return { width: window.innerWidth, height: window.innerHeight };
   }
 }
