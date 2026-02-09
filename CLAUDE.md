@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Context
+
+This is a TypeScript multiplayer game project using PlayroomKit. When debugging sync issues, focus on the PlayroomKit state/lifecycle APIs and avoid reading bundled/minified source code.
+For playroomkit docs, always rely on the official docs available at https://docs.joinplayroom.com
+
 ## Project Overview
 
 This is a monorepo for Oasiz Game Studio containing 30+ browser-based games. Games are built with TypeScript and Vite, bundled into single HTML files, and deployed to the Oasiz mobile platform.
@@ -161,5 +166,11 @@ For TypeScript projects, ensure all type definitions are complete and strict - t
 - Do not run the `bun run dev` command on your own after completion since that requires user validation
 - `bun run build` command returns empty response when it succeeds so do not wait extensively once it returns
 
+
+## Code Changes
+
+- When fixing bugs, make minimal targeted changes. Do NOT over-engineer solutions (e.g., adding cooldown systems, complex state machines) when a simple fix is needed. Ask before adding complexity.
+- After making code fixes, verify the fix doesn't introduce regressions by checking related functionality. Never use page reloads or full resets as a "fix" for state bugs.
+- When fixing UI bugs, check for ALL visible issues in the affected area before submitting changes. Don't fix one thing while missing obvious adjacent problems (e.g., lobby player order, host indicators, color meanings).
 
 See `Agents.md` for complete technical requirements and patterns.
