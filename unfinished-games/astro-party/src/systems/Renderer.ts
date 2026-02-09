@@ -546,6 +546,66 @@ export class Renderer {
     }
   }
 
+  spawnShipDebris(x: number, y: number, color: string): void {
+    // Spawn ship debris pieces - larger and more dramatic than asteroid debris
+    const pieceCount = 8 + Math.floor(Math.random() * 4); // 8-11 pieces
+    
+    // Ship body pieces (colored)
+    for (let i = 0; i < pieceCount; i++) {
+      const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
+      const speed = 50 + Math.random() * 80;
+      const life = 0.8 + Math.random() * 0.6; // Longer lasting
+      const pieceSize = 4 + Math.random() * 6;
+
+      this.particles.push({
+        x: x + Math.cos(angle) * 10,
+        y: y + Math.sin(angle) * 10,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: pieceSize,
+        color,
+      });
+    }
+
+    // Metal/wreckage pieces (grey/silver)
+    for (let i = 0; i < 6; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 40 + Math.random() * 60;
+      const life = 0.6 + Math.random() * 0.5;
+
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 3 + Math.random() * 4,
+        color: "#aaaaaa",
+      });
+    }
+
+    // Spark particles
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 60 + Math.random() * 100;
+      const life = 0.3 + Math.random() * 0.3;
+
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 1.5 + Math.random() * 2,
+        color: "#ffdd00",
+      });
+    }
+  }
+
   updateParticles(dt: number): void {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];

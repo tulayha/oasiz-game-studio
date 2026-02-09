@@ -72,6 +72,12 @@ export class Game {
   private networkMines: MineState[] = [];
   private networkRotationDirection: number = 1;
 
+  // Track which mines have exploded on client (for effects)
+  private clientExplodedMines: Set<string> = new Set();
+  
+  // Track ship positions for debris effects on client
+  private clientShipPositions: Map<string, { x: number; y: number; color: string }> = new Map();
+
   // Global rotation direction (1 = normal/cw, -1 = reversed/ccw)
   private rotationDirection: number = 1;
 
@@ -779,72 +785,96 @@ export class Game {
   private explodeMine(mine: Mine, triggeredByPlayerId?: string): void {
     if (!this.network.isHost()) return;
     
-    // Mark mine as exploded - this will sync to clients
+    // Mark mine as exploded - this will sync to clients immediately
     mine.explode();
     
     const explosionRadius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS;
     const mineX = mine.x;
     const mineY = mine.y;
     
-    // Visual effects on host
+    // Trigger mine explosion effect on host (synced to clients via network state)
     this.renderer.spawnMineExplosion(mineX, mineY, explosionRadius);
     this.renderer.addScreenShake(15, 0.4);
     SettingsManager.triggerHaptic("heavy");
     
-    // Schedule ship destruction after explosion animation plays (500ms)
+    // Track if any ships were destroyed
+    let shipsDestroyed = 0;
+    
+    // IMMEDIATELY destroy the triggering ship and any ships in radius
+    // Both mine and ship animations play simultaneously
+    this.ships.forEach((ship, shipPlayerId) => {
+      if (!ship.alive) return;
+      
+      const dx = ship.body.position.x - mineX;
+      const dy = ship.body.position.y - mineY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      // Destroy triggering ship or ships in explosion radius
+      if (shipPlayerId === triggeredByPlayerId || dist <= explosionRadius) {
+        shipsDestroyed++;
+        const pos = ship.body.position;
+        
+        // Spawn ship explosion and debris immediately
+        this.renderer.spawnExplosion(pos.x, pos.y, ship.color.primary);
+        this.renderer.spawnShipDebris(pos.x, pos.y, ship.color.primary);
+        this.renderer.addScreenShake(10, 0.3);
+        
+        // Destroy ship without creating pilot (mine instantly kills)
+        ship.destroy();
+        this.ships.delete(shipPlayerId);
+        this.playerPowerUps.delete(shipPlayerId);
+        
+        // Set player as spectating (eliminated)
+        const player = this.playerMgr.players.get(shipPlayerId);
+        if (player) {
+          player.state = "SPECTATING";
+          this.network.updatePlayerState(shipPlayerId, "SPECTATING");
+        }
+        
+        this.network.broadcastGameSound("explosion", shipPlayerId);
+        SettingsManager.triggerHaptic("heavy");
+      }
+    });
+    
+    // Destroy pilots in explosion radius
+    this.pilots.forEach((pilot, pilotPlayerId) => {
+      if (!pilot.alive) return;
+      
+      const dx = pilot.body.position.x - mineX;
+      const dy = pilot.body.position.y - mineY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      if (dist <= explosionRadius) {
+        const pos = pilot.body.position;
+        this.renderer.spawnExplosion(pos.x, pos.y, "#ff0000");
+        this.renderer.addScreenShake(8, 0.2);
+        
+        pilot.destroy();
+        this.pilots.delete(pilotPlayerId);
+        
+        const player = this.playerMgr.players.get(pilotPlayerId);
+        if (player) {
+          player.state = "SPECTATING";
+          this.network.updatePlayerState(pilotPlayerId, "SPECTATING");
+        }
+        
+        this.network.broadcastGameSound("kill", pilotPlayerId);
+        SettingsManager.triggerHaptic("error");
+      }
+    });
+    
+    // Update player list to show eliminations
+    this.emitPlayersUpdate();
+    
+    // Wait for both mine explosion (500ms) and ship debris (up to 1400ms) animations
+    // Plus extra time to see the aftermath
     setTimeout(() => {
       if (!this.network.isHost()) return;
-      
-      // Kill all ships in explosion radius
-      this.ships.forEach((ship, shipPlayerId) => {
-        if (!ship.alive) return;
-        
-        const dx = ship.body.position.x - mineX;
-        const dy = ship.body.position.y - mineY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        if (dist <= explosionRadius) {
-          this.flowMgr.destroyShip(
-            shipPlayerId,
-            this.ships,
-            this.pilots,
-            this.playerMgr.players,
-          );
-          this.playerPowerUps.delete(shipPlayerId);
-        }
-      });
-      
-      // Kill all pilots in explosion radius
-      this.pilots.forEach((pilot, pilotPlayerId) => {
-        if (!pilot.alive) return;
-        
-        const dx = pilot.body.position.x - mineX;
-        const dy = pilot.body.position.y - mineY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        if (dist <= explosionRadius) {
-          this.flowMgr.killPilot(
-            pilotPlayerId,
-            mine.ownerId,
-            this.pilots,
-            this.playerMgr.players,
-          );
-        }
-      });
-      
-      // Wait 1.5 seconds after explosion before checking round end
-      // This gives time to see the aftermath
-      setTimeout(() => {
-        if (!this.network.isHost()) return;
-        if (this.flowMgr.phase === "PLAYING") {
-          this.flowMgr.checkEliminationWin(this.playerMgr.players);
-        }
-      }, 1500);
-      
-    }, 500); // 500ms for explosion animation
+      if (this.flowMgr.phase === "PLAYING") {
+        this.flowMgr.checkEliminationWin(this.playerMgr.players);
+      }
+    }, 2000); // 2 seconds for all animations to complete
   }
-
-  private mineTriggers: Map<string, { mine: Mine; shipId: string; triggerTime: number }> = new Map();
 
   private checkMineCollisions(): void {
     if (!this.network.isHost()) return;
@@ -862,10 +892,7 @@ export class Game {
         
         // Mine size + ship radius (approx 25)
         if (dist <= GAME_CONFIG.POWERUP_MINE_SIZE + 25) {
-          // Stop the ship immediately
-          ship.stop();
-          
-          // Trigger explosion
+          // Trigger explosion immediately - ship will be destroyed as part of explosion
           this.explodeMine(mine, shipPlayerId);
           break;
         }
@@ -1147,6 +1174,11 @@ export class Game {
     this.networkLaserBeams = [];
     this.networkMines = [];
     this.networkRotationDirection = 1;
+    
+    // Clear client tracking
+    this.clientExplodedMines.clear();
+    this.clientShipPositions.clear();
+    
     this.roundResult = null;
   }
 
@@ -1177,6 +1209,10 @@ export class Game {
 
     // Reset rotation direction for new round
     this.rotationDirection = 1;
+
+    // Clear client tracking for new round
+    this.clientExplodedMines.clear();
+    this.clientShipPositions.clear();
 
     if (this.asteroidSpawnTimeout) {
       clearTimeout(this.asteroidSpawnTimeout);
@@ -1545,12 +1581,59 @@ export class Game {
     });
     this.emitPlayersUpdate();
 
+    // Check for ships that were destroyed and trigger debris effects on client
+    const currentShipIds = new Set(state.ships.map(s => s.playerId));
+    for (const [playerId, shipData] of this.clientShipPositions) {
+      if (!currentShipIds.has(playerId)) {
+        // Ship was destroyed - spawn debris on client
+        this.renderer.spawnExplosion(shipData.x, shipData.y, shipData.color);
+        this.renderer.spawnShipDebris(shipData.x, shipData.y, shipData.color);
+        this.renderer.addScreenShake(10, 0.3);
+        this.clientShipPositions.delete(playerId);
+      }
+    }
+    
+    // Update ship positions for tracking
+    for (const shipState of state.ships) {
+      if (shipState.alive) {
+        const player = this.playerMgr.players.get(shipState.playerId);
+        const color = player?.color.primary || "#ffffff";
+        this.clientShipPositions.set(shipState.playerId, {
+          x: shipState.x,
+          y: shipState.y,
+          color
+        });
+      }
+    }
+    
     this.networkShips = state.ships;
     this.networkPilots = state.pilots;
     this.networkProjectiles = state.projectiles;
     this.networkAsteroids = state.asteroids;
     this.networkPowerUps = state.powerUps;
     this.networkLaserBeams = state.laserBeams;
+    
+    // Check for mine explosions on client and trigger effects
+    if (state.mines) {
+      for (const mineState of state.mines) {
+        if (mineState.exploded && !this.clientExplodedMines.has(mineState.id)) {
+          // Mine just exploded - trigger effect on client
+          this.clientExplodedMines.add(mineState.id);
+          this.renderer.spawnMineExplosion(mineState.x, mineState.y, GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS);
+          this.renderer.addScreenShake(15, 0.4);
+          SettingsManager.triggerHaptic("heavy");
+        }
+      }
+      
+      // Clean up old mine IDs that no longer exist
+      const currentMineIds = new Set(state.mines.map(m => m.id));
+      for (const mineId of this.clientExplodedMines) {
+        if (!currentMineIds.has(mineId)) {
+          this.clientExplodedMines.delete(mineId);
+        }
+      }
+    }
+    
     this.networkMines = state.mines;
     this.networkRotationDirection = state.rotationDirection ?? 1;
 

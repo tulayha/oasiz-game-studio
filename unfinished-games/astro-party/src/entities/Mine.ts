@@ -20,8 +20,12 @@ export class Mine {
 
   isExpired(): boolean {
     if (this.exploded) {
-      // Keep mine alive for explosion animation (500ms) + delay before cleanup
-      return Date.now() - this.explosionTime > 2500; // 2.5 seconds total
+      // Keep mine alive for:
+      // - 500ms explosion animation
+      // - Ship debris animation (up to 1400ms)
+      // - 2s delay before round end
+      // - Extra buffer for client sync
+      return Date.now() - this.explosionTime > 4500; // 4.5 seconds total
     }
     return Date.now() - this.spawnTime > GAME_CONFIG.POWERUP_MINE_DESPAWN_TIME;
   }
