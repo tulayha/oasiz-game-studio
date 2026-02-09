@@ -1,7 +1,13 @@
 import { Game } from "./Game";
-import { GamePhase, GameMode, PlayerData, GAME_CONFIG } from "./types";
-import { SettingsManager } from "./SettingsManager";
+import { GamePhase, GameMode, PlayerData } from "./types";
 import { AudioManager } from "./AudioManager";
+import { triggerHaptic } from "./ui/haptics";
+import { createViewportController, tryLockOrientation } from "./ui/viewport";
+import { createScreenController, bindEndScreenUI } from "./ui/screens";
+import { createStartScreenUI } from "./ui/startScreen";
+import { createLobbyUI } from "./ui/lobby";
+import { createLeaveModal } from "./ui/modals";
+import { createSettingsUI } from "./ui/settings";
 
 // Declare platform-injected variables
 declare global {
@@ -12,1011 +18,98 @@ declare global {
   }
 }
 
-// ============= DOM ELEMENTS =============
-
-// Screens
-const startScreen = document.getElementById("startScreen")!;
-const lobbyScreen = document.getElementById("lobbyScreen")!;
-const gameEndScreen = document.getElementById("gameEndScreen")!;
-
-// Start screen
-const mainButtons = document.getElementById("mainButtons")!;
-const joinSection = document.getElementById("joinSection")!;
-const createRoomBtn = document.getElementById(
-  "createRoomBtn",
-) as HTMLButtonElement;
-const joinRoomBtn = document.getElementById("joinRoomBtn") as HTMLButtonElement;
-const roomCodeInput = document.getElementById(
-  "roomCodeInput",
-) as HTMLInputElement;
-const joinError = document.getElementById("joinError")!;
-const submitJoinBtn = document.getElementById(
-  "submitJoinBtn",
-) as HTMLButtonElement;
-const backToStartBtn = document.getElementById(
-  "backToStartBtn",
-) as HTMLButtonElement;
-
-// Lobby screen
-const roomCodeDisplay = document.getElementById("roomCodeDisplay")!;
-const copyCodeBtn = document.getElementById("copyCodeBtn") as HTMLButtonElement;
-const playersList = document.getElementById("playersList")!;
-const lobbyStatus = document.getElementById("lobbyStatus")!;
-const startGameBtn = document.getElementById(
-  "startGameBtn",
-) as HTMLButtonElement;
-const leaveLobbyBtn = document.getElementById(
-  "leaveLobbyBtn",
-) as HTMLButtonElement;
-
-// Game end screen
-const winnerName = document.getElementById("winnerName")!;
-const finalScores = document.getElementById("finalScores")!;
-const playAgainBtn = document.getElementById(
-  "playAgainBtn",
-) as HTMLButtonElement;
-const leaveEndBtn = document.getElementById("leaveEndBtn") as HTMLButtonElement;
-
-// HUD
-const hud = document.getElementById("hud")!;
-const scoreTrack = document.getElementById("scoreTrack")!;
-const leaveGameBtn = document.getElementById(
-  "leaveGameBtn",
-) as HTMLButtonElement;
-const settingsCenterHotspot = document.getElementById(
-  "settingsCenterHotspot",
-) as HTMLButtonElement;
-
-// Leave confirmation modal
-const leaveModal = document.getElementById("leaveModal")!;
-const leaveBackdrop = document.getElementById("leaveBackdrop")!;
-const leaveCancelBtn = document.getElementById(
-  "leaveCancelBtn",
-) as HTMLButtonElement;
-const leaveConfirmBtn = document.getElementById(
-  "leaveConfirmBtn",
-) as HTMLButtonElement;
-
-// Settings
-const settingsBtn = document.getElementById("settingsBtn")!;
-const settingsModal = document.getElementById("settingsModal")!;
-const settingsLeaveBtn = document.getElementById(
-  "settingsLeaveBtn",
-) as HTMLButtonElement;
-const settingsBackdrop = document.getElementById("settingsBackdrop")!;
-const toggleMusic = document.getElementById("toggleMusic")!;
-const toggleFx = document.getElementById("toggleFx")!;
-const toggleHaptics = document.getElementById("toggleHaptics")!;
-const settingsClose = document.getElementById("settingsClose")!;
-
-// Round result overlay
-const roundResult = document.getElementById("roundResult")!;
-const roundResultTitle = document.getElementById("roundResultTitle")!;
-const roundResultSubtitle = document.getElementById("roundResultSubtitle")!;
-
-// Bot controls
-const addBotSection = document.getElementById("addBotSection")!;
-const addAIBotBtn = document.getElementById("addAIBotBtn") as HTMLButtonElement;
-const addLocalPlayerBtn = document.getElementById(
-  "addLocalPlayerBtn",
-) as HTMLButtonElement;
-const advancedSettingsBtn = document.getElementById(
-  "advancedSettingsBtn",
-) as HTMLButtonElement;
-
-// Game mode toggle
-const gameModeSection = document.getElementById("gameModeSection")!;
-const modeStandard = document.getElementById(
-  "modeStandard",
-) as HTMLButtonElement;
-const modeChaotic = document.getElementById("modeChaotic") as HTMLButtonElement;
-const modeSane = document.getElementById("modeSane") as HTMLButtonElement;
-
-// Key selection modal
-const keySelectModal = document.getElementById("keySelectModal")!;
-const keySelectBackdrop = document.getElementById("keySelectBackdrop")!;
-const keyOptions = document.getElementById("keyOptions")!;
-const keySelectCancel = document.getElementById(
-  "keySelectCancel",
-) as HTMLButtonElement;
-
-// Ping indicator
-const pingIndicator = document.getElementById("pingIndicator")!;
-
-// Mobile controls
-const mobileControls = document.getElementById("mobileControls")!;
-
-// ============= GAME INSTANCE =============
-
 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
 const game = new Game(canvas);
-let addingBot = false;
-
-// ============= SETTINGS =============
-
-function updateSettingsUI(): void {
-  const settings = SettingsManager.get();
-  toggleMusic.classList.toggle("active", settings.music);
-  toggleFx.classList.toggle("active", settings.fx);
-  toggleHaptics.classList.toggle("active", settings.haptics);
-}
-
-// ============= UI HELPERS =============
-
-  let activeScreen: "start" | "lobby" | "game" | "end" = "start";
-
-  function updateHudControlsVisibility(): void {
-    if (activeScreen !== "game") {
-      leaveGameBtn.style.display = "none";
-      settingsBtn.style.display = "none";
-      settingsCenterHotspot.style.display = "none";
-      return;
-    }
-
-    const localMobile = isMobile && game.hasLocalPlayers();
-    leaveGameBtn.style.display = localMobile ? "none" : "block";
-    settingsBtn.style.display = localMobile ? "none" : "flex";
-    settingsCenterHotspot.style.display = localMobile ? "block" : "none";
-  }
-
-  function showScreen(screen: "start" | "lobby" | "game" | "end"): void {
-    activeScreen = screen;
-    startScreen.classList.toggle("hidden", screen !== "start");
-    lobbyScreen.classList.toggle("hidden", screen !== "lobby");
-    gameEndScreen.classList.toggle("hidden", screen !== "end");
-    hud.classList.toggle("active", screen === "game");
-    updateHudControlsVisibility();
-    game.setKeyboardInputEnabled(screen === "game");
-    if (screen !== "game") {
-      roundResult.classList.add("hidden");
-    }
-
-  // On mobile: use adaptive touch zones instead of old mobile-controls
-  if (isMobile) {
-    // Old mobile controls are disabled on mobile - touch zones handle everything
-    mobileControls.classList.remove("active");
-    if (screen === "game") {
-      game.updateTouchLayout();
-    } else {
-      game.clearTouchLayout();
-    }
-  } else {
-    mobileControls.classList.toggle("active", screen === "game");
-  }
-
-  // Show ping indicator in lobby and game screens (if enabled)
-  const showPing =
-    game.shouldShowPing() && (screen === "lobby" || screen === "game");
-  pingIndicator.style.display = showPing ? "block" : "none";
-
-}
-
-// Update ping indicator display
-function updatePingIndicator(): void {
-  if (!game.shouldShowPing()) return;
-
-  const latency = game.getLatencyMs();
-
-  // Don't show until we have a valid ping (latency > 0 means we received at least one ping)
-  if (latency === 0) {
-    pingIndicator.textContent = "";
-    return;
-  }
-
-  pingIndicator.textContent = `${latency}ms`;
-
-  // Color code based on latency
-  pingIndicator.classList.remove("good", "medium", "bad");
-  if (latency < 50) {
-    pingIndicator.classList.add("good");
-  } else if (latency < 150) {
-    pingIndicator.classList.add("medium");
-  } else {
-    pingIndicator.classList.add("bad");
-  }
-}
-
-function updateRoundResultOverlay(): void {
-  const result = game.getRoundResult();
-  if (!result) {
-    roundResult.classList.add("hidden");
-    return;
-  }
-
-  roundResultTitle.textContent = `ROUND ${result.roundNumber}`;
-  if (result.isTie) {
-    roundResultSubtitle.textContent = "TIE";
-  } else {
-    roundResultSubtitle.textContent = `WINNER: ${result.winnerName ?? "UNKNOWN"}`;
-  }
-}
-
-function showJoinSection(): void {
-  mainButtons.style.display = "none";
-  joinSection.classList.add("active");
-  roomCodeInput.value = "";
-  joinError.classList.remove("active");
-  roomCodeInput.focus();
-}
-
-function hideJoinSection(): void {
-  mainButtons.style.display = "flex";
-  joinSection.classList.remove("active");
-}
-
-function triggerHaptic(
-  type: "light" | "medium" | "heavy" | "success" | "error",
-): void {
-  SettingsManager.triggerHaptic(type);
-}
-
-// ============= LOBBY UI =============
-
-function updateLobbyUI(players: PlayerData[]): void {
-  const myPlayerId = game.getMyPlayerId();
-  const isHost = game.isHost();
-  const hostId = game.getHostId();
-  lobbyScreen.classList.toggle("is-host", isHost);
-
-  const shipIcon = (color: string) =>
-    `<svg viewBox="0 0 24 24" fill="${color}"><path d="M12 2L4 12l3 1.5L12 22l5-8.5L20 12z"/></svg>`;
-  const crownIcon =
-    '<svg viewBox="0 0 24 24"><path d="M5 19h14l1-9-4.5 3.5L12 6 8.5 13.5 4 10l1 9z"/></svg>';
-  const botIcon =
-    '<svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/></svg>';
-  const localIcon =
-    '<svg viewBox="0 0 24 24"><path d="M7 9h10a4 4 0 0 1 4 4v2a4 4 0 0 1-4 4h-1.2l-2-2H10.2l-2 2H7a4 4 0 0 1-4-4v-2a4 4 0 0 1 4-4zm1 2v2h2v-2H8zm6 0v2h2v-2h-2z"/></svg>';
-  const remoteIcon =
-    '<svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 8 8h2c0-5.52-4.48-10-10-10S2 6.48 2 12h2a8 8 0 0 1 8-8zm0 4a4 4 0 0 1 4 4h2a6 6 0 0 0-12 0h2a4 4 0 0 1 4-4zm0 6a2 2 0 0 1 2 2h2a4 4 0 0 0-8 0h2a2 2 0 0 1 2-2z"/></svg>';
-  const kickIcon =
-    '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>';
-
-  const rows = players.map((player) => {
-    const isHostPlayer = hostId ? player.id === hostId : false;
-    const isSelf = player.id === myPlayerId;
-    const nameDisplay = isSelf
-      ? `${escapeHtml(player.name)} <span class="player-self">(You)</span>`
-      : escapeHtml(player.name);
-    const botType = game.getPlayerBotType(player.id);
-    let typeBadge = "";
-    if (botType === "ai") {
-      typeBadge = `<span class="player-type ai" title="AI Bot">${botIcon}</span>`;
-    } else if (botType === "local") {
-      typeBadge = `<span class="player-type local" title="Local Player">${localIcon}</span>`;
-    } else if (isSelf) {
-      typeBadge = `<span class="player-type local" title="You">${localIcon}</span>`;
-    } else {
-      typeBadge = `<span class="player-type remote" title="Online Player">${remoteIcon}</span>`;
-    }
-
-    const kickButton =
-      isHost && !isSelf
-        ? `<button class="player-kick" data-player-id="${player.id}" aria-label="Kick player">${kickIcon}</button>`
-        : "";
-
-    return `
-      <div class="player-row">
-        <div class="player-ship">${shipIcon(player.color.primary)}</div>
-        <div class="player-name" title="${escapeHtml(player.name)}">${nameDisplay}</div>
-        <div class="player-badges">
-          ${typeBadge}
-          ${isHostPlayer ? `<span class="player-host">${crownIcon}</span>` : ""}
-          ${kickButton}
-        </div>
-      </div>
-    `;
-  });
-
-  const emptyCount = Math.max(0, 4 - players.length);
-  for (let i = 0; i < emptyCount; i++) {
-    rows.push(`
-      <div class="player-row empty">
-        <div class="player-ship"></div>
-        <div class="player-name">Waiting for player...</div>
-        <div class="player-loader"></div>
-      </div>
-    `);
-  }
-
-  playersList.innerHTML = rows.join("");
-
-  // Update status and start button based on host status
-  const canStart = game.canStartGame();
-
-  if (isHost) {
-    startGameBtn.style.display = "block";
-    startGameBtn.disabled = !canStart;
-    if (canStart) {
-      lobbyStatus.innerHTML = "Ready to start!";
-    } else {
-      lobbyStatus.innerHTML = `Need at least 2 players<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
-    }
-  } else {
-    startGameBtn.style.display = "none";
-    lobbyStatus.innerHTML = `Waiting for host to start<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>`;
-  }
-
-  // Show/hide bot controls and game mode toggle (host only)
-  updateBotControlsVisibility(players.length, isHost);
-  gameModeSection.classList.toggle("hidden", false);
-  gameModeSection.classList.toggle("readonly", !isHost);
-  modeStandard.disabled = !isHost;
-  modeChaotic.disabled = !isHost;
-  modeSane.disabled = !isHost;
-  advancedSettingsBtn.style.display = isHost ? "block" : "none";
-  const actionsBox = gameModeSection.closest(".lobby-actions");
-  if (actionsBox) {
-    actionsBox.classList.toggle("readonly", !isHost);
-  }
-
-  // Attach remove button handlers
-  attachRemoveBotHandlers();
-  attachKickHandlers();
-}
-
-// Get key preset name by slot index
-function getKeyPresetName(slot: number): string {
-  const names = ["WASD", "Arrows", "IJKL", "Numpad"];
-  return names[slot] || `Keys ${slot}`;
-}
-
-// Update visibility of bot control buttons
-function updateBotControlsVisibility(
-  playerCount: number,
-  isHost: boolean,
-): void {
-  if (!isHost) {
-    addBotSection.classList.add("hidden");
-    return;
-  }
-
-  // Show section if room not full
-  if (playerCount < 4) {
-    addBotSection.classList.remove("hidden");
-
-    // Add AI always available
-    addAIBotBtn.disabled = false;
-
-    // Add Local only available when no remote players (offline mode)
-    const hasRemote = game.hasRemotePlayers();
-    addLocalPlayerBtn.style.display = hasRemote ? "none" : "flex";
-  } else {
-    addBotSection.classList.add("hidden");
-  }
-}
-
-// Attach click handlers to remove bot buttons
-function attachRemoveBotHandlers(): void {
-  const removeButtons = document.querySelectorAll(".remove-bot-btn");
-  removeButtons.forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const playerId = (btn as HTMLElement).dataset.playerId;
-      if (playerId) {
-        triggerHaptic("light");
-        AudioManager.playUIClick();
-        await game.removeBot(playerId);
-      }
-    });
-  });
-}
-
-function attachKickHandlers(): void {
-  const kickButtons = document.querySelectorAll(".player-kick");
-  kickButtons.forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const playerId = (btn as HTMLElement).dataset.playerId;
-      if (!playerId) return;
-      triggerHaptic("light");
-      AudioManager.playUIClick();
-      (btn as HTMLButtonElement).disabled = true;
-      try {
-        await game.kickPlayer(playerId);
-      } catch (err) {
-        console.error("[Main] Failed to kick player:", err);
-      }
-      (btn as HTMLButtonElement).disabled = false;
-    });
-  });
-}
-
-function updateScoreTrack(players: PlayerData[]): void {
-  scoreTrack.innerHTML = players
-    .map((player) => {
-      const dots = Array.from({ length: GAME_CONFIG.ROUNDS_TO_WIN }, (_, i) => {
-        const filled = i < player.roundWins;
-        return `<div class="score-dot ${filled ? "filled" : ""}" style="color: ${player.color.primary}"></div>`;
-      }).join("");
-
-      return `
-      <div class="score-row">
-        <span class="score-player-name" style="color: ${player.color.primary}">${escapeHtml(player.name)}</span>
-        <div class="score-dots">${dots}</div>
-        <span class="score-kills">${player.kills}K</span>
-      </div>
-    `;
-    })
-    .join("");
-}
-
-function updateGameEnd(players: PlayerData[]): void {
-  const winner = game.getWinnerName();
-  winnerName.textContent = winner || "Unknown";
-
-  // Sort by kills descending
-  const sorted = [...players].sort((a, b) => {
-    if (b.roundWins !== a.roundWins) return b.roundWins - a.roundWins;
-    return b.kills - a.kills;
-  });
-  finalScores.innerHTML = sorted
-    .map(
-      (player) => `
-    <div class="final-score-row">
-      <span class="final-score-name" style="color: ${player.color.primary}">${escapeHtml(player.name)}</span>
-      <span class="final-score-kills">${player.roundWins} pts • ${player.kills} kills</span>
-    </div>
-  `,
-    )
-    .join("");
-
-  // Update button states based on host status
-  if (game.didHostLeave()) {
-    // Host left — proper migration not supported, can only leave
-    playAgainBtn.style.display = "none";
-  } else if (game.isHost()) {
-    playAgainBtn.style.display = "block";
-    playAgainBtn.textContent = "Play Again";
-    playAgainBtn.disabled = false;
-  } else {
-    playAgainBtn.style.display = "block";
-    playAgainBtn.textContent = "Waiting for host...";
-    playAgainBtn.disabled = true;
-  }
-  // Leave button is always available for everyone
-  leaveEndBtn.textContent = "Leave";
-  leaveEndBtn.disabled = false;
-}
-
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-// ============= GAME CALLBACKS =============
-
-game.setUICallbacks({
-  onPhaseChange: (phase: GamePhase) => {
-    console.log("[Main] Phase changed:", phase);
-
-    switch (phase) {
-      case "START":
-        showScreen("start");
-        // Reset button states when returning to start
-        createRoomBtn.disabled = false;
-        createRoomBtn.textContent = "Create Room";
-        hideJoinSection();
-        break;
-      case "LOBBY":
-        showScreen("lobby");
-        roomCodeDisplay.textContent = game.getRoomCode();
-        // Reset game end buttons when returning to lobby
-        playAgainBtn.disabled = false;
-        playAgainBtn.textContent = "Play Again";
-        leaveEndBtn.disabled = false;
-        leaveEndBtn.textContent = "Leave";
-        break;
-      case "COUNTDOWN":
-      case "PLAYING":
-        showScreen("game");
-        roundResult.classList.add("hidden");
-        break;
-      case "ROUND_END":
-        showScreen("game");
-        updateRoundResultOverlay();
-        roundResult.classList.remove("hidden");
-        break;
-      case "GAME_END":
-        showScreen("end");
-        updateGameEnd(game.getPlayers());
-        triggerHaptic("success");
-        break;
-    }
-  },
-
-  onPlayersUpdate: (players: PlayerData[]) => {
-    updateLobbyUI(players);
-    updateScoreTrack(players);
-    updateHudControlsVisibility();
-    game.setAllowAltKeyBindings(game.getLocalPlayerCount() <= 1);
-
-    // Refresh game end buttons when players/host changes during GAME_END
-    if (game.getPhase() === "GAME_END") {
-      updateGameEnd(players);
-    }
-
-    // Update touch layout when players change (mobile only)
-    if (isMobile && game.getPhase() === "PLAYING") {
-      game.updateTouchLayout();
-    }
-  },
-
-  onCountdownUpdate: (count: number) => {
-    // Countdown is rendered in the game canvas
-    if (count > 0) {
-      triggerHaptic("light");
-      AudioManager.playCountdown(count);
-    } else {
-      triggerHaptic("medium");
-      AudioManager.playFight();
-    }
-  },
-  onGameModeChange: (mode: GameMode) => {
-    setModeUI(mode, "remote");
-  },
-  onRoundResult: () => {
-    updateRoundResultOverlay();
-  },
-});
-
-// ============= EVENT LISTENERS =============
-
-// Start screen
-createRoomBtn.addEventListener("click", async () => {
-  triggerHaptic("light");
-  AudioManager.playUIClick();
-  createRoomBtn.disabled = true;
-  createRoomBtn.textContent = "Creating...";
-
-  try {
-    const code = await game.createRoom();
-    console.log("[Main] Room created:", code);
-    // Set player name from platform if provided
-    if (window.__PLAYER_NAME__) {
-      game.setPlayerName(window.__PLAYER_NAME__);
-    }
-  } catch (e) {
-    console.error("[Main] Failed to create room:", e);
-    createRoomBtn.disabled = false;
-    createRoomBtn.textContent = "Create Room";
-  }
-});
-
-joinRoomBtn.addEventListener("click", () => {
-  triggerHaptic("light");
-  showJoinSection();
-});
-
-backToStartBtn.addEventListener("click", () => {
-  triggerHaptic("light");
-  hideJoinSection();
-});
-
-roomCodeInput.addEventListener("input", () => {
-  roomCodeInput.value = roomCodeInput.value
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-  joinError.classList.remove("active");
-});
-
-roomCodeInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    submitJoinBtn.click();
-  }
-});
-
-submitJoinBtn.addEventListener("click", async () => {
-  const code = roomCodeInput.value.trim().toUpperCase();
-
-  if (code.length < 4) {
-    joinError.textContent = "Code must be 4 characters";
-    joinError.classList.add("active");
-    triggerHaptic("error");
-    return;
-  }
-
-  triggerHaptic("light");
-  AudioManager.playUIClick();
-  submitJoinBtn.disabled = true;
-  submitJoinBtn.textContent = "Joining...";
-
-  try {
-    const success = await game.joinRoom(code);
-    if (success) {
-      // Set player name from platform if provided
-      if (window.__PLAYER_NAME__) {
-        game.setPlayerName(window.__PLAYER_NAME__);
-      }
-    } else {
-      joinError.textContent = "Could not join room";
-      joinError.classList.add("active");
-      triggerHaptic("error");
-    }
-  } catch (e) {
-    console.error("[Main] Failed to join room:", e);
-    joinError.textContent = "Connection failed";
-    joinError.classList.add("active");
-    triggerHaptic("error");
-  }
-
-  submitJoinBtn.disabled = false;
-  submitJoinBtn.textContent = "Join";
-});
-
-// Lobby screen
-copyCodeBtn.addEventListener("click", () => {
-  const code = game.getRoomCode();
-  navigator.clipboard.writeText(code).then(() => {
-    triggerHaptic("light");
-    copyCodeBtn.innerHTML =
-      '<svg viewBox="0 0 24 24"><path fill="#22c55e" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
-    setTimeout(() => {
-      copyCodeBtn.innerHTML =
-        '<svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
-    }, 2000);
-  });
-});
-
-// Bot controls
-addAIBotBtn.addEventListener("click", async () => {
-  if (addingBot) return;
-  addingBot = true;
-  triggerHaptic("light");
-  AudioManager.playUIClick();
-  addAIBotBtn.disabled = true;
-
-  try {
-    await game.addAIBot();
-  } catch (e) {
-    console.error("[Main] Failed to add AI bot:", e);
-  }
-
-  addAIBotBtn.disabled = false;
-  addingBot = false;
-});
-
-addLocalPlayerBtn.addEventListener("click", async () => {
-  if (addingBot) return;
-  addingBot = true;
-  addLocalPlayerBtn.disabled = true;
-  triggerHaptic("light");
-  AudioManager.playUIClick();
-
-  if (isMobile) {
-    // On mobile, skip key selection - auto-assign next available touch slot
-    const usedSlots = game.getUsedKeySlots();
-    // Find first unused slot starting from 1 (slot 0 is host's WASD/touch)
-    let nextSlot = -1;
-    for (let i = 1; i < 4; i++) {
-      if (!usedSlots.includes(i)) {
-        nextSlot = i;
-        break;
-      }
-    }
-    if (nextSlot >= 0) {
-      try {
-        await game.addLocalBot(nextSlot);
-      } catch (e) {
-        console.error("[Main] Failed to add local player:", e);
-      }
-    }
-  } else {
-    showKeySelectModal();
-  }
-  addLocalPlayerBtn.disabled = false;
-  addingBot = false;
-});
-
-// Key selection modal
-function showKeySelectModal(): void {
-  keySelectModal.classList.add("active");
-  keySelectBackdrop.classList.add("active");
-
-  // Disable already-used key slots
-  const usedSlots = game.getUsedKeySlots();
-  const options = keyOptions.querySelectorAll(".key-option");
-  options.forEach((option) => {
-    const slot = parseInt((option as HTMLElement).dataset.slot || "0");
-    (option as HTMLButtonElement).disabled = usedSlots.includes(slot);
-  });
-}
-
-function hideKeySelectModal(): void {
-  keySelectModal.classList.remove("active");
-  keySelectBackdrop.classList.remove("active");
-}
-
-keySelectBackdrop.addEventListener("click", hideKeySelectModal);
-keySelectCancel.addEventListener("click", () => {
-  triggerHaptic("light");
-  hideKeySelectModal();
-});
-
-keyOptions.addEventListener("click", async (e) => {
-  const option = (e.target as HTMLElement).closest(
-    ".key-option",
-  ) as HTMLButtonElement;
-  if (!option || option.disabled || addingBot) return;
-
-  addingBot = true;
-  triggerHaptic("light");
-  AudioManager.playUIClick();
-  hideKeySelectModal();
-
-  const slot = parseInt(option.dataset.slot || "1");
-  try {
-    await game.addLocalBot(slot);
-  } catch (e) {
-    console.error("[Main] Failed to add local player:", e);
-  }
-  addingBot = false;
-});
-
-startGameBtn.addEventListener("click", () => {
-  if (!game.canStartGame()) return;
-  triggerHaptic("medium");
-  game.startGame();
-});
-
-// Game mode toggle
-function setModeUI(
-  mode: GameMode,
-  source: "local" | "remote" = "local",
-): void {
-  modeStandard.classList.toggle("active", mode === "STANDARD");
-  modeChaotic.classList.toggle("active", mode === "CHAOTIC");
-  modeSane.classList.toggle("active", mode === "SANE");
-  game.setGameMode(mode);
-  if (source === "local" && game.isHost()) {
-    game.broadcastGameMode(mode);
-  }
-}
-
-modeStandard.addEventListener("click", () => {
-  triggerHaptic("light");
-  setModeUI("STANDARD");
-});
-
-modeChaotic.addEventListener("click", () => {
-  triggerHaptic("light");
-  setModeUI("CHAOTIC");
-});
-
-modeSane.addEventListener("click", () => {
-  triggerHaptic("light");
-  setModeUI("SANE");
-});
-
-leaveLobbyBtn.addEventListener("click", async () => {
-  triggerHaptic("light");
-  leaveLobbyBtn.disabled = true;
-  await game.leaveGame();
-  leaveLobbyBtn.disabled = false;
-});
-
-// Leave game button (during gameplay) - shows in-game modal
-function openSettingsModal(): void {
-  triggerHaptic("light");
-  settingsModal.classList.add("active");
-  settingsBackdrop.classList.add("active");
-}
-
-function openLeaveModal(): void {
-  triggerHaptic("light");
-  leaveModal.classList.add("active");
-  leaveBackdrop.classList.add("active");
-}
-
-leaveGameBtn.addEventListener("click", () => {
-  openLeaveModal();
-});
-
-// Leave modal - cancel
-leaveCancelBtn.addEventListener("click", () => {
-  triggerHaptic("light");
-  leaveModal.classList.remove("active");
-  leaveBackdrop.classList.remove("active");
-});
-
-// Leave modal - backdrop click to cancel
-leaveBackdrop.addEventListener("click", () => {
-  leaveModal.classList.remove("active");
-  leaveBackdrop.classList.remove("active");
-});
-
-// Leave modal - confirm leave
-leaveConfirmBtn.addEventListener("click", async () => {
-  triggerHaptic("light");
-  leaveModal.classList.remove("active");
-  leaveBackdrop.classList.remove("active");
-  await game.leaveGame();
-});
-
-// Game end screen
-playAgainBtn.addEventListener("click", async () => {
-  triggerHaptic("light");
-  if (game.isHost()) {
-    playAgainBtn.disabled = true;
-    playAgainBtn.textContent = "Restarting...";
-    await game.restartGame();
-  } else {
-    // Non-host can't restart, show waiting message
-    playAgainBtn.textContent = "Waiting for host...";
-    playAgainBtn.disabled = true;
-  }
-});
-
-// Leave button on game end - available for everyone
-leaveEndBtn.addEventListener("click", async () => {
-  triggerHaptic("light");
-  leaveEndBtn.disabled = true;
-  leaveEndBtn.textContent = "Leaving...";
-  await game.leaveGame();
-});
-
-// Settings
-settingsBtn.addEventListener("click", () => {
-  openSettingsModal();
-});
-
-settingsCenterHotspot.addEventListener("click", () => {
-  openSettingsModal();
-});
-
-settingsLeaveBtn.addEventListener("click", () => {
-  settingsModal.classList.remove("active");
-  settingsBackdrop.classList.remove("active");
-  openLeaveModal();
-});
-
-settingsBackdrop.addEventListener("click", () => {
-  settingsModal.classList.remove("active");
-  settingsBackdrop.classList.remove("active");
-});
-
-settingsClose.addEventListener("click", () => {
-  triggerHaptic("light");
-  settingsModal.classList.remove("active");
-  settingsBackdrop.classList.remove("active");
-});
-
-toggleMusic.addEventListener("click", () => {
-  SettingsManager.toggle("music");
-  updateSettingsUI();
-  triggerHaptic("light");
-});
-
-toggleFx.addEventListener("click", () => {
-  SettingsManager.toggle("fx");
-  updateSettingsUI();
-  triggerHaptic("light");
-});
-
-toggleHaptics.addEventListener("click", () => {
-  SettingsManager.toggle("haptics");
-  updateSettingsUI();
-  // Always trigger this one so user feels the toggle (bypass settings check)
-  if (
-    typeof (window as unknown as { triggerHaptic?: (type: string) => void })
-      .triggerHaptic === "function"
-  ) {
-    (
-      window as unknown as { triggerHaptic: (type: string) => void }
-    ).triggerHaptic("light");
-  }
-});
-
-// ============= INITIALIZATION =============
-
-const isMobile = window.matchMedia("(pointer: coarse)").matches;
-
-function parsePx(value: string): number {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-  function updateViewportVars(): void {
-    const root = document.documentElement;
-    const vv = window.visualViewport;
-    const width = vv?.width ?? window.innerWidth;
-    const height = vv?.height ?? window.innerHeight;
-    root.style.setProperty("--vw", width + "px");
-    root.style.setProperty("--vh", height + "px");
-    const offsetX = vv?.offsetLeft ?? 0;
-    const offsetY = vv?.offsetTop ?? 0;
-    root.style.setProperty("--vv-offset-x", offsetX + "px");
-    root.style.setProperty("--vv-offset-y", offsetY + "px");
-
-  const styles = getComputedStyle(root);
-  const safeTop = parsePx(styles.getPropertyValue("--safe-top"));
-  const safeRight = parsePx(styles.getPropertyValue("--safe-right"));
-  const safeBottom = parsePx(styles.getPropertyValue("--safe-bottom"));
-  const safeLeft = parsePx(styles.getPropertyValue("--safe-left"));
-
-  const isPortrait = height > width;
-  const layoutWidth = isMobile && isPortrait ? height : width;
-  const layoutHeight = isMobile && isPortrait ? width : height;
-  root.style.setProperty("--layout-width", layoutWidth + "px");
-  root.style.setProperty("--layout-height", layoutHeight + "px");
-  let boxLeft = 0;
-  let boxTop = 0;
-  let boxRight = layoutWidth;
-  let boxBottom = layoutHeight;
-
-  if (isMobile && isPortrait) {
-    const rotTop = safeLeft;
-    const rotBottom = safeRight;
-    const rotLeft = safeBottom;
-    const rotRight = safeTop;
-    boxLeft = rotLeft;
-    boxTop = rotTop;
-    boxRight = layoutWidth - rotRight;
-    boxBottom = layoutHeight - rotBottom;
-  } else {
-    boxLeft = safeLeft;
-    boxTop = safeTop;
-    boxRight = layoutWidth - safeRight;
-    boxBottom = layoutHeight - safeBottom;
-  }
-
-    const boxWidth = Math.max(0, boxRight - boxLeft);
-    const boxHeight = Math.max(0, boxBottom - boxTop);
-    root.style.setProperty("--box-left", boxLeft + "px");
-    root.style.setProperty("--box-top", boxTop + "px");
-    root.style.setProperty("--box-right", boxRight + "px");
-    root.style.setProperty("--box-bottom", boxBottom + "px");
-    root.style.setProperty("--box-width", boxWidth + "px");
-    root.style.setProperty("--box-height", boxHeight + "px");
-
-
-  const layoutMode = boxWidth < 720 ? "narrow" : "wide";
-  root.dataset.layout = layoutMode;
-
-  game.handleResize();
-}
-
-// CSS rotation handles portrait mode on mobile, so hide the rotate overlay
-if (isMobile) {
-  document.getElementById("rotateOverlay")?.remove();
-}
 
 async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
 
-  updateViewportVars();
+  const viewport = createViewportController(game);
+  await tryLockOrientation(viewport.isMobile);
 
-  window.addEventListener("resize", updateViewportVars);
-  window.addEventListener("orientationchange", updateViewportVars);
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", updateViewportVars);
-  }
+  const screenController = createScreenController(game, viewport.isMobile);
+  const leaveModal = createLeaveModal(game);
+  const settingsUI = createSettingsUI(leaveModal.openLeaveModal);
+  const startUI = createStartScreenUI(game);
+  const lobbyUI = createLobbyUI(game, viewport.isMobile);
+  bindEndScreenUI(game);
 
-  // Attempt to lock orientation to landscape on mobile
-  if (isMobile) {
-    try {
-      await (screen.orientation as any)?.lock?.("landscape");
-    } catch {
-      // Orientation lock not supported or not allowed - CSS overlay handles this
-    }
-  }
+  game.setUICallbacks({
+    onPhaseChange: (phase: GamePhase) => {
+      console.log("[Main] Phase changed:", phase);
 
-  updateSettingsUI();
-  showScreen("start");
+      switch (phase) {
+        case "START":
+          screenController.showScreen("start");
+          startUI.resetStartButtons();
+          break;
+        case "LOBBY":
+          screenController.showScreen("lobby");
+          lobbyUI.updateRoomCode(game.getRoomCode());
+          screenController.resetEndScreenButtons();
+          break;
+        case "COUNTDOWN":
+        case "PLAYING":
+          screenController.showScreen("game");
+          screenController.setRoundResultVisible(false);
+          break;
+        case "ROUND_END":
+          screenController.showScreen("game");
+          screenController.updateRoundResultOverlay();
+          screenController.setRoundResultVisible(true);
+          break;
+        case "GAME_END":
+          screenController.showScreen("end");
+          screenController.updateGameEnd(game.getPlayers());
+          triggerHaptic("success");
+          break;
+      }
+    },
 
-  // Start the game render loop (runs in background)
+    onPlayersUpdate: (players: PlayerData[]) => {
+      lobbyUI.updateLobbyUI(players);
+      screenController.updateScoreTrack(players);
+      screenController.updateHudControlsVisibility();
+      game.setAllowAltKeyBindings(game.getLocalPlayerCount() <= 1);
+
+      if (game.getPhase() === "GAME_END") {
+        screenController.updateGameEnd(players);
+      }
+
+      if (viewport.isMobile && game.getPhase() === "PLAYING") {
+        game.updateTouchLayout();
+      }
+    },
+
+    onCountdownUpdate: (count: number) => {
+      if (count > 0) {
+        triggerHaptic("light");
+        AudioManager.playCountdown(count);
+      } else {
+        triggerHaptic("medium");
+        AudioManager.playFight();
+      }
+    },
+    onGameModeChange: (mode: GameMode) => {
+      lobbyUI.setModeUI(mode, "remote");
+    },
+    onRoundResult: () => {
+      screenController.updateRoundResultOverlay();
+    },
+  });
+
+  settingsUI.updateSettingsUI();
+  screenController.showScreen("start");
+
   game.start();
 
-  // Update ping indicator periodically
-  setInterval(updatePingIndicator, 500);
+  setInterval(screenController.updatePingIndicator, 500);
 
-  // Check for platform-injected room code for auto-join
   if (window.__ROOM_CODE__) {
     console.log("[Main] Platform injected room code:", window.__ROOM_CODE__);
     try {
       const success = await game.joinRoom(window.__ROOM_CODE__);
       if (success) {
-        // Set player name from platform if provided
         if (window.__PLAYER_NAME__) {
           console.log("[Main] Setting player name:", window.__PLAYER_NAME__);
           game.setPlayerName(window.__PLAYER_NAME__);

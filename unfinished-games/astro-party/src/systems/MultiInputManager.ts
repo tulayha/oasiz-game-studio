@@ -310,7 +310,7 @@ export class MultiInputManager {
     const rightColor =
       slotToColor.get(rightSlot) ?? PLAYER_COLORS[1].primary;
 
-    // Left player - rotate (top) and fire (bottom)
+    // Left player - ROT (left) + FIRE (right)
     this.createTouchZone({
       slot: leftSlot,
       button: "A",
@@ -332,15 +332,15 @@ export class MultiInputManager {
       sublabel: "",
       color: leftColor,
       style: {
-        left: `${inset}px`,
-        top: `${blockTopPx + zoneHeightPx}px`,
+        right: `${inset}px`,
+        top: `${blockTopPx}px`,
         width: `${zoneWidthPx}px`,
         height: `${zoneHeightPx}px`,
         borderRadius: "12px",
       },
     });
 
-    // Right player - rotate (top) and fire (bottom)
+    // Right player - ROT (left) + FIRE (right)
     this.createTouchZone({
       slot: rightSlot,
       button: "A",
@@ -348,8 +348,8 @@ export class MultiInputManager {
       sublabel: "2x: dash",
       color: rightColor,
       style: {
-        right: `${inset}px`,
-        top: `${blockTopPx}px`,
+        left: `${inset}px`,
+        top: `${blockTopPx + zoneHeightPx}px`,
         width: `${zoneWidthPx}px`,
         height: `${zoneHeightPx}px`,
         borderRadius: "12px",
@@ -386,23 +386,32 @@ export class MultiInputManager {
     const inset = 8;
     const gap = 0;
 
-    // Zone sizing: diagonal corner edges
+    // Zone sizing: diagonal corner edges (L-shape)
     const shortSide = Math.min(width, height);
-    const desiredEdgeLengthPx = Math.round(shortSide * 0.4);
     const desiredThicknessPx = Math.round(shortSide * 0.14);
-    const maxEdgeLengthWidth = Math.max(
+    let edgeThicknessPx = Math.max(24, desiredThicknessPx);
+    const desiredEdgeLengthPx = Math.round(shortSide * 0.4);
+    const initialAvailableWidth = width - inset * 2 - edgeThicknessPx * 2;
+    const initialAvailableHeight = height - inset * 2 - edgeThicknessPx * 2;
+    const initialMaxEdgeLengthPx = Math.max(
       0,
-      Math.floor((width - inset * 2) / 2),
+      Math.min(
+        Math.floor(initialAvailableWidth / 2),
+        Math.floor(initialAvailableHeight / 2),
+      ),
     );
-    const maxEdgeLengthHeight = Math.max(
+    let edgeLengthPx = Math.max(
       0,
-      Math.floor((height - inset * 2 - desiredThicknessPx * 2) / 2),
+      Math.min(desiredEdgeLengthPx, initialMaxEdgeLengthPx),
     );
-    const edgeLengthPx = Math.max(
+    edgeThicknessPx = Math.max(24, Math.min(edgeThicknessPx, edgeLengthPx));
+    const availableWidth = width - inset * 2 - edgeThicknessPx * 2;
+    const availableHeight = height - inset * 2 - edgeThicknessPx * 2;
+    const maxEdgeLengthPx = Math.max(
       0,
-      Math.min(desiredEdgeLengthPx, maxEdgeLengthWidth, maxEdgeLengthHeight),
+      Math.min(Math.floor(availableWidth / 2), Math.floor(availableHeight / 2)),
     );
-    const edgeThicknessPx = Math.min(desiredThicknessPx, shortSide * 0.2);
+    edgeLengthPx = Math.max(0, Math.min(desiredEdgeLengthPx, maxEdgeLengthPx));
 
     for (let i = 0; i < count; i++) {
       const slot = localSlotOrder[i] ?? i;
@@ -413,34 +422,55 @@ export class MultiInputManager {
       const isTop = corner.corner.includes("top");
       const isLeft = corner.corner.includes("left");
 
-      // ROT on one edge of the corner
+      const verticalX = isLeft ? inset : width - inset - edgeThicknessPx;
+      const verticalY = isTop ? inset : height - inset - edgeLengthPx;
+      const horizontalX = isLeft
+        ? inset + edgeThicknessPx
+        : width - inset - edgeThicknessPx - edgeLengthPx;
+      const horizontalY = isTop
+        ? inset
+        : height - inset - edgeThicknessPx;
+
+      const clockwiseEdge: "horizontal" | "vertical" =
+        isTop && isLeft
+          ? "horizontal"
+          : isTop && !isLeft
+            ? "vertical"
+            : !isTop && isLeft
+              ? "vertical"
+              : "horizontal";
+
+      const horizontalButton: "A" | "B" =
+        clockwiseEdge === "horizontal" ? "B" : "A";
+      const verticalButton: "A" | "B" =
+        clockwiseEdge === "horizontal" ? "A" : "B";
+
       this.createTouchZone({
         slot,
-        button: "A",
-        label: "ROT",
+        button: verticalButton,
+        label: verticalButton === "B" ? "FIRE" : "ROT",
         sublabel: "",
         color,
         style: {
-          [isTop ? "top" : "bottom"]: `${inset}px`,
-          [isLeft ? "left" : "right"]: `${inset}px`,
-          width: `${edgeLengthPx}px`,
-          height: `${edgeThicknessPx}px`,
+          left: `${verticalX}px`,
+          top: `${verticalY}px`,
+          width: `${edgeThicknessPx}px`,
+          height: `${edgeLengthPx}px`,
           borderRadius: "8px",
         },
       });
 
-      // FIRE on the adjacent edge of the corner
       this.createTouchZone({
         slot,
-        button: "B",
-        label: "FIRE",
+        button: horizontalButton,
+        label: horizontalButton === "B" ? "FIRE" : "ROT",
         sublabel: "",
         color,
         style: {
-          [isLeft ? "left" : "right"]: `${inset}px`,
-          [isTop ? "top" : "bottom"]: `${inset + edgeThicknessPx + gap}px`,
-          width: `${edgeThicknessPx}px`,
-          height: `${edgeLengthPx}px`,
+          left: `${horizontalX}px`,
+          top: `${horizontalY}px`,
+          width: `${edgeLengthPx}px`,
+          height: `${edgeThicknessPx}px`,
           borderRadius: "8px",
         },
       });
