@@ -6,12 +6,15 @@ const DOUBLE_TAP_WINDOW = 300; // ms
 export class InputManager {
   buttonA = false;
   buttonB = false;
-  // Dev keys for testing powerups
-  devKeyO = false;
-  devKeyP = false;
-  devKeyK = false;
-  devKeyL = false;
-  devKeyU = false;
+  // Dev-only power-up keys (kept isolated for easy removal later)
+  private devKeysEnabled = false;
+  private devPowerUpKeys = {
+    laser: false,
+    shield: false,
+    scatter: false,
+    mine: false,
+    reverse: false,
+  };
   private wasButtonA = false;
   private lastButtonATime = 0;
   private onDashDetected: (() => void) | null = null;
@@ -52,30 +55,10 @@ export class InputManager {
         this.buttonB = true;
         handled = true;
       }
-      // Dev keys for testing powerups (O = Laser, P = Shield, K = Scatter, L = Mine, U = Reverse)
-      if (e.code === "KeyO") {
+      // Dev keys for testing powerups (1 = Laser, 2 = Shield, 3 = Scatter, 4 = Mine, 5 = Reverse)
+      // Dev keys for testing powerups (1-5, not numpad)
+      if (this.handleDevKeyDown(e.code)) {
         e.preventDefault();
-        this.devKeyO = true;
-        handled = true;
-      }
-      if (e.code === "KeyP") {
-        e.preventDefault();
-        this.devKeyP = true;
-        handled = true;
-      }
-      if (e.code === "KeyK") {
-        e.preventDefault();
-        this.devKeyK = true;
-        handled = true;
-      }
-      if (e.code === "KeyL") {
-        e.preventDefault();
-        this.devKeyL = true;
-        handled = true;
-      }
-      if (e.code === "KeyU") {
-        e.preventDefault();
-        this.devKeyU = true;
         handled = true;
       }
       if (!handled) return;
@@ -91,21 +74,7 @@ export class InputManager {
       if (this.isButtonBKey(e.code)) {
         this.buttonB = false;
       }
-      if (e.code === "KeyO") {
-        this.devKeyO = false;
-      }
-      if (e.code === "KeyP") {
-        this.devKeyP = false;
-      }
-      if (e.code === "KeyK") {
-        this.devKeyK = false;
-      }
-      if (e.code === "KeyL") {
-        this.devKeyL = false;
-      }
-      if (e.code === "KeyU") {
-        this.devKeyU = false;
-      }
+      this.handleDevKeyUp(e.code);
     });
   }
 
@@ -177,6 +146,13 @@ export class InputManager {
     this.allowAltKeys = allow;
   }
 
+  setDevKeysEnabled(enabled: boolean): void {
+    this.devKeysEnabled = enabled;
+    if (!enabled) {
+      this.resetDevKeys();
+    }
+  }
+
   capture(): PlayerInput {
     const now = performance.now();
 
@@ -225,13 +201,21 @@ export class InputManager {
   }
 
   // Dev keys for testing - returns which dev key was pressed
-  consumeDevKeys(): { laser: boolean; shield: boolean; scatter: boolean; mine: boolean; reverse: boolean } {
-    const result = { laser: this.devKeyO, shield: this.devKeyP, scatter: this.devKeyK, mine: this.devKeyL, reverse: this.devKeyU };
-    this.devKeyO = false;
-    this.devKeyP = false;
-    this.devKeyK = false;
-    this.devKeyL = false;
-    this.devKeyU = false;
+  consumeDevKeys(): {
+    laser: boolean;
+    shield: boolean;
+    scatter: boolean;
+    mine: boolean;
+    reverse: boolean;
+  } {
+    const result = {
+      laser: this.devPowerUpKeys.laser,
+      shield: this.devPowerUpKeys.shield,
+      scatter: this.devPowerUpKeys.scatter,
+      mine: this.devPowerUpKeys.mine,
+      reverse: this.devPowerUpKeys.reverse,
+    };
+    this.resetDevKeys();
     return result;
   }
 
@@ -241,10 +225,60 @@ export class InputManager {
     this.buttonB = false;
     this.wasButtonA = false;
     this.lastButtonATime = 0;
-    this.devKeyO = false;
-    this.devKeyP = false;
-    this.devKeyK = false;
-    this.devKeyL = false;
-    this.devKeyU = false;
+    this.resetDevKeys();
+  }
+
+  private handleDevKeyDown(code: string): boolean {
+    if (!this.devKeysEnabled) return false;
+    switch (code) {
+      case "Digit1":
+        this.devPowerUpKeys.laser = true;
+        return true;
+      case "Digit2":
+        this.devPowerUpKeys.shield = true;
+        return true;
+      case "Digit3":
+        this.devPowerUpKeys.scatter = true;
+        return true;
+      case "Digit4":
+        this.devPowerUpKeys.mine = true;
+        return true;
+      case "Digit5":
+        this.devPowerUpKeys.reverse = true;
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private handleDevKeyUp(code: string): void {
+    if (!this.devKeysEnabled) return;
+    switch (code) {
+      case "Digit1":
+        this.devPowerUpKeys.laser = false;
+        break;
+      case "Digit2":
+        this.devPowerUpKeys.shield = false;
+        break;
+      case "Digit3":
+        this.devPowerUpKeys.scatter = false;
+        break;
+      case "Digit4":
+        this.devPowerUpKeys.mine = false;
+        break;
+      case "Digit5":
+        this.devPowerUpKeys.reverse = false;
+        break;
+      default:
+        break;
+    }
+  }
+
+  private resetDevKeys(): void {
+    this.devPowerUpKeys.laser = false;
+    this.devPowerUpKeys.shield = false;
+    this.devPowerUpKeys.scatter = false;
+    this.devPowerUpKeys.mine = false;
+    this.devPowerUpKeys.reverse = false;
   }
 }

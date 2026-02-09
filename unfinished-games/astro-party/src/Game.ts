@@ -2056,6 +2056,10 @@ export class Game {
     this.multiInput?.setAllowAltKeys(allow);
   }
 
+  setDevKeysEnabled(enabled: boolean): void {
+    this.input.setDevKeysEnabled(enabled);
+  }
+
   // ============= TOUCH LAYOUT DELEGATION =============
 
   updateTouchLayout(): void {

@@ -45,6 +45,7 @@ export function createScreenController(
     elements.hud.classList.toggle("active", screen === "game");
     updateHudControlsVisibility();
     game.setKeyboardInputEnabled(screen === "game");
+    game.setDevKeysEnabled(screen === "game");
     if (screen !== "game") {
       elements.roundResult.classList.add("hidden");
     }
