@@ -16,6 +16,13 @@ export class Ship {
   private dashTimer: number = 0;
   private recoilTimer: number = 0;
 
+  // Ammo system
+  ammo: number = 3;
+  maxAmmo: number = 3;
+  lastShotTime: number = 0;
+  reloadStartTime: number = 0;
+  isReloading: boolean = false;
+
   constructor(
     physics: Physics,
     x: number,
@@ -106,11 +113,15 @@ export class Ship {
       }
     }
 
-    // Button B: Fire with recoil
+    // Button B: Fire with recoil (with ammo system)
     let fireResult: { shouldFire: boolean; fireAngle: number } | null = null;
     if (input.buttonB) {
       const now = Date.now();
-      if (now - this.lastFireTime > cfg.FIRE_COOLDOWN) {
+
+      // Check if we can fire: have ammo and burst delay has passed
+      if (this.ammo > 0 && now - this.lastShotTime > cfg.FIRE_COOLDOWN) {
+        this.lastShotTime = now;
+        this.ammo--;
         this.lastFireTime = now;
 
         if (mode === "STANDARD") {
@@ -123,12 +134,21 @@ export class Ship {
           });
         }
 
+        // Start reload if not already reloading
+        if (this.ammo < this.maxAmmo && !this.isReloading) {
+          this.isReloading = true;
+          this.reloadStartTime = now;
+        }
+
         fireResult = {
           shouldFire: true,
           fireAngle: angle,
         };
       }
     }
+
+    // Update ammo reload
+    this.updateReload(Date.now());
 
     return fireResult;
   }
@@ -153,10 +173,38 @@ export class Ship {
     this.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
     Body.setVelocity(this.body, { x: 0, y: 0 });
     Body.setAngularVelocity(this.body, 0);
+    // Reset ammo on respawn
+    this.ammo = this.maxAmmo;
+    this.isReloading = false;
   }
 
   isInvulnerable(): boolean {
     return Date.now() < this.invulnerableUntil;
+  }
+
+  private updateReload(now: number): void {
+    if (this.isReloading && this.ammo < this.maxAmmo) {
+      const reloadProgress = now - this.reloadStartTime;
+      if (reloadProgress >= GAME_CONFIG.AMMO_RELOAD_TIME) {
+        this.ammo++;
+        this.reloadStartTime = now;
+
+        // Stop reloading when full
+        if (this.ammo >= this.maxAmmo) {
+          this.isReloading = false;
+          this.ammo = this.maxAmmo;
+        }
+      }
+    }
+  }
+
+  getReloadProgress(): number {
+    if (!this.isReloading || this.ammo >= this.maxAmmo) return 1;
+    const now = Date.now();
+    return Math.min(
+      1,
+      (now - this.reloadStartTime) / GAME_CONFIG.AMMO_RELOAD_TIME,
+    );
   }
 
   getState(): ShipState {
@@ -170,6 +218,11 @@ export class Ship {
       vy: this.body.velocity.y,
       alive: this.alive,
       invulnerableUntil: this.invulnerableUntil,
+      ammo: this.ammo,
+      maxAmmo: this.maxAmmo,
+      lastShotTime: this.lastShotTime,
+      reloadStartTime: this.reloadStartTime,
+      isReloading: this.isReloading,
     };
   }
 

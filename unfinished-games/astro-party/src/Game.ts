@@ -379,10 +379,8 @@ export class Game {
       let spawnY = centerY;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const candidateX =
-          centerX + (Math.random() * 2 - 1) * spreadX;
-        const candidateY =
-          centerY + (Math.random() * 2 - 1) * spreadY;
+        const candidateX = centerX + (Math.random() * 2 - 1) * spreadX;
+        const candidateY = centerY + (Math.random() * 2 - 1) * spreadY;
         if (this.isAsteroidSpawnClear(candidateX, candidateY, size)) {
           spawnX = candidateX;
           spawnY = candidateY;
@@ -411,8 +409,7 @@ export class Game {
     const baseVy = asteroid.body.velocity.y * 0.4;
 
     for (let i = 0; i < count; i++) {
-      const angle =
-        (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
       const speed = this.randomRange(
         GAME_CONFIG.ASTEROID_DRIFT_MIN_SPEED,
         GAME_CONFIG.ASTEROID_DRIFT_MAX_SPEED,
@@ -439,11 +436,7 @@ export class Game {
     }
   }
 
-  private isAsteroidSpawnClear(
-    x: number,
-    y: number,
-    size: number,
-  ): boolean {
+  private isAsteroidSpawnClear(x: number, y: number, size: number): boolean {
     const minDistance = size * 1.8;
     for (const asteroid of this.asteroids) {
       if (!asteroid.alive) continue;
@@ -1328,7 +1321,19 @@ export class Game {
     this.networkPowerUps = state.powerUps;
     this.networkLaserBeams = state.laserBeams;
 
+    // Sync player power-ups: update existing and remove expired ones
     if (state.playerPowerUps) {
+      // Create a set of player IDs that should have power-ups
+      const activePowerUpIds = new Set(Object.keys(state.playerPowerUps));
+
+      // Remove power-ups for players not in the sync state
+      for (const playerId of this.playerPowerUps.keys()) {
+        if (!activePowerUpIds.has(playerId)) {
+          this.playerPowerUps.delete(playerId);
+        }
+      }
+
+      // Update/add power-ups from sync state
       Object.entries(state.playerPowerUps).forEach(([playerId, powerUp]) => {
         this.playerPowerUps.set(playerId, powerUp);
       });

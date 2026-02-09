@@ -168,22 +168,53 @@ export class Renderer {
 
     ctx.rotate(angle);
 
-    // Draw laser charge indicators on ship tail
+    // Draw laser charge indicators on ship tail - arranged in arc pattern
     if (laserCharges !== undefined && laserCharges > 0) {
       const maxCharges = GAME_CONFIG.POWERUP_LASER_CHARGES;
-      const dotSize = 3;
-      const spacing = 8;
-      const startX = -size * 0.8;
-      const startY = -((maxCharges - 1) * spacing) / 2;
+      const dotSize = 3.5;
+      const arcRadius = size * 1.3; // Distance from ship center
+      const arcAngle = Math.PI * 0.6; // Total arc spread (108 degrees)
 
       for (let i = 0; i < maxCharges; i++) {
-        const dotX = startX - (i % 2) * 5; // Slight offset for visual interest
-        const dotY = startY + i * spacing;
+        // Calculate angle for this charge in the arc (spread around back of ship)
+        const angleOffset = (i / (maxCharges - 1) - 0.5) * arcAngle;
+        const dotX = Math.cos(Math.PI + angleOffset) * arcRadius;
+        const dotY = Math.sin(Math.PI + angleOffset) * arcRadius;
 
         // Red if available, dark gray/black if used
         const isAvailable = i < laserCharges;
         ctx.fillStyle = isAvailable ? "#ff0044" : "#333333";
         ctx.strokeStyle = isAvailable ? "#ff6688" : "#222222";
+        ctx.lineWidth = 1;
+
+        // Draw bullet-like shape
+        ctx.beginPath();
+        ctx.ellipse(dotX, dotY, dotSize, dotSize * 1.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
+    // Draw ammo indicators on ship tail (yellow dots) - arranged in arc pattern
+    // Only show when no laser power-up is active
+    if (laserCharges === undefined && state.maxAmmo > 0) {
+      const maxAmmo = state.maxAmmo;
+      const currentAmmo = state.ammo;
+      const dotSize = 3.5;
+      const arcRadius = size * 1.2; // Distance from ship center
+      const arcAngle = Math.PI * 0.5; // Total arc spread (90 degrees)
+
+      for (let i = 0; i < maxAmmo; i++) {
+        // Calculate angle for this ammo in the arc (spread around back of ship)
+        const angleOffset =
+          maxAmmo > 1 ? (i / (maxAmmo - 1) - 0.5) * arcAngle : 0;
+        const dotX = Math.cos(Math.PI + angleOffset) * arcRadius;
+        const dotY = Math.sin(Math.PI + angleOffset) * arcRadius;
+
+        // Yellow if available, dark gray if used
+        const isAvailable = i < currentAmmo;
+        ctx.fillStyle = isAvailable ? "#ffee00" : "#333333";
+        ctx.strokeStyle = isAvailable ? "#ffee88" : "#222222";
         ctx.lineWidth = 1;
 
         // Draw bullet-like shape
