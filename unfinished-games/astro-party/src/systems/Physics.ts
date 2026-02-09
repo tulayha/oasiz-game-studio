@@ -144,7 +144,9 @@ export class Physics {
     y: number,
     angle: number,
     ownerId: string,
+    speed?: number,
   ): Matter.Body {
+    const projectileSpeed = speed ?? GAME_CONFIG.PROJECTILE_SPEED;
     const body = Bodies.circle(x, y, 4, {
       label: "projectile",
       frictionAir: 0,
@@ -159,8 +161,8 @@ export class Physics {
     });
 
     Body.setVelocity(body, {
-      x: Math.cos(angle) * GAME_CONFIG.PROJECTILE_SPEED,
-      y: Math.sin(angle) * GAME_CONFIG.PROJECTILE_SPEED,
+      x: Math.cos(angle) * projectileSpeed,
+      y: Math.sin(angle) * projectileSpeed,
     });
 
     body.plugin = body.plugin || {};

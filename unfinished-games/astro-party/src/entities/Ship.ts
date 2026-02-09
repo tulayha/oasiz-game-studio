@@ -43,6 +43,7 @@ export class Ship {
     input: PlayerInput,
     dash: boolean,
     dt: number,
+    rotationDirection: number = 1,
   ): { shouldFire: boolean; fireAngle: number } | null {
     if (!this.alive) return null;
 
@@ -55,7 +56,8 @@ export class Ship {
       Body.setAngularVelocity(this.body, 0);
 
       if (input.buttonA) {
-        Body.rotate(this.body, cfg.ROTATION_SPEED * dt);
+        // Apply rotation direction multiplier (1 = normal/cw, -1 = reversed/ccw)
+        Body.rotate(this.body, cfg.ROTATION_SPEED * dt * rotationDirection);
       }
 
       if (dash) {
@@ -232,5 +234,11 @@ export class Ship {
     Body.setAngle(this.body, state.angle);
     Body.setVelocity(this.body, { x: state.vx, y: state.vy });
     this.invulnerableUntil = state.invulnerableUntil;
+  }
+
+  stop(): void {
+    // Stop the ship completely - used when hit by mine
+    Body.setVelocity(this.body, { x: 0, y: 0 });
+    Body.setAngularVelocity(this.body, 0);
   }
 }

@@ -10,6 +10,7 @@ import { Projectile } from "./entities/Projectile";
 import { Asteroid } from "./entities/Asteroid";
 import { PowerUp } from "./entities/PowerUp";
 import { LaserBeam } from "./entities/LaserBeam";
+import { Mine } from "./entities/Mine";
 import { AudioManager } from "./AudioManager";
 import { SettingsManager } from "./SettingsManager";
 import { PlayerManager } from "./managers/PlayerManager";
@@ -27,6 +28,7 @@ import {
   AsteroidState,
   PowerUpState,
   LaserBeamState,
+  MineState,
   PowerUpType,
   PlayerPowerUp,
   GAME_CONFIG,
@@ -53,6 +55,7 @@ export class Game {
   private asteroids: Asteroid[] = [];
   private powerUps: PowerUp[] = [];
   private laserBeams: LaserBeam[] = [];
+  private mines: Mine[] = [];
   private playerPowerUps: Map<string, PlayerPowerUp | null> = new Map();
 
   // Input state
@@ -66,6 +69,11 @@ export class Game {
   private networkAsteroids: AsteroidState[] = [];
   private networkPowerUps: PowerUpState[] = [];
   private networkLaserBeams: LaserBeamState[] = [];
+  private networkMines: MineState[] = [];
+  private networkRotationDirection: number = 1;
+
+  // Global rotation direction (1 = normal/cw, -1 = reversed/ccw)
+  private rotationDirection: number = 1;
 
   // Timing
   private pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -590,7 +598,19 @@ export class Game {
 
   private trySpawnPowerUp(x: number, y: number): void {
     if (Math.random() > GAME_CONFIG.POWERUP_DROP_CHANCE) return;
-    const type: PowerUpType = Math.random() < 0.5 ? "LASER" : "SHIELD";
+    const rand = Math.random();
+    let type: PowerUpType;
+    if (rand < 0.2) {
+      type = "LASER";
+    } else if (rand < 0.4) {
+      type = "SHIELD";
+    } else if (rand < 0.6) {
+      type = "SCATTER";
+    } else if (rand < 0.8) {
+      type = "MINE";
+    } else {
+      type = "REVERSE";
+    }
     const powerUp = new PowerUp(this.physics, x, y, type);
     this.powerUps.push(powerUp);
   }
@@ -612,6 +632,27 @@ export class Game {
         lastFireTime: 0,
         shieldHits: 0,
       });
+    } else if (type === "SCATTER") {
+      this.playerPowerUps.set(playerId, {
+        type: "SCATTER",
+        charges: GAME_CONFIG.POWERUP_SCATTER_CHARGES,
+        maxCharges: GAME_CONFIG.POWERUP_SCATTER_CHARGES,
+        lastFireTime: 0,
+        shieldHits: 0,
+      });
+    } else if (type === "MINE") {
+      this.playerPowerUps.set(playerId, {
+        type: "MINE",
+        charges: 1,
+        maxCharges: 1,
+        lastFireTime: 0,
+        shieldHits: 0,
+      });
+    } else if (type === "REVERSE") {
+      // Toggle global rotation direction for all ships
+      this.rotationDirection *= -1;
+      console.log(`[Game] Rotation direction changed to: ${this.rotationDirection === 1 ? "clockwise" : "counter-clockwise"}`);
+      // Don't add to playerPowerUps since it's a global effect
     }
   }
 
@@ -733,6 +774,103 @@ export class Game {
     const distSq = (cx - closestX) ** 2 + (cy - closestY) ** 2;
 
     return distSq <= radius * radius;
+  }
+
+  private explodeMine(mine: Mine, triggeredByPlayerId?: string): void {
+    if (!this.network.isHost()) return;
+    
+    // Mark mine as exploded - this will sync to clients
+    mine.explode();
+    
+    const explosionRadius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS;
+    const mineX = mine.x;
+    const mineY = mine.y;
+    
+    // Visual effects on host
+    this.renderer.spawnMineExplosion(mineX, mineY, explosionRadius);
+    this.renderer.addScreenShake(15, 0.4);
+    SettingsManager.triggerHaptic("heavy");
+    
+    // Schedule ship destruction after explosion animation plays (500ms)
+    setTimeout(() => {
+      if (!this.network.isHost()) return;
+      
+      // Kill all ships in explosion radius
+      this.ships.forEach((ship, shipPlayerId) => {
+        if (!ship.alive) return;
+        
+        const dx = ship.body.position.x - mineX;
+        const dy = ship.body.position.y - mineY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist <= explosionRadius) {
+          this.flowMgr.destroyShip(
+            shipPlayerId,
+            this.ships,
+            this.pilots,
+            this.playerMgr.players,
+          );
+          this.playerPowerUps.delete(shipPlayerId);
+        }
+      });
+      
+      // Kill all pilots in explosion radius
+      this.pilots.forEach((pilot, pilotPlayerId) => {
+        if (!pilot.alive) return;
+        
+        const dx = pilot.body.position.x - mineX;
+        const dy = pilot.body.position.y - mineY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist <= explosionRadius) {
+          this.flowMgr.killPilot(
+            pilotPlayerId,
+            mine.ownerId,
+            this.pilots,
+            this.playerMgr.players,
+          );
+        }
+      });
+      
+      // Wait 1.5 seconds after explosion before checking round end
+      // This gives time to see the aftermath
+      setTimeout(() => {
+        if (!this.network.isHost()) return;
+        if (this.flowMgr.phase === "PLAYING") {
+          this.flowMgr.checkEliminationWin(this.playerMgr.players);
+        }
+      }, 1500);
+      
+    }, 500); // 500ms for explosion animation
+  }
+
+  private mineTriggers: Map<string, { mine: Mine; shipId: string; triggerTime: number }> = new Map();
+
+  private checkMineCollisions(): void {
+    if (!this.network.isHost()) return;
+    
+    for (const mine of this.mines) {
+      if (!mine.alive || mine.exploded) continue;
+      
+      // Check collision with all ships except the owner
+      for (const [shipPlayerId, ship] of this.ships) {
+        if (!ship.alive || shipPlayerId === mine.ownerId) continue;
+        
+        const dx = ship.body.position.x - mine.x;
+        const dy = ship.body.position.y - mine.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        // Mine size + ship radius (approx 25)
+        if (dist <= GAME_CONFIG.POWERUP_MINE_SIZE + 25) {
+          // Stop the ship immediately
+          ship.stop();
+          
+          // Trigger explosion
+          this.explodeMine(mine, shipPlayerId);
+          break;
+        }
+      }
+    }
   }
 
   // ============= UI CALLBACKS =============
@@ -988,7 +1126,13 @@ export class Game {
     this.laserBeams.forEach((beam) => beam.destroy());
     this.laserBeams = [];
 
+    this.mines.forEach((mine) => mine.destroy());
+    this.mines = [];
+
     this.playerPowerUps.clear();
+
+    // Reset rotation direction
+    this.rotationDirection = 1;
 
     if (this.asteroidSpawnTimeout) {
       clearTimeout(this.asteroidSpawnTimeout);
@@ -1001,6 +1145,8 @@ export class Game {
     this.networkAsteroids = [];
     this.networkPowerUps = [];
     this.networkLaserBeams = [];
+    this.networkMines = [];
+    this.networkRotationDirection = 1;
     this.roundResult = null;
   }
 
@@ -1024,7 +1170,13 @@ export class Game {
     this.laserBeams.forEach((beam) => beam.destroy());
     this.laserBeams = [];
 
+    this.mines.forEach((mine) => mine.destroy());
+    this.mines = [];
+
     this.playerPowerUps.clear();
+
+    // Reset rotation direction for new round
+    this.rotationDirection = 1;
 
     if (this.asteroidSpawnTimeout) {
       clearTimeout(this.asteroidSpawnTimeout);
@@ -1095,6 +1247,20 @@ export class Game {
           console.log("[Dev] Granting SHIELD powerup");
           this.grantPowerUp(myPlayerId, "SHIELD");
         }
+        if (devKeys.scatter) {
+          console.log("[Dev] Granting SCATTER powerup");
+          this.grantPowerUp(myPlayerId, "SCATTER");
+        }
+        if (devKeys.mine) {
+          console.log("[Dev] Granting MINE powerup");
+          this.grantPowerUp(myPlayerId, "MINE");
+        }
+      }
+      
+      // Reverse can be triggered even with existing power-up since it's global
+      if (devKeys.reverse) {
+        console.log("[Dev] Toggling REVERSE rotation");
+        this.grantPowerUp(myPlayerId, "REVERSE");
       }
     }
 
@@ -1159,11 +1325,11 @@ export class Game {
           }
         }
 
-        const fireResult = ship.applyInput(input, shouldDash, dt);
+        const fireResult = ship.applyInput(input, shouldDash, dt, this.rotationDirection);
         if (fireResult?.shouldFire) {
           const firePos = ship.getFirePosition();
 
-          // Check if player has a laser power-up
+          // Check if player has a power-up
           const playerPowerUp = this.playerPowerUps.get(playerId);
 
           if (playerPowerUp?.type === "LASER" && playerPowerUp.charges > 0) {
@@ -1195,6 +1361,60 @@ export class Game {
               if (playerPowerUp.charges <= 0) {
                 this.playerPowerUps.delete(playerId);
               }
+            }
+          } else if (playerPowerUp?.type === "SCATTER" && playerPowerUp.charges > 0) {
+            const fireNow = Date.now();
+            if (
+              fireNow - playerPowerUp.lastFireTime >
+              GAME_CONFIG.POWERUP_SCATTER_COOLDOWN
+            ) {
+              playerPowerUp.lastFireTime = fireNow;
+              playerPowerUp.charges--;
+
+              // Fire 3 projectiles in triangle pattern: -15°, 0°, +15°
+              const angles = [
+                fireResult.fireAngle - (GAME_CONFIG.POWERUP_SCATTER_ANGLE_1 * Math.PI / 180),
+                fireResult.fireAngle,
+                fireResult.fireAngle + (GAME_CONFIG.POWERUP_SCATTER_ANGLE_1 * Math.PI / 180),
+              ];
+
+              for (const angle of angles) {
+                const projectile = new Projectile(
+                  this.physics,
+                  firePos.x,
+                  firePos.y,
+                  angle,
+                  playerId,
+                  GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_SPEED,
+                  GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_LIFETIME,
+                );
+                this.projectiles.push(projectile);
+              }
+
+              this.network.broadcastGameSound("fire", playerId);
+              SettingsManager.triggerHaptic("medium");
+
+              if (playerPowerUp.charges <= 0) {
+                this.playerPowerUps.delete(playerId);
+              }
+            }
+          } else if (playerPowerUp?.type === "MINE" && playerPowerUp.charges > 0) {
+            // Deploy mine instead of firing
+            playerPowerUp.charges--;
+            
+            // Spawn mine slightly behind the ship
+            const mineOffset = 30;
+            const mineX = firePos.x - Math.cos(fireResult.fireAngle) * mineOffset;
+            const mineY = firePos.y - Math.sin(fireResult.fireAngle) * mineOffset;
+            
+            const mine = new Mine(playerId, mineX, mineY);
+            this.mines.push(mine);
+            
+            this.network.broadcastGameSound("fire", playerId);
+            SettingsManager.triggerHaptic("light");
+
+            if (playerPowerUp.charges <= 0) {
+              this.playerPowerUps.delete(playerId);
             }
           } else {
             // Regular projectile
@@ -1276,6 +1496,15 @@ export class Game {
         }
       }
 
+      // Check mine collisions and clean up expired mines
+      this.checkMineCollisions();
+      for (let i = this.mines.length - 1; i >= 0; i--) {
+        if (this.mines[i].isExpired()) {
+          this.mines[i].destroy();
+          this.mines.splice(i, 1);
+        }
+      }
+
       // Broadcast state (throttled to sync rate)
       if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.broadcastState();
@@ -1301,8 +1530,10 @@ export class Game {
       asteroids: this.asteroids.map((a) => a.getState()),
       powerUps: this.powerUps.map((p) => p.getState()),
       laserBeams: this.laserBeams.map((b) => b.getState()),
+      mines: this.mines.map((m) => m.getState()),
       players: [...this.playerMgr.players.values()],
       playerPowerUps: playerPowerUpsRecord,
+      rotationDirection: this.rotationDirection,
     };
 
     this.network.broadcastGameState(state);
@@ -1320,6 +1551,8 @@ export class Game {
     this.networkAsteroids = state.asteroids;
     this.networkPowerUps = state.powerUps;
     this.networkLaserBeams = state.laserBeams;
+    this.networkMines = state.mines;
+    this.networkRotationDirection = state.rotationDirection ?? 1;
 
     // Sync player power-ups: update existing and remove expired ones
     if (state.playerPowerUps) {
@@ -1379,12 +1612,25 @@ export class Game {
                       GAME_CONFIG.POWERUP_LASER_COOLDOWN,
                   )
                 : undefined;
+            const scatterCharges =
+              powerUp?.type === "SCATTER" ? powerUp.charges : undefined;
+            const scatterCooldownProgress =
+              powerUp?.type === "SCATTER" &&
+              powerUp.charges < GAME_CONFIG.POWERUP_SCATTER_CHARGES
+                ? Math.min(
+                    1,
+                    (Date.now() - powerUp.lastFireTime) /
+                      GAME_CONFIG.POWERUP_SCATTER_COOLDOWN,
+                  )
+                : undefined;
             this.renderer.drawShip(
               ship.getState(),
               ship.color,
               shieldHits,
               laserCharges,
               laserCooldownProgress,
+              scatterCharges,
+              scatterCooldownProgress,
             );
           }
         });
@@ -1407,12 +1653,25 @@ export class Game {
                         GAME_CONFIG.POWERUP_LASER_COOLDOWN,
                     )
                   : undefined;
+              const scatterCharges =
+                powerUp?.type === "SCATTER" ? powerUp.charges : undefined;
+              const scatterCooldownProgress =
+                powerUp?.type === "SCATTER" &&
+                powerUp.charges < GAME_CONFIG.POWERUP_SCATTER_CHARGES
+                  ? Math.min(
+                      1,
+                      (Date.now() - powerUp.lastFireTime) /
+                        GAME_CONFIG.POWERUP_SCATTER_COOLDOWN,
+                    )
+                  : undefined;
               this.renderer.drawShip(
                 state,
                 player.color,
                 shieldHits,
                 laserCharges,
                 laserCooldownProgress,
+                scatterCharges,
+                scatterCooldownProgress,
               );
             }
           }
@@ -1484,6 +1743,23 @@ export class Game {
         this.networkLaserBeams.forEach((state) => {
           if (state.alive) {
             this.renderer.drawLaserBeam(state);
+          }
+        });
+      }
+
+      // Draw mines
+      if (isHost) {
+        this.mines.forEach((mine) => {
+          if (mine.alive) {
+            this.renderer.drawMine(mine);
+          }
+        });
+      } else {
+        // For clients, we need to create Mine objects from network state or draw directly
+        // Since mines don't have physics bodies, we can render from network state
+        this.networkMines.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawMineState(state);
           }
         });
       }

@@ -9,6 +9,9 @@ export class InputManager {
   // Dev keys for testing powerups
   devKeyO = false;
   devKeyP = false;
+  devKeyK = false;
+  devKeyL = false;
+  devKeyU = false;
   private wasButtonA = false;
   private lastButtonATime = 0;
   private onDashDetected: (() => void) | null = null;
@@ -49,7 +52,7 @@ export class InputManager {
         this.buttonB = true;
         handled = true;
       }
-      // Dev keys for testing powerups (O = Laser, P = Shield)
+      // Dev keys for testing powerups (O = Laser, P = Shield, K = Scatter, L = Mine, U = Reverse)
       if (e.code === "KeyO") {
         e.preventDefault();
         this.devKeyO = true;
@@ -58,6 +61,21 @@ export class InputManager {
       if (e.code === "KeyP") {
         e.preventDefault();
         this.devKeyP = true;
+        handled = true;
+      }
+      if (e.code === "KeyK") {
+        e.preventDefault();
+        this.devKeyK = true;
+        handled = true;
+      }
+      if (e.code === "KeyL") {
+        e.preventDefault();
+        this.devKeyL = true;
+        handled = true;
+      }
+      if (e.code === "KeyU") {
+        e.preventDefault();
+        this.devKeyU = true;
         handled = true;
       }
       if (!handled) return;
@@ -78,6 +96,15 @@ export class InputManager {
       }
       if (e.code === "KeyP") {
         this.devKeyP = false;
+      }
+      if (e.code === "KeyK") {
+        this.devKeyK = false;
+      }
+      if (e.code === "KeyL") {
+        this.devKeyL = false;
+      }
+      if (e.code === "KeyU") {
+        this.devKeyU = false;
       }
     });
   }
@@ -198,10 +225,13 @@ export class InputManager {
   }
 
   // Dev keys for testing - returns which dev key was pressed
-  consumeDevKeys(): { laser: boolean; shield: boolean } {
-    const result = { laser: this.devKeyO, shield: this.devKeyP };
+  consumeDevKeys(): { laser: boolean; shield: boolean; scatter: boolean; mine: boolean; reverse: boolean } {
+    const result = { laser: this.devKeyO, shield: this.devKeyP, scatter: this.devKeyK, mine: this.devKeyL, reverse: this.devKeyU };
     this.devKeyO = false;
     this.devKeyP = false;
+    this.devKeyK = false;
+    this.devKeyL = false;
+    this.devKeyU = false;
     return result;
   }
 
@@ -213,5 +243,8 @@ export class InputManager {
     this.lastButtonATime = 0;
     this.devKeyO = false;
     this.devKeyP = false;
+    this.devKeyK = false;
+    this.devKeyL = false;
+    this.devKeyU = false;
   }
 }
