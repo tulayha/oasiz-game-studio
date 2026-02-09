@@ -5,6 +5,7 @@ import {
   AsteroidState,
   PowerUpState,
   LaserBeamState,
+  MineState,
   Particle,
   PlayerColor,
   PLAYER_COLORS,
@@ -134,6 +135,8 @@ export class Renderer {
     shieldHits?: number,
     laserCharges?: number,
     laserCooldownProgress?: number,
+    scatterCharges?: number,
+    scatterCooldownProgress?: number,
   ): void {
     const { ctx } = this;
     const { x, y, angle, invulnerableUntil } = state;
@@ -195,9 +198,43 @@ export class Renderer {
       }
     }
 
+    // Draw scatter shot charge indicators on ship tail - green balls with red centers
+    if (scatterCharges !== undefined && scatterCharges > 0) {
+      const maxCharges = GAME_CONFIG.POWERUP_SCATTER_CHARGES;
+      const ballSize = 5;
+      const arcRadius = size * 1.3;
+      const arcAngle = Math.PI * 0.6;
+
+      for (let i = 0; i < maxCharges; i++) {
+        const angleOffset = (i / (maxCharges - 1) - 0.5) * arcAngle;
+        const dotX = Math.cos(Math.PI + angleOffset) * arcRadius;
+        const dotY = Math.sin(Math.PI + angleOffset) * arcRadius;
+
+        const isAvailable = i < scatterCharges;
+        
+        // Green ball background
+        ctx.fillStyle = isAvailable ? "#00ff44" : "#333333";
+        ctx.strokeStyle = isAvailable ? "#88ffaa" : "#222222";
+        ctx.lineWidth = 1;
+        
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, ballSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        // Red center dot
+        if (isAvailable) {
+          ctx.fillStyle = "#ff0044";
+          ctx.beginPath();
+          ctx.arc(dotX, dotY, ballSize * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
     // Draw ammo indicators on ship tail (yellow dots) - arranged in arc pattern
     // Only show when no laser power-up is active
-    if (laserCharges === undefined && state.maxAmmo > 0) {
+    if (laserCharges === undefined && scatterCharges === undefined && state.maxAmmo > 0) {
       const maxAmmo = state.maxAmmo;
       const currentAmmo = state.ammo;
       const dotSize = 3.5;
@@ -565,8 +602,20 @@ export class Renderer {
     );
     ctx.stroke();
 
-    // Draw power-up box
-    ctx.fillStyle = type === "LASER" ? "#ff0066" : "#00ccff";
+    // Draw power-up box - color based on type
+    let boxColor: string;
+    if (type === "LASER") {
+      boxColor = "#ff0066"; // Pink
+    } else if (type === "SHIELD") {
+      boxColor = "#00ccff"; // Cyan
+    } else if (type === "SCATTER") {
+      boxColor = "#00cc44"; // Green
+    } else if (type === "MINE") {
+      boxColor = "#ff8800"; // Orange
+    } else {
+      boxColor = "#666666"; // Gray for REVERSE
+    }
+    ctx.fillStyle = boxColor;
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 2;
 
@@ -597,11 +646,52 @@ export class Renderer {
       ctx.lineTo(0, 0);
       ctx.closePath();
       ctx.fill();
-    } else {
+    } else if (type === "SHIELD") {
       // Draw shield symbol (circle)
       ctx.beginPath();
       ctx.arc(0, 0, 6, 0, Math.PI * 2);
       ctx.fill();
+    } else if (type === "SCATTER") {
+      // Draw shotgun shell symbol - green cylinder with red primer
+      // Shell body (green rectangle)
+      ctx.fillStyle = "#00ff44";
+      ctx.fillRect(-4, -7, 8, 14);
+      // Shell rim
+      ctx.fillStyle = "#00aa33";
+      ctx.fillRect(-5, 5, 10, 3);
+      // Red primer in center
+      ctx.fillStyle = "#ff0044";
+      ctx.beginPath();
+      ctx.arc(0, 6, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (type === "MINE") {
+      // Draw mine symbol - orange ball with grey spikes
+      // Center orange ball
+      ctx.fillStyle = "#ff8800";
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
+      // Grey spikes
+      ctx.strokeStyle = "#888888";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * 4, Math.sin(angle) * 4);
+        ctx.lineTo(Math.cos(angle) * 8, Math.sin(angle) * 8);
+        ctx.stroke();
+      }
+    } else if (type === "REVERSE") {
+      // Draw reverse symbol - blue glowing "R"
+      // Blue glow effect
+      ctx.shadowColor = "#0088ff";
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = "#0088ff";
+      ctx.font = "bold 16px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("R", 0, 0);
+      ctx.shadowBlur = 0;
     }
 
     ctx.restore();
@@ -825,5 +915,236 @@ export class Renderer {
 
   getPlayerColor(index: number): PlayerColor {
     return PLAYER_COLORS[index % PLAYER_COLORS.length];
+  }
+
+  // ============= MINE RENDERING =============
+
+  drawMine(mine: import("../entities/Mine").Mine): void {
+    const { ctx } = this;
+    const { x, y, exploded, explosionTime } = mine;
+
+    if (exploded && explosionTime > 0) {
+      // Draw explosion effect - lasts 500ms
+      const elapsed = Date.now() - explosionTime;
+      const progress = Math.min(1, elapsed / 500);
+      const radius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
+      const alpha = 1 - progress;
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Outer white flash
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Middle bright ring
+      ctx.fillStyle = `rgba(255, 255, 200, ${alpha * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    } else {
+      // Draw pointy ball mine with pulsing animation
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Pulsing animation - scale shrinks and grows
+      const pulseSpeed = 0.008;
+      const pulseAmount = 0.15;
+      const pulseScale = 1 + Math.sin(Date.now() * pulseSpeed) * pulseAmount;
+      ctx.scale(pulseScale, pulseScale);
+
+      const mineSize = GAME_CONFIG.POWERUP_MINE_SIZE;
+      const spikeCount = 8;
+      const innerRadius = mineSize * 0.6;
+      const outerRadius = mineSize;
+
+      // Glow effect - orange
+      ctx.shadowColor = "#ff8800";
+      ctx.shadowBlur = 15;
+
+      // Draw spiky ball shape - grey spikes
+      ctx.fillStyle = "#888888";
+      ctx.strokeStyle = "#aaaaaa";
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      for (let i = 0; i < spikeCount * 2; i++) {
+        const angle = (i / (spikeCount * 2)) * Math.PI * 2;
+        const radius = i % 2 === 0 ? outerRadius : innerRadius;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (i === 0) {
+          ctx.moveTo(px, py);
+        } else {
+          ctx.lineTo(px, py);
+        }
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Center glow - orange center
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ff8800";
+      ctx.beginPath();
+      ctx.arc(0, 0, mineSize * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core
+      ctx.fillStyle = "#ffaa44";
+      ctx.beginPath();
+      ctx.arc(0, 0, mineSize * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  drawMineState(state: import("../types").MineState): void {
+    const { ctx } = this;
+    const { x, y, exploded, explosionTime } = state;
+
+    // Check if mine has exploded
+    if (exploded && explosionTime > 0) {
+      // Draw explosion effect on client - lasts 500ms
+      const elapsed = Date.now() - explosionTime;
+      const progress = Math.min(1, elapsed / 500);
+      const radius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
+      const alpha = 1 - progress;
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Outer white flash
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Middle bright ring
+      ctx.fillStyle = `rgba(255, 255, 200, ${alpha * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      return;
+    }
+
+    // Normal mine rendering with pulse
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Pulsing animation
+    const pulseSpeed = 0.008;
+    const pulseAmount = 0.15;
+    const pulseScale = 1 + Math.sin(Date.now() * pulseSpeed) * pulseAmount;
+    ctx.scale(pulseScale, pulseScale);
+
+    const mineSize = GAME_CONFIG.POWERUP_MINE_SIZE;
+    const spikeCount = 8;
+    const innerRadius = mineSize * 0.6;
+    const outerRadius = mineSize;
+
+    // Grey spikes
+    ctx.fillStyle = "#888888";
+    ctx.strokeStyle = "#aaaaaa";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    for (let i = 0; i < spikeCount * 2; i++) {
+      const angle = (i / (spikeCount * 2)) * Math.PI * 2;
+      const radius = i % 2 === 0 ? outerRadius : innerRadius;
+      const px = Math.cos(angle) * radius;
+      const py = Math.sin(angle) * radius;
+      if (i === 0) {
+        ctx.moveTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Orange center
+    ctx.fillStyle = "#ff8800";
+    ctx.beginPath();
+    ctx.arc(0, 0, mineSize * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner bright core
+    ctx.fillStyle = "#ffaa44";
+    ctx.beginPath();
+    ctx.arc(0, 0, mineSize * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  spawnMineExplosion(x: number, y: number, radius: number): void {
+    const { ctx } = this;
+
+    // Create a bright flash particle
+    this.particles.push({
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      life: 0.3,
+      maxLife: 0.3,
+      size: radius,
+      color: "#ffffff",
+    });
+
+    // Create explosion ring
+    const ringCount = 3;
+    for (let i = 0; i < ringCount; i++) {
+      this.particles.push({
+        x,
+        y,
+        vx: 0,
+        vy: 0,
+        life: 0.4 + i * 0.1,
+        maxLife: 0.4 + i * 0.1,
+        size: radius * (0.3 + i * 0.2),
+        color: i === 0 ? "#ffffff" : i === 1 ? "#ffffcc" : "#ffcccc",
+      });
+    }
+
+    // Create debris particles
+    const debrisCount = 20;
+    for (let i = 0; i < debrisCount; i++) {
+      const angle = (i / debrisCount) * Math.PI * 2 + Math.random() * 0.5;
+      const speed = 50 + Math.random() * 100;
+      const life = 0.3 + Math.random() * 0.3;
+
+      this.particles.push({
+        x: x + Math.cos(angle) * 10,
+        y: y + Math.sin(angle) * 10,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 2 + Math.random() * 3,
+        color: Math.random() > 0.5 ? "#ffffff" : "#ffcccc",
+      });
+    }
   }
 }

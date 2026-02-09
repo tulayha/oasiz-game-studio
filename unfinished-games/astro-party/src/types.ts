@@ -94,7 +94,18 @@ export interface LaserBeamState {
   alive: boolean;
 }
 
-export type PowerUpType = "LASER" | "SHIELD";
+export interface MineState {
+  id: string;
+  ownerId: string;
+  x: number;
+  y: number;
+  spawnTime: number;
+  alive: boolean;
+  exploded: boolean;
+  explosionTime: number;
+}
+
+export type PowerUpType = "LASER" | "SHIELD" | "SCATTER" | "MINE" | "REVERSE";
 
 export type GameMode = "STANDARD" | "SANE" | "CHAOTIC";
 
@@ -139,8 +150,10 @@ export interface GameStateSync {
   asteroids: AsteroidState[];
   powerUps: PowerUpState[];
   laserBeams: LaserBeamState[];
+  mines: MineState[];
   players: PlayerData[];
   playerPowerUps: Record<string, PlayerPowerUp | null>;
+  rotationDirection: number; // 1 for normal, -1 for reversed
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
 
@@ -258,6 +271,20 @@ export const GAME_CONFIG = {
   POWERUP_SHIELD_HITS: 2,
   POWERUP_BEAM_LENGTH: 800, // Beam length - long but not game-breaking
   POWERUP_BEAM_WIDTH: 8,
+  
+  // Scatter Shot
+  POWERUP_SCATTER_CHARGES: 3,
+  POWERUP_SCATTER_COOLDOWN: 180, // ms (same as normal fire)
+  POWERUP_SCATTER_ANGLE_1: 15, // degrees
+  POWERUP_SCATTER_ANGLE_2: 30, // degrees
+  POWERUP_SCATTER_ANGLE_3: 45, // degrees
+  POWERUP_SCATTER_PROJECTILE_SPEED: 10, // Slower for short range
+  POWERUP_SCATTER_PROJECTILE_LIFETIME: 600, // ms (very short range - shotgun feel)
+  
+  // Proximity Mine
+  POWERUP_MINE_DESPAWN_TIME: 30000, // ms (30 seconds)
+  POWERUP_MINE_EXPLOSION_RADIUS: 150, // px
+  POWERUP_MINE_SIZE: 12, // px
 } as const;
 
 // Mutable version of GAME_CONFIG type (widens literal types from `as const`)
