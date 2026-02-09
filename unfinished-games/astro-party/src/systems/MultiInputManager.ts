@@ -286,21 +286,22 @@ export class MultiInputManager {
     const width = bounds.width;
     const height = bounds.height;
     const inset = 8;
-    const gap = 10;
     const shortSide = Math.min(width, height);
-    const desiredHeightPx = Math.round(shortSide * 0.32);
-    const availableHeight = height - inset * 2 - gap;
-    const heightScale =
-      desiredHeightPx > 0
-        ? Math.min(1, availableHeight / (2 * desiredHeightPx))
-        : 1;
-    const zoneHeightPx = Math.round(desiredHeightPx * heightScale);
+    const availableHeight = height - inset * 2;
+    const desiredHeightPx = Math.round(shortSide * 0.4);
+    const zoneHeightPx = Math.min(
+      desiredHeightPx,
+      Math.floor(availableHeight / 2),
+    );
     const desiredWidthPx = Math.round(width * 0.25);
     const maxWidthPx = Math.max(0, Math.floor((width - inset * 2) / 2));
     const zoneWidthPx = Math.max(
       120,
       Math.min(desiredWidthPx, maxWidthPx),
     );
+    const blockHeightPx = zoneHeightPx * 2;
+    const blockTopPx =
+      inset + Math.max(0, Math.floor((availableHeight - blockHeightPx) / 2));
     const leftSlot = localSlotOrder[0] ?? 0;
     const rightSlot = localSlotOrder[1] ?? 1;
 
@@ -318,7 +319,7 @@ export class MultiInputManager {
       color: leftColor,
       style: {
         left: `${inset}px`,
-        top: `${inset}px`,
+        top: `${blockTopPx}px`,
         width: `${zoneWidthPx}px`,
         height: `${zoneHeightPx}px`,
         borderRadius: "12px",
@@ -332,7 +333,7 @@ export class MultiInputManager {
       color: leftColor,
       style: {
         left: `${inset}px`,
-        bottom: `${inset}px`,
+        top: `${blockTopPx + zoneHeightPx}px`,
         width: `${zoneWidthPx}px`,
         height: `${zoneHeightPx}px`,
         borderRadius: "12px",
@@ -348,7 +349,7 @@ export class MultiInputManager {
       color: rightColor,
       style: {
         right: `${inset}px`,
-        top: `${inset}px`,
+        top: `${blockTopPx}px`,
         width: `${zoneWidthPx}px`,
         height: `${zoneHeightPx}px`,
         borderRadius: "12px",
@@ -362,7 +363,7 @@ export class MultiInputManager {
       color: rightColor,
       style: {
         right: `${inset}px`,
-        bottom: `${inset}px`,
+        top: `${blockTopPx + zoneHeightPx}px`,
         width: `${zoneWidthPx}px`,
         height: `${zoneHeightPx}px`,
         borderRadius: "12px",
@@ -383,12 +384,25 @@ export class MultiInputManager {
     const width = bounds.width;
     const height = bounds.height;
     const inset = 8;
-    const gap = 10;
+    const gap = 0;
 
     // Zone sizing: diagonal corner edges
     const shortSide = Math.min(width, height);
-    const edgeLengthPx = Math.round(shortSide * 0.4);
-    const edgeThicknessPx = Math.round(shortSide * 0.14);
+    const desiredEdgeLengthPx = Math.round(shortSide * 0.4);
+    const desiredThicknessPx = Math.round(shortSide * 0.14);
+    const maxEdgeLengthWidth = Math.max(
+      0,
+      Math.floor((width - inset * 2) / 2),
+    );
+    const maxEdgeLengthHeight = Math.max(
+      0,
+      Math.floor((height - inset * 2 - desiredThicknessPx * 2) / 2),
+    );
+    const edgeLengthPx = Math.max(
+      0,
+      Math.min(desiredEdgeLengthPx, maxEdgeLengthWidth, maxEdgeLengthHeight),
+    );
+    const edgeThicknessPx = Math.min(desiredThicknessPx, shortSide * 0.2);
 
     for (let i = 0; i < count; i++) {
       const slot = localSlotOrder[i] ?? i;
