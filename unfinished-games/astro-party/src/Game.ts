@@ -11,6 +11,7 @@ import { Asteroid } from "./entities/Asteroid";
 import { PowerUp } from "./entities/PowerUp";
 import { LaserBeam } from "./entities/LaserBeam";
 import { Mine } from "./entities/Mine";
+import { HomingMissile } from "./entities/HomingMissile";
 import { AudioManager } from "./AudioManager";
 import { SettingsManager } from "./SettingsManager";
 import { PlayerManager } from "./managers/PlayerManager";
@@ -30,6 +31,7 @@ import {
   PowerUpState,
   LaserBeamState,
   MineState,
+  HomingMissileState,
   PowerUpType,
   PlayerPowerUp,
   GAME_CONFIG,
@@ -66,6 +68,7 @@ export class Game {
   private powerUps: PowerUp[] = [];
   private laserBeams: LaserBeam[] = [];
   private mines: Mine[] = [];
+  private homingMissiles: HomingMissile[] = [];
   private playerPowerUps: Map<string, PlayerPowerUp | null> = new Map();
 
   // Input state
@@ -80,13 +83,17 @@ export class Game {
   private networkPowerUps: PowerUpState[] = [];
   private networkLaserBeams: LaserBeamState[] = [];
   private networkMines: MineState[] = [];
+  private networkHomingMissiles: HomingMissileState[] = [];
   private networkRotationDirection: number = 1;
 
   // Track which mines have exploded on client (for effects)
   private clientExplodedMines: Set<string> = new Set();
-  
+
   // Track ship positions for debris effects on client
-  private clientShipPositions: Map<string, { x: number; y: number; color: string }> = new Map();
+  private clientShipPositions: Map<
+    string,
+    { x: number; y: number; color: string }
+  > = new Map();
 
   // Global rotation direction (1 = normal/cw, -1 = reversed/ccw)
   private rotationDirection: number = 1;
@@ -386,6 +393,15 @@ export class Game {
     });
 
     this.input.setup();
+    
+    // Set up dev mode toggle callback
+    this.input.setDevModeCallback((enabled) => {
+      this.renderer.setDevMode(enabled);
+      // Sync dev mode state across multiplayer
+      if (this.network.isHost()) {
+        this.network.broadcastDevMode(enabled);
+      }
+    });
   }
 
   // ============= ASTEROID & POWERUP LOGIC =============
@@ -664,16 +680,20 @@ export class Game {
     if (Math.random() > GAME_CONFIG.POWERUP_DROP_CHANCE) return;
     const rand = Math.random();
     let type: PowerUpType;
-    if (rand < 0.2) {
+    if (rand < 0.16) {
       type = "LASER";
-    } else if (rand < 0.4) {
+    } else if (rand < 0.32) {
       type = "SHIELD";
-    } else if (rand < 0.6) {
+    } else if (rand < 0.48) {
       type = "SCATTER";
-    } else if (rand < 0.8) {
+    } else if (rand < 0.64) {
       type = "MINE";
-    } else {
+    } else if (rand < 0.8) {
       type = "REVERSE";
+    } else if (rand < 0.9) {
+      type = "JOUST";
+    } else {
+      type = "HOMING_MISSILE";
     }
     const powerUp = new PowerUp(this.physics, x, y, type);
     this.powerUps.push(powerUp);
@@ -715,8 +735,28 @@ export class Game {
     } else if (type === "REVERSE") {
       // Toggle global rotation direction for all ships
       this.rotationDirection *= -1;
-      console.log(`[Game] Rotation direction changed to: ${this.rotationDirection === 1 ? "clockwise" : "counter-clockwise"}`);
+      console.log(
+        `[Game] Rotation direction changed to: ${this.rotationDirection === 1 ? "clockwise" : "counter-clockwise"}`,
+      );
       // Don't add to playerPowerUps since it's a global effect
+    } else if (type === "JOUST") {
+      this.playerPowerUps.set(playerId, {
+        type: "JOUST",
+        charges: 0,
+        maxCharges: 0,
+        lastFireTime: 0,
+        shieldHits: 0,
+        leftSwordActive: true,
+        rightSwordActive: true,
+      });
+    } else if (type === "HOMING_MISSILE") {
+      this.playerPowerUps.set(playerId, {
+        type: "HOMING_MISSILE",
+        charges: 1,
+        maxCharges: 1,
+        lastFireTime: 0,
+        shieldHits: 0,
+      });
     }
   }
 
@@ -842,88 +882,88 @@ export class Game {
 
   private explodeMine(mine: Mine, triggeredByPlayerId?: string): void {
     if (!this.network.isHost()) return;
-    
+
     // Mark mine as exploded - this will sync to clients immediately
     mine.explode();
-    
+
     const explosionRadius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS;
     const mineX = mine.x;
     const mineY = mine.y;
-    
+
     // Trigger mine explosion effect on host (synced to clients via network state)
     this.renderer.spawnMineExplosion(mineX, mineY, explosionRadius);
     this.renderer.addScreenShake(15, 0.4);
     SettingsManager.triggerHaptic("heavy");
-    
+
     // Track if any ships were destroyed
     let shipsDestroyed = 0;
-    
+
     // IMMEDIATELY destroy the triggering ship and any ships in radius
     // Both mine and ship animations play simultaneously
     this.ships.forEach((ship, shipPlayerId) => {
       if (!ship.alive) return;
-      
+
       const dx = ship.body.position.x - mineX;
       const dy = ship.body.position.y - mineY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      
+
       // Destroy triggering ship or ships in explosion radius
       if (shipPlayerId === triggeredByPlayerId || dist <= explosionRadius) {
         shipsDestroyed++;
         const pos = ship.body.position;
-        
+
         // Spawn ship explosion and debris immediately
         this.renderer.spawnExplosion(pos.x, pos.y, ship.color.primary);
         this.renderer.spawnShipDebris(pos.x, pos.y, ship.color.primary);
         this.renderer.addScreenShake(10, 0.3);
-        
+
         // Destroy ship without creating pilot (mine instantly kills)
         ship.destroy();
         this.ships.delete(shipPlayerId);
         this.playerPowerUps.delete(shipPlayerId);
-        
+
         // Set player as spectating (eliminated)
         const player = this.playerMgr.players.get(shipPlayerId);
         if (player) {
           player.state = "SPECTATING";
           this.network.updatePlayerState(shipPlayerId, "SPECTATING");
         }
-        
+
         this.network.broadcastGameSound("explosion", shipPlayerId);
         SettingsManager.triggerHaptic("heavy");
       }
     });
-    
+
     // Destroy pilots in explosion radius
     this.pilots.forEach((pilot, pilotPlayerId) => {
       if (!pilot.alive) return;
-      
+
       const dx = pilot.body.position.x - mineX;
       const dy = pilot.body.position.y - mineY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      
+
       if (dist <= explosionRadius) {
         const pos = pilot.body.position;
         this.renderer.spawnExplosion(pos.x, pos.y, "#ff0000");
         this.renderer.addScreenShake(8, 0.2);
-        
+
         pilot.destroy();
         this.pilots.delete(pilotPlayerId);
-        
+
         const player = this.playerMgr.players.get(pilotPlayerId);
         if (player) {
           player.state = "SPECTATING";
           this.network.updatePlayerState(pilotPlayerId, "SPECTATING");
         }
-        
+
         this.network.broadcastGameSound("kill", pilotPlayerId);
         SettingsManager.triggerHaptic("error");
       }
     });
-    
+
     // Update player list to show eliminations
     this.emitPlayersUpdate();
-    
+
     // Wait for both mine explosion (500ms) and ship debris (up to 1400ms) animations
     // Plus extra time to see the aftermath
     setTimeout(() => {
@@ -936,23 +976,435 @@ export class Game {
 
   private checkMineCollisions(): void {
     if (!this.network.isHost()) return;
-    
+
+    // Mine detection radius - increased when dev mode is on for testing
+    const baseMineRadius = GAME_CONFIG.POWERUP_MINE_SIZE + 25;
+    const devModeMultiplier = this.isDevModeEnabled() ? 3 : 1; // Triple radius in dev mode
+    const mineDetectionRadius = baseMineRadius * devModeMultiplier;
+
     for (const mine of this.mines) {
       if (!mine.alive || mine.exploded) continue;
-      
-      // Check collision with all ships except the owner
+
+      // Check collision with all ships
       for (const [shipPlayerId, ship] of this.ships) {
-        if (!ship.alive || shipPlayerId === mine.ownerId) continue;
-        
+        if (!ship.alive) continue;
+
         const dx = ship.body.position.x - mine.x;
         const dy = ship.body.position.y - mine.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        // Mine size + ship radius (approx 25)
-        if (dist <= GAME_CONFIG.POWERUP_MINE_SIZE + 25) {
-          // Trigger explosion immediately - ship will be destroyed as part of explosion
-          this.explodeMine(mine, shipPlayerId);
+
+        if (dist <= mineDetectionRadius) {
+          if (shipPlayerId !== mine.ownerId) {
+            // Other player touched the mine - explode!
+            this.explodeMine(mine, shipPlayerId);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  private updateHomingMissiles(dt: number): void {
+    if (!this.network.isHost()) return;
+
+    // Create ship position map for targeting
+    const shipPositions = new Map<
+      string,
+      { x: number; y: number; alive: boolean }
+    >();
+    this.ships.forEach((ship, playerId) => {
+      shipPositions.set(playerId, {
+        x: ship.body.position.x,
+        y: ship.body.position.y,
+        alive: ship.alive,
+      });
+    });
+
+    for (const missile of this.homingMissiles) {
+      if (!missile.alive) continue;
+      missile.update(dt, shipPositions);
+    }
+  }
+
+  private checkHomingMissileCollisions(): void {
+    if (!this.network.isHost()) return;
+
+    for (const missile of this.homingMissiles) {
+      if (!missile.alive) continue;
+
+      // Check collision with ships
+      for (const [shipPlayerId, ship] of this.ships) {
+        if (!ship.alive || shipPlayerId === missile.ownerId) continue;
+
+        const dx = ship.body.position.x - missile.x;
+        const dy = ship.body.position.y - missile.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Missile radius (approx 6) + ship radius (approx 25)
+        if (dist <= 31) {
+          // Check if ship has shield or joust
+          const powerUp = this.playerPowerUps.get(shipPlayerId);
+          if (powerUp?.type === "SHIELD") {
+            powerUp.shieldHits++;
+            missile.destroy();
+            this.renderer.addScreenShake(3, 0.1);
+            if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
+              this.renderer.spawnShieldBreakDebris(
+                ship.body.position.x,
+                ship.body.position.y,
+              );
+              this.playerPowerUps.delete(shipPlayerId);
+              SettingsManager.triggerHaptic("medium");
+            }
+          } else if (powerUp?.type === "JOUST") {
+            // Check which side of joust was hit
+            const shipAngle = ship.body.angle;
+            const relativeAngle = Math.atan2(dy, dx) - shipAngle;
+            const normalizedAngle = Math.atan2(
+              Math.sin(relativeAngle),
+              Math.cos(relativeAngle),
+            );
+
+            // Left side is roughly PI/2 to -PI/2 (facing left of ship)
+            // Right side is the opposite
+            const isLeftSide = normalizedAngle > 0;
+
+            if (isLeftSide && powerUp.leftSwordActive) {
+              powerUp.leftSwordActive = false;
+              missile.destroy();
+              this.renderer.addScreenShake(5, 0.15);
+              SettingsManager.triggerHaptic("medium");
+            } else if (!isLeftSide && powerUp.rightSwordActive) {
+              powerUp.rightSwordActive = false;
+              missile.destroy();
+              this.renderer.addScreenShake(5, 0.15);
+              SettingsManager.triggerHaptic("medium");
+            } else {
+              // No active sword on that side - destroy ship
+              this.flowMgr.destroyShip(
+                shipPlayerId,
+                this.ships,
+                this.pilots,
+                this.playerMgr.players,
+              );
+              this.playerPowerUps.delete(shipPlayerId);
+              missile.destroy();
+            }
+
+            // Remove joust if both swords are gone
+            if (!powerUp.leftSwordActive && !powerUp.rightSwordActive) {
+              this.playerPowerUps.delete(shipPlayerId);
+            }
+          } else {
+            // No protection - destroy ship
+            this.flowMgr.destroyShip(
+              shipPlayerId,
+              this.ships,
+              this.pilots,
+              this.playerMgr.players,
+            );
+            this.playerPowerUps.delete(shipPlayerId);
+            missile.destroy();
+
+            // Spawn explosion effect
+            this.renderer.spawnExplosion(missile.x, missile.y, "#ff4400");
+            this.renderer.addScreenShake(10, 0.3);
+          }
           break;
+        }
+      }
+
+      if (!missile.alive) continue;
+
+      // Check collision with asteroids
+      for (let i = this.asteroids.length - 1; i >= 0; i--) {
+        const asteroid = this.asteroids[i];
+        if (!asteroid.alive) continue;
+
+        const dx = asteroid.body.position.x - missile.x;
+        const dy = asteroid.body.position.y - missile.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= asteroid.size + 6) {
+          // Destroy asteroid
+          const pos = asteroid.body.position;
+          this.renderer.spawnExplosion(
+            pos.x,
+            pos.y,
+            GAME_CONFIG.ASTEROID_COLOR,
+          );
+          this.renderer.spawnAsteroidDebris(
+            pos.x,
+            pos.y,
+            asteroid.size,
+            GAME_CONFIG.ASTEROID_COLOR,
+          );
+          this.renderer.addScreenShake(8, 0.2);
+
+          asteroid.destroy();
+          this.asteroids.splice(i, 1);
+
+          if (asteroid.isLarge()) {
+            this.splitAsteroid(asteroid, pos.x, pos.y);
+          } else {
+            this.trySpawnPowerUp(pos.x, pos.y);
+          }
+
+          missile.destroy();
+          break;
+        }
+      }
+    }
+  }
+
+  private checkJoustCollisions(): void {
+    if (!this.network.isHost()) return;
+
+    // Check Joust sword-to-ship collisions
+    for (const [playerId, powerUp] of this.playerPowerUps) {
+      if (powerUp?.type !== "JOUST") continue;
+
+      const ship = this.ships.get(playerId);
+      if (!ship || !ship.alive) continue;
+
+      const shipX = ship.body.position.x;
+      const shipY = ship.body.position.y;
+      const shipAngle = ship.body.angle;
+
+      // Calculate sword positions relative to ship
+      // Swords are now at 10-degree angles from back corners with offset
+      const swordLength = GAME_CONFIG.POWERUP_JOUST_SIZE;
+      const size = 15;
+      const cornerOffset = 8; // Space at back corners
+
+      // Ship triangle vertices (relative to center, rotated by ship angle)
+      const noseX = shipX + Math.cos(shipAngle) * size;
+      const noseY = shipY + Math.sin(shipAngle) * size;
+      const topWingX =
+        shipX +
+        Math.cos(shipAngle) * (-size * 0.7) +
+        Math.cos(shipAngle - Math.PI / 2) * (-size * 0.6);
+      const topWingY =
+        shipY +
+        Math.sin(shipAngle) * (-size * 0.7) +
+        Math.sin(shipAngle - Math.PI / 2) * (-size * 0.6);
+      const bottomWingX =
+        shipX +
+        Math.cos(shipAngle) * (-size * 0.7) +
+        Math.cos(shipAngle + Math.PI / 2) * (-size * 0.6);
+      const bottomWingY =
+        shipY +
+        Math.sin(shipAngle) * (-size * 0.7) +
+        Math.sin(shipAngle + Math.PI / 2) * (-size * 0.6);
+
+      // Left sword: starts at left back corner with offset, extends at 0 degrees (straight forward)
+      const leftSwordAngle = shipAngle;
+      // Apply offset backward from ship direction
+      const leftSwordStartX = topWingX - Math.cos(shipAngle) * cornerOffset;
+      const leftSwordStartY = topWingY - Math.sin(shipAngle) * cornerOffset;
+      const leftSwordEndX =
+        leftSwordStartX + Math.cos(leftSwordAngle) * swordLength;
+      const leftSwordEndY =
+        leftSwordStartY + Math.sin(leftSwordAngle) * swordLength;
+
+      // Right sword: starts at right back corner with offset, extends at +10 degrees from ship
+      const rightSwordAngle = shipAngle + Math.PI / 18;
+      // Apply offset backward from ship direction
+      const rightSwordStartX = bottomWingX - Math.cos(shipAngle) * cornerOffset;
+      const rightSwordStartY = bottomWingY - Math.sin(shipAngle) * cornerOffset;
+      const rightSwordEndX =
+        rightSwordStartX + Math.cos(rightSwordAngle) * swordLength;
+      const rightSwordEndY =
+        rightSwordStartY + Math.sin(rightSwordAngle) * swordLength;
+
+      // Calculate sword center points for collision detection
+      const leftSwordCenterX = (leftSwordStartX + leftSwordEndX) / 2;
+      const leftSwordCenterY = (leftSwordStartY + leftSwordEndY) / 2;
+      const rightSwordCenterX = (rightSwordStartX + rightSwordEndX) / 2;
+      const rightSwordCenterY = (rightSwordStartY + rightSwordEndY) / 2;
+
+      // Check collision with other ships
+      for (const [otherPlayerId, otherShip] of this.ships) {
+        if (otherPlayerId === playerId || !otherShip.alive) continue;
+
+        const otherX = otherShip.body.position.x;
+        const otherY = otherShip.body.position.y;
+
+        // Check left sword collision (using center point)
+        if (powerUp.leftSwordActive) {
+          const dx = otherX - leftSwordCenterX;
+          const dy = otherY - leftSwordCenterY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Sword hitbox: length/2 + ship radius
+          if (dist <= swordLength / 2 + 20) {
+            // Destroy other ship
+            this.flowMgr.destroyShip(
+              otherPlayerId,
+              this.ships,
+              this.pilots,
+              this.playerMgr.players,
+            );
+            this.playerPowerUps.delete(otherPlayerId);
+
+            // Left sword falls off
+            powerUp.leftSwordActive = false;
+            this.renderer.addScreenShake(8, 0.25);
+            SettingsManager.triggerHaptic("heavy");
+
+            // Spawn debris for fallen sword at the start position (back corner)
+            this.renderer.spawnShipDebris(
+              leftSwordStartX,
+              leftSwordStartY,
+              "#00ff44",
+            );
+          }
+        }
+
+        // Check right sword collision (using center point)
+        if (powerUp.rightSwordActive) {
+          const dx = otherX - rightSwordCenterX;
+          const dy = otherY - rightSwordCenterY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist <= swordLength / 2 + 20) {
+            // Destroy other ship
+            this.flowMgr.destroyShip(
+              otherPlayerId,
+              this.ships,
+              this.pilots,
+              this.playerMgr.players,
+            );
+            this.playerPowerUps.delete(otherPlayerId);
+
+            // Right sword falls off
+            powerUp.rightSwordActive = false;
+            this.renderer.addScreenShake(8, 0.25);
+            SettingsManager.triggerHaptic("heavy");
+
+            // Spawn debris for fallen sword at the start position (back corner)
+            this.renderer.spawnShipDebris(
+              rightSwordStartX,
+              rightSwordStartY,
+              "#00ff44",
+            );
+          }
+        }
+
+        // Remove joust if both swords are gone
+        if (!powerUp.leftSwordActive && !powerUp.rightSwordActive) {
+          this.playerPowerUps.delete(playerId);
+          break;
+        }
+      }
+
+      if (!powerUp || powerUp.type !== "JOUST") continue;
+
+      // Check sword-to-projectile collisions (block bullets)
+      for (let i = this.projectiles.length - 1; i >= 0; i--) {
+        const projectile = this.projectiles[i];
+        if (projectile.ownerId === playerId) continue; // Don't block own bullets
+
+        const projX = projectile.body.position.x;
+        const projY = projectile.body.position.y;
+
+        // Check left sword collision with projectile
+        if (powerUp.leftSwordActive) {
+          const dx = projX - leftSwordCenterX;
+          const dy = projY - leftSwordCenterY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist <= swordLength / 2 + 8) {
+            // Block projectile
+            this.flowMgr.removeProjectileByBody(
+              projectile.body,
+              this.projectiles,
+            );
+            this.renderer.spawnExplosion(projX, projY, "#00ff44");
+            continue;
+          }
+        }
+
+        // Check right sword collision with projectile
+        if (powerUp.rightSwordActive) {
+          const dx = projX - rightSwordCenterX;
+          const dy = projY - rightSwordCenterY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist <= swordLength / 2 + 8) {
+            // Block projectile
+            this.flowMgr.removeProjectileByBody(
+              projectile.body,
+              this.projectiles,
+            );
+            this.renderer.spawnExplosion(projX, projY, "#00ff44");
+          }
+        }
+      }
+
+      if (!powerUp || powerUp.type !== "JOUST") continue;
+
+      // Check sword-to-asteroid collisions (destroy asteroids, swords stay intact)
+      for (let i = this.asteroids.length - 1; i >= 0; i--) {
+        const asteroid = this.asteroids[i];
+        if (!asteroid.alive) continue;
+
+        const asteroidX = asteroid.body.position.x;
+        const asteroidY = asteroid.body.position.y;
+
+        let asteroidDestroyed = false;
+        let hitByLeftSword = false;
+        let hitByRightSword = false;
+
+        // Check left sword collision - swords destroy asteroids but don't break
+        if (powerUp.leftSwordActive && !asteroidDestroyed) {
+          const dx = asteroidX - leftSwordCenterX;
+          const dy = asteroidY - leftSwordCenterY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist <= swordLength / 2 + asteroid.size) {
+            asteroidDestroyed = true;
+            hitByLeftSword = true;
+            this.renderer.addScreenShake(3, 0.1);
+          }
+        }
+
+        // Check right sword collision - swords destroy asteroids but don't break
+        if (powerUp.rightSwordActive && !asteroidDestroyed) {
+          const dx = asteroidX - rightSwordCenterX;
+          const dy = asteroidY - rightSwordCenterY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist <= swordLength / 2 + asteroid.size) {
+            asteroidDestroyed = true;
+            hitByRightSword = true;
+            this.renderer.addScreenShake(3, 0.1);
+          }
+        }
+
+        if (asteroidDestroyed) {
+          // Destroy asteroid
+          const pos = asteroid.body.position;
+          this.renderer.spawnExplosion(
+            pos.x,
+            pos.y,
+            GAME_CONFIG.ASTEROID_COLOR,
+          );
+          this.renderer.spawnAsteroidDebris(
+            pos.x,
+            pos.y,
+            asteroid.size,
+            GAME_CONFIG.ASTEROID_COLOR,
+          );
+
+          asteroid.destroy();
+          this.asteroids.splice(i, 1);
+
+          if (asteroid.isLarge()) {
+            this.splitAsteroid(asteroid, pos.x, pos.y);
+          } else {
+            this.trySpawnPowerUp(pos.x, pos.y);
+          }
         }
       }
     }
@@ -1150,8 +1602,13 @@ export class Game {
           this.applyRoundResult(payload);
         }
       },
+
+      onDevModeReceived: (enabled) => {
+        this.setDevModeFromNetwork(enabled);
+        
       onAdvancedSettingsReceived: (payload) => {
         this.applyModeStateFromNetwork(payload);
+
       },
     });
   }
@@ -1230,6 +1687,9 @@ export class Game {
     this.mines.forEach((mine) => mine.destroy());
     this.mines = [];
 
+    this.homingMissiles.forEach((missile) => missile.destroy());
+    this.homingMissiles = [];
+
     this.playerPowerUps.clear();
 
     // Reset rotation direction
@@ -1247,12 +1707,13 @@ export class Game {
     this.networkPowerUps = [];
     this.networkLaserBeams = [];
     this.networkMines = [];
+    this.networkHomingMissiles = [];
     this.networkRotationDirection = 1;
-    
+
     // Clear client tracking
     this.clientExplodedMines.clear();
     this.clientShipPositions.clear();
-    
+
     this.roundResult = null;
   }
 
@@ -1288,6 +1749,9 @@ export class Game {
 
     this.mines.forEach((mine) => mine.destroy());
     this.mines = [];
+
+    this.homingMissiles.forEach((missile) => missile.destroy());
+    this.homingMissiles = [];
 
     this.playerPowerUps.clear();
 
@@ -1375,8 +1839,16 @@ export class Game {
           console.log("[Dev] Granting MINE powerup");
           this.grantPowerUp(myPlayerId, "MINE");
         }
+        if (devKeys.joust) {
+          console.log("[Dev] Granting JOUST powerup");
+          this.grantPowerUp(myPlayerId, "JOUST");
+        }
+        if (devKeys.homing) {
+          console.log("[Dev] Granting HOMING_MISSILE powerup");
+          this.grantPowerUp(myPlayerId, "HOMING_MISSILE");
+        }
       }
-      
+
       // Reverse can be triggered even with existing power-up since it's global
       if (devKeys.reverse) {
         console.log("[Dev] Toggling REVERSE rotation");
@@ -1445,113 +1917,171 @@ export class Game {
           }
         }
 
-        const fireResult = ship.applyInput(input, shouldDash, dt, this.rotationDirection);
+        // Check if player has joust for speed boost
+        const playerPowerUp = this.playerPowerUps.get(playerId);
+        const hasJoust = playerPowerUp?.type === "JOUST";
+        const speedMultiplier = hasJoust ? 1.4 : 1;
+
+        const fireResult = ship.applyInput(
+          input,
+          shouldDash,
+          dt,
+          this.rotationDirection,
+          speedMultiplier,
+        );
         if (fireResult?.shouldFire) {
-          const firePos = ship.getFirePosition();
+          // Cannot shoot when joust is active
+          if (playerPowerUp?.type === "JOUST") {
+            // Joust melee only - no shooting
+          } else {
+            const firePos = ship.getFirePosition();
 
-          // Check if player has a power-up
-          const playerPowerUp = this.playerPowerUps.get(playerId);
+            // Check if player has a power-up
 
-          if (playerPowerUp?.type === "LASER" && playerPowerUp.charges > 0) {
-            const fireNow = Date.now();
-            if (
-              fireNow - playerPowerUp.lastFireTime >
-              GAME_CONFIG.POWERUP_LASER_COOLDOWN
+            if (playerPowerUp?.type === "LASER" && playerPowerUp.charges > 0) {
+              const fireNow = Date.now();
+              if (
+                fireNow - playerPowerUp.lastFireTime >
+                GAME_CONFIG.POWERUP_LASER_COOLDOWN
+              ) {
+                playerPowerUp.lastFireTime = fireNow;
+                playerPowerUp.charges--;
+
+                const beam = new LaserBeam(
+                  playerId,
+                  firePos.x,
+                  firePos.y,
+                  fireResult.fireAngle,
+                );
+                this.laserBeams.push(beam);
+
+                this.applyLaserDamage(
+                  playerId,
+                  firePos.x,
+                  firePos.y,
+                  fireResult.fireAngle,
+                );
+                this.network.broadcastGameSound("fire", playerId);
+                SettingsManager.triggerHaptic("heavy");
+
+                if (playerPowerUp.charges <= 0) {
+                  this.playerPowerUps.delete(playerId);
+                }
+              }
+            } else if (
+              playerPowerUp?.type === "SCATTER" &&
+              playerPowerUp.charges > 0
             ) {
-              playerPowerUp.lastFireTime = fireNow;
+              const fireNow = Date.now();
+              if (
+                fireNow - playerPowerUp.lastFireTime >
+                GAME_CONFIG.POWERUP_SCATTER_COOLDOWN
+              ) {
+                playerPowerUp.lastFireTime = fireNow;
+                playerPowerUp.charges--;
+
+                // Fire 3 projectiles in triangle pattern: -15°, 0°, +15°
+                const angles = [
+                  fireResult.fireAngle -
+                    (GAME_CONFIG.POWERUP_SCATTER_ANGLE_1 * Math.PI) / 180,
+                  fireResult.fireAngle,
+                  fireResult.fireAngle +
+                    (GAME_CONFIG.POWERUP_SCATTER_ANGLE_1 * Math.PI) / 180,
+                ];
+
+                for (const angle of angles) {
+                  const projectile = new Projectile(
+                    this.physics,
+                    firePos.x,
+                    firePos.y,
+                    angle,
+                    playerId,
+                    GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_SPEED,
+                    GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_LIFETIME,
+                  );
+                  this.projectiles.push(projectile);
+                }
+
+                this.network.broadcastGameSound("fire", playerId);
+                SettingsManager.triggerHaptic("medium");
+
+                if (playerPowerUp.charges <= 0) {
+                  this.playerPowerUps.delete(playerId);
+                }
+              }
+            } else if (
+              playerPowerUp?.type === "MINE" &&
+              playerPowerUp.charges > 0
+            ) {
+              // Deploy mine instead of firing
               playerPowerUp.charges--;
 
-              const beam = new LaserBeam(
-                playerId,
-                firePos.x,
-                firePos.y,
-                fireResult.fireAngle,
-              );
-              this.laserBeams.push(beam);
+              // Spawn mine slightly behind the ship
+              const mineOffset = 30;
+              const mineX =
+                firePos.x - Math.cos(fireResult.fireAngle) * mineOffset;
+              const mineY =
+                firePos.y - Math.sin(fireResult.fireAngle) * mineOffset;
 
-              this.applyLaserDamage(
+              const mine = new Mine(playerId, mineX, mineY);
+              this.mines.push(mine);
+
+              this.network.broadcastGameSound("fire", playerId);
+              SettingsManager.triggerHaptic("light");
+
+              if (playerPowerUp.charges <= 0) {
+                this.playerPowerUps.delete(playerId);
+              }
+            } else if (
+              playerPowerUp?.type === "HOMING_MISSILE" &&
+              playerPowerUp.charges > 0
+            ) {
+              // Fire homing missile
+              playerPowerUp.charges--;
+
+              const missile = new HomingMissile(
                 playerId,
                 firePos.x,
                 firePos.y,
                 fireResult.fireAngle,
               );
+              this.homingMissiles.push(missile);
+
               this.network.broadcastGameSound("fire", playerId);
               SettingsManager.triggerHaptic("heavy");
 
               if (playerPowerUp.charges <= 0) {
                 this.playerPowerUps.delete(playerId);
               }
-            }
-          } else if (playerPowerUp?.type === "SCATTER" && playerPowerUp.charges > 0) {
-            const fireNow = Date.now();
-            if (
-              fireNow - playerPowerUp.lastFireTime >
-              GAME_CONFIG.POWERUP_SCATTER_COOLDOWN
-            ) {
-              playerPowerUp.lastFireTime = fireNow;
-              playerPowerUp.charges--;
-
-              // Fire 3 projectiles in triangle pattern: -15°, 0°, +15°
-              const angles = [
-                fireResult.fireAngle - (GAME_CONFIG.POWERUP_SCATTER_ANGLE_1 * Math.PI / 180),
+            } else {
+              // Regular projectile
+              const projectile = new Projectile(
+                this.physics,
+                firePos.x,
+                firePos.y,
                 fireResult.fireAngle,
-                fireResult.fireAngle + (GAME_CONFIG.POWERUP_SCATTER_ANGLE_1 * Math.PI / 180),
-              ];
-
-              for (const angle of angles) {
-                const projectile = new Projectile(
-                  this.physics,
-                  firePos.x,
-                  firePos.y,
-                  angle,
-                  playerId,
-                  GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_SPEED,
-                  GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_LIFETIME,
-                );
-                this.projectiles.push(projectile);
-              }
-
+                playerId,
+              );
+              this.projectiles.push(projectile);
               this.network.broadcastGameSound("fire", playerId);
-              SettingsManager.triggerHaptic("medium");
-
-              if (playerPowerUp.charges <= 0) {
-                this.playerPowerUps.delete(playerId);
-              }
             }
-          } else if (playerPowerUp?.type === "MINE" && playerPowerUp.charges > 0) {
-            // Deploy mine instead of firing
-            playerPowerUp.charges--;
-            
-            // Spawn mine slightly behind the ship
-            const mineOffset = 30;
-            const mineX = firePos.x - Math.cos(fireResult.fireAngle) * mineOffset;
-            const mineY = firePos.y - Math.sin(fireResult.fireAngle) * mineOffset;
-            
-            const mine = new Mine(playerId, mineX, mineY);
-            this.mines.push(mine);
-            
-            this.network.broadcastGameSound("fire", playerId);
-            SettingsManager.triggerHaptic("light");
-
-            if (playerPowerUp.charges <= 0) {
-              this.playerPowerUps.delete(playerId);
-            }
-          } else {
-            // Regular projectile
-            const projectile = new Projectile(
-              this.physics,
-              firePos.x,
-              firePos.y,
-              fireResult.fireAngle,
-              playerId,
-            );
-            this.projectiles.push(projectile);
-            this.network.broadcastGameSound("fire", playerId);
           }
         }
 
         if (shouldDash) {
           this.network.broadcastGameSound("dash", playerId);
+        }
+
+        // Spawn nitro particles when joust is active
+        const joustPowerUp = this.playerPowerUps.get(playerId);
+        if (joustPowerUp?.type === "JOUST") {
+          const shipAngle = ship.body.angle;
+          const tailX = ship.body.position.x - Math.cos(shipAngle) * 18;
+          const tailY = ship.body.position.y - Math.sin(shipAngle) * 18;
+
+          // Spawn nitro particles (orange/yellow fire) - more intense than regular thrust
+          const color = Math.random() > 0.4 ? "#ff6600" : "#ffee00";
+          this.renderer.spawnNitroParticle(tailX, tailY, color);
         }
       });
 
@@ -1629,6 +2159,22 @@ export class Game {
         }
       }
 
+      // Update homing missiles and check collisions
+      this.updateHomingMissiles(dt);
+      this.checkHomingMissileCollisions();
+      for (let i = this.homingMissiles.length - 1; i >= 0; i--) {
+        if (
+          this.homingMissiles[i].isExpired() ||
+          !this.homingMissiles[i].alive
+        ) {
+          this.homingMissiles[i].destroy();
+          this.homingMissiles.splice(i, 1);
+        }
+      }
+
+      // Check Joust collisions (sword-to-ship and sword-to-projectile)
+      this.checkJoustCollisions();
+
       // Broadcast state (throttled to sync rate)
       if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.broadcastState();
@@ -1655,6 +2201,7 @@ export class Game {
       powerUps: this.powerUps.map((p) => p.getState()),
       laserBeams: this.laserBeams.map((b) => b.getState()),
       mines: this.mines.map((m) => m.getState()),
+      homingMissiles: this.homingMissiles.map((m) => m.getState()),
       players: [...this.playerMgr.players.values()],
       playerPowerUps: playerPowerUpsRecord,
       rotationDirection: this.rotationDirection,
@@ -1670,7 +2217,7 @@ export class Game {
     this.emitPlayersUpdate();
 
     // Check for ships that were destroyed and trigger debris effects on client
-    const currentShipIds = new Set(state.ships.map(s => s.playerId));
+    const currentShipIds = new Set(state.ships.map((s) => s.playerId));
     for (const [playerId, shipData] of this.clientShipPositions) {
       if (!currentShipIds.has(playerId)) {
         // Ship was destroyed - spawn debris on client
@@ -1680,7 +2227,7 @@ export class Game {
         this.clientShipPositions.delete(playerId);
       }
     }
-    
+
     // Update ship positions for tracking
     for (const shipState of state.ships) {
       if (shipState.alive) {
@@ -1689,39 +2236,44 @@ export class Game {
         this.clientShipPositions.set(shipState.playerId, {
           x: shipState.x,
           y: shipState.y,
-          color
+          color,
         });
       }
     }
-    
+
     this.networkShips = state.ships;
     this.networkPilots = state.pilots;
     this.networkProjectiles = state.projectiles;
     this.networkAsteroids = state.asteroids;
     this.networkPowerUps = state.powerUps;
     this.networkLaserBeams = state.laserBeams;
-    
+    this.networkHomingMissiles = state.homingMissiles || [];
+
     // Check for mine explosions on client and trigger effects
     if (state.mines) {
       for (const mineState of state.mines) {
         if (mineState.exploded && !this.clientExplodedMines.has(mineState.id)) {
           // Mine just exploded - trigger effect on client
           this.clientExplodedMines.add(mineState.id);
-          this.renderer.spawnMineExplosion(mineState.x, mineState.y, GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS);
+          this.renderer.spawnMineExplosion(
+            mineState.x,
+            mineState.y,
+            GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS,
+          );
           this.renderer.addScreenShake(15, 0.4);
           SettingsManager.triggerHaptic("heavy");
         }
       }
-      
+
       // Clean up old mine IDs that no longer exist
-      const currentMineIds = new Set(state.mines.map(m => m.id));
+      const currentMineIds = new Set(state.mines.map((m) => m.id));
       for (const mineId of this.clientExplodedMines) {
         if (!currentMineIds.has(mineId)) {
           this.clientExplodedMines.delete(mineId);
         }
       }
     }
-    
+
     this.networkMines = state.mines;
     this.networkRotationDirection = state.rotationDirection ?? 1;
 
@@ -1830,6 +2382,14 @@ export class Game {
                       GAME_CONFIG.POWERUP_SCATTER_COOLDOWN,
                   )
                 : undefined;
+            // Joust powerup data
+            const joustLeftActive =
+              powerUp?.type === "JOUST" ? powerUp.leftSwordActive : undefined;
+            const joustRightActive =
+              powerUp?.type === "JOUST" ? powerUp.rightSwordActive : undefined;
+            // Homing missile powerup data
+            const homingMissileCharges =
+              powerUp?.type === "HOMING_MISSILE" ? powerUp.charges : undefined;
             this.renderer.drawShip(
               ship.getState(),
               ship.color,
@@ -1838,6 +2398,9 @@ export class Game {
               laserCooldownProgress,
               scatterCharges,
               scatterCooldownProgress,
+              joustLeftActive,
+              joustRightActive,
+              homingMissileCharges,
             );
           }
         });
@@ -1871,6 +2434,18 @@ export class Game {
                         GAME_CONFIG.POWERUP_SCATTER_COOLDOWN,
                     )
                   : undefined;
+              // Joust powerup data
+              const joustLeftActive =
+                powerUp?.type === "JOUST" ? powerUp.leftSwordActive : undefined;
+              const joustRightActive =
+                powerUp?.type === "JOUST"
+                  ? powerUp.rightSwordActive
+                  : undefined;
+              // Homing missile powerup data
+              const homingMissileCharges =
+                powerUp?.type === "HOMING_MISSILE"
+                  ? powerUp.charges
+                  : undefined;
               this.renderer.drawShip(
                 state,
                 player.color,
@@ -1879,6 +2454,9 @@ export class Game {
                 laserCooldownProgress,
                 scatterCharges,
                 scatterCooldownProgress,
+                joustLeftActive,
+                joustRightActive,
+                homingMissileCharges,
               );
             }
           }
@@ -1975,6 +2553,64 @@ export class Game {
             this.renderer.drawMineState(state);
           }
         });
+      }
+
+      // Draw homing missiles
+      if (isHost) {
+        this.homingMissiles.forEach((missile) => {
+          if (missile.alive) {
+            this.renderer.drawHomingMissile(missile.getState());
+          }
+        });
+      } else {
+        this.networkHomingMissiles.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawHomingMissile(state);
+          }
+        });
+      }
+
+      // Draw dev mode visualization (debug circles for homing missile and mine radii)
+      if (this.isDevModeEnabled()) {
+        // Draw homing missile detection radius for all active missiles
+        if (isHost) {
+          this.homingMissiles.forEach((missile) => {
+            if (missile.alive) {
+              const state = missile.getState();
+              this.renderer.drawHomingMissileDetectionRadius(
+                state.x,
+                state.y,
+                GAME_CONFIG.POWERUP_HOMING_MISSILE_DETECTION_RADIUS,
+              );
+            }
+          });
+        } else {
+          this.networkHomingMissiles.forEach((state) => {
+            if (state.alive) {
+              this.renderer.drawHomingMissileDetectionRadius(
+                state.x,
+                state.y,
+                GAME_CONFIG.POWERUP_HOMING_MISSILE_DETECTION_RADIUS,
+              );
+            }
+          });
+        }
+
+        // Draw mine detection radius for all active mines
+        const mineDetectionRadius = GAME_CONFIG.POWERUP_MINE_SIZE + 33; // Collision radius
+        if (isHost) {
+          this.mines.forEach((mine) => {
+            if (mine.alive && !mine.exploded) {
+              this.renderer.drawMineDetectionRadius(mine.x, mine.y, mineDetectionRadius);
+            }
+          });
+        } else {
+          this.networkMines.forEach((state) => {
+            if (state.alive && !state.exploded) {
+              this.renderer.drawMineDetectionRadius(state.x, state.y, mineDetectionRadius);
+            }
+          });
+        }
       }
 
       this.renderer.drawParticles();
@@ -2261,6 +2897,30 @@ export class Game {
 
   setDevKeysEnabled(enabled: boolean): void {
     this.input.setDevKeysEnabled(enabled);
+  }
+
+  // Toggle dev mode visualization
+  toggleDevMode(): boolean {
+    const newState = this.input.toggleDevMode();
+    this.renderer.setDevMode(newState);
+    
+    // Sync dev mode state across multiplayer
+    if (this.network.isHost()) {
+      this.network.broadcastDevMode(newState);
+    }
+    
+    return newState;
+  }
+
+  // Get current dev mode state
+  isDevModeEnabled(): boolean {
+    return this.input.isDevModeEnabled();
+  }
+
+  // Called by network when receiving dev mode state from host
+  setDevModeFromNetwork(enabled: boolean): void {
+    this.renderer.setDevMode(enabled);
+    console.log("[Game] Dev mode synced from network:", enabled ? "ON" : "OFF");
   }
 
   // ============= TOUCH LAYOUT DELEGATION =============

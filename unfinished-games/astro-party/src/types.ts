@@ -106,7 +106,26 @@ export interface MineState {
   explosionTime: number;
 }
 
-export type PowerUpType = "LASER" | "SHIELD" | "SCATTER" | "MINE" | "REVERSE";
+export interface HomingMissileState {
+  id: string;
+  ownerId: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  spawnTime: number;
+  alive: boolean;
+}
+
+export type PowerUpType =
+  | "LASER"
+  | "SHIELD"
+  | "SCATTER"
+  | "MINE"
+  | "REVERSE"
+  | "JOUST"
+  | "HOMING_MISSILE";
 
 export type GameMode = "STANDARD" | "SANE" | "CHAOTIC" | "CUSTOM";
 export type BaseGameMode = Exclude<GameMode, "CUSTOM">;
@@ -117,6 +136,9 @@ export interface PlayerPowerUp {
   maxCharges: number;
   lastFireTime: number;
   shieldHits: number;
+  // Joust-specific fields
+  leftSwordActive?: boolean;
+  rightSwordActive?: boolean;
 }
 
 // ============= PLAYER =============
@@ -153,6 +175,7 @@ export interface GameStateSync {
   powerUps: PowerUpState[];
   laserBeams: LaserBeamState[];
   mines: MineState[];
+  homingMissiles: HomingMissileState[];
   players: PlayerData[];
   playerPowerUps: Record<string, PlayerPowerUp | null>;
   rotationDirection: number; // 1 for normal, -1 for reversed
@@ -324,7 +347,7 @@ export const GAME_CONFIG = {
   POWERUP_SHIELD_HITS: 2,
   POWERUP_BEAM_LENGTH: 800, // Beam length - long but not game-breaking
   POWERUP_BEAM_WIDTH: 8,
-  
+
   // Scatter Shot
   POWERUP_SCATTER_CHARGES: 3,
   POWERUP_SCATTER_COOLDOWN: 180, // ms (same as normal fire)
@@ -333,11 +356,23 @@ export const GAME_CONFIG = {
   POWERUP_SCATTER_ANGLE_3: 45, // degrees
   POWERUP_SCATTER_PROJECTILE_SPEED: 10, // Slower for short range
   POWERUP_SCATTER_PROJECTILE_LIFETIME: 600, // ms (very short range - shotgun feel)
-  
+
   // Proximity Mine
   POWERUP_MINE_DESPAWN_TIME: 30000, // ms (30 seconds)
   POWERUP_MINE_EXPLOSION_RADIUS: 150, // px
   POWERUP_MINE_SIZE: 12, // px
+
+  // Joust (Lightsaber)
+  POWERUP_JOUST_SIZE: 35, // Length of each lightsaber
+  POWERUP_JOUST_WIDTH: 4, // Width of lightsaber blade
+  POWERUP_JOUST_OFFSET: 22, // Distance from ship center
+
+  // Homing Missile
+  POWERUP_HOMING_MISSILE_SPEED: 9, // Slower than regular projectiles
+  POWERUP_HOMING_MISSILE_TURN_RATE: 2.5, // How fast it can turn (rad/s)
+  POWERUP_HOMING_MISSILE_LIFETIME: 4000, // ms (4 seconds)
+  POWERUP_HOMING_MISSILE_ACCURACY: 0.85, // 0-1, lower = easier to dodge
+  POWERUP_HOMING_MISSILE_DETECTION_RADIUS: 200, // px - radius to detect targets
 } as const;
 
 // Mutable version of GAME_CONFIG type (widens literal types from `as const`)

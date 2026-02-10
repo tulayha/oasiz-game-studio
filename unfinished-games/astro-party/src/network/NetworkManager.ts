@@ -43,6 +43,9 @@ export interface NetworkCallbacks {
   onPingReceived: (latencyMs: number) => void;
   onPlayerListReceived: (playerOrder: string[], meta?: PlayerMetaMap) => void;
   onRoundResultReceived: (payload: RoundResultPayload) => void;
+  
+  onDevModeReceived: (enabled: boolean) => void;
+
   onAdvancedSettingsReceived: (payload: AdvancedSettingsSync) => void;
 }
 
@@ -319,6 +322,11 @@ export class NetworkManager {
       }),
     );
 
+    // Handle dev mode state from host
+    this.cleanupFunctions.push(
+      RPC.register("devMode", async (enabled: boolean) => {
+        console.log("[NetworkManager] RPC devMode received:", enabled);
+        this.callbacks?.onDevModeReceived(enabled);
     // Handle advanced settings + mode sync from host
     this.cleanupFunctions.push(
       RPC.register("advancedSettings", async (payload: AdvancedSettingsSync) => {
@@ -417,6 +425,11 @@ export class NetworkManager {
     RPC.call("roundResult", payload, RPC.Mode.ALL);
   }
 
+  // Broadcast dev mode state via RPC
+  broadcastDevMode(enabled: boolean): void {
+    if (!isHost()) return;
+    console.log("[NetworkManager] Broadcasting dev mode:", enabled);
+    RPC.call("devMode", enabled, RPC.Mode.ALL);
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting advanced settings");

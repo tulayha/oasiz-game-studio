@@ -8,16 +8,20 @@ export class InputManager {
   buttonB = false;
   // Dev-only power-up keys (kept isolated for easy removal later)
   private devKeysEnabled = false;
+  private devModeEnabled = false; // Toggle for dev visualization mode (key "0")
   private devPowerUpKeys = {
     laser: false,
     shield: false,
     scatter: false,
     mine: false,
     reverse: false,
+    joust: false,
+    homing: false,
   };
   private wasButtonA = false;
   private lastButtonATime = 0;
   private onDashDetected: (() => void) | null = null;
+  private onDevModeToggle: ((enabled: boolean) => void) | null = null;
   private isMobile: boolean;
   private keyboardEnabled = true;
   private allowAltKeys = true;
@@ -56,7 +60,8 @@ export class InputManager {
         handled = true;
       }
       // Dev keys for testing powerups (1 = Laser, 2 = Shield, 3 = Scatter, 4 = Mine, 5 = Reverse)
-      // Dev keys for testing powerups (1-5, not numpad)
+      // Dev keys for testing powerups (1-7, not numpad)
+      // Dev mode toggle (0) for visualization
       if (this.handleDevKeyDown(e.code)) {
         e.preventDefault();
         handled = true;
@@ -200,6 +205,25 @@ export class InputManager {
     return tag === "input" || tag === "textarea" || tag === "select";
   }
 
+  // Set callback for dev mode toggle
+  setDevModeCallback(callback: (enabled: boolean) => void): void {
+    this.onDevModeToggle = callback;
+  }
+
+  // Toggle dev mode visualization (key "0")
+  toggleDevMode(): boolean {
+    this.devModeEnabled = !this.devModeEnabled;
+    console.log("[Dev] Dev mode visualizers:", this.devModeEnabled ? "ON" : "OFF");
+    // Notify Game class to update renderer
+    this.onDevModeToggle?.(this.devModeEnabled);
+    return this.devModeEnabled;
+  }
+
+  // Get current dev mode state
+  isDevModeEnabled(): boolean {
+    return this.devModeEnabled;
+  }
+
   // Dev keys for testing - returns which dev key was pressed
   consumeDevKeys(): {
     laser: boolean;
@@ -207,6 +231,8 @@ export class InputManager {
     scatter: boolean;
     mine: boolean;
     reverse: boolean;
+    joust: boolean;
+    homing: boolean;
   } {
     const result = {
       laser: this.devPowerUpKeys.laser,
@@ -214,6 +240,8 @@ export class InputManager {
       scatter: this.devPowerUpKeys.scatter,
       mine: this.devPowerUpKeys.mine,
       reverse: this.devPowerUpKeys.reverse,
+      joust: this.devPowerUpKeys.joust,
+      homing: this.devPowerUpKeys.homing,
     };
     this.resetDevKeys();
     return result;
@@ -229,6 +257,12 @@ export class InputManager {
   }
 
   private handleDevKeyDown(code: string): boolean {
+    // Dev mode toggle works regardless of devKeysEnabled
+    if (code === "Digit0") {
+      this.toggleDevMode();
+      return true;
+    }
+    
     if (!this.devKeysEnabled) return false;
     switch (code) {
       case "Digit1":
@@ -246,6 +280,12 @@ export class InputManager {
       case "Digit5":
         this.devPowerUpKeys.reverse = true;
         return true;
+      case "Digit6":
+        this.devPowerUpKeys.joust = true;
+        return true;
+      case "Digit7":
+        this.devPowerUpKeys.homing = true;
+        return true;
       default:
         return false;
     }
@@ -254,6 +294,9 @@ export class InputManager {
   private handleDevKeyUp(code: string): void {
     if (!this.devKeysEnabled) return;
     switch (code) {
+      case "Digit0":
+        // Toggle is handled on keydown
+        break;
       case "Digit1":
         this.devPowerUpKeys.laser = false;
         break;
@@ -269,6 +312,12 @@ export class InputManager {
       case "Digit5":
         this.devPowerUpKeys.reverse = false;
         break;
+      case "Digit6":
+        this.devPowerUpKeys.joust = false;
+        break;
+      case "Digit7":
+        this.devPowerUpKeys.homing = false;
+        break;
       default:
         break;
     }
@@ -280,5 +329,7 @@ export class InputManager {
     this.devPowerUpKeys.scatter = false;
     this.devPowerUpKeys.mine = false;
     this.devPowerUpKeys.reverse = false;
+    this.devPowerUpKeys.joust = false;
+    this.devPowerUpKeys.homing = false;
   }
 }
