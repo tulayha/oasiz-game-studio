@@ -6,6 +6,7 @@ import {
   PowerUpState,
   LaserBeamState,
   MineState,
+  HomingMissileState,
   Particle,
   PlayerColor,
   PLAYER_COLORS,
@@ -137,6 +138,9 @@ export class Renderer {
     laserCooldownProgress?: number,
     scatterCharges?: number,
     scatterCooldownProgress?: number,
+    joustLeftActive?: boolean,
+    joustRightActive?: boolean,
+    homingMissileCharges?: number,
   ): void {
     const { ctx } = this;
     const { x, y, angle, invulnerableUntil } = state;
@@ -211,17 +215,17 @@ export class Renderer {
         const dotY = Math.sin(Math.PI + angleOffset) * arcRadius;
 
         const isAvailable = i < scatterCharges;
-        
+
         // Green ball background
         ctx.fillStyle = isAvailable ? "#00ff44" : "#333333";
         ctx.strokeStyle = isAvailable ? "#88ffaa" : "#222222";
         ctx.lineWidth = 1;
-        
+
         ctx.beginPath();
         ctx.arc(dotX, dotY, ballSize, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        
+
         // Red center dot
         if (isAvailable) {
           ctx.fillStyle = "#ff0044";
@@ -232,21 +236,28 @@ export class Renderer {
       }
     }
 
-    // Draw ammo indicators on ship tail (yellow dots) - arranged in arc pattern
-    // Only show when no laser power-up is active
-    if (laserCharges === undefined && scatterCharges === undefined && state.maxAmmo > 0) {
+    // Draw ammo indicators on ship tail (yellow dots) - rotating around ship
+    // Only show when no laser/scatter/homing/joust power-up is active
+    if (
+      laserCharges === undefined &&
+      scatterCharges === undefined &&
+      homingMissileCharges === undefined &&
+      joustLeftActive === undefined &&
+      joustRightActive === undefined &&
+      state.maxAmmo > 0
+    ) {
       const maxAmmo = state.maxAmmo;
       const currentAmmo = state.ammo;
       const dotSize = 3.5;
-      const arcRadius = size * 1.2; // Distance from ship center
-      const arcAngle = Math.PI * 0.5; // Total arc spread (90 degrees)
+      const orbitRadius = size * 1.3; // Distance from ship center
+      const rotation = Date.now() * 0.0008; // Slow rotation like missile
 
       for (let i = 0; i < maxAmmo; i++) {
-        // Calculate angle for this ammo in the arc (spread around back of ship)
-        const angleOffset =
-          maxAmmo > 1 ? (i / (maxAmmo - 1) - 0.5) * arcAngle : 0;
-        const dotX = Math.cos(Math.PI + angleOffset) * arcRadius;
-        const dotY = Math.sin(Math.PI + angleOffset) * arcRadius;
+        // Calculate angle for this ammo rotating around the back of ship
+        const angleOffset = (i / maxAmmo) * Math.PI * 2;
+        const totalAngle = rotation + angleOffset;
+        const dotX = Math.cos(Math.PI + totalAngle) * orbitRadius;
+        const dotY = Math.sin(Math.PI + totalAngle) * orbitRadius;
 
         // Yellow if available, dark gray if used
         const isAvailable = i < currentAmmo;
@@ -260,6 +271,114 @@ export class Renderer {
         ctx.fill();
         ctx.stroke();
       }
+    }
+
+    // Draw Homing Missile indicator (red ball on back) - rotates slowly
+    if (homingMissileCharges !== undefined && homingMissileCharges > 0) {
+      const rotation = Date.now() * 0.001; // Slow rotation
+      const orbitRadius = size * 1.4;
+      const ballX = Math.cos(Math.PI + rotation) * orbitRadius;
+      const ballY = Math.sin(Math.PI + rotation) * orbitRadius;
+
+      // Red ball glow
+      ctx.shadowColor = "#ff0044";
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = "#ff0044";
+      ctx.beginPath();
+      ctx.arc(ballX, ballY, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ff6688";
+      ctx.beginPath();
+      ctx.arc(ballX, ballY, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw Joust lightsabers on ship - positioned at 45 degrees from back corners
+    // Left sword: starts at left back corner, points forward at 45 degrees
+    // Right sword: starts at right back corner, points forward at 45 degrees
+    // This creates a V-shape pointing forward like: >
+    if (joustLeftActive !== undefined || joustRightActive !== undefined) {
+      const swordLength = GAME_CONFIG.POWERUP_JOUST_SIZE;
+      const swordWidth = GAME_CONFIG.POWERUP_JOUST_WIDTH;
+      const size = 15;
+
+      // Glow effect for lightsabers
+      ctx.shadowColor = "#00ff44";
+      ctx.shadowBlur = 20;
+
+      // Ship triangle vertices (relative to center)
+      const noseX = size;
+      const noseY = 0;
+      const topWingX = -size * 0.7;
+      const topWingY = -size * 0.6;
+      const bottomWingX = -size * 0.7;
+      const bottomWingY = size * 0.6;
+
+      // Offset for swords to add space at back corners
+      const cornerOffset = 8;
+
+      // Left sword - starts at left back corner (top wing), extends at 10 degrees forward
+      if (joustLeftActive) {
+        // Start position: left back corner with offset toward the back
+        const startX = topWingX - cornerOffset;
+        const startY = topWingY;
+
+        // Angle: 0 degrees from ship centerline (pointing straight forward)
+        // Both swords point straight forward, parallel to ship direction
+        const swordAngle = 0;
+
+        ctx.save();
+        ctx.translate(startX, startY);
+        ctx.rotate(swordAngle);
+
+        // Sword blade (green glow) - extending outward from the corner
+        ctx.fillStyle = "#00ff44";
+        ctx.fillRect(0, -swordWidth / 2, swordLength, swordWidth);
+
+        // Inner bright core
+        ctx.fillStyle = "#88ffaa";
+        ctx.fillRect(0, -swordWidth / 4, swordLength, swordWidth / 2);
+
+        // Hilt at the corner
+        ctx.fillStyle = "#666666";
+        ctx.fillRect(-4, -swordWidth, 8, swordWidth * 2);
+
+        ctx.restore();
+      }
+
+      // Right sword - starts at right back corner (bottom wing), extends at 10 degrees forward
+      if (joustRightActive) {
+        // Start position: right back corner with offset toward the back
+        const startX = bottomWingX - cornerOffset;
+        const startY = bottomWingY;
+
+        // Angle: 0 degrees from ship centerline (pointing straight forward)
+        // Both swords point straight forward, parallel to ship direction
+        const swordAngle = 0;
+
+        ctx.save();
+        ctx.translate(startX, startY);
+        ctx.rotate(swordAngle);
+
+        // Sword blade (green glow) - extending outward from the corner
+        ctx.fillStyle = "#00ff44";
+        ctx.fillRect(0, -swordWidth / 2, swordLength, swordWidth);
+
+        // Inner bright core
+        ctx.fillStyle = "#88ffaa";
+        ctx.fillRect(0, -swordWidth / 4, swordLength, swordWidth / 2);
+
+        // Hilt at the corner
+        ctx.fillStyle = "#666666";
+        ctx.fillRect(-4, -swordWidth, 8, swordWidth * 2);
+
+        ctx.restore();
+      }
+
+      ctx.shadowBlur = 0;
     }
 
     // Flash when invulnerable
@@ -541,6 +660,25 @@ export class Renderer {
     }
   }
 
+  spawnNitroParticle(x: number, y: number, color: string): void {
+    // Larger, faster particles for nitro boost effect
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 100 + Math.random() * 80;
+    const life = 0.2 + Math.random() * 0.15;
+    const size = 4 + Math.random() * 4;
+
+    this.particles.push({
+      x: x + (Math.random() - 0.5) * 8,
+      y: y + (Math.random() - 0.5) * 8,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life,
+      maxLife: life,
+      size,
+      color,
+    });
+  }
+
   spawnAsteroidDebris(x: number, y: number, size: number, color: string): void {
     // Spawn debris pieces - purely visual, no collision
     const pieceCount = 4 + Math.floor(Math.random() * 4); // 4-7 pieces
@@ -584,7 +722,7 @@ export class Renderer {
   spawnShipDebris(x: number, y: number, color: string): void {
     // Spawn ship debris pieces - larger and more dramatic than asteroid debris
     const pieceCount = 8 + Math.floor(Math.random() * 4); // 8-11 pieces
-    
+
     // Ship body pieces (colored)
     for (let i = 0; i < pieceCount; i++) {
       const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
@@ -707,6 +845,10 @@ export class Renderer {
       boxColor = "#00cc44"; // Green
     } else if (type === "MINE") {
       boxColor = "#ff8800"; // Orange
+    } else if (type === "JOUST") {
+      boxColor = "#00aa22"; // Dark green
+    } else if (type === "HOMING_MISSILE") {
+      boxColor = "#888888"; // Metallic gray
     } else {
       boxColor = "#666666"; // Gray for REVERSE
     }
@@ -787,6 +929,57 @@ export class Renderer {
       ctx.textBaseline = "middle";
       ctx.fillText("R", 0, 0);
       ctx.shadowBlur = 0;
+    } else if (type === "JOUST") {
+      // Draw Joust symbol - green box with red cross (X)
+      // Green box background
+      ctx.fillStyle = "#00ff44";
+      ctx.fillRect(-8, -8, 16, 16);
+      // Red X in center
+      ctx.strokeStyle = "#ff0044";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-4, -4);
+      ctx.lineTo(4, 4);
+      ctx.moveTo(4, -4);
+      ctx.lineTo(-4, 4);
+      ctx.stroke();
+    } else if (type === "HOMING_MISSILE") {
+      // Draw Homing Missile symbol - rocket icon
+      // Rocket body
+      ctx.fillStyle = "#aaaaaa";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 4, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Rocket nose
+      ctx.fillStyle = "#cccccc";
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(-3, -3);
+      ctx.lineTo(3, -3);
+      ctx.closePath();
+      ctx.fill();
+      // Fins
+      ctx.fillStyle = "#666666";
+      ctx.beginPath();
+      ctx.moveTo(-3, 4);
+      ctx.lineTo(-6, 8);
+      ctx.lineTo(-2, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(3, 4);
+      ctx.lineTo(6, 8);
+      ctx.lineTo(2, 6);
+      ctx.closePath();
+      ctx.fill();
+      // Flame
+      ctx.fillStyle = "#ff8800";
+      ctx.beginPath();
+      ctx.moveTo(-2, 6);
+      ctx.lineTo(0, 10);
+      ctx.lineTo(2, 6);
+      ctx.closePath();
+      ctx.fill();
     }
 
     ctx.restore();
@@ -1022,7 +1215,8 @@ export class Renderer {
       // Draw explosion effect - lasts 500ms
       const elapsed = Date.now() - explosionTime;
       const progress = Math.min(1, elapsed / 500);
-      const radius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
+      const radius =
+        GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
       const alpha = 1 - progress;
 
       ctx.save();
@@ -1114,7 +1308,8 @@ export class Renderer {
       // Draw explosion effect on client - lasts 500ms
       const elapsed = Date.now() - explosionTime;
       const progress = Math.min(1, elapsed / 500);
-      const radius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
+      const radius =
+        GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
       const alpha = 1 - progress;
 
       ctx.save();
@@ -1241,5 +1436,95 @@ export class Renderer {
         color: Math.random() > 0.5 ? "#ffffff" : "#ffcccc",
       });
     }
+  }
+
+  // ============= HOMING MISSILE RENDERING =============
+
+  drawHomingMissile(state: HomingMissileState): void {
+    const { ctx } = this;
+    const { x, y, angle } = state;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    // Glow effect
+    ctx.shadowColor = "#ff4400";
+    ctx.shadowBlur = 15;
+
+    // Rocket body (metallic gray)
+    ctx.fillStyle = "#888888";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 10, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rocket nose (pointed)
+    ctx.fillStyle = "#aaaaaa";
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(4, -4);
+    ctx.lineTo(4, 4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Fins
+    ctx.fillStyle = "#666666";
+    ctx.beginPath();
+    ctx.moveTo(-4, -4);
+    ctx.lineTo(-10, -8);
+    ctx.lineTo(-6, -2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-4, 4);
+    ctx.lineTo(-10, 8);
+    ctx.lineTo(-6, 2);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // Fire and smoke particles at the tail
+    const tailX = -10;
+    const time = Date.now() * 0.02;
+
+    // Fire (orange/yellow)
+    ctx.fillStyle = "#ff8800";
+    ctx.globalAlpha = 0.7 + Math.sin(time) * 0.2;
+    ctx.beginPath();
+    ctx.moveTo(tailX, 0);
+    ctx.lineTo(tailX - 8 - Math.sin(time * 1.5) * 3, -3);
+    ctx.lineTo(tailX - 12 - Math.sin(time * 2) * 4, 0);
+    ctx.lineTo(tailX - 8 - Math.sin(time * 1.5) * 3, 3);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner fire (yellow)
+    ctx.fillStyle = "#ffee00";
+    ctx.globalAlpha = 0.8 + Math.sin(time * 1.2) * 0.15;
+    ctx.beginPath();
+    ctx.moveTo(tailX, 0);
+    ctx.lineTo(tailX - 5 - Math.sin(time * 1.8) * 2, -2);
+    ctx.lineTo(tailX - 8 - Math.sin(time * 2.2) * 3, 0);
+    ctx.lineTo(tailX - 5 - Math.sin(time * 1.8) * 2, 2);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+
+    // Smoke trail (gray)
+    ctx.fillStyle = "#555555";
+    ctx.globalAlpha = 0.4;
+    for (let i = 0; i < 3; i++) {
+      const offset = (time * 0.5 + i * 2) % 8;
+      const smokeX = tailX - 12 - offset * 2;
+      const smokeSize = 2 + offset * 0.5;
+      ctx.beginPath();
+      ctx.arc(smokeX, Math.sin(time + i) * 2, smokeSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 }

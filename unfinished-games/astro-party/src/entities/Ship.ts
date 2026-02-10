@@ -44,6 +44,7 @@ export class Ship {
     dash: boolean,
     dt: number,
     rotationDirection: number = 1,
+    speedMultiplier: number = 1,
   ): { shouldFire: boolean; fireAngle: number } | null {
     if (!this.alive) return null;
 
@@ -77,7 +78,7 @@ export class Ship {
         this.recoilTimer > 0 ? cfg.SHIP_RECOIL_SLOWDOWN : 0;
       const targetSpeed = Math.max(
         0,
-        cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown,
+        (cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown) * speedMultiplier,
       );
       const forwardX = Math.cos(angle);
       const forwardY = Math.sin(angle);
