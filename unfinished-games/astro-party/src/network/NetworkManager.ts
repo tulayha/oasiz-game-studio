@@ -464,11 +464,7 @@ export class NetworkManager {
 
   broadcastScreenShake(intensity: number, duration: number): void {
     if (!isHost()) return;
-    RPC.call(
-      "screenShake",
-      { intensity, duration },
-      RPC.Mode.OTHERS,
-    );
+    RPC.call("screenShake", { intensity, duration }, RPC.Mode.OTHERS);
   }
 
   // Send dash request to host (any player can call)

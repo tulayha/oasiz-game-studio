@@ -125,7 +125,10 @@ function applyConfigPresetOverride(
   overrides: Partial<GameConfigType>,
 ): void {
   if (settingsPreset === basePreset) return;
-  (overrides as Record<string, number>)[key] = resolveConfigValue(settingsPreset, key);
+  (overrides as Record<string, number>)[key] = resolveConfigValue(
+    settingsPreset,
+    key,
+  );
 }
 
 function applyPhysicsPresetOverride(

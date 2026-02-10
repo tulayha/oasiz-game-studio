@@ -38,10 +38,9 @@ export class DisplaySmoother {
   ) {}
 
   /** Update targets from a new network snapshot. */
-  applySnapshot<T extends { x: number; y: number; angle?: number; vx: number; vy: number }>(
-    items: T[],
-    getId: (item: T) => string,
-  ): void {
+  applySnapshot<
+    T extends { x: number; y: number; angle?: number; vx: number; vy: number },
+  >(items: T[], getId: (item: T) => string): void {
     const activeIds = new Set<string>();
     for (const item of items) {
       const id = getId(item);
@@ -58,7 +57,10 @@ export class DisplaySmoother {
         // Hard snap if too far off
         const ddx = existing.dx - item.x;
         const ddy = existing.dy - item.y;
-        if (ddx * ddx + ddy * ddy > this.hardSnapDistance * this.hardSnapDistance) {
+        if (
+          ddx * ddx + ddy * ddy >
+          this.hardSnapDistance * this.hardSnapDistance
+        ) {
           existing.dx = item.x;
           existing.dy = item.y;
           existing.da = angle;

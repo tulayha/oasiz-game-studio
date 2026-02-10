@@ -1357,21 +1357,23 @@ export class Game {
 
         const projX = projectile.body.position.x;
         const projY = projectile.body.position.y;
-        
+
         // Get projectile velocity direction
         const projVx = projectile.body.velocity.x;
         const projVy = projectile.body.velocity.y;
         const projAngle = Math.atan2(projVy, projVx);
-        
+
         // Calculate angle from projectile to ship
         const dx = shipX - projX;
         const dy = shipY - projY;
         const angleToShip = Math.atan2(dy, dx);
-        
+
         // Check if projectile is approaching from the sides (should be blocked)
         // vs front/back (should pass through to hit ship)
         const angleDiff = angleToShip - projAngle;
-        const normalizedAngleDiff = Math.abs(Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff)));
+        const normalizedAngleDiff = Math.abs(
+          Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff)),
+        );
 
         // Only block if projectile is coming from the sides (angle > 45 degrees from approach direction)
         const isFromSide = normalizedAngleDiff > Math.PI / 4; // > 45 degrees
@@ -1390,16 +1392,16 @@ export class Game {
                 projectile.body,
                 this.projectiles,
               );
-              this.renderer.spawnExplosion(leftSwordCenterX, leftSwordCenterY, "#00ff44");
-              this.triggerScreenShake(5, 0.15);
-              SettingsManager.triggerHaptic("medium");
-              
-              // Spawn debris where the bullet hit the sword
-              this.renderer.spawnShipDebris(
-                projX,
-                projY,
+              this.renderer.spawnExplosion(
+                leftSwordCenterX,
+                leftSwordCenterY,
                 "#00ff44",
               );
+              this.triggerScreenShake(5, 0.15);
+              SettingsManager.triggerHaptic("medium");
+
+              // Spawn debris where the bullet hit the sword
+              this.renderer.spawnShipDebris(projX, projY, "#00ff44");
             }
             // If not from side, let projectile pass through to hit ship
           }
@@ -1419,16 +1421,16 @@ export class Game {
                 projectile.body,
                 this.projectiles,
               );
-              this.renderer.spawnExplosion(rightSwordCenterX, rightSwordCenterY, "#00ff44");
-              this.triggerScreenShake(5, 0.15);
-              SettingsManager.triggerHaptic("medium");
-              
-              // Spawn debris where the bullet hit the sword
-              this.renderer.spawnShipDebris(
-                projX,
-                projY,
+              this.renderer.spawnExplosion(
+                rightSwordCenterX,
+                rightSwordCenterY,
                 "#00ff44",
               );
+              this.triggerScreenShake(5, 0.15);
+              SettingsManager.triggerHaptic("medium");
+
+              // Spawn debris where the bullet hit the sword
+              this.renderer.spawnShipDebris(projX, projY, "#00ff44");
             }
             // If not from side, let projectile pass through to hit ship
           }
@@ -1910,7 +1912,7 @@ export class Game {
           buttonA: false,
           buttonB: false,
           timestamp: 0,
-    
+
           clientTimeMs: 0,
         }
       : this.input.capture();
@@ -1999,7 +2001,7 @@ export class Game {
               buttonA: action.buttonA,
               buttonB: action.buttonB,
               timestamp: performance.now(),
-        
+
               clientTimeMs: performance.now(),
             };
             shouldDash = action.dash;
@@ -2008,7 +2010,7 @@ export class Game {
               buttonA: false,
               buttonB: false,
               timestamp: 0,
-        
+
               clientTimeMs: 0,
             };
           }
@@ -2018,7 +2020,7 @@ export class Game {
             buttonA: false,
             buttonB: false,
             timestamp: 0,
-      
+
             clientTimeMs: 0,
           };
           shouldDash = this.multiInput?.consumeDash(keySlot) || false;
@@ -2031,7 +2033,7 @@ export class Game {
               buttonA: false,
               buttonB: false,
               timestamp: 0,
-        
+
               clientTimeMs: 0,
             };
             shouldDash = this.multiInput?.consumeDash(0) || false;
@@ -2046,7 +2048,7 @@ export class Game {
               buttonA: false,
               buttonB: false,
               timestamp: 0,
-        
+
               clientTimeMs: 0,
             };
             shouldDash = this.pendingDashes.has(playerId);
@@ -2467,10 +2469,7 @@ export class Game {
     this.projectileSmoother.applySnapshot(state.projectiles, (p) => p.id);
     this.asteroidSmoother.applySnapshot(state.asteroids, (a) => a.id);
     this.pilotSmoother.applySnapshot(state.pilots, (p) => p.playerId);
-    this.missileSmoother.applySnapshot(
-      state.homingMissiles || [],
-      (m) => m.id,
-    );
+    this.missileSmoother.applySnapshot(state.homingMissiles || [], (m) => m.id);
   }
 
   private trackSnapshotTiming(receivedAt: number): void {
@@ -2637,7 +2636,7 @@ export class Game {
           buttonA: false,
           buttonB: false,
           timestamp: 0,
-    
+
           clientTimeMs: 0,
         }
       );
@@ -2651,7 +2650,7 @@ export class Game {
           buttonA: false,
           buttonB: false,
           timestamp: 0,
-    
+
           clientTimeMs: 0,
         }
       );
@@ -2662,7 +2661,7 @@ export class Game {
         buttonA: false,
         buttonB: false,
         timestamp: 0,
-  
+
         clientTimeMs: 0,
       }
     );

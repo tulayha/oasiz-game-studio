@@ -114,10 +114,7 @@ export function createScreenController(
 
   function updateControlHints(): void {
     const settings = SettingsManager.get();
-    document.body.classList.toggle(
-      "control-hints-off",
-      !settings.controlHints,
-    );
+    document.body.classList.toggle("control-hints-off", !settings.controlHints);
     const shouldShow =
       !isMobile && activeScreen === "game" && settings.controlHints;
     if (!shouldShow) {
@@ -215,27 +212,25 @@ export function createScreenController(
       return b.kills - a.kills;
     });
     elements.finalScores.innerHTML = sorted
-      .map(
-        (player) => {
-          const isSelf = player.id === myPlayerId;
-          return (
-            '<div class="final-score-row' +
-            (isSelf ? " self" : "") +
-            '" style="color: ' +
-            player.color.primary +
-            '">' +
-            '<span class="final-score-name">' +
-            escapeHtml(player.name) +
-            "</span>" +
-            '<span class="final-score-kills">' +
-            player.roundWins +
-            " pts &bull; " +
-            player.kills +
-            " kills</span>" +
-            "</div>"
-          );
-        },
-      )
+      .map((player) => {
+        const isSelf = player.id === myPlayerId;
+        return (
+          '<div class="final-score-row' +
+          (isSelf ? " self" : "") +
+          '" style="color: ' +
+          player.color.primary +
+          '">' +
+          '<span class="final-score-name">' +
+          escapeHtml(player.name) +
+          "</span>" +
+          '<span class="final-score-kills">' +
+          player.roundWins +
+          " pts &bull; " +
+          player.kills +
+          " kills</span>" +
+          "</div>"
+        );
+      })
       .join("");
 
     if (game.didHostLeave()) {
