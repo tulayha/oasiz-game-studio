@@ -192,7 +192,7 @@ export class Game {
               projectileBody,
               this.projectiles,
             );
-            this.renderer.addScreenShake(3, 0.1);
+            this.triggerScreenShake(3, 0.1);
             if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
               this.renderer.spawnShieldBreakDebris(
                 ship.body.position.x,
@@ -266,7 +266,7 @@ export class Game {
             asteroid.size,
             GAME_CONFIG.ASTEROID_COLOR,
           );
-          this.renderer.addScreenShake(8, 0.2);
+          this.triggerScreenShake(8, 0.2);
 
           asteroid.destroy();
           this.asteroids.splice(asteroidIndex, 1);
@@ -308,13 +308,13 @@ export class Game {
                 asteroid.size,
                 GAME_CONFIG.ASTEROID_COLOR,
               );
-              this.renderer.addScreenShake(10, 0.3);
+              this.triggerScreenShake(10, 0.3);
               asteroid.destroy();
               this.asteroids.splice(asteroidIndex, 1);
               this.trySpawnPowerUp(pos.x, pos.y);
             }
 
-            this.renderer.addScreenShake(3, 0.1);
+            this.triggerScreenShake(3, 0.1);
             if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
               this.renderer.spawnShieldBreakDebris(
                 ship.body.position.x,
@@ -344,7 +344,7 @@ export class Game {
               asteroid.size,
               GAME_CONFIG.ASTEROID_COLOR,
             );
-            this.renderer.addScreenShake(10, 0.3);
+            this.triggerScreenShake(10, 0.3);
             asteroid.destroy();
             this.asteroids.splice(asteroidIndex, 1);
             this.trySpawnPowerUp(pos.x, pos.y);
@@ -382,7 +382,7 @@ export class Game {
               asteroid.size,
               GAME_CONFIG.ASTEROID_COLOR,
             );
-            this.renderer.addScreenShake(6, 0.2);
+            this.triggerScreenShake(6, 0.2);
             asteroid.destroy();
             this.asteroids.splice(asteroidIndex, 1);
             this.trySpawnPowerUp(pos.x, pos.y);
@@ -912,7 +912,7 @@ export class Game {
 
     // Trigger mine explosion effect on host (synced to clients via network state)
     this.renderer.spawnMineExplosion(mineX, mineY, explosionRadius);
-    this.renderer.addScreenShake(15, 0.4);
+    this.triggerScreenShake(15, 0.4);
     SettingsManager.triggerHaptic("heavy");
 
     // IMMEDIATELY destroy the triggering ship and any ships in radius
@@ -931,7 +931,7 @@ export class Game {
         // Spawn ship explosion and debris immediately
         this.renderer.spawnExplosion(pos.x, pos.y, ship.color.primary);
         this.renderer.spawnShipDebris(pos.x, pos.y, ship.color.primary);
-        this.renderer.addScreenShake(10, 0.3);
+        this.triggerScreenShake(10, 0.3);
 
         // Destroy ship without creating pilot (mine instantly kills)
         ship.destroy();
@@ -961,7 +961,7 @@ export class Game {
       if (dist <= explosionRadius) {
         const pos = pilot.body.position;
         this.renderer.spawnExplosion(pos.x, pos.y, "#ff0000");
-        this.renderer.addScreenShake(8, 0.2);
+        this.triggerScreenShake(8, 0.2);
 
         pilot.destroy();
         this.pilots.delete(pilotPlayerId);
@@ -1027,7 +1027,7 @@ export class Game {
             mine.triggeringPlayerId = shipPlayerId;
             // Show warning effect
             this.renderer.spawnExplosion(mine.x, mine.y, "#ff4400");
-            this.renderer.addScreenShake(5, 0.15);
+            this.triggerScreenShake(5, 0.15);
             SettingsManager.triggerHaptic("medium");
             break;
           }
@@ -1079,7 +1079,7 @@ export class Game {
           if (powerUp?.type === "SHIELD") {
             powerUp.shieldHits++;
             missile.destroy();
-            this.renderer.addScreenShake(3, 0.1);
+            this.triggerScreenShake(3, 0.1);
             if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
               this.renderer.spawnShieldBreakDebris(
                 ship.body.position.x,
@@ -1121,12 +1121,12 @@ export class Game {
               if (isLeftSide && powerUp.leftSwordActive) {
                 powerUp.leftSwordActive = false;
                 missile.destroy();
-                this.renderer.addScreenShake(5, 0.15);
+                this.triggerScreenShake(5, 0.15);
                 SettingsManager.triggerHaptic("medium");
               } else if (!isLeftSide && powerUp.rightSwordActive) {
                 powerUp.rightSwordActive = false;
                 missile.destroy();
-                this.renderer.addScreenShake(5, 0.15);
+                this.triggerScreenShake(5, 0.15);
                 SettingsManager.triggerHaptic("medium");
               } else {
                 // Active sword not on the hit side — destroy ship
@@ -1158,7 +1158,7 @@ export class Game {
 
             // Spawn explosion effect
             this.renderer.spawnExplosion(missile.x, missile.y, "#ff4400");
-            this.renderer.addScreenShake(10, 0.3);
+            this.triggerScreenShake(10, 0.3);
           }
           break;
         }
@@ -1189,7 +1189,7 @@ export class Game {
             asteroid.size,
             GAME_CONFIG.ASTEROID_COLOR,
           );
-          this.renderer.addScreenShake(8, 0.2);
+          this.triggerScreenShake(8, 0.2);
 
           asteroid.destroy();
           this.asteroids.splice(i, 1);
@@ -1300,7 +1300,7 @@ export class Game {
 
             // Left sword falls off
             powerUp.leftSwordActive = false;
-            this.renderer.addScreenShake(8, 0.25);
+            this.triggerScreenShake(8, 0.25);
             SettingsManager.triggerHaptic("heavy");
 
             // Spawn debris for fallen sword at the start position (back corner)
@@ -1331,7 +1331,7 @@ export class Game {
 
             // Right sword falls off
             powerUp.rightSwordActive = false;
-            this.renderer.addScreenShake(8, 0.25);
+            this.triggerScreenShake(8, 0.25);
             SettingsManager.triggerHaptic("heavy");
 
             // Spawn debris for fallen sword at the start position (back corner)
@@ -1391,7 +1391,7 @@ export class Game {
                 this.projectiles,
               );
               this.renderer.spawnExplosion(leftSwordCenterX, leftSwordCenterY, "#00ff44");
-              this.renderer.addScreenShake(5, 0.15);
+              this.triggerScreenShake(5, 0.15);
               SettingsManager.triggerHaptic("medium");
               
               // Spawn debris where the bullet hit the sword
@@ -1420,7 +1420,7 @@ export class Game {
                 this.projectiles,
               );
               this.renderer.spawnExplosion(rightSwordCenterX, rightSwordCenterY, "#00ff44");
-              this.renderer.addScreenShake(5, 0.15);
+              this.triggerScreenShake(5, 0.15);
               SettingsManager.triggerHaptic("medium");
               
               // Spawn debris where the bullet hit the sword
@@ -1462,7 +1462,7 @@ export class Game {
           if (dist <= swordLength / 2 + asteroid.size) {
             asteroidDestroyed = true;
             hitByLeftSword = true;
-            this.renderer.addScreenShake(3, 0.1);
+            this.triggerScreenShake(3, 0.1);
           }
         }
 
@@ -1475,7 +1475,7 @@ export class Game {
           if (dist <= swordLength / 2 + asteroid.size) {
             asteroidDestroyed = true;
             hitByRightSword = true;
-            this.renderer.addScreenShake(3, 0.1);
+            this.triggerScreenShake(3, 0.1);
           }
         }
 
@@ -1692,6 +1692,11 @@ export class Game {
       onAdvancedSettingsReceived: (payload) => {
         this.applyModeStateFromNetwork(payload);
       },
+
+      onScreenShakeReceived: (intensity, duration) => {
+        if (this.network.isHost()) return;
+        this.triggerScreenShake(intensity, duration);
+      },
     });
   }
 
@@ -1725,6 +1730,13 @@ export class Game {
     }
 
     this.network.sendDashRequest();
+  }
+
+  private triggerScreenShake(intensity: number, duration: number): void {
+    this.renderer.addScreenShake(intensity, duration);
+    if (this.network.isHost()) {
+      this.network.broadcastScreenShake(intensity, duration);
+    }
   }
 
   private handleDisconnected(): void {
@@ -2364,7 +2376,6 @@ export class Game {
         // Ship was destroyed - spawn debris on client
         this.renderer.spawnExplosion(shipData.x, shipData.y, shipData.color);
         this.renderer.spawnShipDebris(shipData.x, shipData.y, shipData.color);
-        this.renderer.addScreenShake(10, 0.3);
         this.clientShipPositions.delete(playerId);
       }
     }
@@ -2401,7 +2412,6 @@ export class Game {
         ) {
           this.clientArmingMines.add(mineState.id);
           this.renderer.spawnExplosion(mineState.x, mineState.y, "#ff4400");
-          this.renderer.addScreenShake(5, 0.15);
           SettingsManager.triggerHaptic("medium");
         }
 
@@ -2413,7 +2423,6 @@ export class Game {
             mineState.y,
             GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS,
           );
-          this.renderer.addScreenShake(15, 0.4);
           SettingsManager.triggerHaptic("heavy");
         }
       }

@@ -179,7 +179,7 @@ export class GameFlowManager {
       isBot && botType === "ai" ? "ai" : "player";
 
     this.renderer.spawnExplosion(pos.x, pos.y, ship.color.primary);
-    this.renderer.addScreenShake(15, 0.4);
+    this.triggerScreenShake(15, 0.4);
 
     const pilot = new Pilot(
       this.physics,
@@ -219,7 +219,7 @@ export class GameFlowManager {
     const pos = pilot.body.position;
 
     this.renderer.spawnExplosion(pos.x, pos.y, "#ff0000");
-    this.renderer.addScreenShake(10, 0.3);
+    this.triggerScreenShake(10, 0.3);
 
     pilot.destroy();
     pilots.delete(pilotPlayerId);
@@ -244,6 +244,11 @@ export class GameFlowManager {
     this.onPlayersUpdate?.();
     SettingsManager.triggerHaptic("success");
     this.network.broadcastGameSound("kill", pilotPlayerId);
+  }
+
+  private triggerScreenShake(intensity: number, duration: number): void {
+    this.renderer.addScreenShake(intensity, duration);
+    this.network.broadcastScreenShake(intensity, duration);
   }
 
   checkEliminationWin(players: Map<string, PlayerData>): void {

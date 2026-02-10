@@ -47,6 +47,8 @@ export interface NetworkCallbacks {
   onDevModeReceived: (enabled: boolean) => void;
 
   onAdvancedSettingsReceived: (payload: AdvancedSettingsSync) => void;
+
+  onScreenShakeReceived: (intensity: number, duration: number) => void;
 }
 
 interface PlayerMeta {
@@ -367,6 +369,18 @@ export class NetworkManager {
         },
       ),
     );
+
+    this.cleanupFunctions.push(
+      RPC.register(
+        "screenShake",
+        async (payload: { intensity: number; duration: number }) => {
+          this.callbacks?.onScreenShakeReceived(
+            payload.intensity,
+            payload.duration,
+          );
+        },
+      ),
+    );
   }
 
   startSync(): void {
@@ -446,6 +460,15 @@ export class NetworkManager {
 
   broadcastGameSoundToOthers(type: string, playerId: string): void {
     this.broadcastGameSound(type, playerId, RPC.Mode.OTHERS);
+  }
+
+  broadcastScreenShake(intensity: number, duration: number): void {
+    if (!isHost()) return;
+    RPC.call(
+      "screenShake",
+      { intensity, duration },
+      RPC.Mode.OTHERS,
+    );
   }
 
   // Send dash request to host (any player can call)
