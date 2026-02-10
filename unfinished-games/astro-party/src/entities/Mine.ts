@@ -27,7 +27,8 @@ export class Mine {
       // - Extra buffer for client sync
       return Date.now() - this.explosionTime > 4500; // 4.5 seconds total
     }
-    return Date.now() - this.spawnTime > GAME_CONFIG.POWERUP_MINE_DESPAWN_TIME;
+    // Mines no longer expire - they stay until hit or round ends
+    return false;
   }
 
   explode(): void {

@@ -376,6 +376,15 @@ export class Game {
     });
 
     this.input.setup();
+    
+    // Set up dev mode toggle callback
+    this.input.setDevModeCallback((enabled) => {
+      this.renderer.setDevMode(enabled);
+      // Sync dev mode state across multiplayer
+      if (this.network.isHost()) {
+        this.network.broadcastDevMode(enabled);
+      }
+    });
   }
 
   // ============= ASTEROID & POWERUP LOGIC =============
@@ -910,22 +919,28 @@ export class Game {
   private checkMineCollisions(): void {
     if (!this.network.isHost()) return;
 
+    // Mine detection radius - increased when dev mode is on for testing
+    const baseMineRadius = GAME_CONFIG.POWERUP_MINE_SIZE + 25;
+    const devModeMultiplier = this.isDevModeEnabled() ? 3 : 1; // Triple radius in dev mode
+    const mineDetectionRadius = baseMineRadius * devModeMultiplier;
+
     for (const mine of this.mines) {
       if (!mine.alive || mine.exploded) continue;
 
-      // Check collision with all ships except the owner
+      // Check collision with all ships
       for (const [shipPlayerId, ship] of this.ships) {
-        if (!ship.alive || shipPlayerId === mine.ownerId) continue;
+        if (!ship.alive) continue;
 
         const dx = ship.body.position.x - mine.x;
         const dy = ship.body.position.y - mine.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Mine size + ship radius (approx 25)
-        if (dist <= GAME_CONFIG.POWERUP_MINE_SIZE + 25) {
-          // Trigger explosion immediately - ship will be destroyed as part of explosion
-          this.explodeMine(mine, shipPlayerId);
-          break;
+        if (dist <= mineDetectionRadius) {
+          if (shipPlayerId !== mine.ownerId) {
+            // Other player touched the mine - explode!
+            this.explodeMine(mine, shipPlayerId);
+            break;
+          }
         }
       }
     }
@@ -1527,6 +1542,10 @@ export class Game {
           this.applyRoundResult(payload);
         }
       },
+
+      onDevModeReceived: (enabled) => {
+        this.setDevModeFromNetwork(enabled);
+      },
     });
   }
 
@@ -1816,7 +1835,7 @@ export class Game {
         // Check if player has joust for speed boost
         const playerPowerUp = this.playerPowerUps.get(playerId);
         const hasJoust = playerPowerUp?.type === "JOUST";
-        const speedMultiplier = hasJoust ? 2 : 1;
+        const speedMultiplier = hasJoust ? 1.4 : 1;
 
         const fireResult = ship.applyInput(
           input,
@@ -2466,6 +2485,49 @@ export class Game {
         });
       }
 
+      // Draw dev mode visualization (debug circles for homing missile and mine radii)
+      if (this.isDevModeEnabled()) {
+        // Draw homing missile detection radius for all active missiles
+        if (isHost) {
+          this.homingMissiles.forEach((missile) => {
+            if (missile.alive) {
+              const state = missile.getState();
+              this.renderer.drawHomingMissileDetectionRadius(
+                state.x,
+                state.y,
+                GAME_CONFIG.POWERUP_HOMING_MISSILE_DETECTION_RADIUS,
+              );
+            }
+          });
+        } else {
+          this.networkHomingMissiles.forEach((state) => {
+            if (state.alive) {
+              this.renderer.drawHomingMissileDetectionRadius(
+                state.x,
+                state.y,
+                GAME_CONFIG.POWERUP_HOMING_MISSILE_DETECTION_RADIUS,
+              );
+            }
+          });
+        }
+
+        // Draw mine detection radius for all active mines
+        const mineDetectionRadius = GAME_CONFIG.POWERUP_MINE_SIZE + 33; // Collision radius
+        if (isHost) {
+          this.mines.forEach((mine) => {
+            if (mine.alive && !mine.exploded) {
+              this.renderer.drawMineDetectionRadius(mine.x, mine.y, mineDetectionRadius);
+            }
+          });
+        } else {
+          this.networkMines.forEach((state) => {
+            if (state.alive && !state.exploded) {
+              this.renderer.drawMineDetectionRadius(state.x, state.y, mineDetectionRadius);
+            }
+          });
+        }
+      }
+
       this.renderer.drawParticles();
     }
 
@@ -2677,6 +2739,30 @@ export class Game {
 
   setDevKeysEnabled(enabled: boolean): void {
     this.input.setDevKeysEnabled(enabled);
+  }
+
+  // Toggle dev mode visualization
+  toggleDevMode(): boolean {
+    const newState = this.input.toggleDevMode();
+    this.renderer.setDevMode(newState);
+    
+    // Sync dev mode state across multiplayer
+    if (this.network.isHost()) {
+      this.network.broadcastDevMode(newState);
+    }
+    
+    return newState;
+  }
+
+  // Get current dev mode state
+  isDevModeEnabled(): boolean {
+    return this.input.isDevModeEnabled();
+  }
+
+  // Called by network when receiving dev mode state from host
+  setDevModeFromNetwork(enabled: boolean): void {
+    this.renderer.setDevMode(enabled);
+    console.log("[Game] Dev mode synced from network:", enabled ? "ON" : "OFF");
   }
 
   // ============= TOUCH LAYOUT DELEGATION =============

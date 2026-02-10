@@ -44,6 +44,7 @@ export interface NetworkCallbacks {
   onPlayerListReceived: (playerOrder: string[], meta?: PlayerMetaMap) => void;
   onGameModeReceived: (mode: GameMode) => void;
   onRoundResultReceived: (payload: RoundResultPayload) => void;
+  onDevModeReceived: (enabled: boolean) => void;
 }
 
 interface PlayerMeta {
@@ -326,6 +327,14 @@ export class NetworkManager {
         this.callbacks?.onRoundResultReceived(payload);
       }),
     );
+
+    // Handle dev mode state from host
+    this.cleanupFunctions.push(
+      RPC.register("devMode", async (enabled: boolean) => {
+        console.log("[NetworkManager] RPC devMode received:", enabled);
+        this.callbacks?.onDevModeReceived(enabled);
+      }),
+    );
   }
 
   startSync(): void {
@@ -422,6 +431,13 @@ export class NetworkManager {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting round result");
     RPC.call("roundResult", payload, RPC.Mode.ALL);
+  }
+
+  // Broadcast dev mode state via RPC
+  broadcastDevMode(enabled: boolean): void {
+    if (!isHost()) return;
+    console.log("[NetworkManager] Broadcasting dev mode:", enabled);
+    RPC.call("devMode", enabled, RPC.Mode.ALL);
   }
 
   // Broadcast player list (host only) - authoritative order for colors
