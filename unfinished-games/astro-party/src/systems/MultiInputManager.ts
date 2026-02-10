@@ -95,7 +95,12 @@ export class MultiInputManager {
   capture(slot: number): PlayerInput {
     const state = this.slots.get(slot);
     if (!state || !this.activeSlots.has(slot)) {
-      return { buttonA: false, buttonB: false, timestamp: 0 };
+      return {
+        buttonA: false,
+        buttonB: false,
+        timestamp: 0,
+        clientTimeMs: 0,
+      };
     }
 
     // Track wasButtonA for dash detection
@@ -105,6 +110,7 @@ export class MultiInputManager {
       buttonA: state.buttonA,
       buttonB: state.buttonB,
       timestamp: performance.now(),
+      clientTimeMs: performance.now(),
     };
   }
 

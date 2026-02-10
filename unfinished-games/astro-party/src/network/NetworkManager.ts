@@ -72,6 +72,7 @@ export class NetworkManager {
   private colorUsed = new Set<number>();
   private colorIndexById = new Map<string, number>();
   private playerMetaById: PlayerMetaMap = new Map();
+  private webrtcConnected = false;
 
   async createRoom(): Promise<string> {
     console.log("[NetworkManager] Creating new room...");
@@ -219,10 +220,34 @@ export class NetworkManager {
       onDisconnect((e) => {
         console.log("[NetworkManager] Disconnected:", e.code, e.reason);
         this.connected = false;
+        this.webrtcConnected = false;
         this.stopSync();
         this.callbacks?.onDisconnected();
       }),
     );
+
+    const me = myPlayer() as unknown as {
+      on?: (event: string, cb: () => void) => void;
+      off?: (event: string, cb: () => void) => void;
+      removeListener?: (event: string, cb: () => void) => void;
+      webrtcConnected?: boolean;
+    };
+    if (me) {
+      this.webrtcConnected = Boolean(me.webrtcConnected);
+      if (me.on) {
+        const handleWebRtcConnected = (): void => {
+          this.webrtcConnected = true;
+        };
+        me.on("webrtc_connected", handleWebRtcConnected);
+        this.cleanupFunctions.push(() => {
+          if (me.off) {
+            me.off("webrtc_connected", handleWebRtcConnected);
+          } else if (me.removeListener) {
+            me.removeListener("webrtc_connected", handleWebRtcConnected);
+          }
+        });
+      }
+    }
 
     // Register RPC handlers
     this.setupRPCHandlers();
@@ -406,9 +431,17 @@ export class NetworkManager {
   }
 
   // Broadcast game sound event via RPC (all players hear all sounds)
-  broadcastGameSound(type: string, playerId: string): void {
+  broadcastGameSound(
+    type: string,
+    playerId: string,
+    mode: typeof RPC.Mode.ALL | typeof RPC.Mode.OTHERS = RPC.Mode.ALL,
+  ): void {
     if (!isHost()) return;
-    RPC.call("gameSound", { type, playerId }, RPC.Mode.ALL);
+    RPC.call("gameSound", { type, playerId }, mode);
+  }
+
+  broadcastGameSoundToOthers(type: string, playerId: string): void {
+    this.broadcastGameSound(type, playerId, RPC.Mode.OTHERS);
   }
 
   // Send dash request to host (any player can call)
@@ -505,6 +538,10 @@ export class NetworkManager {
 
   isHost(): boolean {
     return isHost();
+  }
+
+  isWebRtcConnected(): boolean {
+    return this.webrtcConnected;
   }
 
   getRoomCode(): string {
@@ -610,6 +647,7 @@ export class NetworkManager {
     this.colorUsed.clear();
     this.colorIndexById.clear();
     this.playerMetaById.clear();
+    this.webrtcConnected = false;
   }
 
   private updateHostState(): void {

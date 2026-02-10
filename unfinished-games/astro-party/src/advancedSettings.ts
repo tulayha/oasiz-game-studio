@@ -37,10 +37,6 @@ export function sanitizeAdvancedSettings(
     ...input,
   };
 
-  if (merged.asteroidDensity === "MORE") {
-    merged.asteroidDensity = "MANY";
-  }
-
   if (!ASTEROID_DENSITIES.includes(merged.asteroidDensity)) {
     merged.asteroidDensity = DEFAULT_ADVANCED_SETTINGS.asteroidDensity;
   }
@@ -129,7 +125,7 @@ function applyConfigPresetOverride(
   overrides: Partial<GameConfigType>,
 ): void {
   if (settingsPreset === basePreset) return;
-  overrides[key] = resolveConfigValue(settingsPreset, key);
+  (overrides as Record<string, number>)[key] = resolveConfigValue(settingsPreset, key);
 }
 
 function applyPhysicsPresetOverride(

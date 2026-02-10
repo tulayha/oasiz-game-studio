@@ -175,6 +175,7 @@ export class InputManager {
       buttonA: this.buttonA,
       buttonB: this.buttonB,
       timestamp: now,
+      clientTimeMs: now,
     };
   }
 

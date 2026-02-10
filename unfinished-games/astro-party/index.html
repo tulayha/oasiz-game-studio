@@ -728,6 +728,22 @@
     .ping-indicator.medium { color: rgba(255, 238, 0, 0.7); }
     .ping-indicator.bad { color: rgba(255, 0, 170, 0.7); }
 
+    .net-stats {
+      position: absolute;
+      bottom: calc(100% - var(--box-bottom) + var(--hud-bottom-gap) + 22px);
+      right: calc(100% - var(--box-right) + var(--hud-side-gap));
+      z-index: 60;
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+      line-height: 1.35;
+      color: rgba(255, 255, 255, 0.55);
+      background: rgba(0, 0, 0, 0.35);
+      padding: 6px 8px;
+      border-radius: 6px;
+      white-space: pre;
+      display: none;
+    }
+
     .settings-modal {
       position: fixed;
       top: 50%;
@@ -1783,6 +1799,7 @@
 
   <!-- Ping Indicator -->
   <div class="ping-indicator" id="pingIndicator"></div>
+  <div class="net-stats" id="netStats"></div>
 
   <!-- Settings Button -->
   <button class="settings-btn" id="settingsBtn" style="display: none;">

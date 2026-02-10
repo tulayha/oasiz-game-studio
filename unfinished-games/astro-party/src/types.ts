@@ -19,6 +19,7 @@ export interface PlayerInput {
   buttonA: boolean; // Rotation (hold)
   buttonB: boolean; // Thrust AND Fire (simultaneous)
   timestamp: number;
+  clientTimeMs: number;
   // Note: Dash is handled via RPC, not input state
 }
 
@@ -179,8 +180,7 @@ export interface GameStateSync {
   laserBeams: LaserBeamState[];
   mines: MineState[];
   homingMissiles: HomingMissileState[];
-  players: PlayerData[];
-  playerPowerUps: Record<string, PlayerPowerUp | null>;
+  playerPowerUps?: Record<string, PlayerPowerUp | null>;
   rotationDirection: number; // 1 for normal, -1 for reversed
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
@@ -380,7 +380,7 @@ export const GAME_CONFIG = {
 
 // Mutable version of GAME_CONFIG type (widens literal types from `as const`)
 export type GameConfigType = {
-  [K in keyof typeof GAME_CONFIG]: (typeof GAME_CONFIG)[K] extends number
+  -readonly [K in keyof typeof GAME_CONFIG]: (typeof GAME_CONFIG)[K] extends number
     ? number
     : (typeof GAME_CONFIG)[K] extends string
       ? string

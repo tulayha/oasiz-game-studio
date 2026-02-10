@@ -4,6 +4,7 @@ import { InputManager } from "./systems/Input";
 import { MultiInputManager } from "./systems/MultiInputManager";
 import { setupCollisions } from "./systems/Collision";
 import { NetworkManager } from "./network/NetworkManager";
+import { DisplaySmoother } from "./network/DisplaySmoother";
 import { Ship } from "./entities/Ship";
 import { Pilot } from "./entities/Pilot";
 import { Projectile } from "./entities/Projectile";
@@ -74,6 +75,25 @@ export class Game {
   // Input state
   private pendingInputs: Map<string, PlayerInput> = new Map();
   private pendingDashes: Set<string> = new Set();
+  private localInputState: PlayerInput = {
+    buttonA: false,
+    buttonB: false,
+    timestamp: 0,
+    clientTimeMs: 0,
+  };
+
+  // Display smoothers for non-host rendering (velocity extrapolation + smooth correction)
+  private shipSmoother = new DisplaySmoother(0.25, 100);
+  private projectileSmoother = new DisplaySmoother(0.4, 150);
+  private asteroidSmoother = new DisplaySmoother(0.15, 80);
+  private pilotSmoother = new DisplaySmoother(0.2, 80);
+  private missileSmoother = new DisplaySmoother(0.35, 120);
+
+  private snapshotJitterMs: number = 0;
+  private snapshotIntervalMs: number = 0;
+  private lastSnapshotReceivedAtMs: number = 0;
+  private lastPlayerStateSyncMs: number = 0;
+  private lastSnapshotAgeMs: number = 0;
 
   // Network state caches (for client rendering)
   private networkShips: ShipState[] = [];
@@ -85,6 +105,7 @@ export class Game {
   private networkMines: MineState[] = [];
   private networkHomingMissiles: HomingMissileState[] = [];
   private networkRotationDirection: number = 1;
+  private soundThrottleByKey: Map<string, number> = new Map();
 
   // Track which mines have exploded on client (for effects)
   private clientExplodedMines: Set<string> = new Set();
@@ -105,6 +126,7 @@ export class Game {
   private latencyMs: number = 0;
   private lastBroadcastTime: number = 0;
   private lastInputSendTime: number = 0;
+  private lastPowerUpSyncTime: number = 0;
 
   // Host migration tracking (proper migration not supported)
   private _originalHostLeft = false;
@@ -1620,28 +1642,7 @@ export class Game {
       },
 
       onGameSoundReceived: (type, _playerId) => {
-        switch (type) {
-          case "fire":
-            AudioManager.playFire();
-            break;
-          case "dash":
-            AudioManager.playDash();
-            break;
-          case "explosion":
-            AudioManager.playExplosion();
-            AudioManager.playPilotEject();
-            break;
-          case "kill":
-            AudioManager.playKill();
-            AudioManager.playPilotDeath();
-            break;
-          case "respawn":
-            AudioManager.playRespawn();
-            break;
-          case "win":
-            AudioManager.playWin();
-            break;
-        }
+        this.playGameSoundLocal(type);
       },
 
       onDashRequested: (playerId) => {
@@ -1692,11 +1693,23 @@ export class Game {
     this.network.startSync();
 
     this.input.setDashCallback(() => {
-      this.network.sendDashRequest();
+      this.handleLocalDash();
     });
 
     this.startPingInterval();
     this.flowMgr.setPhase("LOBBY");
+  }
+
+  private handleLocalDash(): void {
+    if (this.network.isHost()) {
+      const myId = this.network.getMyPlayerId();
+      if (myId) {
+        this.pendingDashes.add(myId);
+      }
+      return;
+    }
+
+    this.network.sendDashRequest();
   }
 
   private startPingInterval(): void {
@@ -1778,6 +1791,14 @@ export class Game {
     // Clear client tracking
     this.clientExplodedMines.clear();
     this.clientShipPositions.clear();
+
+    // Clear display smoothers and sound throttles
+    this.shipSmoother.clear();
+    this.projectileSmoother.clear();
+    this.asteroidSmoother.clear();
+    this.pilotSmoother.clear();
+    this.missileSmoother.clear();
+    this.soundThrottleByKey.clear();
 
     this.roundResult = null;
   }
@@ -1868,16 +1889,33 @@ export class Game {
 
     // Send local input (throttled to sync rate)
     const now = performance.now();
-    const localInput = this.botMgr.useTouchForHost
+    const capturedInput = this.botMgr.useTouchForHost
       ? this.multiInput?.capture(0) || {
           buttonA: false,
           buttonB: false,
           timestamp: 0,
+    
+          clientTimeMs: 0,
         }
       : this.input.capture();
-    if (now - this.lastInputSendTime >= GAME_CONFIG.SYNC_INTERVAL) {
-      this.network.sendInput(localInput);
-      this.lastInputSendTime = now;
+
+    this.localInputState = {
+      ...capturedInput,
+      timestamp: now,
+      clientTimeMs: now,
+    };
+
+    if (!this.network.isHost()) {
+      if (now - this.lastInputSendTime >= GAME_CONFIG.SYNC_INTERVAL) {
+        const sendInput: PlayerInput = {
+          ...this.localInputState,
+          timestamp: now,
+          clientTimeMs: now,
+        };
+
+        this.network.sendInput(sendInput);
+        this.lastInputSendTime = now;
+      }
     }
 
     // Check dev keys for testing powerups (only for local player on host)
@@ -1945,10 +1983,18 @@ export class Game {
               buttonA: action.buttonA,
               buttonB: action.buttonB,
               timestamp: performance.now(),
+        
+              clientTimeMs: performance.now(),
             };
             shouldDash = action.dash;
           } else {
-            input = { buttonA: false, buttonB: false, timestamp: 0 };
+            input = {
+              buttonA: false,
+              buttonB: false,
+              timestamp: 0,
+        
+              clientTimeMs: 0,
+            };
           }
         } else if (isBot && botType === "local") {
           const keySlot = this.network.getPlayerKeySlot(playerId);
@@ -1956,6 +2002,8 @@ export class Game {
             buttonA: false,
             buttonB: false,
             timestamp: 0,
+      
+            clientTimeMs: 0,
           };
           shouldDash = this.multiInput?.consumeDash(keySlot) || false;
         } else {
@@ -1967,13 +2015,23 @@ export class Game {
               buttonA: false,
               buttonB: false,
               timestamp: 0,
+        
+              clientTimeMs: 0,
             };
             shouldDash = this.multiInput?.consumeDash(0) || false;
+          } else if (isMe) {
+            input = this.localInputState;
+            shouldDash = this.pendingDashes.has(playerId);
+            if (shouldDash) {
+              this.pendingDashes.delete(playerId);
+            }
           } else {
             input = this.pendingInputs.get(playerId) || {
               buttonA: false,
               buttonB: false,
               timestamp: 0,
+        
+              clientTimeMs: 0,
             };
             shouldDash = this.pendingDashes.has(playerId);
             if (shouldDash) {
@@ -2026,7 +2084,10 @@ export class Game {
                   firePos.y,
                   fireResult.fireAngle,
                 );
-                this.network.broadcastGameSound("fire", playerId);
+                this.playGameSoundLocal("fire");
+                if (this.shouldBroadcastSound("fire", playerId)) {
+                  this.network.broadcastGameSoundToOthers("fire", playerId);
+                }
                 SettingsManager.triggerHaptic("heavy");
 
                 if (playerPowerUp.charges <= 0) {
@@ -2067,7 +2128,10 @@ export class Game {
                   this.projectiles.push(projectile);
                 }
 
-                this.network.broadcastGameSound("fire", playerId);
+                this.playGameSoundLocal("fire");
+                if (this.shouldBroadcastSound("fire", playerId)) {
+                  this.network.broadcastGameSoundToOthers("fire", playerId);
+                }
                 SettingsManager.triggerHaptic("medium");
 
                 if (playerPowerUp.charges <= 0) {
@@ -2091,7 +2155,10 @@ export class Game {
               const mine = new Mine(playerId, mineX, mineY);
               this.mines.push(mine);
 
-              this.network.broadcastGameSound("fire", playerId);
+              this.playGameSoundLocal("fire");
+              if (this.shouldBroadcastSound("fire", playerId)) {
+                this.network.broadcastGameSoundToOthers("fire", playerId);
+              }
               SettingsManager.triggerHaptic("light");
 
               if (playerPowerUp.charges <= 0) {
@@ -2112,7 +2179,10 @@ export class Game {
               );
               this.homingMissiles.push(missile);
 
-              this.network.broadcastGameSound("fire", playerId);
+              this.playGameSoundLocal("fire");
+              if (this.shouldBroadcastSound("fire", playerId)) {
+                this.network.broadcastGameSoundToOthers("fire", playerId);
+              }
               SettingsManager.triggerHaptic("heavy");
 
               if (playerPowerUp.charges <= 0) {
@@ -2128,13 +2198,19 @@ export class Game {
                 playerId,
               );
               this.projectiles.push(projectile);
-              this.network.broadcastGameSound("fire", playerId);
+              this.playGameSoundLocal("fire");
+              if (this.shouldBroadcastSound("fire", playerId)) {
+                this.network.broadcastGameSoundToOthers("fire", playerId);
+              }
             }
           }
         }
 
         if (shouldDash) {
-          this.network.broadcastGameSound("dash", playerId);
+          this.playGameSoundLocal("dash");
+          if (this.shouldBroadcastSound("dash", playerId)) {
+            this.network.broadcastGameSoundToOthers("dash", playerId);
+          }
         }
       });
 
@@ -2245,10 +2321,16 @@ export class Game {
   }
 
   private broadcastState(): void {
-    const playerPowerUpsRecord: Record<string, PlayerPowerUp | null> = {};
-    this.playerPowerUps.forEach((powerUp, playerId) => {
-      playerPowerUpsRecord[playerId] = powerUp;
-    });
+    const now = performance.now();
+
+    let playerPowerUpsRecord: Record<string, PlayerPowerUp | null> | undefined;
+    if (now - this.lastPowerUpSyncTime >= 200) {
+      this.lastPowerUpSyncTime = now;
+      playerPowerUpsRecord = {};
+      this.playerPowerUps.forEach((powerUp, playerId) => {
+        playerPowerUpsRecord![playerId] = powerUp;
+      });
+    }
 
     const state: GameStateSync = {
       ships: [...this.ships.values()].map((s) => s.getState()),
@@ -2259,7 +2341,6 @@ export class Game {
       laserBeams: this.laserBeams.map((b) => b.getState()),
       mines: this.mines.map((m) => m.getState()),
       homingMissiles: this.homingMissiles.map((m) => m.getState()),
-      players: [...this.playerMgr.players.values()],
       playerPowerUps: playerPowerUpsRecord,
       rotationDirection: this.rotationDirection,
     };
@@ -2268,10 +2349,9 @@ export class Game {
   }
 
   private applyNetworkState(state: GameStateSync): void {
-    state.players.forEach((playerData) => {
-      this.playerMgr.players.set(playerData.id, playerData);
-    });
-    this.emitPlayersUpdate();
+    const receivedAt = performance.now();
+    this.trackSnapshotTiming(receivedAt);
+    this.syncPlayerStatesFromNetwork();
 
     // Check for ships that were destroyed and trigger debris effects on client
     const currentShipIds = new Set(state.ships.map((s) => s.playerId));
@@ -2351,6 +2431,120 @@ export class Game {
         this.playerPowerUps.set(playerId, powerUp);
       });
     }
+
+    // Feed smoothers with new snapshot data
+    this.shipSmoother.applySnapshot(state.ships, (s) => s.playerId);
+    this.projectileSmoother.applySnapshot(state.projectiles, (p) => p.id);
+    this.asteroidSmoother.applySnapshot(state.asteroids, (a) => a.id);
+    this.pilotSmoother.applySnapshot(state.pilots, (p) => p.playerId);
+    this.missileSmoother.applySnapshot(
+      state.homingMissiles || [],
+      (m) => m.id,
+    );
+  }
+
+  private trackSnapshotTiming(receivedAt: number): void {
+    if (this.lastSnapshotReceivedAtMs > 0) {
+      const interval = receivedAt - this.lastSnapshotReceivedAtMs;
+      this.snapshotIntervalMs = interval;
+      this.lastSnapshotAgeMs = interval;
+      const jitterSample = Math.abs(interval - GAME_CONFIG.SYNC_INTERVAL);
+      this.snapshotJitterMs = this.snapshotJitterMs * 0.9 + jitterSample * 0.1;
+    }
+    this.lastSnapshotReceivedAtMs = receivedAt;
+  }
+
+  private syncPlayerStatesFromNetwork(): void {
+    if (this.network.isHost()) return;
+
+    const now = performance.now();
+    if (now - this.lastPlayerStateSyncMs < 200) return;
+    this.lastPlayerStateSyncMs = now;
+
+    let changed = false;
+    for (const [playerId, player] of this.playerMgr.players) {
+      const netPlayer = this.network.getPlayer(playerId);
+      if (!netPlayer) continue;
+
+      const kills = netPlayer.getState("kills") as number | undefined;
+      if (Number.isFinite(kills) && kills !== player.kills) {
+        player.kills = kills as number;
+        changed = true;
+      }
+
+      const wins = netPlayer.getState("roundWins") as number | undefined;
+      if (Number.isFinite(wins) && wins !== player.roundWins) {
+        player.roundWins = wins as number;
+        changed = true;
+      }
+
+      const state = netPlayer.getState("playerState") as
+        | "ACTIVE"
+        | "EJECTED"
+        | "SPECTATING"
+        | undefined;
+      if (state && state !== player.state) {
+        player.state = state;
+        changed = true;
+      }
+
+      const name = this.network.getPlayerName(playerId);
+      if (name && name !== player.name) {
+        player.name = name;
+        changed = true;
+      }
+
+      const color = this.network.getPlayerColor(playerId);
+      if (color.primary !== player.color.primary) {
+        player.color = color;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.emitPlayersUpdate();
+    }
+  }
+
+  private playGameSoundLocal(type: string): void {
+    switch (type) {
+      case "fire":
+        AudioManager.playFire();
+        break;
+      case "dash":
+        AudioManager.playDash();
+        break;
+      case "explosion":
+        AudioManager.playExplosion();
+        AudioManager.playPilotEject();
+        break;
+      case "kill":
+        AudioManager.playKill();
+        AudioManager.playPilotDeath();
+        break;
+      case "respawn":
+        AudioManager.playRespawn();
+        break;
+      case "win":
+        AudioManager.playWin();
+        break;
+      default:
+        break;
+    }
+  }
+
+  private shouldBroadcastSound(type: string, playerId: string): boolean {
+    const now = performance.now();
+    let interval = 0;
+    if (type === "fire") interval = 120;
+    if (type === "dash") interval = 200;
+    if (interval <= 0) return true;
+
+    const key = type + ":" + playerId;
+    const lastTime = this.soundThrottleByKey.get(key) ?? 0;
+    if (now - lastTime < interval) return false;
+    this.soundThrottleByKey.set(key, now);
+    return true;
   }
 
   private applyRoundResult(payload: RoundResultPayload): void {
@@ -2382,8 +2576,12 @@ export class Game {
         }
       });
     } else {
-      // For non-host: use networkShips with state data
-      this.networkShips.forEach((shipState) => {
+      // For non-host: use smoothed ship positions so particles track the rendered ship
+      const smoothedShips = this.shipSmoother.smooth(
+        this.networkShips,
+        (s) => s.playerId,
+      );
+      smoothedShips.forEach((shipState) => {
         const joustPowerUp = this.playerPowerUps.get(shipState.playerId);
         if (joustPowerUp?.type === "JOUST") {
           const shipAngle = shipState.angle;
@@ -2409,6 +2607,8 @@ export class Game {
           buttonA: false,
           buttonB: false,
           timestamp: 0,
+    
+          clientTimeMs: 0,
         }
       );
     }
@@ -2421,6 +2621,8 @@ export class Game {
           buttonA: false,
           buttonB: false,
           timestamp: 0,
+    
+          clientTimeMs: 0,
         }
       );
     }
@@ -2430,6 +2632,8 @@ export class Game {
         buttonA: false,
         buttonB: false,
         timestamp: 0,
+  
+        clientTimeMs: 0,
       }
     );
   }
@@ -2443,6 +2647,50 @@ export class Game {
 
     if (this.flowMgr.phase === "PLAYING" || this.flowMgr.phase === "GAME_END") {
       const isHost = this.network.isHost();
+      // Non-host: apply display smoothing (velocity extrapolation + blend)
+      let renderShips: ShipState[];
+      let renderPilots: PilotState[];
+      let renderProjectiles: ProjectileState[];
+      let renderAsteroids: AsteroidState[];
+      let renderHomingMissiles: HomingMissileState[];
+      if (!isHost) {
+        const dtMs = dt * 1000;
+        this.shipSmoother.update(dtMs);
+        this.projectileSmoother.update(dtMs);
+        this.asteroidSmoother.update(dtMs);
+        this.pilotSmoother.update(dtMs);
+        this.missileSmoother.update(dtMs);
+
+        renderShips = this.shipSmoother.smooth(
+          this.networkShips,
+          (s) => s.playerId,
+        );
+        renderPilots = this.pilotSmoother.smooth(
+          this.networkPilots,
+          (p) => p.playerId,
+        );
+        renderProjectiles = this.projectileSmoother.smooth(
+          this.networkProjectiles,
+          (p) => p.id,
+        );
+        renderAsteroids = this.asteroidSmoother.smooth(
+          this.networkAsteroids,
+          (a) => a.id,
+        );
+        renderHomingMissiles = this.missileSmoother.smooth(
+          this.networkHomingMissiles,
+          (m) => m.id,
+        );
+      } else {
+        renderShips = this.networkShips;
+        renderPilots = this.networkPilots;
+        renderProjectiles = this.networkProjectiles;
+        renderAsteroids = this.networkAsteroids;
+        renderHomingMissiles = this.networkHomingMissiles;
+      }
+      const renderPowerUps = this.networkPowerUps;
+      const renderLaserBeams = this.networkLaserBeams;
+      const renderMines = this.networkMines;
 
       if (isHost) {
         this.ships.forEach((ship) => {
@@ -2495,7 +2743,7 @@ export class Game {
           }
         });
       } else {
-        this.networkShips.forEach((state) => {
+        renderShips.forEach((state) => {
           if (state.alive) {
             const player = this.playerMgr.players.get(state.playerId);
             if (player) {
@@ -2563,7 +2811,7 @@ export class Game {
           }
         });
       } else {
-        this.networkPilots.forEach((state) => {
+        renderPilots.forEach((state) => {
           if (state.alive) {
             const player = this.playerMgr.players.get(state.playerId);
             if (player) {
@@ -2578,7 +2826,7 @@ export class Game {
           this.renderer.drawProjectile(proj.getState());
         });
       } else {
-        this.networkProjectiles.forEach((state) => {
+        renderProjectiles.forEach((state) => {
           this.renderer.drawProjectile(state);
         });
       }
@@ -2591,7 +2839,7 @@ export class Game {
           }
         });
       } else {
-        this.networkAsteroids.forEach((state) => {
+        renderAsteroids.forEach((state) => {
           if (state.alive) {
             this.renderer.drawAsteroid(state);
           }
@@ -2606,7 +2854,7 @@ export class Game {
           }
         });
       } else {
-        this.networkPowerUps.forEach((state) => {
+        renderPowerUps.forEach((state) => {
           if (state.alive) {
             this.renderer.drawPowerUp(state);
           }
@@ -2621,7 +2869,7 @@ export class Game {
           }
         });
       } else {
-        this.networkLaserBeams.forEach((state) => {
+        renderLaserBeams.forEach((state) => {
           if (state.alive) {
             this.renderer.drawLaserBeam(state);
           }
@@ -2638,7 +2886,7 @@ export class Game {
       } else {
         // For clients, we need to create Mine objects from network state or draw directly
         // Since mines don't have physics bodies, we can render from network state
-        this.networkMines.forEach((state) => {
+        renderMines.forEach((state) => {
           if (state.alive) {
             this.renderer.drawMineState(state);
           }
@@ -2653,7 +2901,7 @@ export class Game {
           }
         });
       } else {
-        this.networkHomingMissiles.forEach((state) => {
+        renderHomingMissiles.forEach((state) => {
           if (state.alive) {
             this.renderer.drawHomingMissile(state);
           }
@@ -2675,7 +2923,7 @@ export class Game {
             }
           });
         } else {
-          this.networkHomingMissiles.forEach((state) => {
+          renderHomingMissiles.forEach((state) => {
             if (state.alive) {
               this.renderer.drawHomingMissileDetectionRadius(
                 state.x,
@@ -2699,7 +2947,7 @@ export class Game {
             }
           });
         } else {
-          this.networkMines.forEach((state) => {
+          renderMines.forEach((state) => {
             if (state.alive && !state.exploded) {
               this.renderer.drawMineDetectionRadius(
                 state.x,
@@ -2770,6 +3018,22 @@ export class Game {
 
   getLatencyMs(): number {
     return this.latencyMs;
+  }
+
+  getNetworkTelemetry(): {
+    latencyMs: number;
+    jitterMs: number;
+    snapshotAgeMs: number;
+    snapshotIntervalMs: number;
+    webrtcConnected: boolean;
+  } {
+    return {
+      latencyMs: this.latencyMs,
+      jitterMs: this.snapshotJitterMs,
+      snapshotAgeMs: this.lastSnapshotAgeMs,
+      snapshotIntervalMs: this.snapshotIntervalMs,
+      webrtcConnected: this.network.isWebRtcConnected(),
+    };
   }
 
   getHostId(): string | null {

@@ -111,6 +111,7 @@ async function init(): Promise<void> {
   game.start();
 
   setInterval(screenController.updatePingIndicator, 500);
+  setInterval(screenController.updateNetworkStats, 250);
 
   if (window.__ROOM_CODE__) {
     console.log("[Main] Platform injected room code:", window.__ROOM_CODE__);

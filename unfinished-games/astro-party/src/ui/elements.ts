@@ -105,6 +105,7 @@ export const elements = {
 
   // Ping indicator
   pingIndicator: getElement<HTMLElement>("pingIndicator"),
+  netStats: getElement<HTMLElement>("netStats"),
 
   // Mobile controls
   mobileControls: getElement<HTMLElement>("mobileControls"),

@@ -11,6 +11,7 @@ export interface ScreenController {
   showScreen: (screen: Screen) => void;
   updateHudControlsVisibility: () => void;
   updatePingIndicator: () => void;
+  updateNetworkStats: () => void;
   updateRoundResultOverlay: () => void;
   setRoundResultVisible: (visible: boolean) => void;
   updateScoreTrack: (players: PlayerData[]) => void;
@@ -67,6 +68,7 @@ export function createScreenController(
     const showPing =
       game.shouldShowPing() && (screen === "lobby" || screen === "game");
     elements.pingIndicator.style.display = showPing ? "block" : "none";
+    elements.netStats.style.display = screen === "game" ? "block" : "none";
   }
 
   function updatePingIndicator(): void {
@@ -88,6 +90,26 @@ export function createScreenController(
     } else {
       elements.pingIndicator.classList.add("bad");
     }
+  }
+
+  function updateNetworkStats(): void {
+    if (activeScreen !== "game") {
+      elements.netStats.textContent = "";
+      return;
+    }
+
+    const stats = game.getNetworkTelemetry();
+    const latency = Math.round(stats.latencyMs);
+    const jitter = Math.round(stats.jitterMs);
+    const age = Math.round(stats.snapshotAgeMs);
+    const interval = Math.round(stats.snapshotIntervalMs);
+    const transport = stats.webrtcConnected ? "RTC" : "WS";
+
+    const line1 =
+      "RTT " + latency + "ms | Jit " + jitter + "ms | Age " + age + "ms";
+    const line2 = "Tick " + interval + "ms | " + transport;
+
+    elements.netStats.textContent = line1 + "\n" + line2;
   }
 
   function updateRoundResultOverlay(): void {
@@ -199,6 +221,7 @@ export function createScreenController(
     showScreen,
     updateHudControlsVisibility,
     updatePingIndicator,
+    updateNetworkStats,
     updateRoundResultOverlay,
     setRoundResultVisible,
     updateScoreTrack,
