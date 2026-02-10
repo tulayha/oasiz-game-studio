@@ -920,12 +920,22 @@ export class Game {
     if (!this.network.isHost()) return;
 
     // Mine detection radius - increased when dev mode is on for testing
-    const baseMineRadius = GAME_CONFIG.POWERUP_MINE_SIZE + 25;
+    const baseMineRadius = GAME_CONFIG.POWERUP_MINE_SIZE + 33;
     const devModeMultiplier = this.isDevModeEnabled() ? 3 : 1; // Triple radius in dev mode
     const mineDetectionRadius = baseMineRadius * devModeMultiplier;
 
     for (const mine of this.mines) {
       if (!mine.alive || mine.exploded) continue;
+
+      // Check if mine is arming and should explode
+      if (mine.checkArmingComplete()) {
+        this.explodeMine(mine, mine.triggeringPlayerId);
+        mine.triggeringPlayerId = undefined;
+        continue;
+      }
+
+      // Skip normal collision check if mine is already arming
+      if (mine.isArming()) continue;
 
       // Check collision with all ships
       for (const [shipPlayerId, ship] of this.ships) {
@@ -937,8 +947,14 @@ export class Game {
 
         if (dist <= mineDetectionRadius) {
           if (shipPlayerId !== mine.ownerId) {
-            // Other player touched the mine - explode!
-            this.explodeMine(mine, shipPlayerId);
+            // Player touched the mine - trigger arming sequence
+            // Explosion happens after 1 second delay
+            mine.triggerArming();
+            mine.triggeringPlayerId = shipPlayerId;
+            // Show warning effect
+            this.renderer.spawnExplosion(mine.x, mine.y, "#ff4400");
+            this.renderer.addScreenShake(5, 0.15);
+            SettingsManager.triggerHaptic("medium");
             break;
           }
         }
@@ -1242,46 +1258,97 @@ export class Game {
 
       if (!powerUp || powerUp.type !== "JOUST") continue;
 
-      // Check sword-to-projectile collisions (block bullets)
+      // Check sword-to-projectile collisions (block bullets from sides only)
       for (let i = this.projectiles.length - 1; i >= 0; i--) {
         const projectile = this.projectiles[i];
         if (projectile.ownerId === playerId) continue; // Don't block own bullets
 
         const projX = projectile.body.position.x;
         const projY = projectile.body.position.y;
+        
+        // Get projectile velocity direction
+        const projVx = projectile.body.velocity.x;
+        const projVy = projectile.body.velocity.y;
+        const projSpeed = Math.sqrt(projVx * projVx + projVy * projVy);
+        const projAngle = Math.atan2(projVy, projVx);
+        
+        // Calculate angle from projectile to ship
+        const dx = shipX - projX;
+        const dy = shipY - projY;
+        const angleToShip = Math.atan2(dy, dx);
+        
+        // Check if projectile is approaching the ship from the front or back (should NOT be blocked)
+        // A projectile from front/back would have velocity pointing toward the ship
+        // We allow blocking only if projectile is coming from roughly perpendicular angles (sides)
+        const angleDiff = Math.abs(angleToShip - projAngle);
+        const normalizedAngleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+        
+        // Only block if projectile is coming from the sides (angle > 45 degrees from approach direction)
+        const isFromSide = normalizedAngleDiff > Math.PI / 4; // > 45 degrees
 
         // Check left sword collision with projectile
         if (powerUp.leftSwordActive) {
-          const dx = projX - leftSwordCenterX;
-          const dy = projY - leftSwordCenterY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
+          const swordDx = projX - leftSwordCenterX;
+          const swordDy = projY - leftSwordCenterY;
+          const dist = Math.sqrt(swordDx * swordDx + swordDy * swordDy);
 
           if (dist <= swordLength / 2 + 8) {
-            // Block projectile
-            this.flowMgr.removeProjectileByBody(
-              projectile.body,
-              this.projectiles,
-            );
-            this.renderer.spawnExplosion(projX, projY, "#00ff44");
-            continue;
+            if (isFromSide) {
+              // Destroy sword and block projectile
+              powerUp.leftSwordActive = false;
+              this.flowMgr.removeProjectileByBody(
+                projectile.body,
+                this.projectiles,
+              );
+              this.renderer.spawnExplosion(leftSwordCenterX, leftSwordCenterY, "#00ff44");
+              this.renderer.addScreenShake(5, 0.15);
+              SettingsManager.triggerHaptic("medium");
+              
+              // Spawn debris where the bullet hit the sword
+              this.renderer.spawnShipDebris(
+                projX,
+                projY,
+                "#00ff44",
+              );
+            }
+            // If not from side, let projectile pass through to hit ship
           }
         }
 
         // Check right sword collision with projectile
         if (powerUp.rightSwordActive) {
-          const dx = projX - rightSwordCenterX;
-          const dy = projY - rightSwordCenterY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
+          const swordDx = projX - rightSwordCenterX;
+          const swordDy = projY - rightSwordCenterY;
+          const dist = Math.sqrt(swordDx * swordDx + swordDy * swordDy);
 
           if (dist <= swordLength / 2 + 8) {
-            // Block projectile
-            this.flowMgr.removeProjectileByBody(
-              projectile.body,
-              this.projectiles,
-            );
-            this.renderer.spawnExplosion(projX, projY, "#00ff44");
+            if (isFromSide) {
+              // Destroy sword and block projectile
+              powerUp.rightSwordActive = false;
+              this.flowMgr.removeProjectileByBody(
+                projectile.body,
+                this.projectiles,
+              );
+              this.renderer.spawnExplosion(rightSwordCenterX, rightSwordCenterY, "#00ff44");
+              this.renderer.addScreenShake(5, 0.15);
+              SettingsManager.triggerHaptic("medium");
+              
+              // Spawn debris where the bullet hit the sword
+              this.renderer.spawnShipDebris(
+                projX,
+                projY,
+                "#00ff44",
+              );
+            }
+            // If not from side, let projectile pass through to hit ship
           }
         }
+      }
+
+      // Remove joust if both swords are gone after projectile collisions
+      if (powerUp && !powerUp.leftSwordActive && !powerUp.rightSwordActive) {
+        this.playerPowerUps.delete(playerId);
+        continue;
       }
 
       if (!powerUp || powerUp.type !== "JOUST") continue;
@@ -1986,18 +2053,6 @@ export class Game {
         if (shouldDash) {
           this.network.broadcastGameSound("dash", playerId);
         }
-
-        // Spawn nitro particles when joust is active
-        const joustPowerUp = this.playerPowerUps.get(playerId);
-        if (joustPowerUp?.type === "JOUST") {
-          const shipAngle = ship.body.angle;
-          const tailX = ship.body.position.x - Math.cos(shipAngle) * 18;
-          const tailY = ship.body.position.y - Math.sin(shipAngle) * 18;
-
-          // Spawn nitro particles (orange/yellow fire) - more intense than regular thrust
-          const color = Math.random() > 0.4 ? "#ff6600" : "#ffee00";
-          this.renderer.spawnNitroParticle(tailX, tailY, color);
-        }
       });
 
       // Update pilots
@@ -2007,6 +2062,7 @@ export class Game {
           threats.push({ x: ship.body.position.x, y: ship.body.position.y });
         }
       });
+
       this.projectiles.forEach((proj) => {
         threats.push({ x: proj.body.position.x, y: proj.body.position.y });
       });
@@ -2100,6 +2156,9 @@ export class Game {
     // Update particles and effects
     this.renderer.updateParticles(dt);
     this.renderer.updateScreenShake(dt);
+
+    // Update visual effects for all clients (nitro particles, etc.)
+    this.updateVisualEffects();
   }
 
   private broadcastState(): void {
@@ -2221,6 +2280,39 @@ export class Game {
     });
     this.emitPlayersUpdate();
     this._onRoundResult?.(payload);
+  }
+
+  private updateVisualEffects(): void {
+    // Spawn nitro particles for joust power-up (runs for all clients)
+    // For host: use this.ships with physics bodies
+    if (this.network.isHost()) {
+      this.ships.forEach((ship, playerId) => {
+        const joustPowerUp = this.playerPowerUps.get(playerId);
+        if (joustPowerUp?.type === "JOUST") {
+          const shipAngle = ship.body.angle;
+          const tailX = ship.body.position.x - Math.cos(shipAngle) * 18;
+          const tailY = ship.body.position.y - Math.sin(shipAngle) * 18;
+
+          // Spawn nitro particles (orange/yellow fire) - more intense than regular thrust
+          const color = Math.random() > 0.4 ? "#ff6600" : "#ffee00";
+          this.renderer.spawnNitroParticle(tailX, tailY, color);
+        }
+      });
+    } else {
+      // For non-host: use networkShips with state data
+      this.networkShips.forEach((shipState) => {
+        const joustPowerUp = this.playerPowerUps.get(shipState.playerId);
+        if (joustPowerUp?.type === "JOUST") {
+          const shipAngle = shipState.angle;
+          const tailX = shipState.x - Math.cos(shipAngle) * 18;
+          const tailY = shipState.y - Math.sin(shipAngle) * 18;
+
+          // Spawn nitro particles (orange/yellow fire) - more intense than regular thrust
+          const color = Math.random() > 0.4 ? "#ff6600" : "#ffee00";
+          this.renderer.spawnNitroParticle(tailX, tailY, color);
+        }
+      });
+    }
   }
 
   private getPilotInputForPlayer(playerId: string): PlayerInput {
