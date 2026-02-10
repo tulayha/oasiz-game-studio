@@ -104,6 +104,9 @@ export interface MineState {
   alive: boolean;
   exploded: boolean;
   explosionTime: number;
+  arming: boolean;
+  armingStartTime: number;
+  triggeringPlayerId?: string;
 }
 
 export interface HomingMissileState {
