@@ -317,10 +317,10 @@ export class Renderer {
       const bottomWingX = -size * 0.7;
       const bottomWingY = size * 0.6;
 
-      // Offset for swords to add space at back corners
-      const cornerOffset = 8;
+      // Offset for swords to align with wing corners
+      const cornerOffset = 0;
 
-      // Left sword - starts at left back corner (top wing), extends at 10 degrees forward
+      // Left sword - starts at left back corner (top wing), extends straight forward at 0 degrees
       if (joustLeftActive) {
         // Start position: left back corner with offset toward the back
         const startX = topWingX - cornerOffset;
@@ -349,7 +349,7 @@ export class Renderer {
         ctx.restore();
       }
 
-      // Right sword - starts at right back corner (bottom wing), extends at 10 degrees forward
+      // Right sword - starts at right back corner (bottom wing), extends straight forward at 0 degrees
       if (joustRightActive) {
         // Start position: right back corner with offset toward the back
         const startX = bottomWingX - cornerOffset;
