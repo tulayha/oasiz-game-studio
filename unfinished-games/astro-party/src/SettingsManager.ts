@@ -5,9 +5,16 @@ export interface Settings {
   music: boolean;
   fx: boolean;
   haptics: boolean;
+  controlHints: boolean;
 }
 
 const STORAGE_KEY = "astro-party-settings";
+const DEFAULT_SETTINGS: Settings = {
+  music: true,
+  fx: true,
+  haptics: true,
+  controlHints: true,
+};
 
 class SettingsManagerClass {
   private settings: Settings;
@@ -21,12 +28,12 @@ class SettingsManagerClass {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        return JSON.parse(saved);
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
       }
     } catch (e) {
       console.log("[SettingsManager] Could not load settings");
     }
-    return { music: true, fx: true, haptics: true };
+    return { ...DEFAULT_SETTINGS };
   }
 
   private save(): void {

@@ -60,6 +60,11 @@ interface PlayerMeta {
 
 type PlayerMetaMap = Map<string, PlayerMeta>;
 
+interface PingPayload {
+  seq: number;
+  sentAt: number;
+}
+
 export class NetworkManager {
   private players: Map<string, PlayroomPlayerState> = new Map();
   private playerOrder: string[] = [];
@@ -73,6 +78,11 @@ export class NetworkManager {
   private colorIndexById = new Map<string, number>();
   private playerMetaById: PlayerMetaMap = new Map();
   private webrtcConnected = false;
+  private pingSeq = 0;
+  private lastPingSentAt = 0;
+  private lastPingEchoSeq = -1;
+  private lastPingSeqByPlayer = new Map<string, number>();
+  private static readonly PING_INTERVAL_MS = 1000;
 
   async createRoom(): Promise<string> {
     console.log("[NetworkManager] Creating new room...");
@@ -197,6 +207,7 @@ export class NetworkManager {
         player.onQuit(() => {
           console.log("[NetworkManager] Player left:", player.id);
           this.players.delete(player.id);
+          this.lastPingSeqByPlayer.delete(player.id);
           if (player.id === this.hostId) {
             this.callbacks?.onHostChanged();
           }
@@ -298,14 +309,6 @@ export class NetworkManager {
       }),
     );
 
-    // Handle ping from host (for latency display)
-    this.cleanupFunctions.push(
-      RPC.register("ping", async (hostTime: number) => {
-        const latency = Date.now() - hostTime;
-        this.callbacks?.onPingReceived(latency);
-      }),
-    );
-
     // Handle player list sync from host (authoritative order + metadata)
     this.cleanupFunctions.push(
       RPC.register(
@@ -371,6 +374,7 @@ export class NetworkManager {
 
     this.syncInterval = setInterval(() => {
       if (!this.connected) return;
+      this.handlePingTick(performance.now());
 
       // All clients: check for game state updates (positions, etc)
       if (!isHost()) {
@@ -449,12 +453,6 @@ export class NetworkManager {
     const playerId = myPlayer()?.id;
     if (!playerId) return;
     RPC.call("dashRequest", playerId, RPC.Mode.HOST);
-  }
-
-  // Broadcast ping for latency measurement (host only)
-  broadcastPing(): void {
-    if (!isHost()) return;
-    RPC.call("ping", Date.now(), RPC.Mode.ALL);
   }
 
   broadcastRoundResult(payload: RoundResultPayload): void {
@@ -648,6 +646,42 @@ export class NetworkManager {
     this.colorIndexById.clear();
     this.playerMetaById.clear();
     this.webrtcConnected = false;
+    this.pingSeq = 0;
+    this.lastPingSentAt = 0;
+    this.lastPingEchoSeq = -1;
+    this.lastPingSeqByPlayer.clear();
+  }
+
+  private handlePingTick(now: number): void {
+    const localPlayer = myPlayer();
+    if (!localPlayer) return;
+
+    const echo = localPlayer.getState("pingEcho") as PingPayload | undefined;
+    if (echo && echo.seq !== this.lastPingEchoSeq) {
+      this.lastPingEchoSeq = echo.seq;
+      const rtt = Math.max(0, now - echo.sentAt);
+      this.callbacks?.onPingReceived(rtt);
+    }
+
+    if (isHost()) {
+      this.players.forEach((player, playerId) => {
+        const ping = player.getState("ping") as PingPayload | undefined;
+        if (!ping) return;
+        const lastSeq = this.lastPingSeqByPlayer.get(playerId);
+        if (lastSeq === ping.seq) return;
+        this.lastPingSeqByPlayer.set(playerId, ping.seq);
+        player.setState("pingEcho", ping, false);
+      });
+    }
+
+    if (now - this.lastPingSentAt < NetworkManager.PING_INTERVAL_MS) {
+      return;
+    }
+
+    this.lastPingSentAt = now;
+    this.pingSeq += 1;
+    const payload: PingPayload = { seq: this.pingSeq, sentAt: now };
+    localPlayer.setState("ping", payload, false);
   }
 
   private updateHostState(): void {

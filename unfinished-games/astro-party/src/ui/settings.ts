@@ -12,6 +12,7 @@ export function createSettingsUI(openLeaveModal: () => void): SettingsUI {
     elements.toggleMusic.classList.toggle("active", settings.music);
     elements.toggleFx.classList.toggle("active", settings.fx);
     elements.toggleHaptics.classList.toggle("active", settings.haptics);
+    elements.toggleHints.classList.toggle("active", settings.controlHints);
   }
 
   function openSettingsModal(): void {
@@ -63,6 +64,12 @@ export function createSettingsUI(openLeaveModal: () => void): SettingsUI {
     SettingsManager.toggle("haptics");
     updateSettingsUI();
     forceLightHaptic();
+  });
+
+  elements.toggleHints.addEventListener("click", () => {
+    SettingsManager.toggle("controlHints");
+    updateSettingsUI();
+    triggerHaptic("light");
   });
 
   return { updateSettingsUI };

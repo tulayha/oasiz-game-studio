@@ -51,6 +51,7 @@ export interface PilotState {
   vy: number;
   angle: number;
   spawnTime: number;
+  survivalProgress: number; // 0-1, computed by host
   alive: boolean;
 }
 
@@ -83,6 +84,7 @@ export interface PowerUpState {
   y: number;
   type: PowerUpType;
   spawnTime: number;
+  remainingTimeFraction: number; // 0-1, computed by host (1 = just spawned, 0 = expired)
   alive: boolean;
 }
 
@@ -199,6 +201,7 @@ export interface Settings {
   music: boolean;
   fx: boolean;
   haptics: boolean;
+  controlHints: boolean;
 }
 
 // ============= ADVANCED SETTINGS =============
@@ -344,6 +347,15 @@ export const GAME_CONFIG = {
   // Power-ups
   POWERUP_DESPAWN_TIME: 10000, // ms (10 seconds)
   POWERUP_DROP_CHANCE: 0.3, // 30% chance from asteroid
+  POWERUP_SPAWN_WEIGHTS: {
+    LASER: 1,
+    SHIELD: 1,
+    SCATTER: 1,
+    MINE: 1,
+    REVERSE: 1,
+    JOUST: 1,
+    HOMING_MISSILE: 1,
+  } as Record<PowerUpType, number>,
   POWERUP_SIZE: 25,
   POWERUP_LASER_CHARGES: 3,
   POWERUP_LASER_COOLDOWN: 2500, // ms (2.5 seconds between shots)

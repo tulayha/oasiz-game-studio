@@ -252,6 +252,10 @@ export class GameFlowManager {
     );
 
     if (alivePlayers.length === 1) {
+      if (players.size === 1) {
+        this.endGame(alivePlayers[0].id, players);
+        return;
+      }
       this.endRound(players, alivePlayers[0].id);
     } else if (alivePlayers.length === 0 && players.size > 0) {
       this.endRound(players, null);

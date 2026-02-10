@@ -31,12 +31,17 @@ export class PowerUp {
   }
 
   getState(): PowerUpState {
+    const remaining = Math.max(
+      0,
+      GAME_CONFIG.POWERUP_DESPAWN_TIME - (Date.now() - this.spawnTime),
+    );
     return {
       id: this.body.id.toString(),
       x: this.body.position.x,
       y: this.body.position.y,
       type: this.type,
       spawnTime: this.spawnTime,
+      remainingTimeFraction: remaining / GAME_CONFIG.POWERUP_DESPAWN_TIME,
       alive: this.alive,
     };
   }

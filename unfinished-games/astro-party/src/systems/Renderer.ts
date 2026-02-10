@@ -198,6 +198,14 @@ export class Renderer {
     this.screenShake.duration = Math.max(this.screenShake.duration, duration);
   }
 
+  clearEffects(): void {
+    this.particles = [];
+    this.screenShake.intensity = 0;
+    this.screenShake.duration = 0;
+    this.screenShake.offsetX = 0;
+    this.screenShake.offsetY = 0;
+  }
+
   // ============= SHIP RENDERING =============
 
   drawShip(
@@ -505,11 +513,7 @@ export class Renderer {
 
   drawPilot(state: PilotState, color: PlayerColor): void {
     const { ctx } = this;
-    const { x, y, spawnTime, vx, vy, angle, id } = state;
-    const survivalProgress = Math.min(
-      1,
-      (Date.now() - spawnTime) / GAME_CONFIG.PILOT_SURVIVAL_TIME,
-    );
+    const { x, y, vx, vy, angle, id, survivalProgress } = state;
     const isFlashing =
       survivalProgress > 0.6 && Math.floor(Date.now() / 150) % 2 === 0;
     const speed = Math.sqrt(vx * vx + vy * vy);
@@ -881,13 +885,9 @@ export class Renderer {
 
   drawPowerUp(state: PowerUpState): void {
     const { ctx } = this;
-    const { x, y, type, spawnTime } = state;
+    const { x, y, type, remainingTimeFraction } = state;
     const size = GAME_CONFIG.POWERUP_SIZE;
-    const remainingTime = Math.max(
-      0,
-      GAME_CONFIG.POWERUP_DESPAWN_TIME - (Date.now() - spawnTime),
-    );
-    const progress = remainingTime / GAME_CONFIG.POWERUP_DESPAWN_TIME;
+    const progress = Math.min(1, Math.max(0, remainingTimeFraction));
 
     ctx.save();
     ctx.translate(x, y);

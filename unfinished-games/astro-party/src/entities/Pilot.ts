@@ -151,6 +151,7 @@ export class Pilot {
       vy: this.body.velocity.y,
       angle: this.body.angle,
       spawnTime: this.spawnTime,
+      survivalProgress: this.getSurvivalProgress(),
       alive: this.alive,
     };
   }

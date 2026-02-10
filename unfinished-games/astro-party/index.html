@@ -557,7 +557,7 @@
       top: 0;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(10, 10, 18, 0.75);
+      background: rgba(10, 10, 18, 0.6);
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 12px;
       padding: 0.8rem 1.2rem;
@@ -574,11 +574,29 @@
 
     .score-player-name {
       font-size: 0.7rem;
-      color: #fff;
-      width: 60px;
+      color: inherit;
+      width: 68px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      opacity: 0.75;
+    }
+
+    .score-row.self {
+      position: relative;
+    }
+
+    .score-row.self::before {
+      content: '';
+      position: absolute;
+      left: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 6px currentColor;
     }
 
     .score-dots {
@@ -605,6 +623,16 @@
       color: #888;
       width: 20px;
       text-align: right;
+    }
+
+    @media (pointer: coarse) {
+      .score-track {
+        background: rgba(10, 10, 18, 0.5);
+      }
+
+      .score-player-name {
+        width: 74px;
+      }
     }
 
     .round-result {
@@ -709,25 +737,6 @@
       z-index: 60;
     }
 
-    /* ============= PING INDICATOR ============= */
-    .ping-indicator {
-      position: absolute;
-      bottom: calc(100% - var(--box-bottom) + var(--hud-bottom-gap));
-      right: calc(100% - var(--box-right) + var(--hud-side-gap));
-      z-index: 60;
-      font-family: 'Orbitron', monospace;
-      font-size: 11px;
-      color: rgba(255, 255, 255, 0.5);
-      background: rgba(0, 0, 0, 0.3);
-      padding: 3px 6px;
-      border-radius: 3px;
-      display: none;
-    }
-
-    .ping-indicator.good { color: rgba(0, 255, 136, 0.7); }
-    .ping-indicator.medium { color: rgba(255, 238, 0, 0.7); }
-    .ping-indicator.bad { color: rgba(255, 0, 170, 0.7); }
-
     .net-stats {
       position: absolute;
       bottom: calc(100% - var(--box-bottom) + var(--hud-bottom-gap) + 22px);
@@ -741,6 +750,90 @@
       padding: 6px 8px;
       border-radius: 6px;
       white-space: pre;
+      pointer-events: none;
+      display: none;
+    }
+
+    .control-hints {
+      position: absolute;
+      bottom: calc(100% - var(--box-bottom) + 24px + var(--safe-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 65;
+      display: none;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      pointer-events: none;
+      max-width: min(80vw, 720px);
+    }
+
+    .control-hints.active {
+      display: flex;
+    }
+
+    .control-hint {
+      --hint-color: var(--cyan);
+      background: rgba(10, 10, 18, 0.72);
+      border: 1px solid color-mix(in srgb, var(--hint-color) 65%, transparent);
+      border-radius: 10px;
+      padding: 8px 12px;
+      min-width: 150px;
+      box-shadow: 0 0 12px rgba(0, 0, 0, 0.4);
+      opacity: 0.45;
+    }
+
+    .control-hint-name {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--hint-color);
+      margin-bottom: 2px;
+    }
+
+    .control-hint-keys {
+      font-size: 0.7rem;
+      color: rgba(255, 255, 255, 0.75);
+      white-space: nowrap;
+    }
+
+    .system-message {
+      position: fixed;
+      top: calc(var(--box-top) + 16px + var(--safe-top));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 220;
+      background: rgba(10, 10, 18, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      padding: 10px 16px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.85);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      max-width: min(80vw, 720px);
+      text-align: center;
+    }
+
+    .system-message.active {
+      opacity: 1;
+    }
+
+    @media (pointer: coarse) {
+      .control-hints {
+        display: none !important;
+      }
+    }
+
+    .control-hints-off .zone-label,
+    .control-hints-off .zone-hint,
+    .control-hints-off .touch-zone-label,
+    .control-hints-off .touch-zone-sublabel {
       display: none;
     }
 
@@ -1009,7 +1102,24 @@
     }
 
     .final-score-name {
-      color: #fff;
+      color: inherit;
+    }
+
+    .final-score-row.self {
+      position: relative;
+    }
+
+    .final-score-row.self::before {
+      content: '';
+      position: absolute;
+      left: -12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
     }
 
     .final-score-kills {
@@ -1797,8 +1907,10 @@
     <div class="round-result-subtitle" id="roundResultSubtitle">WINNER</div>
   </div>
 
-  <!-- Ping Indicator -->
-  <div class="ping-indicator" id="pingIndicator"></div>
+  <!-- Control Hints (desktop only) -->
+  <div class="control-hints" id="controlHints"></div>
+  <div class="system-message" id="systemMessage"></div>
+
   <div class="net-stats" id="netStats"></div>
 
   <!-- Settings Button -->
@@ -1832,6 +1944,10 @@
     <div class="settings-row">
       <span class="settings-label">Haptics</span>
       <div class="toggle active" id="toggleHaptics"></div>
+    </div>
+    <div class="settings-row">
+      <span class="settings-label">Control Hints</span>
+      <div class="toggle active" id="toggleHints"></div>
     </div>
     <button
       class="btn"

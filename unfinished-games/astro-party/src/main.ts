@@ -54,16 +54,19 @@ async function init(): Promise<void> {
         case "PLAYING":
           screenController.showScreen("game");
           screenController.setRoundResultVisible(false);
+          screenController.updateControlHints();
           break;
         case "ROUND_END":
           screenController.showScreen("game");
           screenController.updateRoundResultOverlay();
           screenController.setRoundResultVisible(true);
+          screenController.updateControlHints();
           break;
         case "GAME_END":
           screenController.showScreen("end");
           screenController.updateGameEnd(game.getPlayers());
           triggerHaptic("success");
+          screenController.updateControlHints();
           break;
       }
     },
@@ -77,6 +80,8 @@ async function init(): Promise<void> {
       if (game.getPhase() === "GAME_END") {
         screenController.updateGameEnd(players);
       }
+
+      screenController.updateControlHints();
 
       if (viewport.isMobile && game.getPhase() === "PLAYING") {
         game.updateTouchLayout();
@@ -102,6 +107,9 @@ async function init(): Promise<void> {
       advancedSettingsUI.updateAdvancedSettingsUI(settings);
       screenController.updateScoreTrack(game.getPlayers());
     },
+    onSystemMessage: (message, durationMs) => {
+      screenController.showSystemMessage(message, durationMs);
+    },
   });
 
   settingsUI.updateSettingsUI();
@@ -110,7 +118,6 @@ async function init(): Promise<void> {
 
   game.start();
 
-  setInterval(screenController.updatePingIndicator, 500);
   setInterval(screenController.updateNetworkStats, 250);
 
   if (window.__ROOM_CODE__) {

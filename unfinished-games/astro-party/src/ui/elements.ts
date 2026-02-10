@@ -52,12 +52,15 @@ export const elements = {
   toggleMusic: getElement<HTMLElement>("toggleMusic"),
   toggleFx: getElement<HTMLElement>("toggleFx"),
   toggleHaptics: getElement<HTMLElement>("toggleHaptics"),
+  toggleHints: getElement<HTMLElement>("toggleHints"),
   settingsClose: getElement<HTMLButtonElement>("settingsClose"),
 
   // Round result overlay
   roundResult: getElement<HTMLElement>("roundResult"),
   roundResultTitle: getElement<HTMLElement>("roundResultTitle"),
   roundResultSubtitle: getElement<HTMLElement>("roundResultSubtitle"),
+  controlHints: getElement<HTMLElement>("controlHints"),
+  systemMessage: getElement<HTMLElement>("systemMessage"),
 
   // Bot controls
   addBotSection: getElement<HTMLElement>("addBotSection"),
@@ -103,8 +106,6 @@ export const elements = {
   shipFrictionCycle: getElement<HTMLButtonElement>("shipFrictionCycle"),
   angularDampingCycle: getElement<HTMLButtonElement>("angularDampingCycle"),
 
-  // Ping indicator
-  pingIndicator: getElement<HTMLElement>("pingIndicator"),
   netStats: getElement<HTMLElement>("netStats"),
 
   // Mobile controls
