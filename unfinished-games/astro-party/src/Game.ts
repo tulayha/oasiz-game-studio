@@ -20,6 +20,7 @@ import { BotManager } from "./managers/BotManager";
 import {
   GamePhase,
   GameMode,
+  BaseGameMode,
   GameStateSync,
   PlayerInput,
   PlayerData,
@@ -35,8 +36,17 @@ import {
   PlayerPowerUp,
   GAME_CONFIG,
   RoundResultPayload,
+  AdvancedSettings,
+  AdvancedSettingsSync,
+  DEFAULT_ADVANCED_SETTINGS,
 } from "./types";
 import { GameConfig } from "./GameConfig";
+import {
+  applyModeTemplate,
+  buildAdvancedOverrides,
+  isCustomComparedToTemplate,
+  sanitizeAdvancedSettings,
+} from "./advancedSettings";
 
 export class Game {
   private physics: Physics;
@@ -100,6 +110,11 @@ export class Game {
   private _originalHostLeft = false;
 
   private roundResult: RoundResultPayload | null = null;
+  private advancedSettings: AdvancedSettings = {
+    ...DEFAULT_ADVANCED_SETTINGS,
+  };
+  private currentMode: GameMode = "STANDARD";
+  private baseMode: BaseGameMode = "STANDARD";
 
   static SHOW_PING = true;
 
@@ -126,6 +141,8 @@ export class Game {
     this.flowMgr.onBeginMatch = () => {
       this.flowMgr.beginMatch(this.playerMgr.players, this.ships);
       this.spawnInitialAsteroids();
+      this.scheduleAsteroidSpawnsIfNeeded();
+      this.grantStartingPowerups();
     };
     this.flowMgr.onRoundResult = (payload) => {
       this.applyRoundResult(payload);
@@ -391,15 +408,17 @@ export class Game {
 
   private spawnInitialAsteroids(): void {
     if (!this.network.isHost()) return;
+    if (this.advancedSettings.asteroidDensity === "NONE") return;
 
+    const cfg = GameConfig.config;
     const count = this.randomInt(
-      GAME_CONFIG.ASTEROID_INITIAL_MIN,
-      GAME_CONFIG.ASTEROID_INITIAL_MAX,
+      cfg.ASTEROID_INITIAL_MIN,
+      cfg.ASTEROID_INITIAL_MAX,
     );
-    const centerX = GAME_CONFIG.ARENA_WIDTH / 2;
-    const centerY = GAME_CONFIG.ARENA_HEIGHT / 2;
-    const spreadX = GAME_CONFIG.ARENA_WIDTH * 0.28;
-    const spreadY = GAME_CONFIG.ARENA_HEIGHT * 0.28;
+    const centerX = cfg.ARENA_WIDTH / 2;
+    const centerY = cfg.ARENA_HEIGHT / 2;
+    const spreadX = cfg.ARENA_WIDTH * 0.28;
+    const spreadY = cfg.ARENA_HEIGHT * 0.28;
     const maxAttempts = 20;
 
     for (let i = 0; i < count; i++) {
@@ -419,6 +438,8 @@ export class Game {
       }
 
       const velocity = this.randomAsteroidVelocity();
+      velocity.x *= 0.75;
+      velocity.y *= 0.75;
       const angularVelocity = this.randomAsteroidAngularVelocity();
       const asteroid = new Asteroid(
         this.physics,
@@ -433,6 +454,31 @@ export class Game {
     }
   }
 
+  private scheduleAsteroidSpawnsIfNeeded(): void {
+    if (!this.network.isHost()) return;
+    if (this.advancedSettings.asteroidDensity !== "SPAWN") return;
+    if (this.asteroidSpawnTimeout) {
+      clearTimeout(this.asteroidSpawnTimeout);
+      this.asteroidSpawnTimeout = null;
+    }
+    this.scheduleNextAsteroidSpawn();
+  }
+
+  private grantStartingPowerups(): void {
+    if (!this.network.isHost()) return;
+    if (!this.advancedSettings.startPowerups) return;
+
+    const options: PowerUpType[] = ["LASER", "SHIELD", "SCATTER", "MINE"];
+
+    this.playerMgr.players.forEach((player) => {
+      const ship = this.ships.get(player.id);
+      if (!ship || !ship.alive) return;
+      if (this.playerPowerUps.get(player.id)) return;
+      const type = options[Math.floor(Math.random() * options.length)];
+      this.grantPowerUp(player.id, type);
+    });
+  }
+
   private splitAsteroid(asteroid: Asteroid, x: number, y: number): void {
     const count = GAME_CONFIG.ASTEROID_SPLIT_COUNT;
     const baseVx = asteroid.body.velocity.x * 0.4;
@@ -440,9 +486,10 @@ export class Game {
 
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+      const cfg = GameConfig.config;
       const speed = this.randomRange(
-        GAME_CONFIG.ASTEROID_DRIFT_MIN_SPEED,
-        GAME_CONFIG.ASTEROID_DRIFT_MAX_SPEED,
+        cfg.ASTEROID_DRIFT_MIN_SPEED,
+        cfg.ASTEROID_DRIFT_MAX_SPEED,
       );
       const offset = 10 + Math.random() * 6;
       const spawnX = x + Math.cos(angle) * offset;
@@ -483,22 +530,20 @@ export class Game {
   }
 
   private randomAsteroidSize(tier: "LARGE" | "SMALL"): number {
+    const cfg = GameConfig.config;
     const min =
-      tier === "LARGE"
-        ? GAME_CONFIG.ASTEROID_LARGE_MIN
-        : GAME_CONFIG.ASTEROID_SMALL_MIN;
+      tier === "LARGE" ? cfg.ASTEROID_LARGE_MIN : cfg.ASTEROID_SMALL_MIN;
     const max =
-      tier === "LARGE"
-        ? GAME_CONFIG.ASTEROID_LARGE_MAX
-        : GAME_CONFIG.ASTEROID_SMALL_MAX;
+      tier === "LARGE" ? cfg.ASTEROID_LARGE_MAX : cfg.ASTEROID_SMALL_MAX;
     return min + Math.random() * (max - min);
   }
 
   private randomAsteroidVelocity(): { x: number; y: number } {
     const angle = Math.random() * Math.PI * 2;
+    const cfg = GameConfig.config;
     const speed = this.randomRange(
-      GAME_CONFIG.ASTEROID_DRIFT_MIN_SPEED,
-      GAME_CONFIG.ASTEROID_DRIFT_MAX_SPEED,
+      cfg.ASTEROID_DRIFT_MIN_SPEED,
+      cfg.ASTEROID_DRIFT_MAX_SPEED,
     );
     return { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
   }
@@ -518,30 +563,42 @@ export class Game {
 
   private scheduleNextAsteroidSpawn(): void {
     if (this.flowMgr.phase !== "PLAYING") return;
+    if (this.advancedSettings.asteroidDensity !== "SPAWN") return;
 
+    const cfg = GameConfig.config;
+    const intervalScale = this.getAsteroidSpawnIntervalScale();
     const delay =
-      GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MIN +
+      cfg.ASTEROID_SPAWN_INTERVAL_MIN +
       Math.random() *
-        (GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MAX -
-          GAME_CONFIG.ASTEROID_SPAWN_INTERVAL_MIN);
+        (cfg.ASTEROID_SPAWN_INTERVAL_MAX - cfg.ASTEROID_SPAWN_INTERVAL_MIN);
 
     this.asteroidSpawnTimeout = setTimeout(() => {
       if (this.flowMgr.phase === "PLAYING" && this.network.isHost()) {
         this.spawnAsteroidBatch();
         this.scheduleNextAsteroidSpawn();
       }
-    }, delay);
+    }, delay * intervalScale);
+  }
+
+  private getAsteroidSpawnIntervalScale(): number {
+    const round = Math.max(1, this.flowMgr.currentRound);
+    const t = Math.min(1, Math.max(0, (round - 1) / 4));
+    const startScale = 3.0;
+    const endScale = 1 / 1.5;
+    return startScale + (endScale - startScale) * t;
   }
 
   private spawnAsteroidBatch(): void {
     if (!this.network.isHost()) return;
+    if (this.advancedSettings.asteroidDensity !== "SPAWN") return;
 
+    const cfg = GameConfig.config;
     const batchSize =
-      GAME_CONFIG.ASTEROID_SPAWN_BATCH_MIN +
+      cfg.ASTEROID_SPAWN_BATCH_MIN +
       Math.floor(
         Math.random() *
-          (GAME_CONFIG.ASTEROID_SPAWN_BATCH_MAX -
-            GAME_CONFIG.ASTEROID_SPAWN_BATCH_MIN +
+          (cfg.ASTEROID_SPAWN_BATCH_MAX -
+            cfg.ASTEROID_SPAWN_BATCH_MIN +
             1),
       );
 
@@ -551,9 +608,10 @@ export class Game {
   }
 
   private spawnSingleAsteroidFromBorder(): void {
-    const spawnMargin = 80;
-    const w = GAME_CONFIG.ARENA_WIDTH;
-    const h = GAME_CONFIG.ARENA_HEIGHT;
+    const cfg = GameConfig.config;
+    const w = cfg.ARENA_WIDTH;
+    const h = cfg.ARENA_HEIGHT;
+    const spawnInset = cfg.ARENA_PADDING + 6;
 
     const side = Math.floor(Math.random() * 4);
     let x: number, y: number;
@@ -561,29 +619,29 @@ export class Game {
 
     switch (side) {
       case 0:
-        x = Math.random() * w;
-        y = -spawnMargin;
-        targetX = Math.random() * w;
+        x = spawnInset + Math.random() * (w - spawnInset * 2);
+        y = spawnInset;
+        targetX = w * (0.3 + Math.random() * 0.4);
         targetY = h * (0.3 + Math.random() * 0.4);
         break;
       case 1:
-        x = w + spawnMargin;
-        y = Math.random() * h;
+        x = w - spawnInset;
+        y = spawnInset + Math.random() * (h - spawnInset * 2);
         targetX = w * (0.3 + Math.random() * 0.4);
-        targetY = Math.random() * h;
+        targetY = h * (0.3 + Math.random() * 0.4);
         break;
       case 2:
-        x = Math.random() * w;
-        y = h + spawnMargin;
-        targetX = Math.random() * w;
+        x = spawnInset + Math.random() * (w - spawnInset * 2);
+        y = h - spawnInset;
+        targetX = w * (0.3 + Math.random() * 0.4);
         targetY = h * (0.3 + Math.random() * 0.4);
         break;
       case 3:
       default:
-        x = -spawnMargin;
-        y = Math.random() * h;
+        x = spawnInset;
+        y = spawnInset + Math.random() * (h - spawnInset * 2);
         targetX = w * (0.3 + Math.random() * 0.4);
-        targetY = Math.random() * h;
+        targetY = h * (0.3 + Math.random() * 0.4);
         break;
     }
 
@@ -594,8 +652,8 @@ export class Game {
     const finalAngle = angle + angleVariance;
 
     const speed = this.randomRange(
-      GAME_CONFIG.ASTEROID_DRIFT_MIN_SPEED,
-      GAME_CONFIG.ASTEROID_DRIFT_MAX_SPEED,
+      cfg.ASTEROID_DRIFT_MIN_SPEED,
+      cfg.ASTEROID_DRIFT_MAX_SPEED,
     );
 
     const velocity = {
@@ -1360,17 +1418,22 @@ export class Game {
     onCountdownUpdate: (count: number) => void;
     onGameModeChange?: (mode: GameMode) => void;
     onRoundResult?: (payload: RoundResultPayload) => void;
+    onAdvancedSettingsChange?: (settings: AdvancedSettings) => void;
   }): void {
     this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
     this._onPlayersUpdate = callbacks.onPlayersUpdate;
     this._onGameModeChange = callbacks.onGameModeChange ?? null;
     this._onRoundResult = callbacks.onRoundResult ?? null;
+    this._onAdvancedSettingsChange = callbacks.onAdvancedSettingsChange ?? null;
   }
 
   private _onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
   private _onGameModeChange: ((mode: GameMode) => void) | null = null;
   private _onRoundResult: ((payload: RoundResultPayload) => void) | null = null;
+  private _onAdvancedSettingsChange:
+    | ((settings: AdvancedSettings) => void)
+    | null = null;
 
   private emitPlayersUpdate(): void {
     this._onPlayersUpdate?.(this.getPlayers());
@@ -1404,6 +1467,9 @@ export class Game {
           () => this.emitPlayersUpdate(),
           () => this.flowMgr.startCountdown(),
         );
+        if (this.network.isHost()) {
+          this.broadcastModeState();
+        }
       },
 
       onPlayerLeft: (playerId) => {
@@ -1531,12 +1597,6 @@ export class Game {
         }
       },
 
-      onGameModeReceived: (mode) => {
-        console.log("[Game] Game mode received:", mode);
-        GameConfig.setMode(mode);
-        this._onGameModeChange?.(mode);
-      },
-
       onRoundResultReceived: (payload) => {
         if (!this.network.isHost()) {
           this.applyRoundResult(payload);
@@ -1545,8 +1605,22 @@ export class Game {
 
       onDevModeReceived: (enabled) => {
         this.setDevModeFromNetwork(enabled);
+        
+      onAdvancedSettingsReceived: (payload) => {
+        this.applyModeStateFromNetwork(payload);
+
       },
     });
+  }
+
+  private applyModeStateFromNetwork(payload: AdvancedSettingsSync): void {
+    const sanitized = sanitizeAdvancedSettings(payload.settings);
+    this.baseMode = payload.baseMode;
+    this.currentMode = payload.mode;
+    this.advancedSettings = sanitized;
+    this.applyAdvancedOverrides(sanitized, this.baseMode);
+    this._onGameModeChange?.(this.currentMode);
+    this._onAdvancedSettingsChange?.(sanitized);
   }
 
   private initializeNetworkSession(): void {
@@ -1585,6 +1659,7 @@ export class Game {
     this.clearAllGameState();
     this.playerMgr.clear();
     this._originalHostLeft = false;
+    this.resetAdvancedSettings();
     this.flowMgr.setPhase("START");
   }
 
@@ -1640,6 +1715,16 @@ export class Game {
     this.clientShipPositions.clear();
 
     this.roundResult = null;
+  }
+
+  private resetAdvancedSettings(): void {
+    this.baseMode = "STANDARD";
+    this.currentMode = "STANDARD";
+    this.advancedSettings = applyModeTemplate(this.baseMode);
+    GameConfig.setMode(this.baseMode);
+    GameConfig.clearAdvancedOverrides();
+    this._onGameModeChange?.(this.currentMode);
+    this._onAdvancedSettingsChange?.(this.advancedSettings);
   }
 
   private resetForNextRound(): void {
@@ -2601,21 +2686,93 @@ export class Game {
     return this.roundResult;
   }
 
-  setGameMode(mode: GameMode): void {
-    GameConfig.setMode(mode);
+  private applyAdvancedOverrides(
+    settings: AdvancedSettings,
+    baseMode: BaseGameMode,
+  ): void {
+    GameConfig.setMode(baseMode);
+    const baseTemplate = applyModeTemplate(baseMode);
+    const overrides = buildAdvancedOverrides(settings, baseTemplate);
+    if (overrides.configOverrides || overrides.physicsOverrides) {
+      GameConfig.setAdvancedOverrides(
+        overrides.configOverrides,
+        overrides.physicsOverrides,
+      );
+    } else {
+      GameConfig.clearAdvancedOverrides();
+    }
   }
 
-  broadcastGameMode(mode: GameMode): void {
-    this.network.broadcastGameMode(mode);
+  private broadcastModeState(): void {
+    if (!this.network.isHost()) return;
+    const payload: AdvancedSettingsSync = {
+      mode: this.currentMode,
+      baseMode: this.baseMode,
+      settings: this.advancedSettings,
+    };
+    this.network.broadcastAdvancedSettings(payload);
+  }
+
+  getAdvancedSettings(): AdvancedSettings {
+    return { ...this.advancedSettings };
+  }
+
+  setAdvancedSettings(
+    settings: AdvancedSettings,
+    source: "local" | "remote" = "local",
+  ): void {
+    if (source === "local" && !this.network.isHost()) return;
+    const sanitized = sanitizeAdvancedSettings(settings);
+    this.advancedSettings = sanitized;
+    const baseTemplate = applyModeTemplate(this.baseMode);
+    const isCustom = isCustomComparedToTemplate(sanitized, baseTemplate);
+    const nextMode: GameMode = isCustom ? "CUSTOM" : this.baseMode;
+    const modeChanged = nextMode !== this.currentMode;
+    this.currentMode = nextMode;
+    this.applyAdvancedOverrides(sanitized, this.baseMode);
+    if (source === "local" && this.network.isHost()) {
+      this.broadcastModeState();
+    }
+    if (modeChanged) {
+      this._onGameModeChange?.(this.currentMode);
+    }
+    this._onAdvancedSettingsChange?.(sanitized);
+  }
+
+  setGameMode(
+    mode: GameMode,
+    source: "local" | "remote" = "local",
+  ): void {
+    if (source === "local" && !this.network.isHost()) return;
+    if (mode === "CUSTOM") {
+      this.currentMode = "CUSTOM";
+      this._onGameModeChange?.(this.currentMode);
+      if (source === "local" && this.network.isHost()) {
+        this.broadcastModeState();
+      }
+      return;
+    }
+
+    this.baseMode = mode;
+    this.currentMode = mode;
+    const template = applyModeTemplate(mode);
+    template.roundsToWin = this.advancedSettings.roundsToWin;
+    this.advancedSettings = sanitizeAdvancedSettings(template);
+    this.applyAdvancedOverrides(this.advancedSettings, this.baseMode);
+    this._onGameModeChange?.(this.currentMode);
+    this._onAdvancedSettingsChange?.(this.advancedSettings);
+    if (source === "local" && this.network.isHost()) {
+      this.broadcastModeState();
+    }
   }
 
   getGameMode(): GameMode {
-    return GameConfig.getMode();
+    return this.currentMode;
   }
 
   startGame(): void {
-    // Broadcast mode to all clients before starting countdown
-    this.network.broadcastGameMode(GameConfig.getMode());
+    // Broadcast mode + advanced settings to all clients before starting countdown
+    this.broadcastModeState();
     this.roundResult = null;
     this.flowMgr.startGame();
   }
@@ -2633,6 +2790,7 @@ export class Game {
     this.clearAllGameState();
     this.playerMgr.clear();
     this._originalHostLeft = false;
+    this.resetAdvancedSettings();
 
     this.flowMgr.setPhase("START");
   }

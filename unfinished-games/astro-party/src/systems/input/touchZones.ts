@@ -130,7 +130,7 @@ export class TouchZoneManager {
 
   /**
    * Layout B: 2 players - controls on left/right edges, stacked vertically
-   * Player 1 (slot 0) = left edge, Player 2 (slot 1+) = right edge
+   * Player 1 (slot 0) = left edge (both buttons), Player 2 (slot 1+) = right edge (both buttons)
    */
   private createDualLayout(
     localSlotOrder: number[],
@@ -164,7 +164,7 @@ export class TouchZoneManager {
     const rightColor =
       slotToColor.get(rightSlot) ?? PLAYER_COLORS[1].primary;
 
-    // Left player - ROT (left) + FIRE (right)
+    // Left player - both buttons on the left edge
     this.createTouchZone({
       slot: leftSlot,
       button: "A",
@@ -185,22 +185,6 @@ export class TouchZoneManager {
       label: "FIRE",
       sublabel: "",
       color: leftColor,
-      style: {
-        right: `${inset}px`,
-        top: `${blockTopPx}px`,
-        width: `${zoneWidthPx}px`,
-        height: `${zoneHeightPx}px`,
-        borderRadius: "12px",
-      },
-    });
-
-    // Right player - ROT (left) + FIRE (right)
-    this.createTouchZone({
-      slot: rightSlot,
-      button: "A",
-      label: "ROT",
-      sublabel: "2x: dash",
-      color: rightColor,
       style: {
         left: `${inset}px`,
         top: `${blockTopPx + zoneHeightPx}px`,
@@ -209,11 +193,27 @@ export class TouchZoneManager {
         borderRadius: "12px",
       },
     });
+
+    // Right player - both buttons on the right edge (clockwise: FIRE then ROT)
     this.createTouchZone({
       slot: rightSlot,
       button: "B",
       label: "FIRE",
       sublabel: "",
+      color: rightColor,
+      style: {
+        right: `${inset}px`,
+        top: `${blockTopPx}px`,
+        width: `${zoneWidthPx}px`,
+        height: `${zoneHeightPx}px`,
+        borderRadius: "12px",
+      },
+    });
+    this.createTouchZone({
+      slot: rightSlot,
+      button: "A",
+      label: "ROT",
+      sublabel: "2x: dash",
       color: rightColor,
       style: {
         right: `${inset}px`,
