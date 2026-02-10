@@ -143,7 +143,9 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
         "</div>" +
         '<div class="player-badges">' +
         typeBadge +
-        (isHostPlayer ? '<span class="player-host">' + crownIcon + "</span>" : "") +
+        (isHostPlayer
+          ? '<span class="player-host">' + crownIcon + "</span>"
+          : "") +
         kickButton +
         "</div>" +
         "</div>"

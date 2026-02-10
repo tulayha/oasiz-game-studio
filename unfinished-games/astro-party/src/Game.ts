@@ -393,7 +393,7 @@ export class Game {
     });
 
     this.input.setup();
-    
+
     // Set up dev mode toggle callback
     this.input.setDevModeCallback((enabled) => {
       this.renderer.setDevMode(enabled);
@@ -597,9 +597,7 @@ export class Game {
       cfg.ASTEROID_SPAWN_BATCH_MIN +
       Math.floor(
         Math.random() *
-          (cfg.ASTEROID_SPAWN_BATCH_MAX -
-            cfg.ASTEROID_SPAWN_BATCH_MIN +
-            1),
+          (cfg.ASTEROID_SPAWN_BATCH_MAX - cfg.ASTEROID_SPAWN_BATCH_MIN + 1),
       );
 
     for (let i = 0; i < batchSize; i++) {
@@ -1605,10 +1603,10 @@ export class Game {
 
       onDevModeReceived: (enabled) => {
         this.setDevModeFromNetwork(enabled);
-        
+      },
+
       onAdvancedSettingsReceived: (payload) => {
         this.applyModeStateFromNetwork(payload);
-
       },
     });
   }
@@ -2601,13 +2599,21 @@ export class Game {
         if (isHost) {
           this.mines.forEach((mine) => {
             if (mine.alive && !mine.exploded) {
-              this.renderer.drawMineDetectionRadius(mine.x, mine.y, mineDetectionRadius);
+              this.renderer.drawMineDetectionRadius(
+                mine.x,
+                mine.y,
+                mineDetectionRadius,
+              );
             }
           });
         } else {
           this.networkMines.forEach((state) => {
             if (state.alive && !state.exploded) {
-              this.renderer.drawMineDetectionRadius(state.x, state.y, mineDetectionRadius);
+              this.renderer.drawMineDetectionRadius(
+                state.x,
+                state.y,
+                mineDetectionRadius,
+              );
             }
           });
         }
@@ -2739,10 +2745,7 @@ export class Game {
     this._onAdvancedSettingsChange?.(sanitized);
   }
 
-  setGameMode(
-    mode: GameMode,
-    source: "local" | "remote" = "local",
-  ): void {
+  setGameMode(mode: GameMode, source: "local" | "remote" = "local"): void {
     if (source === "local" && !this.network.isHost()) return;
     if (mode === "CUSTOM") {
       this.currentMode = "CUSTOM";
@@ -2903,12 +2906,12 @@ export class Game {
   toggleDevMode(): boolean {
     const newState = this.input.toggleDevMode();
     this.renderer.setDevMode(newState);
-    
+
     // Sync dev mode state across multiplayer
     if (this.network.isHost()) {
       this.network.broadcastDevMode(newState);
     }
-    
+
     return newState;
   }
 

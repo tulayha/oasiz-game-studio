@@ -149,20 +149,15 @@ export class TouchZoneManager {
     );
     const desiredWidthPx = Math.round(width * 0.25);
     const maxWidthPx = Math.max(0, Math.floor((width - inset * 2) / 2));
-    const zoneWidthPx = Math.max(
-      120,
-      Math.min(desiredWidthPx, maxWidthPx),
-    );
+    const zoneWidthPx = Math.max(120, Math.min(desiredWidthPx, maxWidthPx));
     const blockHeightPx = zoneHeightPx * 2;
     const blockTopPx =
       inset + Math.max(0, Math.floor((availableHeight - blockHeightPx) / 2));
     const leftSlot = localSlotOrder[0] ?? 0;
     const rightSlot = localSlotOrder[1] ?? 1;
 
-    const leftColor =
-      slotToColor.get(leftSlot) ?? PLAYER_COLORS[0].primary;
-    const rightColor =
-      slotToColor.get(rightSlot) ?? PLAYER_COLORS[1].primary;
+    const leftColor = slotToColor.get(leftSlot) ?? PLAYER_COLORS[0].primary;
+    const rightColor = slotToColor.get(rightSlot) ?? PLAYER_COLORS[1].primary;
 
     // Left player - both buttons on the left edge
     this.createTouchZone({
@@ -281,9 +276,7 @@ export class TouchZoneManager {
       const horizontalX = isLeft
         ? inset + edgeThicknessPx
         : width - inset - edgeThicknessPx - edgeLengthPx;
-      const horizontalY = isTop
-        ? inset
-        : height - inset - edgeThicknessPx;
+      const horizontalY = isTop ? inset : height - inset - edgeThicknessPx;
 
       const clockwiseEdge: "horizontal" | "vertical" =
         isTop && isLeft

@@ -3,7 +3,11 @@
 // Also manages mobile touch zones for local multiplayer on a single device
 
 import { PlayerInput } from "../types";
-import { getAllPresets, getPresetName, KeyBindingsManager } from "./input/keyBindings";
+import {
+  getAllPresets,
+  getPresetName,
+  KeyBindingsManager,
+} from "./input/keyBindings";
 import { TouchZoneManager } from "./input/touchZones";
 import { SlotState, TouchLayout } from "./input/types";
 

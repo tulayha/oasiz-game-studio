@@ -114,7 +114,10 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
       { label: "Rounds", value: String(settings.roundsToWin) },
       { label: "Ship Speed", value: labelSpeed(settings.shipSpeed) },
       { label: "Dash Power", value: labelDash(settings.dashPower) },
-      { label: "Rotation", value: labelPreset("rotation", settings.rotationPreset) },
+      {
+        label: "Rotation",
+        value: labelPreset("rotation", settings.rotationPreset),
+      },
       {
         label: "Rot Boost",
         value: labelPreset("rotationBoost", settings.rotationBoostPreset),
@@ -124,7 +127,10 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
         label: "Ship Rest",
         value: labelPreset("shipRestitution", settings.shipRestitutionPreset),
       },
-      { label: "Ship Air", value: labelPreset("shipAir", settings.shipFrictionAirPreset) },
+      {
+        label: "Ship Air",
+        value: labelPreset("shipAir", settings.shipFrictionAirPreset),
+      },
       {
         label: "Wall Rest",
         value: labelPreset("wallRestitution", settings.wallRestitutionPreset),

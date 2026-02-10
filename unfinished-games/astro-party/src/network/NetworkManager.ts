@@ -43,7 +43,7 @@ export interface NetworkCallbacks {
   onPingReceived: (latencyMs: number) => void;
   onPlayerListReceived: (playerOrder: string[], meta?: PlayerMetaMap) => void;
   onRoundResultReceived: (payload: RoundResultPayload) => void;
-  
+
   onDevModeReceived: (enabled: boolean) => void;
 
   onAdvancedSettingsReceived: (payload: AdvancedSettingsSync) => void;
@@ -132,12 +132,12 @@ export class NetworkManager {
           botClass: AstroBot,
         },
         defaultPlayerStates: {
-        kills: 0,
-        roundWins: 0,
-        playerState: "ACTIVE",
-        input: null,
-        botType: null,
-      },
+          kills: 0,
+          roundWins: 0,
+          playerState: "ACTIVE",
+          input: null,
+          botType: null,
+        },
       });
 
       // Register PK listeners fresh for this session
@@ -210,7 +210,6 @@ export class NetworkManager {
           } else {
             this.callbacks?.onPlayerLeft(player.id);
           }
-
         });
       }),
     );
@@ -327,12 +326,18 @@ export class NetworkManager {
       RPC.register("devMode", async (enabled: boolean) => {
         console.log("[NetworkManager] RPC devMode received:", enabled);
         this.callbacks?.onDevModeReceived(enabled);
+      }),
+    );
+
     // Handle advanced settings + mode sync from host
     this.cleanupFunctions.push(
-      RPC.register("advancedSettings", async (payload: AdvancedSettingsSync) => {
-        console.log("[NetworkManager] RPC advancedSettings received");
-        this.callbacks?.onAdvancedSettingsReceived(payload);
-      }),
+      RPC.register(
+        "advancedSettings",
+        async (payload: AdvancedSettingsSync) => {
+          console.log("[NetworkManager] RPC advancedSettings received");
+          this.callbacks?.onAdvancedSettingsReceived(payload);
+        },
+      ),
     );
   }
 
@@ -430,6 +435,7 @@ export class NetworkManager {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting dev mode:", enabled);
     RPC.call("devMode", enabled, RPC.Mode.ALL);
+  }
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting advanced settings");

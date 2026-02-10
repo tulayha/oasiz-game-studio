@@ -69,11 +69,7 @@ export class Pilot {
     });
   }
 
-  applyInput(
-    input: PlayerInput,
-    rotationDirection: number,
-    dt: number,
-  ): void {
+  applyInput(input: PlayerInput, rotationDirection: number, dt: number): void {
     const cfg = GameConfig.config;
     let angle = this.body.angle;
 
@@ -84,10 +80,7 @@ export class Pilot {
     }
 
     const now = performance.now();
-    if (
-      input.buttonB &&
-      now - this.lastDashTime >= cfg.PILOT_DASH_COOLDOWN
-    ) {
+    if (input.buttonB && now - this.lastDashTime >= cfg.PILOT_DASH_COOLDOWN) {
       this.lastDashTime = now;
       Body.applyForce(this.body, this.body.position, {
         x: Math.cos(angle) * cfg.PILOT_DASH_FORCE,

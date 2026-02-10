@@ -213,7 +213,10 @@ export class InputManager {
   // Toggle dev mode visualization (key "0")
   toggleDevMode(): boolean {
     this.devModeEnabled = !this.devModeEnabled;
-    console.log("[Dev] Dev mode visualizers:", this.devModeEnabled ? "ON" : "OFF");
+    console.log(
+      "[Dev] Dev mode visualizers:",
+      this.devModeEnabled ? "ON" : "OFF",
+    );
     // Notify Game class to update renderer
     this.onDevModeToggle?.(this.devModeEnabled);
     return this.devModeEnabled;
@@ -262,7 +265,7 @@ export class InputManager {
       this.toggleDevMode();
       return true;
     }
-    
+
     if (!this.devKeysEnabled) return false;
     switch (code) {
       case "Digit1":

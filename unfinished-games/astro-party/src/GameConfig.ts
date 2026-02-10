@@ -57,9 +57,7 @@ export const GameConfig = {
     configOverrides?: Partial<GameConfigType>,
     physicsOverrides?: Partial<PhysicsOverrides>,
   ): void {
-    advancedConfigOverrides = configOverrides
-      ? { ...configOverrides }
-      : null;
+    advancedConfigOverrides = configOverrides ? { ...configOverrides } : null;
     advancedPhysicsOverrides = physicsOverrides
       ? { ...physicsOverrides }
       : null;

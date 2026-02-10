@@ -35,7 +35,9 @@ export function createScreenController(
     const localMobile = isMobile && game.hasLocalPlayers();
     elements.leaveGameBtn.style.display = localMobile ? "none" : "block";
     elements.settingsBtn.style.display = localMobile ? "none" : "flex";
-    elements.settingsCenterHotspot.style.display = localMobile ? "block" : "none";
+    elements.settingsCenterHotspot.style.display = localMobile
+      ? "block"
+      : "none";
   }
 
   function showScreen(screen: Screen): void {

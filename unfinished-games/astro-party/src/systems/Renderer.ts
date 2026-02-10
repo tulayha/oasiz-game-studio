@@ -82,11 +82,11 @@ export class Renderer {
   // Draw homing missile detection radius (dev mode only)
   drawHomingMissileDetectionRadius(x: number, y: number, radius: number): void {
     if (!this.devModeEnabled) return;
-    
+
     const { ctx } = this;
     ctx.save();
     ctx.translate(x, y);
-    
+
     // Green dashed circle for detection radius
     ctx.strokeStyle = "rgba(0, 255, 0, 0.8)";
     ctx.lineWidth = 2;
@@ -94,11 +94,11 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.stroke();
-    
+
     // Fill with transparent green
     ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
     ctx.fill();
-    
+
     // Label
     ctx.setLineDash([]);
     ctx.fillStyle = "#00ff00";
@@ -106,18 +106,18 @@ export class Renderer {
     ctx.textAlign = "center";
     ctx.fillText("DETECT", 0, radius + 15);
     ctx.fillText(`${radius}px`, 0, radius + 28);
-    
+
     ctx.restore();
   }
 
   // Draw mine detection radius (dev mode only)
   drawMineDetectionRadius(x: number, y: number, radius: number): void {
     if (!this.devModeEnabled) return;
-    
+
     const { ctx } = this;
     ctx.save();
     ctx.translate(x, y);
-    
+
     // Green dashed circle for detection radius
     ctx.strokeStyle = "rgba(0, 255, 0, 0.8)";
     ctx.lineWidth = 2;
@@ -125,11 +125,11 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.stroke();
-    
+
     // Fill with transparent green
     ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
     ctx.fill();
-    
+
     // Label
     ctx.setLineDash([]);
     ctx.fillStyle = "#00ff00";
@@ -137,7 +137,7 @@ export class Renderer {
     ctx.textAlign = "center";
     ctx.fillText("MINE", 0, radius + 15);
     ctx.fillText(`${radius}px`, 0, radius + 28);
-    
+
     ctx.restore();
   }
 

@@ -15,12 +15,7 @@ import {
   CHAOTIC_PHYSICS,
 } from "./types";
 
-const ASTEROID_DENSITIES: AsteroidDensity[] = [
-  "NONE",
-  "SOME",
-  "MANY",
-  "SPAWN",
-];
+const ASTEROID_DENSITIES: AsteroidDensity[] = ["NONE", "SOME", "MANY", "SPAWN"];
 const SPEED_PRESETS: SpeedPreset[] = ["SLOW", "NORMAL", "FAST"];
 const DASH_PRESETS: DashPreset[] = ["LOW", "NORMAL", "HIGH"];
 const MODE_PRESETS: ModePreset[] = ["STANDARD", "SANE", "CHAOTIC"];
@@ -147,55 +142,52 @@ function applyPhysicsPresetOverride(
   overrides[key] = resolvePhysicsValue(settingsPreset, key);
 }
 
-export const MODE_TEMPLATES: Record<BaseGameMode, ModeTemplate> =
-  {
-    STANDARD: {
-      ...DEFAULT_ADVANCED_SETTINGS,
-      asteroidDensity: "SOME",
-      startPowerups: false,
-      rotationPreset: "STANDARD",
-      rotationBoostPreset: "STANDARD",
-      recoilPreset: "STANDARD",
-      shipRestitutionPreset: "STANDARD",
-      shipFrictionAirPreset: "STANDARD",
-      wallRestitutionPreset: "STANDARD",
-      wallFrictionPreset: "STANDARD",
-      shipFrictionPreset: "STANDARD",
-      angularDampingPreset: "STANDARD",
-    },
-    SANE: {
-      ...DEFAULT_ADVANCED_SETTINGS,
-      asteroidDensity: "MANY",
-      startPowerups: true,
-      rotationPreset: "SANE",
-      rotationBoostPreset: "SANE",
-      recoilPreset: "SANE",
-      shipRestitutionPreset: "SANE",
-      shipFrictionAirPreset: "SANE",
-      wallRestitutionPreset: "SANE",
-      wallFrictionPreset: "SANE",
-      shipFrictionPreset: "SANE",
-      angularDampingPreset: "SANE",
-    },
-    CHAOTIC: {
-      ...DEFAULT_ADVANCED_SETTINGS,
-      asteroidDensity: "SPAWN",
-      startPowerups: true,
-      rotationPreset: "CHAOTIC",
-      rotationBoostPreset: "CHAOTIC",
-      recoilPreset: "CHAOTIC",
-      shipRestitutionPreset: "CHAOTIC",
-      shipFrictionAirPreset: "CHAOTIC",
-      wallRestitutionPreset: "CHAOTIC",
-      wallFrictionPreset: "CHAOTIC",
-      shipFrictionPreset: "CHAOTIC",
-      angularDampingPreset: "CHAOTIC",
-    },
-  };
+export const MODE_TEMPLATES: Record<BaseGameMode, ModeTemplate> = {
+  STANDARD: {
+    ...DEFAULT_ADVANCED_SETTINGS,
+    asteroidDensity: "SOME",
+    startPowerups: false,
+    rotationPreset: "STANDARD",
+    rotationBoostPreset: "STANDARD",
+    recoilPreset: "STANDARD",
+    shipRestitutionPreset: "STANDARD",
+    shipFrictionAirPreset: "STANDARD",
+    wallRestitutionPreset: "STANDARD",
+    wallFrictionPreset: "STANDARD",
+    shipFrictionPreset: "STANDARD",
+    angularDampingPreset: "STANDARD",
+  },
+  SANE: {
+    ...DEFAULT_ADVANCED_SETTINGS,
+    asteroidDensity: "MANY",
+    startPowerups: true,
+    rotationPreset: "SANE",
+    rotationBoostPreset: "SANE",
+    recoilPreset: "SANE",
+    shipRestitutionPreset: "SANE",
+    shipFrictionAirPreset: "SANE",
+    wallRestitutionPreset: "SANE",
+    wallFrictionPreset: "SANE",
+    shipFrictionPreset: "SANE",
+    angularDampingPreset: "SANE",
+  },
+  CHAOTIC: {
+    ...DEFAULT_ADVANCED_SETTINGS,
+    asteroidDensity: "SPAWN",
+    startPowerups: true,
+    rotationPreset: "CHAOTIC",
+    rotationBoostPreset: "CHAOTIC",
+    recoilPreset: "CHAOTIC",
+    shipRestitutionPreset: "CHAOTIC",
+    shipFrictionAirPreset: "CHAOTIC",
+    wallRestitutionPreset: "CHAOTIC",
+    wallFrictionPreset: "CHAOTIC",
+    shipFrictionPreset: "CHAOTIC",
+    angularDampingPreset: "CHAOTIC",
+  },
+};
 
-export function applyModeTemplate(
-  mode: BaseGameMode,
-): ModeTemplate {
+export function applyModeTemplate(mode: BaseGameMode): ModeTemplate {
   return { ...MODE_TEMPLATES[mode] };
 }
 

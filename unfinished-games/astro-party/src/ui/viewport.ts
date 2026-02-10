@@ -90,8 +90,9 @@ export function createViewportController(game: Game): ViewportController {
 export async function tryLockOrientation(isMobile: boolean): Promise<void> {
   if (!isMobile) return;
   try {
-    await (screen.orientation as unknown as { lock?: (mode: string) => void })
-      ?.lock?.("landscape");
+    await (
+      screen.orientation as unknown as { lock?: (mode: string) => void }
+    )?.lock?.("landscape");
   } catch {
     // Orientation lock not supported or not allowed - CSS overlay handles this
   }
