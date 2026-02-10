@@ -15,12 +15,12 @@ import { NetworkBotManager, PlayroomPlayerState } from "./NetworkBotManager";
 import {
   GameStateSync,
   GamePhase,
-  GameMode,
   PlayerInput,
   PlayerData,
   PLAYER_COLORS,
   GAME_CONFIG,
   RoundResultPayload,
+  AdvancedSettingsSync,
 } from "../types";
 
 export type { PlayroomPlayerState } from "./NetworkBotManager";
@@ -42,9 +42,11 @@ export interface NetworkCallbacks {
   onDashRequested: (playerId: string) => void;
   onPingReceived: (latencyMs: number) => void;
   onPlayerListReceived: (playerOrder: string[], meta?: PlayerMetaMap) => void;
-  onGameModeReceived: (mode: GameMode) => void;
   onRoundResultReceived: (payload: RoundResultPayload) => void;
+  
   onDevModeReceived: (enabled: boolean) => void;
+
+  onAdvancedSettingsReceived: (payload: AdvancedSettingsSync) => void;
 }
 
 interface PlayerMeta {
@@ -312,14 +314,6 @@ export class NetworkManager {
       ),
     );
 
-    // Handle game mode selection from host
-    this.cleanupFunctions.push(
-      RPC.register("gameMode", async (mode: GameMode) => {
-        console.log("[NetworkManager] RPC gameMode received:", mode);
-        this.callbacks?.onGameModeReceived(mode);
-      }),
-    );
-
     // Handle round results from host
     this.cleanupFunctions.push(
       RPC.register("roundResult", async (payload: RoundResultPayload) => {
@@ -333,6 +327,11 @@ export class NetworkManager {
       RPC.register("devMode", async (enabled: boolean) => {
         console.log("[NetworkManager] RPC devMode received:", enabled);
         this.callbacks?.onDevModeReceived(enabled);
+    // Handle advanced settings + mode sync from host
+    this.cleanupFunctions.push(
+      RPC.register("advancedSettings", async (payload: AdvancedSettingsSync) => {
+        console.log("[NetworkManager] RPC advancedSettings received");
+        this.callbacks?.onAdvancedSettingsReceived(payload);
       }),
     );
   }
@@ -420,13 +419,6 @@ export class NetworkManager {
     RPC.call("ping", Date.now(), RPC.Mode.ALL);
   }
 
-  // Broadcast game mode selection (host only, before countdown)
-  broadcastGameMode(mode: GameMode): void {
-    if (!isHost()) return;
-    console.log("[NetworkManager] Broadcasting game mode:", mode);
-    RPC.call("gameMode", mode, RPC.Mode.ALL);
-  }
-
   broadcastRoundResult(payload: RoundResultPayload): void {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting round result");
@@ -438,6 +430,10 @@ export class NetworkManager {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting dev mode:", enabled);
     RPC.call("devMode", enabled, RPC.Mode.ALL);
+  broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {
+    if (!isHost()) return;
+    console.log("[NetworkManager] Broadcasting advanced settings");
+    RPC.call("advancedSettings", payload, RPC.Mode.ALL);
   }
 
   // Broadcast player list (host only) - authoritative order for colors

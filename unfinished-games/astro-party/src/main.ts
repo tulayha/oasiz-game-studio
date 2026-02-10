@@ -8,6 +8,7 @@ import { createStartScreenUI } from "./ui/startScreen";
 import { createLobbyUI } from "./ui/lobby";
 import { createLeaveModal } from "./ui/modals";
 import { createSettingsUI } from "./ui/settings";
+import { createAdvancedSettingsUI } from "./ui/advancedSettings";
 
 // Declare platform-injected variables
 declare global {
@@ -30,6 +31,7 @@ async function init(): Promise<void> {
   const screenController = createScreenController(game, viewport.isMobile);
   const leaveModal = createLeaveModal(game);
   const settingsUI = createSettingsUI(leaveModal.openLeaveModal);
+  const advancedSettingsUI = createAdvancedSettingsUI(game);
   const startUI = createStartScreenUI(game);
   const lobbyUI = createLobbyUI(game, viewport.isMobile);
   bindEndScreenUI(game);
@@ -96,9 +98,14 @@ async function init(): Promise<void> {
     onRoundResult: () => {
       screenController.updateRoundResultOverlay();
     },
+    onAdvancedSettingsChange: (settings) => {
+      advancedSettingsUI.updateAdvancedSettingsUI(settings);
+      screenController.updateScoreTrack(game.getPlayers());
+    },
   });
 
   settingsUI.updateSettingsUI();
+  advancedSettingsUI.updateAdvancedSettingsUI();
   screenController.showScreen("start");
 
   game.start();

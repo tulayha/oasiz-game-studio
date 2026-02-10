@@ -1,5 +1,6 @@
 import { Game } from "../Game";
-import { PlayerData, GAME_CONFIG } from "../types";
+import { PlayerData } from "../types";
+import { GameConfig } from "../GameConfig";
 import { triggerHaptic } from "./haptics";
 import { elements } from "./elements";
 import { escapeHtml } from "./text";
@@ -111,7 +112,7 @@ export function createScreenController(
     elements.scoreTrack.innerHTML = players
       .map((player) => {
         const dots = Array.from(
-          { length: GAME_CONFIG.ROUNDS_TO_WIN },
+          { length: GameConfig.config.ROUNDS_TO_WIN },
           (_, i) => {
             const filled = i < player.roundWins;
             return (

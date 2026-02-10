@@ -8,6 +8,7 @@ import { Ship } from "../entities/Ship";
 import { Pilot } from "../entities/Pilot";
 import { Projectile } from "../entities/Projectile";
 import { SettingsManager } from "../SettingsManager";
+import { GameConfig } from "../GameConfig";
 import {
   GamePhase,
   PlayerData,
@@ -335,7 +336,7 @@ export class GameFlowManager {
 
     if (!isTie && winnerId) {
       const winner = players.get(winnerId);
-      if (winner && winner.roundWins >= GAME_CONFIG.ROUNDS_TO_WIN) {
+      if (winner && winner.roundWins >= GameConfig.config.ROUNDS_TO_WIN) {
         this.endGame(winnerId, players);
         return;
       }
