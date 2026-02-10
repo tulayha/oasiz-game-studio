@@ -186,7 +186,9 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     elements.modeStandard.disabled = !isHost;
     elements.modeChaotic.disabled = !isHost;
     elements.modeSane.disabled = !isHost;
+    elements.modeCustom.disabled = true;
     elements.advancedSettingsBtn.style.display = isHost ? "block" : "none";
+    elements.advancedSettingsBtn.disabled = !isHost;
     const actionsBox = elements.gameModeSection.closest(".lobby-actions");
     if (actionsBox) {
       actionsBox.classList.toggle("readonly", !isHost);
@@ -220,9 +222,9 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     elements.modeStandard.classList.toggle("active", mode === "STANDARD");
     elements.modeChaotic.classList.toggle("active", mode === "CHAOTIC");
     elements.modeSane.classList.toggle("active", mode === "SANE");
-    game.setGameMode(mode);
-    if (source === "local" && game.isHost()) {
-      game.broadcastGameMode(mode);
+    elements.modeCustom.classList.toggle("active", mode === "CUSTOM");
+    if (source === "local") {
+      game.setGameMode(mode, "local");
     }
   }
 

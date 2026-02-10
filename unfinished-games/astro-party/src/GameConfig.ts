@@ -6,24 +6,24 @@ import {
   SANE_OVERRIDES,
   SANE_PHYSICS,
   CHAOTIC_PHYSICS,
-  GameMode,
+  BaseGameMode,
 } from "./types";
 
 type PhysicsOverrides = typeof STANDARD_PHYSICS;
 
-const MODE_CONFIG_OVERRIDES: Record<GameMode, Partial<GameConfigType>> = {
+const MODE_CONFIG_OVERRIDES: Record<BaseGameMode, Partial<GameConfigType>> = {
   STANDARD: STANDARD_OVERRIDES,
   SANE: SANE_OVERRIDES,
   CHAOTIC: {},
 };
 
-const MODE_PHYSICS: Record<GameMode, PhysicsOverrides> = {
+const MODE_PHYSICS: Record<BaseGameMode, PhysicsOverrides> = {
   STANDARD: STANDARD_PHYSICS,
   SANE: SANE_PHYSICS,
   CHAOTIC: CHAOTIC_PHYSICS,
 };
 
-let currentMode: GameMode = "STANDARD";
+let currentMode: BaseGameMode = "STANDARD";
 let advancedConfigOverrides: Partial<GameConfigType> | null = null;
 let advancedPhysicsOverrides: Partial<PhysicsOverrides> | null = null;
 let activeConfig: GameConfigType = {
@@ -47,7 +47,7 @@ function rebuildActive(): void {
 }
 
 export const GameConfig = {
-  setMode(mode: GameMode): void {
+  setMode(mode: BaseGameMode): void {
     currentMode = mode;
     rebuildActive();
     console.log("[GameConfig] Mode set to:", mode);
@@ -74,7 +74,7 @@ export const GameConfig = {
     console.log("[GameConfig] Advanced overrides cleared");
   },
 
-  getMode(): GameMode {
+  getMode(): BaseGameMode {
     return currentMode;
   },
 

@@ -64,18 +64,44 @@ export const elements = {
   addAIBotBtn: getElement<HTMLButtonElement>("addAIBotBtn"),
   addLocalPlayerBtn: getElement<HTMLButtonElement>("addLocalPlayerBtn"),
   advancedSettingsBtn: getElement<HTMLButtonElement>("advancedSettingsBtn"),
+  advancedSummaryChips: getElement<HTMLElement>("advancedSummaryChips"),
 
   // Game mode toggle
   gameModeSection: getElement<HTMLElement>("gameModeSection"),
   modeStandard: getElement<HTMLButtonElement>("modeStandard"),
   modeChaotic: getElement<HTMLButtonElement>("modeChaotic"),
   modeSane: getElement<HTMLButtonElement>("modeSane"),
+  modeCustom: getElement<HTMLButtonElement>("modeCustom"),
 
   // Key selection modal
   keySelectModal: getElement<HTMLElement>("keySelectModal"),
   keySelectBackdrop: getElement<HTMLElement>("keySelectBackdrop"),
   keyOptions: getElement<HTMLElement>("keyOptions"),
   keySelectCancel: getElement<HTMLButtonElement>("keySelectCancel"),
+
+  // Advanced settings modal
+  advancedSettingsModal: getElement<HTMLElement>("advancedSettingsModal"),
+  advancedSettingsBackdrop: getElement<HTMLElement>("advancedSettingsBackdrop"),
+  advancedSettingsClose: getElement<HTMLButtonElement>("advancedSettingsClose"),
+  advancedSettingsDone: getElement<HTMLButtonElement>("advancedSettingsDone"),
+  advancedTabElements: getElement<HTMLButtonElement>("advancedTabElements"),
+  advancedTabPhysics: getElement<HTMLButtonElement>("advancedTabPhysics"),
+  advancedPanelElements: getElement<HTMLElement>("advancedPanelElements"),
+  advancedPanelPhysics: getElement<HTMLElement>("advancedPanelPhysics"),
+  asteroidsCycle: getElement<HTMLButtonElement>("asteroidsCycle"),
+  startPowerupsToggle: getElement<HTMLButtonElement>("startPowerupsToggle"),
+  roundsCycle: getElement<HTMLButtonElement>("roundsCycle"),
+  shipSpeedCycle: getElement<HTMLButtonElement>("shipSpeedCycle"),
+  dashPowerCycle: getElement<HTMLButtonElement>("dashPowerCycle"),
+  rotationPresetCycle: getElement<HTMLButtonElement>("rotationPresetCycle"),
+  rotationBoostCycle: getElement<HTMLButtonElement>("rotationBoostCycle"),
+  recoilPresetCycle: getElement<HTMLButtonElement>("recoilPresetCycle"),
+  shipRestitutionCycle: getElement<HTMLButtonElement>("shipRestitutionCycle"),
+  shipFrictionAirCycle: getElement<HTMLButtonElement>("shipFrictionAirCycle"),
+  wallRestitutionCycle: getElement<HTMLButtonElement>("wallRestitutionCycle"),
+  wallFrictionCycle: getElement<HTMLButtonElement>("wallFrictionCycle"),
+  shipFrictionCycle: getElement<HTMLButtonElement>("shipFrictionCycle"),
+  angularDampingCycle: getElement<HTMLButtonElement>("angularDampingCycle"),
 
   // Ping indicator
   pingIndicator: getElement<HTMLElement>("pingIndicator"),

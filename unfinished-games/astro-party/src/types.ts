@@ -108,7 +108,8 @@ export interface MineState {
 
 export type PowerUpType = "LASER" | "SHIELD" | "SCATTER" | "MINE" | "REVERSE";
 
-export type GameMode = "STANDARD" | "SANE" | "CHAOTIC";
+export type GameMode = "STANDARD" | "SANE" | "CHAOTIC" | "CUSTOM";
+export type BaseGameMode = Exclude<GameMode, "CUSTOM">;
 
 export interface PlayerPowerUp {
   type: PowerUpType;
@@ -174,6 +175,52 @@ export interface Settings {
   haptics: boolean;
 }
 
+// ============= ADVANCED SETTINGS =============
+
+export type AsteroidDensity = "NONE" | "SOME" | "MANY" | "SPAWN";
+export type SpeedPreset = "SLOW" | "NORMAL" | "FAST";
+export type DashPreset = "LOW" | "NORMAL" | "HIGH";
+export type ModePreset = "STANDARD" | "SANE" | "CHAOTIC";
+
+export interface AdvancedSettings {
+  asteroidDensity: AsteroidDensity;
+  startPowerups: boolean;
+  roundsToWin: number;
+  shipSpeed: SpeedPreset;
+  dashPower: DashPreset;
+  rotationPreset: ModePreset;
+  rotationBoostPreset: ModePreset;
+  recoilPreset: ModePreset;
+  shipRestitutionPreset: ModePreset;
+  shipFrictionAirPreset: ModePreset;
+  wallRestitutionPreset: ModePreset;
+  wallFrictionPreset: ModePreset;
+  shipFrictionPreset: ModePreset;
+  angularDampingPreset: ModePreset;
+}
+
+export interface AdvancedSettingsSync {
+  mode: GameMode;
+  baseMode: BaseGameMode;
+  settings: AdvancedSettings;
+}
+
+export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettings = {
+  asteroidDensity: "SOME",
+  startPowerups: false,
+  roundsToWin: 3,
+  shipSpeed: "NORMAL",
+  dashPower: "NORMAL",
+  rotationPreset: "STANDARD",
+  rotationBoostPreset: "STANDARD",
+  recoilPreset: "STANDARD",
+  shipRestitutionPreset: "STANDARD",
+  shipFrictionAirPreset: "STANDARD",
+  wallRestitutionPreset: "STANDARD",
+  wallFrictionPreset: "STANDARD",
+  shipFrictionPreset: "STANDARD",
+  angularDampingPreset: "STANDARD",
+};
 // ============= PARTICLES =============
 
 export interface Particle {
