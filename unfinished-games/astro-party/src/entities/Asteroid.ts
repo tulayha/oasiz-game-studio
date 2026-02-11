@@ -1,6 +1,7 @@
 import Matter from "matter-js";
 import { AsteroidState, GAME_CONFIG } from "../types";
 import { Physics } from "../systems/Physics";
+import { SeededRNG } from "../systems/SeededRNG";
 
 type AsteroidTier = "LARGE" | "SMALL";
 
@@ -11,6 +12,7 @@ export class Asteroid {
   tier: AsteroidTier;
   private physics: Physics;
   private vertices: { x: number; y: number }[];
+  private rng: SeededRNG;
 
   constructor(
     physics: Physics,
@@ -20,9 +22,11 @@ export class Asteroid {
     angularVelocity: number,
     tier: AsteroidTier = "LARGE",
     size?: number,
+    rng?: SeededRNG,
   ) {
     this.physics = physics;
     this.tier = tier;
+    this.rng = rng ?? new SeededRNG(Date.now() >>> 0);
     const minSize =
       tier === "LARGE"
         ? GAME_CONFIG.ASTEROID_LARGE_MIN
@@ -31,7 +35,7 @@ export class Asteroid {
       tier === "LARGE"
         ? GAME_CONFIG.ASTEROID_LARGE_MAX
         : GAME_CONFIG.ASTEROID_SMALL_MAX;
-    this.size = size ?? minSize + Math.random() * (maxSize - minSize);
+    this.size = size ?? minSize + this.rng.next() * (maxSize - minSize);
 
     // Generate random jagged vertices for the asteroid
     this.vertices = this.generateVertices();
@@ -44,19 +48,15 @@ export class Asteroid {
 
   private generateVertices(): { x: number; y: number }[] {
     const vertices: { x: number; y: number }[] = [];
-    const numVertices =
-      GAME_CONFIG.ASTEROID_VERTICES_MIN +
-      Math.floor(
-        Math.random() *
-          (GAME_CONFIG.ASTEROID_VERTICES_MAX -
-            GAME_CONFIG.ASTEROID_VERTICES_MIN +
-            1),
-      );
+    const numVertices = this.rng.nextInt(
+      GAME_CONFIG.ASTEROID_VERTICES_MIN,
+      GAME_CONFIG.ASTEROID_VERTICES_MAX,
+    );
 
     for (let i = 0; i < numVertices; i++) {
       const angle = (i / numVertices) * Math.PI * 2;
       // Add some randomness to the radius for jagged edges
-      const radiusVariation = 0.7 + Math.random() * 0.6; // 0.7 to 1.3
+      const radiusVariation = 0.7 + this.rng.next() * 0.6; // 0.7 to 1.3
       vertices.push({
         x: Math.cos(angle) * this.size * radiusVariation,
         y: Math.sin(angle) * this.size * radiusVariation,

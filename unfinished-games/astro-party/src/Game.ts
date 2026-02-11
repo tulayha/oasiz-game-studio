@@ -4,6 +4,7 @@ import { InputManager } from "./systems/Input";
 import { MultiInputManager } from "./systems/MultiInputManager";
 import { NetworkManager } from "./network/NetworkManager";
 import { Ship } from "./entities/Ship";
+import { AstroBot } from "./entities/AstroBot";
 import { Pilot } from "./entities/Pilot";
 import { Projectile } from "./entities/Projectile";
 import { PowerUp } from "./entities/PowerUp";
@@ -20,6 +21,7 @@ import { TurretManager } from "./managers/TurretManager";
 import { GameRenderer } from "./systems/GameRenderer";
 import { NetworkSyncSystem } from "./network/NetworkSyncSystem";
 import { PlayerInputResolver } from "./systems/PlayerInputResolver";
+import { DeterministicRNGManager } from "./systems/DeterministicRNGManager";
 import {
   GamePhase,
   GameMode,
@@ -47,6 +49,9 @@ export class Game {
   private input: InputManager;
   private network: NetworkManager;
   private multiInput: MultiInputManager | null = null;
+  private rngManager: DeterministicRNGManager;
+  private rngSeed: number | null = null;
+  private pendingRngSeed: number | null = null;
 
   // Managers
   private playerMgr: PlayerManager;
@@ -98,6 +103,9 @@ export class Game {
     this.input = new InputManager();
     this.network = new NetworkManager();
     this.multiInput = new MultiInputManager();
+    this.rngManager = new DeterministicRNGManager();
+    AstroBot.setRng(this.rngManager.getAIRng());
+    this.renderer.setVisualRng(this.rngManager.getVisualRng());
 
     // Create managers
     this.playerMgr = new PlayerManager(this.network);
@@ -107,6 +115,7 @@ export class Game {
       this.renderer,
       this.input,
       this.multiInput,
+      () => this.rngManager.getAIRng(),
     );
     this.botMgr = new BotManager(this.network, this.multiInput);
     this.asteroidMgr = new AsteroidManager(
@@ -114,6 +123,7 @@ export class Game {
       this.network,
       this.flowMgr,
       this.powerUps,
+      this.rngManager,
       () => this.advancedSettings,
     );
     this.collisionMgr = new CollisionManager({
@@ -143,6 +153,7 @@ export class Game {
       this.mines,
       this.homingMissiles,
       this.playerPowerUps,
+      this.rngManager.getIdRng(),
       (intensity, duration) => this.triggerScreenShake(intensity, duration),
     );
     this.turretMgr = new TurretManager(
@@ -175,6 +186,9 @@ export class Game {
     // Wire flow manager callbacks
     this.flowMgr.onPlayersUpdate = () => this.emitPlayersUpdate();
     this.flowMgr.onBeginMatch = () => {
+      if (this.network.isHost()) {
+        this.seedRngForRound();
+      }
       this.flowMgr.beginMatch(this.playerMgr.players, this.ships);
       this.asteroidMgr.spawnInitialAsteroids();
       this.asteroidMgr.scheduleAsteroidSpawnsIfNeeded();
@@ -209,12 +223,13 @@ export class Game {
     if (!this.advancedSettings.startPowerups) return;
 
     const options: PowerUpType[] = ["LASER", "SHIELD", "SCATTER", "MINE"];
+    const rng = this.rngManager.getPowerUpRng();
 
     this.playerMgr.players.forEach((player) => {
       const ship = this.ships.get(player.id);
       if (!ship || !ship.alive) return;
       if (this.playerPowerUps.get(player.id)) return;
-      const type = options[Math.floor(Math.random() * options.length)];
+      const type = options[Math.floor(rng.next() * options.length)];
       this.grantPowerUp(player.id, type);
     });
   }
@@ -297,7 +312,8 @@ export class Game {
     const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
     const entries = Object.entries(weights) as [PowerUpType, number][];
     const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
-    const rand = Math.random() * totalWeight;
+    const rng = this.rngManager.getPowerUpRng();
+    const rand = rng.next() * totalWeight;
 
     let cumulative = 0;
     let type: PowerUpType = entries[0][0];
@@ -310,9 +326,10 @@ export class Game {
     }
 
     const padding = 100;
-    const x = padding + Math.random() * (GAME_CONFIG.ARENA_WIDTH - padding * 2);
+    const x =
+      padding + rng.next() * (GAME_CONFIG.ARENA_WIDTH - padding * 2);
     const y =
-      padding + Math.random() * (GAME_CONFIG.ARENA_HEIGHT - padding * 2);
+      padding + rng.next() * (GAME_CONFIG.ARENA_HEIGHT - padding * 2);
 
     const powerUp = new PowerUp(this.physics, x, y, type);
     this.powerUps.push(powerUp);
@@ -438,6 +455,10 @@ export class Game {
         if (this.network.isHost()) {
           this.inputResolver.setPendingInput(playerId, input);
         }
+      },
+
+      onRNGSeedReceived: (baseSeed) => {
+        this.applyRngSeed(baseSeed);
       },
 
       onHostChanged: () => {
@@ -619,6 +640,53 @@ export class Game {
     this.clearEntities(true);
     this.networkSync.clear();
     this.fireSystem.clearThrottles();
+  }
+
+  private seedRngForRound(): void {
+    if (!this.network.isHost()) return;
+    const seed = this.pendingRngSeed ?? this.generateSeed();
+    this.pendingRngSeed = null;
+    this.network.broadcastRNGSeed(seed);
+    this.applyRngSeed(seed);
+  }
+
+  private applyRngSeed(baseSeed: number): void {
+    this.rngSeed = baseSeed;
+    this.rngManager.initializeFromSeed(baseSeed);
+    console.log(
+      "[Game.applyRngSeed]",
+      "Seeded RNG with " + baseSeed.toString(),
+    );
+  }
+
+  private generateSeed(): number {
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      const buffer = new Uint32Array(1);
+      crypto.getRandomValues(buffer);
+      return buffer[0] >>> 0;
+    }
+    return Date.now() >>> 0;
+  }
+
+  getRngSeed(): number | null {
+    return this.rngSeed;
+  }
+
+  setNextRngSeed(seed: number | null): void {
+    if (!this.network.isHost()) {
+      console.log("[Game.setNextRngSeed] Only host can set seed");
+      return;
+    }
+
+    if (seed === null || !Number.isFinite(seed)) {
+      this.pendingRngSeed = null;
+      console.log("[Game.setNextRngSeed] Cleared pending seed");
+      return;
+    }
+
+    const normalized = Math.floor(seed) >>> 0;
+    this.pendingRngSeed = normalized;
+    console.log("[Game.setNextRngSeed] Next seed set to " + normalized);
   }
 
   private resetAdvancedSettings(): void {

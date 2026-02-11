@@ -9,6 +9,7 @@ import { Pilot } from "../entities/Pilot";
 import { Projectile } from "../entities/Projectile";
 import { SettingsManager } from "../SettingsManager";
 import { GameConfig } from "../GameConfig";
+import { SeededRNG } from "../systems/SeededRNG";
 import {
   GamePhase,
   PlayerData,
@@ -44,6 +45,7 @@ export class GameFlowManager {
     private renderer: Renderer,
     private input: InputManager,
     private multiInput: MultiInputManager | null,
+    private getAiRng: () => SeededRNG,
   ) {}
 
   setPhase(phase: GamePhase): void {
@@ -190,6 +192,7 @@ export class GameFlowManager {
       controlMode,
       angle,
       angularVelocity * 0.6,
+      this.getAiRng(),
     );
     pilots.set(playerId, pilot);
 

@@ -16,11 +16,21 @@ declare global {
     __ROOM_CODE__?: string;
     __PLAYER_NAME__?: string;
     __PLAYER_AVATAR__?: string;
+    getCurrentSeed?: () => number | null;
+    setNextSeed?: (seed: number) => void;
   }
 }
 
 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
 const game = new Game(canvas);
+
+window.getCurrentSeed = (): number | null => {
+  return game.getRngSeed();
+};
+
+window.setNextSeed = (seed: number): void => {
+  game.setNextRngSeed(seed);
+};
 
 async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");

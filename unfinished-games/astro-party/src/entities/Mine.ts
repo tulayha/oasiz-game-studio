@@ -13,8 +13,8 @@ export class Mine {
   armingStartTime: number = 0;
   triggeringPlayerId: string | undefined = undefined; // Player who triggered the mine
 
-  constructor(ownerId: string, x: number, y: number) {
-    this.id = `mine_${performance.now()}_${Math.random()}`;
+  constructor(ownerId: string, x: number, y: number, id: string) {
+    this.id = id;
     this.ownerId = ownerId;
     this.x = x;
     this.y = y;

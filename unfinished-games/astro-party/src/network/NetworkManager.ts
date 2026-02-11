@@ -30,6 +30,7 @@ export interface NetworkCallbacks {
   onPlayerLeft: (playerId: string) => void;
   onGameStateReceived: (state: GameStateSync) => void;
   onInputReceived: (playerId: string, input: PlayerInput) => void;
+  onRNGSeedReceived?: (baseSeed: number) => void;
   onHostChanged: () => void;
   onDisconnected: () => void;
   onGamePhaseReceived: (
@@ -380,6 +381,15 @@ export class NetworkManager {
 
     this.cleanupFunctions.push(
       RPC.register(
+        "INIT_RNG",
+        async (payload: { baseSeed: number }) => {
+          this.callbacks?.onRNGSeedReceived?.(payload.baseSeed);
+        },
+      ),
+    );
+
+    this.cleanupFunctions.push(
+      RPC.register(
         "screenShake",
         async (payload: { intensity: number; duration: number }) => {
           this.callbacks?.onScreenShakeReceived(
@@ -528,6 +538,11 @@ export class NetworkManager {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting advanced settings");
     RPC.call("advancedSettings", payload, RPC.Mode.ALL);
+  }
+
+  broadcastRNGSeed(baseSeed: number): void {
+    if (!isHost()) return;
+    RPC.call("INIT_RNG", { baseSeed }, RPC.Mode.ALL);
   }
 
   // Broadcast player list (host only) - authoritative order for colors

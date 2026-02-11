@@ -2,6 +2,7 @@ import Matter from "matter-js";
 import { PilotState, GAME_CONFIG, PlayerInput } from "../types";
 import { GameConfig } from "../GameConfig";
 import { Physics } from "../systems/Physics";
+import { SeededRNG } from "../systems/SeededRNG";
 
 const { Body } = Matter;
 
@@ -17,6 +18,7 @@ export class Pilot {
   private targetDirection: { x: number; y: number } = { x: 0, y: 0 };
   private aiTargetAngle: number = 0;
   private aiShouldDash: boolean = false;
+  private rng: SeededRNG;
 
   constructor(
     physics: Physics,
@@ -27,11 +29,13 @@ export class Pilot {
     controlMode: "player" | "ai",
     initialAngle: number,
     initialAngularVelocity: number = 0,
+    rng: SeededRNG,
   ) {
     this.physics = physics;
     this.playerId = playerId;
     this.spawnTime = Date.now();
     this.controlMode = controlMode;
+    this.rng = rng;
     this.body = physics.createPilot(
       x,
       y,
@@ -131,14 +135,14 @@ export class Pilot {
       }
     } else {
       this.aiShouldDash = false;
-      if (Math.random() < 0.3) {
-        const angle = Math.random() * Math.PI * 2;
+      if (this.rng.next() < 0.3) {
+        const angle = this.rng.next() * Math.PI * 2;
         this.targetDirection = {
           x: Math.cos(angle),
           y: Math.sin(angle),
         };
         this.aiTargetAngle = angle;
-        this.aiShouldDash = Math.random() < 0.25;
+        this.aiShouldDash = this.rng.next() < 0.25;
       }
     }
   }

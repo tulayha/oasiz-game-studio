@@ -8,6 +8,7 @@ import { Mine } from "../entities/Mine";
 import { HomingMissile } from "../entities/HomingMissile";
 import { AudioManager } from "../AudioManager";
 import { SettingsManager } from "../SettingsManager";
+import { SeededRNG } from "../systems/SeededRNG";
 import {
   GAME_CONFIG,
   PlayerPowerUp,
@@ -25,8 +26,13 @@ export class FireSystem {
     private mines: Mine[],
     private homingMissiles: HomingMissile[],
     private playerPowerUps: Map<string, PlayerPowerUp | null>,
+    private idRng: SeededRNG,
     private onTriggerScreenShake: (intensity: number, duration: number) => void,
   ) {}
+
+  private nextEntityId(prefix: string): string {
+    return prefix + "_" + this.idRng.nextUint32().toString(16);
+  }
 
   processFire(
     playerId: string,
@@ -57,6 +63,7 @@ export class FireSystem {
               firePos.x,
               firePos.y,
               fireResult.fireAngle,
+              this.nextEntityId("beam"),
             );
             this.laserBeams.push(beam);
 
@@ -134,7 +141,12 @@ export class FireSystem {
           const mineY =
             firePos.y - Math.sin(fireResult.fireAngle) * mineOffset;
 
-          const mine = new Mine(playerId, mineX, mineY);
+          const mine = new Mine(
+            playerId,
+            mineX,
+            mineY,
+            this.nextEntityId("mine"),
+          );
           this.mines.push(mine);
 
           this.playGameSoundLocal("fire");
@@ -158,6 +170,7 @@ export class FireSystem {
             firePos.x,
             firePos.y,
             fireResult.fireAngle,
+            this.nextEntityId("missile"),
           );
           this.homingMissiles.push(missile);
 

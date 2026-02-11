@@ -13,8 +13,14 @@ export class HomingMissile {
   private targetId: string | null = null;
   private hasDetectedTarget: boolean = false;
 
-  constructor(ownerId: string, x: number, y: number, angle: number) {
-    this.id = `missile_${Date.now()}_${Math.random()}`;
+  constructor(
+    ownerId: string,
+    x: number,
+    y: number,
+    angle: number,
+    id: string,
+  ) {
+    this.id = id;
     this.ownerId = ownerId;
     this.x = x;
     this.y = y;

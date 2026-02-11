@@ -12,12 +12,14 @@ import {
   PLAYER_COLORS,
   GAME_CONFIG,
 } from "../types";
+import { SeededRNG } from "./SeededRNG";
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private particles: Particle[] = [];
   private screenShake = { intensity: 0, duration: 0, offsetX: 0, offsetY: 0 };
+  private visualRng: SeededRNG;
 
   // Dev mode visualization flag
   private devModeEnabled = false;
@@ -30,6 +32,15 @@ export class Renderer {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
+    this.visualRng = new SeededRNG(Date.now() >>> 0);
+  }
+
+  setVisualRng(rng: SeededRNG): void {
+    this.visualRng = rng;
+  }
+
+  private random(): number {
+    return this.visualRng.next();
   }
 
   resize(): void {
@@ -946,26 +957,26 @@ export class Renderer {
     color: string,
     type: "explosion" | "thrust" | "hit",
   ): void {
-    const angle = Math.random() * Math.PI * 2;
+    const angle = this.random() * Math.PI * 2;
     let speed: number;
     let life: number;
     let size: number;
 
     switch (type) {
       case "explosion":
-        speed = 80 + Math.random() * 120;
-        life = 0.3 + Math.random() * 0.3;
-        size = 3 + Math.random() * 5;
+        speed = 80 + this.random() * 120;
+        life = 0.3 + this.random() * 0.3;
+        size = 3 + this.random() * 5;
         break;
       case "thrust":
-        speed = 20 + Math.random() * 40;
-        life = 0.1 + Math.random() * 0.2;
-        size = 2 + Math.random() * 3;
+        speed = 20 + this.random() * 40;
+        life = 0.1 + this.random() * 0.2;
+        size = 2 + this.random() * 3;
         break;
       case "hit":
-        speed = 40 + Math.random() * 60;
-        life = 0.2 + Math.random() * 0.2;
-        size = 2 + Math.random() * 3;
+        speed = 40 + this.random() * 60;
+        life = 0.2 + this.random() * 0.2;
+        size = 2 + this.random() * 3;
         break;
     }
 
@@ -992,14 +1003,14 @@ export class Renderer {
 
   spawnNitroParticle(x: number, y: number, color: string): void {
     // Larger, faster particles for nitro boost effect
-    const angle = Math.random() * Math.PI * 2;
-    const speed = 100 + Math.random() * 80;
-    const life = 0.2 + Math.random() * 0.15;
-    const size = 4 + Math.random() * 4;
+    const angle = this.random() * Math.PI * 2;
+    const speed = 100 + this.random() * 80;
+    const life = 0.2 + this.random() * 0.15;
+    const size = 4 + this.random() * 4;
 
     this.particles.push({
-      x: x + (Math.random() - 0.5) * 8,
-      y: y + (Math.random() - 0.5) * 8,
+      x: x + (this.random() - 0.5) * 8,
+      y: y + (this.random() - 0.5) * 8,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       life,
@@ -1023,10 +1034,10 @@ export class Renderer {
 
     for (let i = 0; i < count; i++) {
       // Random angle within spread behind the ship
-      const particleAngle = backAngle + (Math.random() - 0.5) * spreadAngle;
-      const speed = 150 + Math.random() * 100; // Fast spray
-      const life = 0.15 + Math.random() * 0.15; // Short life
-      const size = 3 + Math.random() * 3;
+      const particleAngle = backAngle + (this.random() - 0.5) * spreadAngle;
+      const speed = 150 + this.random() * 100; // Fast spray
+      const life = 0.15 + this.random() * 0.15; // Short life
+      const size = 3 + this.random() * 3;
 
       // Spawn slightly behind the ship
       const spawnDistance = 15;
@@ -1034,8 +1045,8 @@ export class Renderer {
       const spawnY = y + Math.sin(backAngle) * spawnDistance;
 
       this.particles.push({
-        x: spawnX + (Math.random() - 0.5) * 6,
-        y: spawnY + (Math.random() - 0.5) * 6,
+        x: spawnX + (this.random() - 0.5) * 6,
+        y: spawnY + (this.random() - 0.5) * 6,
         vx: Math.cos(particleAngle) * speed,
         vy: Math.sin(particleAngle) * speed,
         life,
@@ -1048,10 +1059,10 @@ export class Renderer {
     // Add some white/bright core particles
     for (let i = 0; i < 5; i++) {
       const particleAngle =
-        backAngle + (Math.random() - 0.5) * (spreadAngle * 0.5);
-      const speed = 200 + Math.random() * 100;
-      const life = 0.1 + Math.random() * 0.1;
-      const size = 2 + Math.random() * 2;
+        backAngle + (this.random() - 0.5) * (spreadAngle * 0.5);
+      const speed = 200 + this.random() * 100;
+      const life = 0.1 + this.random() * 0.1;
+      const size = 2 + this.random() * 2;
 
       const spawnDistance = 12;
       const spawnX = x + Math.cos(backAngle) * spawnDistance;
@@ -1072,12 +1083,12 @@ export class Renderer {
 
   spawnAsteroidDebris(x: number, y: number, size: number, color: string): void {
     // Spawn debris pieces - purely visual, no collision
-    const pieceCount = 4 + Math.floor(Math.random() * 4); // 4-7 pieces
+    const pieceCount = 4 + Math.floor(this.random() * 4); // 4-7 pieces
     for (let i = 0; i < pieceCount; i++) {
-      const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
-      const speed = 30 + Math.random() * 50;
-      const life = 0.5 + Math.random() * 0.5;
-      const pieceSize = size * 0.2 + Math.random() * (size * 0.3);
+      const angle = (i / pieceCount) * Math.PI * 2 + this.random() * 0.5;
+      const speed = 30 + this.random() * 50;
+      const life = 0.5 + this.random() * 0.5;
+      const pieceSize = size * 0.2 + this.random() * (size * 0.3);
 
       this.particles.push({
         x: x + Math.cos(angle) * size * 0.3,
@@ -1093,9 +1104,9 @@ export class Renderer {
 
     // Add some dust/smaller particles
     for (let i = 0; i < 8; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 20 + Math.random() * 40;
-      const life = 0.3 + Math.random() * 0.4;
+      const angle = this.random() * Math.PI * 2;
+      const speed = 20 + this.random() * 40;
+      const life = 0.3 + this.random() * 0.4;
 
       this.particles.push({
         x,
@@ -1104,7 +1115,7 @@ export class Renderer {
         vy: Math.sin(angle) * speed,
         life,
         maxLife: life,
-        size: 2 + Math.random() * 3,
+        size: 2 + this.random() * 3,
         color: "#888888",
       });
     }
@@ -1112,14 +1123,14 @@ export class Renderer {
 
   spawnShipDebris(x: number, y: number, color: string): void {
     // Spawn ship debris pieces - larger and more dramatic than asteroid debris
-    const pieceCount = 8 + Math.floor(Math.random() * 4); // 8-11 pieces
+    const pieceCount = 8 + Math.floor(this.random() * 4); // 8-11 pieces
 
     // Ship body pieces (colored)
     for (let i = 0; i < pieceCount; i++) {
-      const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
-      const speed = 50 + Math.random() * 80;
-      const life = 0.8 + Math.random() * 0.6; // Longer lasting
-      const pieceSize = 4 + Math.random() * 6;
+      const angle = (i / pieceCount) * Math.PI * 2 + this.random() * 0.5;
+      const speed = 50 + this.random() * 80;
+      const life = 0.8 + this.random() * 0.6; // Longer lasting
+      const pieceSize = 4 + this.random() * 6;
 
       this.particles.push({
         x: x + Math.cos(angle) * 10,
@@ -1135,9 +1146,9 @@ export class Renderer {
 
     // Metal/wreckage pieces (grey/silver)
     for (let i = 0; i < 6; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 40 + Math.random() * 60;
-      const life = 0.6 + Math.random() * 0.5;
+      const angle = this.random() * Math.PI * 2;
+      const speed = 40 + this.random() * 60;
+      const life = 0.6 + this.random() * 0.5;
 
       this.particles.push({
         x,
@@ -1146,16 +1157,16 @@ export class Renderer {
         vy: Math.sin(angle) * speed,
         life,
         maxLife: life,
-        size: 3 + Math.random() * 4,
+        size: 3 + this.random() * 4,
         color: "#aaaaaa",
       });
     }
 
     // Spark particles
     for (let i = 0; i < 15; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 60 + Math.random() * 100;
-      const life = 0.3 + Math.random() * 0.3;
+      const angle = this.random() * Math.PI * 2;
+      const speed = 60 + this.random() * 100;
+      const life = 0.3 + this.random() * 0.3;
 
       this.particles.push({
         x,
@@ -1164,7 +1175,7 @@ export class Renderer {
         vy: Math.sin(angle) * speed,
         life,
         maxLife: life,
-        size: 1.5 + Math.random() * 2,
+        size: 1.5 + this.random() * 2,
         color: "#ffdd00",
       });
     }
@@ -1467,11 +1478,11 @@ export class Renderer {
 
   spawnShieldBreakDebris(x: number, y: number): void {
     // Spawn glass-like debris when shield breaks
-    const pieceCount = 8 + Math.floor(Math.random() * 4);
+    const pieceCount = 8 + Math.floor(this.random() * 4);
     for (let i = 0; i < pieceCount; i++) {
-      const angle = (i / pieceCount) * Math.PI * 2 + Math.random() * 0.5;
-      const speed = 40 + Math.random() * 60;
-      const life = 0.4 + Math.random() * 0.4;
+      const angle = (i / pieceCount) * Math.PI * 2 + this.random() * 0.5;
+      const speed = 40 + this.random() * 60;
+      const life = 0.4 + this.random() * 0.4;
 
       this.particles.push({
         x: x + Math.cos(angle) * 20,
@@ -1480,7 +1491,7 @@ export class Renderer {
         vy: Math.sin(angle) * speed + 30, // Add downward gravity effect
         life,
         maxLife: life,
-        size: 3 + Math.random() * 4,
+        size: 3 + this.random() * 4,
         color: "#88ccff",
       });
     }
@@ -1505,12 +1516,12 @@ export class Renderer {
     );
     for (let i = 0; i < count; i++) {
       this.stars.push({
-        x: Math.random() * GAME_CONFIG.ARENA_WIDTH,
-        y: Math.random() * GAME_CONFIG.ARENA_HEIGHT,
-        size: 0.5 + Math.random() * 1.5,
-        brightness: 0.3 + Math.random() * 0.7,
-        twinkleSpeed: 1 + Math.random() * 3,
-        twinkleOffset: Math.random() * Math.PI * 2,
+        x: this.random() * GAME_CONFIG.ARENA_WIDTH,
+        y: this.random() * GAME_CONFIG.ARENA_HEIGHT,
+        size: 0.5 + this.random() * 1.5,
+        brightness: 0.3 + this.random() * 0.7,
+        twinkleSpeed: 1 + this.random() * 3,
+        twinkleOffset: this.random() * Math.PI * 2,
       });
     }
   }
@@ -1808,9 +1819,9 @@ export class Renderer {
     // Create debris particles
     const debrisCount = 20;
     for (let i = 0; i < debrisCount; i++) {
-      const angle = (i / debrisCount) * Math.PI * 2 + Math.random() * 0.5;
-      const speed = 50 + Math.random() * 100;
-      const life = 0.3 + Math.random() * 0.3;
+      const angle = (i / debrisCount) * Math.PI * 2 + this.random() * 0.5;
+      const speed = 50 + this.random() * 100;
+      const life = 0.3 + this.random() * 0.3;
 
       this.particles.push({
         x: x + Math.cos(angle) * 10,
@@ -1819,8 +1830,8 @@ export class Renderer {
         vy: Math.sin(angle) * speed,
         life,
         maxLife: life,
-        size: 2 + Math.random() * 3,
-        color: Math.random() > 0.5 ? "#ffffff" : "#ffcccc",
+        size: 2 + this.random() * 3,
+        color: this.random() > 0.5 ? "#ffffff" : "#ffcccc",
       });
     }
   }

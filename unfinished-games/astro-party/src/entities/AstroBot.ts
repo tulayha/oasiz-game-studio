@@ -3,6 +3,7 @@
 
 import { Bot } from "playroomkit";
 import { PlayerInput, GAME_CONFIG } from "../types";
+import { SeededRNG } from "../systems/SeededRNG";
 
 // Data provided to bot for decision making
 export interface BotVisibleData {
@@ -81,6 +82,13 @@ const AI_CONFIG = {
 } as const;
 
 export class AstroBot extends Bot {
+  private static rng: SeededRNG | null = null;
+  private static fallbackRng = new SeededRNG(Date.now() >>> 0);
+
+  static setRng(rng: SeededRNG): void {
+    AstroBot.rng = rng;
+  }
+
   private botType: "ai" | "local";
   private keySlot: number;
   private lastDecisionTime = 0;
@@ -126,7 +134,7 @@ export class AstroBot extends Bot {
 
     // 1. Check for incoming danger (projectiles)
     const danger = this.detectDanger(ship, data.projectiles);
-    if (danger.inDanger && Math.random() < 0.5) {
+    if (danger.inDanger && this.random() < 0.5) {
       // Only dash 50% of the time when in danger (easy mode)
       shouldDash = true;
       // Rotate away from danger
@@ -155,17 +163,17 @@ export class AstroBot extends Bot {
       shouldRotate = aimResult.shouldRotate;
 
       // Add random rotation errors for easy mode
-      if (Math.random() < AI_CONFIG.ROTATION_OVERSHOOT) {
+      if (this.random() < AI_CONFIG.ROTATION_OVERSHOOT) {
         shouldRotate = !shouldRotate; // Sometimes rotate wrong way
       }
 
       // Fire if aimed at target (with lower probability for easy mode)
-      if (aimResult.isAimed && Math.random() < AI_CONFIG.FIRE_PROBABILITY) {
+      if (aimResult.isAimed && this.random() < AI_CONFIG.FIRE_PROBABILITY) {
         shouldFire = true;
       }
 
       // Sometimes fire randomly even when not aimed (spray and pray)
-      if (!aimResult.isAimed && Math.random() < 0.05) {
+      if (!aimResult.isAimed && this.random() < 0.05) {
         shouldFire = true;
       }
     }
@@ -294,7 +302,7 @@ export class AstroBot extends Bot {
     let targetAngle = Math.atan2(dy, dx);
 
     // Add random aim error for easy mode
-    targetAngle += (Math.random() - 0.5) * AI_CONFIG.AIM_ERROR * 2;
+    targetAngle += (this.random() - 0.5) * AI_CONFIG.AIM_ERROR * 2;
 
     // Calculate angle difference
     const angleDiff = this.normalizeAngle(targetAngle - ship.angle);
@@ -336,5 +344,10 @@ export class AstroBot extends Bot {
     while (angle > Math.PI) angle -= 2 * Math.PI;
     while (angle < -Math.PI) angle += 2 * Math.PI;
     return angle;
+  }
+
+  private random(): number {
+    const rng = AstroBot.rng ?? AstroBot.fallbackRng;
+    return rng.next();
   }
 }

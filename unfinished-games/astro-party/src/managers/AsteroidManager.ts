@@ -4,6 +4,8 @@ import { GameFlowManager } from "./GameFlowManager";
 import { Asteroid } from "../entities/Asteroid";
 import { PowerUp } from "../entities/PowerUp";
 import { GameConfig } from "../GameConfig";
+import { DeterministicRNGManager } from "../systems/DeterministicRNGManager";
+import { SeededRNG } from "../systems/SeededRNG";
 import {
   GAME_CONFIG,
   PowerUpType,
@@ -19,8 +21,17 @@ export class AsteroidManager {
     private network: NetworkManager,
     private flowMgr: GameFlowManager,
     private powerUps: PowerUp[],
+    private rngManager: DeterministicRNGManager,
     private getAdvancedSettings: () => AdvancedSettings,
   ) {}
+
+  private get asteroidRng(): SeededRNG {
+    return this.rngManager.getAsteroidRng();
+  }
+
+  private get powerUpRng(): SeededRNG {
+    return this.rngManager.getPowerUpRng();
+  }
 
   getAsteroids(): Asteroid[] {
     return this.asteroids;
@@ -48,8 +59,10 @@ export class AsteroidManager {
       let spawnY = centerY;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const candidateX = centerX + (Math.random() * 2 - 1) * spreadX;
-        const candidateY = centerY + (Math.random() * 2 - 1) * spreadY;
+        const candidateX =
+          centerX + (this.asteroidRng.next() * 2 - 1) * spreadX;
+        const candidateY =
+          centerY + (this.asteroidRng.next() * 2 - 1) * spreadY;
         if (this.isAsteroidSpawnClear(candidateX, candidateY, size)) {
           spawnX = candidateX;
           spawnY = candidateY;
@@ -69,6 +82,7 @@ export class AsteroidManager {
         angularVelocity,
         tier,
         size,
+        this.asteroidRng,
       );
       this.asteroids.push(asteroid);
     }
@@ -90,13 +104,14 @@ export class AsteroidManager {
     const baseVy = asteroid.body.velocity.y * 0.4;
 
     for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+      const angle =
+        (Math.PI * 2 * i) / count + (this.asteroidRng.next() - 0.5) * 0.6;
       const cfg = GameConfig.config;
       const speed = this.randomRange(
         cfg.ASTEROID_DRIFT_MIN_SPEED,
         cfg.ASTEROID_DRIFT_MAX_SPEED,
       );
-      const offset = 10 + Math.random() * 6;
+      const offset = 10 + this.asteroidRng.next() * 6;
       const spawnX = x + Math.cos(angle) * offset;
       const spawnY = y + Math.sin(angle) * offset;
       const velocity = {
@@ -113,18 +128,19 @@ export class AsteroidManager {
         angularVelocity,
         "SMALL",
         size,
+        this.asteroidRng,
       );
       this.asteroids.push(child);
     }
   }
 
   trySpawnPowerUp(x: number, y: number): void {
-    if (Math.random() > GAME_CONFIG.POWERUP_DROP_CHANCE) return;
+    if (this.powerUpRng.next() > GAME_CONFIG.POWERUP_DROP_CHANCE) return;
 
     const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
     const entries = Object.entries(weights) as [PowerUpType, number][];
     const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
-    const rand = Math.random() * totalWeight;
+    const rand = this.powerUpRng.next() * totalWeight;
 
     let cumulative = 0;
     let type: PowerUpType = entries[0][0];
@@ -168,7 +184,7 @@ export class AsteroidManager {
   }
 
   private rollAsteroidTier(): "LARGE" | "SMALL" {
-    return Math.random() < 0.6 ? "LARGE" : "SMALL";
+    return this.asteroidRng.next() < 0.6 ? "LARGE" : "SMALL";
   }
 
   private randomAsteroidSize(tier: "LARGE" | "SMALL"): number {
@@ -177,11 +193,11 @@ export class AsteroidManager {
       tier === "LARGE" ? cfg.ASTEROID_LARGE_MIN : cfg.ASTEROID_SMALL_MIN;
     const max =
       tier === "LARGE" ? cfg.ASTEROID_LARGE_MAX : cfg.ASTEROID_SMALL_MAX;
-    return min + Math.random() * (max - min);
+    return min + this.asteroidRng.next() * (max - min);
   }
 
   private randomAsteroidVelocity(): { x: number; y: number } {
-    const angle = Math.random() * Math.PI * 2;
+    const angle = this.asteroidRng.next() * Math.PI * 2;
     const cfg = GameConfig.config;
     const speed = this.randomRange(
       cfg.ASTEROID_DRIFT_MIN_SPEED,
@@ -192,15 +208,15 @@ export class AsteroidManager {
 
   private randomAsteroidAngularVelocity(): number {
     const spread = 0.02;
-    return (Math.random() - 0.5) * spread;
+    return (this.asteroidRng.next() - 0.5) * spread;
   }
 
   private randomInt(min: number, max: number): number {
-    return min + Math.floor(Math.random() * (max - min + 1));
+    return min + Math.floor(this.asteroidRng.next() * (max - min + 1));
   }
 
   private randomRange(min: number, max: number): number {
-    return min + Math.random() * (max - min);
+    return min + this.asteroidRng.next() * (max - min);
   }
 
   private scheduleNextAsteroidSpawn(): void {
@@ -211,7 +227,7 @@ export class AsteroidManager {
     const intervalScale = this.getAsteroidSpawnIntervalScale();
     const delay =
       cfg.ASTEROID_SPAWN_INTERVAL_MIN +
-      Math.random() *
+      this.asteroidRng.next() *
         (cfg.ASTEROID_SPAWN_INTERVAL_MAX - cfg.ASTEROID_SPAWN_INTERVAL_MIN);
 
     this.asteroidSpawnTimeout = setTimeout(() => {
@@ -238,7 +254,7 @@ export class AsteroidManager {
     const batchSize =
       cfg.ASTEROID_SPAWN_BATCH_MIN +
       Math.floor(
-        Math.random() *
+        this.asteroidRng.next() *
           (cfg.ASTEROID_SPAWN_BATCH_MAX - cfg.ASTEROID_SPAWN_BATCH_MIN + 1),
       );
 
@@ -253,42 +269,42 @@ export class AsteroidManager {
     const h = cfg.ARENA_HEIGHT;
     const spawnInset = cfg.ARENA_PADDING + 6;
 
-    const side = Math.floor(Math.random() * 4);
+    const side = Math.floor(this.asteroidRng.next() * 4);
     let x: number, y: number;
     let targetX: number, targetY: number;
 
     switch (side) {
       case 0:
-        x = spawnInset + Math.random() * (w - spawnInset * 2);
+        x = spawnInset + this.asteroidRng.next() * (w - spawnInset * 2);
         y = spawnInset;
-        targetX = w * (0.3 + Math.random() * 0.4);
-        targetY = h * (0.3 + Math.random() * 0.4);
+        targetX = w * (0.3 + this.asteroidRng.next() * 0.4);
+        targetY = h * (0.3 + this.asteroidRng.next() * 0.4);
         break;
       case 1:
         x = w - spawnInset;
-        y = spawnInset + Math.random() * (h - spawnInset * 2);
-        targetX = w * (0.3 + Math.random() * 0.4);
-        targetY = h * (0.3 + Math.random() * 0.4);
+        y = spawnInset + this.asteroidRng.next() * (h - spawnInset * 2);
+        targetX = w * (0.3 + this.asteroidRng.next() * 0.4);
+        targetY = h * (0.3 + this.asteroidRng.next() * 0.4);
         break;
       case 2:
-        x = spawnInset + Math.random() * (w - spawnInset * 2);
+        x = spawnInset + this.asteroidRng.next() * (w - spawnInset * 2);
         y = h - spawnInset;
-        targetX = w * (0.3 + Math.random() * 0.4);
-        targetY = h * (0.3 + Math.random() * 0.4);
+        targetX = w * (0.3 + this.asteroidRng.next() * 0.4);
+        targetY = h * (0.3 + this.asteroidRng.next() * 0.4);
         break;
       case 3:
       default:
         x = spawnInset;
-        y = spawnInset + Math.random() * (h - spawnInset * 2);
-        targetX = w * (0.3 + Math.random() * 0.4);
-        targetY = h * (0.3 + Math.random() * 0.4);
+        y = spawnInset + this.asteroidRng.next() * (h - spawnInset * 2);
+        targetX = w * (0.3 + this.asteroidRng.next() * 0.4);
+        targetY = h * (0.3 + this.asteroidRng.next() * 0.4);
         break;
     }
 
     const dx = targetX - x;
     const dy = targetY - y;
     const angle = Math.atan2(dy, dx);
-    const angleVariance = (Math.random() - 0.5) * (Math.PI / 3);
+    const angleVariance = (this.asteroidRng.next() - 0.5) * (Math.PI / 3);
     const finalAngle = angle + angleVariance;
 
     const speed = this.randomRange(
@@ -312,6 +328,7 @@ export class AsteroidManager {
       angularVelocity,
       tier,
       size,
+      this.asteroidRng,
     );
     this.asteroids.push(asteroid);
   }
