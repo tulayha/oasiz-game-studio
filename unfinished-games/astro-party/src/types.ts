@@ -86,6 +86,8 @@ export interface PowerUpState {
   spawnTime: number;
   remainingTimeFraction: number; // 0-1, computed by host (1 = just spawned, 0 = expired)
   alive: boolean;
+  magneticRadius?: number; // Detection radius for magnetic pull
+  isMagneticActive?: boolean; // Whether the powerup is currently moving toward a player
 }
 
 export interface LaserBeamState {
@@ -122,6 +124,31 @@ export interface HomingMissileState {
   angle: number;
   spawnTime: number;
   alive: boolean;
+}
+
+export interface TurretState {
+  id: string;
+  x: number;
+  y: number;
+  angle: number;
+  alive: boolean;
+  detectionRadius: number;
+  orbitRadius: number;
+  isTracking: boolean;
+  targetAngle: number;
+}
+
+export interface TurretBulletState {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  spawnTime: number;
+  alive: boolean;
+  exploded: boolean;
+  explosionTime: number;
 }
 
 export type PowerUpType =
@@ -182,11 +209,22 @@ export interface GameStateSync {
   laserBeams: LaserBeamState[];
   mines: MineState[];
   homingMissiles: HomingMissileState[];
+  turret?: TurretState;
+  turretBullets: TurretBulletState[];
   playerPowerUps?: Record<string, PlayerPowerUp | null>;
   rotationDirection: number; // 1 for normal, -1 for reversed
   screenShakeIntensity: number;
   screenShakeDuration: number;
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
+}
+
+export interface DashParticleEvent {
+  playerId: string;
+  x: number;
+  y: number;
+  angle: number; // Ship angle for particle direction
+  color: string;
+  timestamp: number;
 }
 
 export interface RoundResultPayload {

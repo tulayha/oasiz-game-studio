@@ -15,6 +15,8 @@ import {
   LaserBeamState,
   MineState,
   HomingMissileState,
+  TurretState,
+  TurretBulletState,
 } from "../types";
 import { Ship } from "../entities/Ship";
 import { Pilot } from "../entities/Pilot";
@@ -24,6 +26,8 @@ import { PowerUp } from "../entities/PowerUp";
 import { LaserBeam } from "../entities/LaserBeam";
 import { Mine } from "../entities/Mine";
 import { HomingMissile } from "../entities/HomingMissile";
+import { Turret } from "../entities/Turret";
+import { TurretBullet } from "../entities/TurretBullet";
 
 export interface BroadcastStateInput {
   ships: Map<string, Ship>;
@@ -34,6 +38,8 @@ export interface BroadcastStateInput {
   laserBeams: LaserBeam[];
   mines: Mine[];
   homingMissiles: HomingMissile[];
+  turret: Turret | null;
+  turretBullets: TurretBullet[];
   playerPowerUps: Map<string, PlayerPowerUp | null>;
   rotationDirection: number;
   screenShakeIntensity: number;
@@ -49,6 +55,8 @@ export interface RenderNetworkState {
   networkLaserBeams: LaserBeamState[];
   networkMines: MineState[];
   networkHomingMissiles: HomingMissileState[];
+  networkTurret: TurretState | null;
+  networkTurretBullets: TurretBulletState[];
   shipSmoother: DisplaySmoother;
   projectileSmoother: DisplaySmoother;
   asteroidSmoother: DisplaySmoother;
@@ -78,6 +86,8 @@ export class NetworkSyncSystem {
   private networkLaserBeams: LaserBeamState[] = [];
   private networkMines: MineState[] = [];
   private networkHomingMissiles: HomingMissileState[] = [];
+  private networkTurret: TurretState | null = null;
+  private networkTurretBullets: TurretBulletState[] = [];
   private networkRotationDirection: number = 1;
 
   private clientArmingMines: Set<string> = new Set();
@@ -105,6 +115,8 @@ export class NetworkSyncSystem {
       networkLaserBeams: this.networkLaserBeams,
       networkMines: this.networkMines,
       networkHomingMissiles: this.networkHomingMissiles,
+      networkTurret: this.networkTurret,
+      networkTurretBullets: this.networkTurretBullets,
       shipSmoother: this.shipSmoother,
       projectileSmoother: this.projectileSmoother,
       asteroidSmoother: this.asteroidSmoother,
@@ -146,6 +158,8 @@ export class NetworkSyncSystem {
       laserBeams: input.laserBeams.map((b) => b.getState()),
       mines: input.mines.map((m) => m.getState()),
       homingMissiles: input.homingMissiles.map((m) => m.getState()),
+      turret: input.turret?.getState(),
+      turretBullets: input.turretBullets.map((b) => b.getState()),
       playerPowerUps: playerPowerUpsRecord,
       rotationDirection: input.rotationDirection,
       screenShakeIntensity: input.screenShakeIntensity,
@@ -188,6 +202,8 @@ export class NetworkSyncSystem {
     this.networkPowerUps = state.powerUps;
     this.networkLaserBeams = state.laserBeams;
     this.networkHomingMissiles = state.homingMissiles || [];
+    this.networkTurret = state.turret ?? null;
+    this.networkTurretBullets = state.turretBullets || [];
 
     if (state.mines) {
       for (const mineState of state.mines) {
@@ -265,6 +281,8 @@ export class NetworkSyncSystem {
     this.networkLaserBeams = [];
     this.networkMines = [];
     this.networkHomingMissiles = [];
+    this.networkTurret = null;
+    this.networkTurretBullets = [];
     this.networkRotationDirection = 1;
 
     this.clientArmingMines.clear();

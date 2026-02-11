@@ -16,6 +16,7 @@ import { BotManager } from "./managers/BotManager";
 import { AsteroidManager } from "./managers/AsteroidManager";
 import { CollisionManager } from "./managers/CollisionManager";
 import { FireSystem } from "./managers/FireSystem";
+import { TurretManager } from "./managers/TurretManager";
 import { GameRenderer } from "./systems/GameRenderer";
 import { NetworkSyncSystem } from "./network/NetworkSyncSystem";
 import { PlayerInputResolver } from "./systems/PlayerInputResolver";
@@ -54,6 +55,7 @@ export class Game {
   private asteroidMgr: AsteroidManager;
   private collisionMgr!: CollisionManager;
   private fireSystem: FireSystem;
+  private turretMgr: TurretManager;
   private gameRenderer: GameRenderer;
   private networkSync: NetworkSyncSystem;
   private inputResolver: PlayerInputResolver;
@@ -143,6 +145,18 @@ export class Game {
       this.playerPowerUps,
       (intensity, duration) => this.triggerScreenShake(intensity, duration),
     );
+    this.turretMgr = new TurretManager(
+      this.physics,
+      this.renderer,
+      this.network,
+      this.flowMgr,
+      this.playerMgr,
+      this.ships,
+      this.pilots,
+      this.playerPowerUps,
+      this.fireSystem,
+      (intensity, duration) => this.triggerScreenShake(intensity, duration),
+    );
     this.gameRenderer = new GameRenderer(this.renderer);
     this.networkSync = new NetworkSyncSystem(
       this.network,
@@ -165,6 +179,7 @@ export class Game {
       this.asteroidMgr.spawnInitialAsteroids();
       this.asteroidMgr.scheduleAsteroidSpawnsIfNeeded();
       this.grantStartingPowerups();
+      this.turretMgr.spawn();
     };
     this.flowMgr.onRoundResult = (payload) => {
       this.applyRoundResult(payload);
@@ -263,6 +278,54 @@ export class Game {
         shieldHits: 0,
       });
     }
+  }
+
+  private spawnDashParticles(playerId: string, ship: Ship): void {
+    if (!ship.alive) return;
+
+    const pos = ship.body.position;
+    const angle = ship.body.angle;
+    const color = ship.color.primary;
+
+    this.renderer.spawnDashParticles(pos.x, pos.y, angle, color);
+    this.network.broadcastDashParticles(playerId, pos.x, pos.y, angle, color);
+  }
+
+  private spawnRandomPowerUp(): void {
+    if (!this.network.isHost()) return;
+
+    const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
+    const entries = Object.entries(weights) as [PowerUpType, number][];
+    const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
+    const rand = Math.random() * totalWeight;
+
+    let cumulative = 0;
+    let type: PowerUpType = entries[0][0];
+    for (const [t, w] of entries) {
+      cumulative += w;
+      if (rand < cumulative) {
+        type = t;
+        break;
+      }
+    }
+
+    const padding = 100;
+    const x = padding + Math.random() * (GAME_CONFIG.ARENA_WIDTH - padding * 2);
+    const y =
+      padding + Math.random() * (GAME_CONFIG.ARENA_HEIGHT - padding * 2);
+
+    const powerUp = new PowerUp(this.physics, x, y, type);
+    this.powerUps.push(powerUp);
+
+    console.log(
+      "[Game] Spawned random " +
+        type +
+        " power-up at (" +
+        x.toFixed(0) +
+        ", " +
+        y.toFixed(0) +
+        ")",
+    );
   }
 
   // ============= UI CALLBACKS =============
@@ -451,6 +514,21 @@ export class Game {
         this.applyModeStateFromNetwork(payload);
       },
 
+      onScreenShakeReceived: (intensity, duration) => {
+        if (this.network.isHost()) return;
+        this.triggerScreenShake(intensity, duration);
+      },
+
+      onDashParticlesReceived: (payload) => {
+        if (this.network.isHost()) return;
+        this.renderer.spawnDashParticles(
+          payload.x,
+          payload.y,
+          payload.angle,
+          payload.color,
+        );
+      },
+
     });
   }
 
@@ -528,6 +606,8 @@ export class Game {
 
     this.homingMissiles.forEach((missile) => missile.destroy());
     this.homingMissiles.length = 0;
+
+    this.turretMgr.clear();
 
     this.playerPowerUps.clear();
     this.rotationDirection = 1;
@@ -622,6 +702,11 @@ export class Game {
         console.log("[Dev] Toggling REVERSE rotation");
         this.grantPowerUp(myPlayerId, "REVERSE");
       }
+
+      if (devKeys.spawnPowerUp) {
+        console.log("[Dev] Spawning random power-up");
+        this.spawnRandomPowerUp();
+      }
     }
 
     // Host: process all inputs and update physics
@@ -647,6 +732,9 @@ export class Game {
           speedMultiplier,
         );
         this.fireSystem.processFire(playerId, ship, fireResult, shouldDash);
+        if (shouldDash) {
+          this.spawnDashParticles(playerId, ship);
+        }
       });
 
       // Update pilots
@@ -698,6 +786,24 @@ export class Game {
         this.physics.wrapAround(asteroid.body);
       });
 
+      // Update power-ups (magnetic effect)
+      const shipPositionsForPowerUps = new Map<
+        string,
+        { x: number; y: number; alive: boolean; hasPowerUp: boolean }
+      >();
+      this.ships.forEach((ship, playerId) => {
+        shipPositionsForPowerUps.set(playerId, {
+          x: ship.body.position.x,
+          y: ship.body.position.y,
+          alive: ship.alive,
+          hasPowerUp: this.playerPowerUps.has(playerId),
+        });
+      });
+
+      this.powerUps.forEach((powerUp) => {
+        powerUp.update(shipPositionsForPowerUps, dt);
+      });
+
       // Clean up expired power-ups
       this.cleanupExpired(
         this.powerUps,
@@ -732,6 +838,9 @@ export class Game {
       // Check Joust collisions (sword-to-ship and sword-to-projectile)
       this.collisionMgr.checkJoustCollisions();
 
+      // Update turret and bullets
+      this.turretMgr.update(dt);
+
       // Broadcast state (throttled to sync rate)
       if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.networkSync.broadcastState({
@@ -743,6 +852,8 @@ export class Game {
           laserBeams: this.laserBeams,
           mines: this.mines,
           homingMissiles: this.homingMissiles,
+          turret: this.turretMgr.getTurret(),
+          turretBullets: this.turretMgr.getTurretBullets(),
           playerPowerUps: this.playerPowerUps,
           rotationDirection: this.rotationDirection,
           screenShakeIntensity: this.renderer.getScreenShakeIntensity(),
@@ -840,6 +951,8 @@ export class Game {
       laserBeams: this.laserBeams,
       mines: this.mines,
       homingMissiles: this.homingMissiles,
+      turret: this.turretMgr.getTurret(),
+      turretBullets: this.turretMgr.getTurretBullets(),
       playerPowerUps: this.playerPowerUps,
       players: this.playerMgr.players,
       networkShips: renderState.networkShips,
@@ -850,6 +963,8 @@ export class Game {
       networkLaserBeams: renderState.networkLaserBeams,
       networkMines: renderState.networkMines,
       networkHomingMissiles: renderState.networkHomingMissiles,
+      networkTurret: renderState.networkTurret,
+      networkTurretBullets: renderState.networkTurretBullets,
       shipSmoother: renderState.shipSmoother,
       projectileSmoother: renderState.projectileSmoother,
       asteroidSmoother: renderState.asteroidSmoother,

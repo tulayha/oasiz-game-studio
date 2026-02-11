@@ -17,6 +17,7 @@ export class InputManager {
     reverse: false,
     joust: false,
     homing: false,
+    spawnPowerUp: false,
   };
   private wasButtonA = false;
   private lastButtonATime = 0;
@@ -237,6 +238,7 @@ export class InputManager {
     reverse: boolean;
     joust: boolean;
     homing: boolean;
+    spawnPowerUp: boolean;
   } {
     const result = {
       laser: this.devPowerUpKeys.laser,
@@ -246,6 +248,7 @@ export class InputManager {
       reverse: this.devPowerUpKeys.reverse,
       joust: this.devPowerUpKeys.joust,
       homing: this.devPowerUpKeys.homing,
+      spawnPowerUp: this.devPowerUpKeys.spawnPowerUp,
     };
     this.resetDevKeys();
     return result;
@@ -290,6 +293,9 @@ export class InputManager {
       case "Digit7":
         this.devPowerUpKeys.homing = true;
         return true;
+      case "Digit9":
+        this.devPowerUpKeys.spawnPowerUp = true;
+        return true;
       default:
         return false;
     }
@@ -322,6 +328,9 @@ export class InputManager {
       case "Digit7":
         this.devPowerUpKeys.homing = false;
         break;
+      case "Digit9":
+        this.devPowerUpKeys.spawnPowerUp = false;
+        break;
       default:
         break;
     }
@@ -335,5 +344,6 @@ export class InputManager {
     this.devPowerUpKeys.reverse = false;
     this.devPowerUpKeys.joust = false;
     this.devPowerUpKeys.homing = false;
+    this.devPowerUpKeys.spawnPowerUp = false;
   }
 }

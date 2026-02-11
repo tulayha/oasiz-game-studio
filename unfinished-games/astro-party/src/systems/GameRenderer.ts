@@ -8,6 +8,8 @@ import { PowerUp } from "../entities/PowerUp";
 import { LaserBeam } from "../entities/LaserBeam";
 import { Mine } from "../entities/Mine";
 import { HomingMissile } from "../entities/HomingMissile";
+import { Turret } from "../entities/Turret";
+import { TurretBullet } from "../entities/TurretBullet";
 import {
   GAME_CONFIG,
   GamePhase,
@@ -21,6 +23,8 @@ import {
   LaserBeamState,
   MineState,
   HomingMissileState,
+  TurretState,
+  TurretBulletState,
 } from "../types";
 
 export interface RenderContext {
@@ -37,6 +41,8 @@ export interface RenderContext {
   laserBeams: LaserBeam[];
   mines: Mine[];
   homingMissiles: HomingMissile[];
+  turret: Turret | null;
+  turretBullets: TurretBullet[];
   playerPowerUps: Map<string, PlayerPowerUp | null>;
   players: Map<string, PlayerData>;
   networkShips: ShipState[];
@@ -47,6 +53,8 @@ export interface RenderContext {
   networkLaserBeams: LaserBeamState[];
   networkMines: MineState[];
   networkHomingMissiles: HomingMissileState[];
+  networkTurret: TurretState | null;
+  networkTurretBullets: TurretBulletState[];
   shipSmoother: DisplaySmoother;
   projectileSmoother: DisplaySmoother;
   asteroidSmoother: DisplaySmoother;
@@ -110,6 +118,8 @@ export class GameRenderer {
       const renderPowerUps = ctx.networkPowerUps;
       const renderLaserBeams = ctx.networkLaserBeams;
       const renderMines = ctx.networkMines;
+      const renderTurret = ctx.networkTurret;
+      const renderTurretBullets = ctx.networkTurretBullets;
 
       if (ctx.isHost) {
         ctx.ships.forEach((ship) => {
@@ -255,6 +265,30 @@ export class GameRenderer {
         });
       }
 
+      if (ctx.isHost) {
+        if (ctx.turret) {
+          this.renderer.drawTurret(ctx.turret.getState());
+        }
+      } else {
+        if (renderTurret) {
+          this.renderer.drawTurret(renderTurret);
+        }
+      }
+
+      if (ctx.isHost) {
+        ctx.turretBullets.forEach((bullet) => {
+          if (bullet.alive) {
+            this.renderer.drawTurretBullet(bullet.getState());
+          }
+        });
+      } else {
+        renderTurretBullets.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawTurretBullet(state);
+          }
+        });
+      }
+
       if (ctx.isDevModeEnabled) {
         if (ctx.isHost) {
           ctx.homingMissiles.forEach((missile) => {
@@ -297,6 +331,66 @@ export class GameRenderer {
                 state.x,
                 state.y,
                 mineDetectionRadius,
+              );
+            }
+          });
+        }
+
+        if (ctx.isHost) {
+          if (ctx.turret) {
+            this.renderer.drawTurretDetectionRadius(
+              ctx.turret.body.position.x,
+              ctx.turret.body.position.y,
+              ctx.turret.getDetectionRadius(),
+            );
+          }
+        } else {
+          if (renderTurret) {
+            this.renderer.drawTurretDetectionRadius(
+              renderTurret.x,
+              renderTurret.y,
+              renderTurret.detectionRadius,
+            );
+          }
+        }
+
+        if (ctx.isHost) {
+          ctx.turretBullets.forEach((bullet) => {
+            if (bullet.alive && !bullet.exploded) {
+              this.renderer.drawTurretBulletRadius(
+                bullet.body.position.x,
+                bullet.body.position.y,
+                bullet.getExplosionRadius(),
+              );
+            }
+          });
+        } else {
+          renderTurretBullets.forEach((state) => {
+            if (state.alive && !state.exploded) {
+              this.renderer.drawTurretBulletRadius(state.x, state.y, 100);
+            }
+          });
+        }
+
+        if (ctx.isHost) {
+          ctx.powerUps.forEach((powerUp) => {
+            if (powerUp.alive) {
+              this.renderer.drawPowerUpMagneticRadius(
+                powerUp.body.position.x,
+                powerUp.body.position.y,
+                powerUp.getMagneticRadius(),
+                powerUp.getIsMagneticActive(),
+              );
+            }
+          });
+        } else {
+          renderPowerUps.forEach((state) => {
+            if (state.alive) {
+              this.renderer.drawPowerUpMagneticRadius(
+                state.x,
+                state.y,
+                state.magneticRadius || 150,
+                state.isMagneticActive || false,
               );
             }
           });

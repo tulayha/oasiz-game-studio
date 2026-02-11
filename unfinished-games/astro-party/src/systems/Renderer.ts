@@ -141,6 +141,254 @@ export class Renderer {
     ctx.restore();
   }
 
+  // Draw turret detection radius (dev mode only)
+  drawTurretDetectionRadius(x: number, y: number, radius: number): void {
+    if (!this.devModeEnabled) return;
+
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Red dashed circle for turret detection radius
+    ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 5]);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Fill with transparent red
+    ctx.fillStyle = "rgba(255, 50, 50, 0.1)";
+    ctx.fill();
+
+    // Label
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#ff3333";
+    ctx.font = "12px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("TURRET", 0, radius + 15);
+    ctx.fillText(`${radius}px`, 0, radius + 28);
+
+    ctx.restore();
+  }
+
+  // Draw turret bullet explosion radius (dev mode only)
+  drawTurretBulletRadius(x: number, y: number, radius: number): void {
+    if (!this.devModeEnabled) return;
+
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Orange dashed circle for bullet explosion radius
+    ctx.strokeStyle = "rgba(255, 150, 0, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 5]);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Fill with transparent orange
+    ctx.fillStyle = "rgba(255, 150, 0, 0.1)";
+    ctx.fill();
+
+    // Label
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#ff9900";
+    ctx.font = "12px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("BULLET", 0, radius + 15);
+    ctx.fillText(`${radius}px`, 0, radius + 28);
+
+    ctx.restore();
+  }
+
+  // Draw power-up magnetic radius (dev mode only)
+  drawPowerUpMagneticRadius(
+    x: number,
+    y: number,
+    radius: number,
+    isActive: boolean,
+  ): void {
+    if (!this.devModeEnabled) return;
+
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Purple dashed circle for magnetic radius
+    ctx.strokeStyle = isActive
+      ? "rgba(200, 100, 255, 0.9)"
+      : "rgba(150, 80, 200, 0.7)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Fill with transparent purple
+    ctx.fillStyle = isActive
+      ? "rgba(200, 100, 255, 0.15)"
+      : "rgba(150, 80, 200, 0.08)";
+    ctx.fill();
+
+    // Label
+    ctx.setLineDash([]);
+    ctx.fillStyle = isActive ? "#cc66ff" : "#9966cc";
+    ctx.font = "12px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("MAGNET", 0, radius + 15);
+    ctx.fillText(`${radius}px`, 0, radius + 28);
+
+    ctx.restore();
+  }
+
+  // ============= TURRET RENDERING =============
+
+  drawTurret(state: import("../types").TurretState): void {
+    const { ctx } = this;
+    const { x, y, angle, isTracking, orbitRadius } = state;
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Draw orbit ring (visual base)
+    ctx.strokeStyle = "rgba(100, 100, 120, 0.6)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, orbitRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Orbit ring glow
+    ctx.shadowColor = "#6666ff";
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "rgba(100, 100, 255, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, orbitRadius - 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Draw turret base
+    ctx.fillStyle = "#444455";
+    ctx.strokeStyle = "#666677";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw turret barrel (rotates toward target)
+    ctx.rotate(angle);
+
+    // Barrel glow when tracking
+    if (isTracking) {
+      ctx.shadowColor = "#ff4444";
+      ctx.shadowBlur = 15;
+    }
+
+    // Barrel
+    ctx.fillStyle = isTracking ? "#ff6666" : "#888899";
+    ctx.fillRect(15, -6, 25, 12);
+
+    // Barrel detail
+    ctx.fillStyle = "#555566";
+    ctx.fillRect(18, -4, 20, 8);
+
+    ctx.shadowBlur = 0;
+
+    // Center hub
+    ctx.fillStyle = "#333344";
+    ctx.beginPath();
+    ctx.arc(0, 0, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Center glow
+    ctx.fillStyle = isTracking ? "#ff4444" : "#6666ff";
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
+  }
+
+  // ============= TURRET BULLET RENDERING =============
+
+  drawTurretBullet(state: import("../types").TurretBulletState): void {
+    const { ctx } = this;
+    const { x, y, vx, vy, exploded, explosionTime } = state;
+
+    if (exploded && explosionTime > 0) {
+      // Draw explosion effect
+      const elapsed = Date.now() - explosionTime;
+      const progress = Math.min(1, elapsed / 500);
+      const radius = 100 * (0.3 + progress * 0.7); // 100px explosion radius
+      const alpha = 1 - progress;
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Outer white flash
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Middle bright ring
+      ctx.fillStyle = `rgba(255, 200, 150, ${alpha * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    } else {
+      // Normal bullet
+      const angle = Math.atan2(vy, vx);
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      // Glow
+      ctx.shadowColor = "#ff8800";
+      ctx.shadowBlur = 15;
+
+      // Bullet body
+      ctx.fillStyle = "#ff6600";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 8, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core
+      ctx.fillStyle = "#ffaa00";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 4, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+
+      // Trail
+      ctx.fillStyle = "rgba(255, 100, 0, 0.5)";
+      ctx.beginPath();
+      ctx.moveTo(-5, 0);
+      ctx.lineTo(-15, -3);
+      ctx.lineTo(-15, 3);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
   clear(): void {
     this.ctx.fillStyle = "#0a0a12";
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -759,6 +1007,67 @@ export class Renderer {
       size,
       color,
     });
+  }
+
+  spawnDashParticles(
+    x: number,
+    y: number,
+    shipAngle: number,
+    color: string,
+    count: number = 12,
+  ): void {
+    // Spray particles behind the ship during dash
+    // Ship angle is where the ship is pointing - particles should spray from the back
+    const backAngle = shipAngle + Math.PI; // Opposite direction of ship
+    const spreadAngle = Math.PI / 3; // 60 degree spread
+
+    for (let i = 0; i < count; i++) {
+      // Random angle within spread behind the ship
+      const particleAngle = backAngle + (Math.random() - 0.5) * spreadAngle;
+      const speed = 150 + Math.random() * 100; // Fast spray
+      const life = 0.15 + Math.random() * 0.15; // Short life
+      const size = 3 + Math.random() * 3;
+
+      // Spawn slightly behind the ship
+      const spawnDistance = 15;
+      const spawnX = x + Math.cos(backAngle) * spawnDistance;
+      const spawnY = y + Math.sin(backAngle) * spawnDistance;
+
+      this.particles.push({
+        x: spawnX + (Math.random() - 0.5) * 6,
+        y: spawnY + (Math.random() - 0.5) * 6,
+        vx: Math.cos(particleAngle) * speed,
+        vy: Math.sin(particleAngle) * speed,
+        life,
+        maxLife: life,
+        size,
+        color: color || "#44aaff", // Default blue if no color provided
+      });
+    }
+
+    // Add some white/bright core particles
+    for (let i = 0; i < 5; i++) {
+      const particleAngle =
+        backAngle + (Math.random() - 0.5) * (spreadAngle * 0.5);
+      const speed = 200 + Math.random() * 100;
+      const life = 0.1 + Math.random() * 0.1;
+      const size = 2 + Math.random() * 2;
+
+      const spawnDistance = 12;
+      const spawnX = x + Math.cos(backAngle) * spawnDistance;
+      const spawnY = y + Math.sin(backAngle) * spawnDistance;
+
+      this.particles.push({
+        x: spawnX,
+        y: spawnY,
+        vx: Math.cos(particleAngle) * speed,
+        vy: Math.sin(particleAngle) * speed,
+        life,
+        maxLife: life,
+        size,
+        color: "#ffffff",
+      });
+    }
   }
 
   spawnAsteroidDebris(x: number, y: number, size: number, color: string): void {
