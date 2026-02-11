@@ -112,16 +112,16 @@ const MAP_3_REPULSE: MapDefinition = {
   centerHoles: [],
   repulsionZones: [
     {
-      x: W * 0.25,
+      x: W * 0.3,
       y: H / 2,
-      radius: 70,
-      strength: 0.004,
+      radius: 84,
+      strength: 0.009,
     },
     {
-      x: W * 0.75,
+      x: W * 0.7,
       y: H / 2,
-      radius: 70,
-      strength: 0.004,
+      radius: 84,
+      strength: 0.009,
     },
   ],
   overlayBoxes: [],
@@ -208,55 +208,75 @@ function generateCacheBlocks(): YellowBlock[] {
 }
 
 function generateBunkerBoxes(): OverlayBox[] {
-  const boxW = 240;
-  const boxH = 180;
-  const margin = 120;
+  const boxW = 260;
+  const boxH = 200;
+  const marginX = 150;
+  const marginY = 145;
+
+  const topLeft: OverlayBox = {
+    x: marginX,
+    y: marginY,
+    width: boxW,
+    height: boxH,
+    holes: [
+      { x: boxW * 0.3, y: boxH * 0.5, radius: 20 },
+      { x: boxW * 0.7, y: boxH * 0.7, radius: 15 },
+    ],
+  };
+  const topRight: OverlayBox = {
+    x: W - marginX - boxW,
+    y: marginY,
+    width: boxW,
+    height: boxH,
+    holes: [
+      { x: boxW * 0.5, y: boxH * 0.4, radius: 18 },
+      { x: boxW * 0.2, y: boxH * 0.8, radius: 16 },
+    ],
+  };
+  const bottomLeft: OverlayBox = {
+    x: marginX,
+    y: H - marginY - boxH,
+    width: boxW,
+    height: boxH,
+    holes: [
+      { x: boxW * 0.6, y: boxH * 0.3, radius: 17 },
+      { x: boxW * 0.3, y: boxH * 0.6, radius: 20 },
+    ],
+  };
+  const bottomRight: OverlayBox = {
+    x: W - marginX - boxW,
+    y: H - marginY - boxH,
+    width: boxW,
+    height: boxH,
+    holes: [
+      { x: boxW * 0.4, y: boxH * 0.5, radius: 19 },
+      { x: boxW * 0.8, y: boxH * 0.3, radius: 14 },
+    ],
+  };
+
+  const pipeWidth = Math.max(50, Math.round(boxW * 0.22));
+  const pipeX = topLeft.x + boxW * 0.5 - pipeWidth / 2;
+  const pipeY = topLeft.y + boxH;
+  const pipeHeight = bottomLeft.y - pipeY;
+  const leftPipe: OverlayBox = {
+    x: pipeX,
+    y: pipeY,
+    width: pipeWidth,
+    height: pipeHeight,
+    holes: [],
+  };
 
   return [
     // Top-left
-    {
-      x: margin,
-      y: margin,
-      width: boxW,
-      height: boxH,
-      holes: [
-        { x: boxW * 0.3, y: boxH * 0.5, radius: 20 },
-        { x: boxW * 0.7, y: boxH * 0.7, radius: 15 },
-      ],
-    },
+    topLeft,
     // Top-right
-    {
-      x: W - margin - boxW,
-      y: margin,
-      width: boxW,
-      height: boxH,
-      holes: [
-        { x: boxW * 0.5, y: boxH * 0.4, radius: 18 },
-        { x: boxW * 0.2, y: boxH * 0.8, radius: 16 },
-      ],
-    },
+    topRight,
     // Bottom-left
-    {
-      x: margin,
-      y: H - margin - boxH,
-      width: boxW,
-      height: boxH,
-      holes: [
-        { x: boxW * 0.6, y: boxH * 0.3, radius: 17 },
-        { x: boxW * 0.3, y: boxH * 0.6, radius: 20 },
-      ],
-    },
+    bottomLeft,
     // Bottom-right
-    {
-      x: W - margin - boxW,
-      y: H - margin - boxH,
-      width: boxW,
-      height: boxH,
-      holes: [
-        { x: boxW * 0.4, y: boxH * 0.5, radius: 19 },
-        { x: boxW * 0.8, y: boxH * 0.3, radius: 14 },
-      ],
-    },
+    bottomRight,
+    // Connecting pipe (left side)
+    leftPipe,
   ];
 }
 

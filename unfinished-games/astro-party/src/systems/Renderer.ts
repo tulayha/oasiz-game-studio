@@ -2101,18 +2101,20 @@ export class Renderer {
 
     // Wave lines expanding outward
     ctx.shadowBlur = 0;
-    const waveCount = 3;
-    const maxWaveRadius = drawRadius * 1.15;
-    const waveSpeed = 28;
+    const waveCount = 4;
+    const waveStart = drawRadius * 0.95;
+    const waveRange = drawRadius * 0.75;
+    const waveSpeed = 24;
     for (let i = 0; i < waveCount; i++) {
       const waveOffset =
-        (time * waveSpeed + (i * maxWaveRadius) / waveCount) % maxWaveRadius;
-      const waveAlpha = 0.35 * (1 - waveOffset / maxWaveRadius);
+        (time * waveSpeed + (i * waveRange) / waveCount) % waveRange;
+      const waveRadius = waveStart + waveOffset;
+      const waveAlpha = 0.35 * (1 - waveOffset / waveRange);
       ctx.globalAlpha = waveAlpha;
       ctx.strokeStyle = ringColor;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(zone.x, zone.y, waveOffset, 0, Math.PI * 2);
+      ctx.arc(zone.x, zone.y, waveRadius, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -2153,35 +2155,30 @@ export class Renderer {
     const strokeColor = theme?.stroke ?? "rgba(100, 120, 160, 0.6)";
     const holeStrokeColor = theme?.hole ?? "rgba(100, 120, 160, 0.4)";
 
-    // Create a clipping path that excludes the holes
+    // Fill only solid overlay area (rectangle minus holes).
     ctx.beginPath();
     ctx.rect(box.x, box.y, box.width, box.height);
-
-    // Cut out holes using composite operation
+    for (const hole of box.holes) {
+      ctx.moveTo(box.x + hole.x + hole.radius, box.y + hole.y);
+      ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
+    }
     ctx.fillStyle = fillColor;
-    ctx.fill();
+    ctx.fill("evenodd");
 
     // Border
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
     ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-    // Cut out holes (draw transparent circles)
-    ctx.globalCompositeOperation = "destination-out";
-    for (const hole of box.holes) {
-      ctx.beginPath();
-      ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalCompositeOperation = "source-over";
-
     // Draw hole borders
-    ctx.strokeStyle = holeStrokeColor;
-    ctx.lineWidth = 1;
-    for (const hole of box.holes) {
-      ctx.beginPath();
-      ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
-      ctx.stroke();
+    if (holeStrokeColor !== "transparent") {
+      ctx.strokeStyle = holeStrokeColor;
+      ctx.lineWidth = 1;
+      for (const hole of box.holes) {
+        ctx.beginPath();
+        ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
 
     ctx.restore();

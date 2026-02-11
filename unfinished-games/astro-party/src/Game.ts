@@ -97,6 +97,7 @@ export class Game {
   private currentMap: MapDefinition | undefined = undefined;
   private yellowBlocks: YellowBlockState[] = [];
   private yellowBlockBodyIndex: Map<number, number> = new Map();
+  private yellowBlockSwordHitCooldown: Map<number, number> = new Map();
   private centerHoleBodies: Matter.Body[] = [];
   private repulsionZoneBodies: Matter.Body[] = [];
   private networkYellowBlockHp: number[] = [];
@@ -296,19 +297,9 @@ export class Game {
           this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
           return;
         }
-
-        blockState.hp -= 1;
-
         const hitX = projectileBody.position.x;
         const hitY = projectileBody.position.y;
-        this.spawnHitParticles(hitX, hitY, "#ffee00", 10);
-
-        if (blockState.hp <= 0 && blockState.body) {
-          this.physics.removeBody(blockState.body);
-          this.yellowBlockBodyIndex.delete(blockState.body.id);
-          blockState.body = undefined;
-          this.renderer.spawnExplosion(hitX, hitY, "#ffee00");
-        }
+        this.damageYellowBlock(blockIndex, hitX, hitY);
 
         this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
       },
@@ -686,23 +677,8 @@ export class Game {
   }
 
   private spawnRepulsionZoneObstacles(): void {
-    const map = this.getCurrentMap();
-    if (map.repulsionZones.length === 0) return;
-
-    for (const zone of map.repulsionZones) {
-      const body = Matter.Bodies.circle(zone.x, zone.y, zone.radius * 0.9, {
-        isStatic: true,
-        label: "wall",
-        friction: 0,
-        restitution: 0.9,
-        collisionFilter: {
-          category: 0x0008, // Wall category
-          mask: 0x0001 | 0x0002 | 0x0004, // Ships, projectiles, asteroids
-        },
-      });
-      Matter.Composite.add(this.physics.world, body);
-      this.repulsionZoneBodies.push(body);
-    }
+    // Repulse circles are force fields only (no static collider body).
+    return;
   }
 
   private spawnAsteroidsForMap(): void {
@@ -811,26 +787,84 @@ export class Game {
       const zoneCenter = { x: zone.x, y: zone.y };
       const zoneRadius = zone.radius;
       const zoneStrength = zone.strength;
+      const influenceRadius = zoneRadius * 1.75;
+
+      const applyForceToBody = (body: Matter.Body | undefined): void => {
+        if (!body) return;
+        const dx = body.position.x - zoneCenter.x;
+        const dy = body.position.y - zoneCenter.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist >= influenceRadius || dist <= 8) return;
+
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const falloff = (influenceRadius - dist) / influenceRadius;
+        const strengthScale = 0.8 + falloff * 1.4;
+        const forceMagnitude =
+          (zoneStrength * strengthScale) / Math.max(dist * dist, 60);
+
+        Matter.Body.applyForce(body, body.position, {
+          x: nx * forceMagnitude,
+          y: ny * forceMagnitude,
+        });
+      };
 
       for (const ship of this.ships.values()) {
-        if (!ship.alive || !ship.body) continue;
+        if (!ship.alive) continue;
+        applyForceToBody(ship.body);
+      }
 
-        const dx = ship.body.position.x - zoneCenter.x;
-        const dy = ship.body.position.y - zoneCenter.y;
+      for (const pilot of this.pilots.values()) {
+        if (!pilot.alive) continue;
+        applyForceToBody(pilot.body);
+      }
+
+      for (const asteroid of this.asteroids) {
+        if (!asteroid.alive) continue;
+        applyForceToBody(asteroid.body);
+      }
+
+      for (const powerUp of this.powerUps) {
+        if (!powerUp.alive) continue;
+        applyForceToBody(powerUp.body);
+      }
+
+      for (const projectile of this.projectiles) {
+        if (!projectile.alive) continue;
+        applyForceToBody(projectile.body);
+      }
+
+      for (const bullet of this.turretBullets) {
+        if (!bullet.alive) continue;
+        applyForceToBody(bullet.body);
+      }
+
+      for (const missile of this.homingMissiles) {
+        if (!missile.alive) continue;
+        const dx = missile.x - zoneCenter.x;
+        const dy = missile.y - zoneCenter.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist >= influenceRadius || dist <= 8) continue;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const falloff = (influenceRadius - dist) / influenceRadius;
+        const accel = zoneStrength * (6 + falloff * 10);
+        missile.vx += nx * accel * dt * 60;
+        missile.vy += ny * accel * dt * 60;
+      }
 
-        // If ship is within repulsion zone
-        if (dist < zoneRadius && dist > 10) {
-          // Apply repulsion force (push away from center)
-          const forceMagnitude = zoneStrength / (dist * dist);
-          const forceX = (dx / dist) * forceMagnitude;
-          const forceY = (dy / dist) * forceMagnitude;
-
-          Matter.Body.applyForce(ship.body, ship.body.position, {
-            x: forceX * dt,
-            y: forceY * dt,
-          });
-        }
+      for (const mine of this.mines) {
+        if (!mine.alive || mine.exploded) continue;
+        const dx = mine.x - zoneCenter.x;
+        const dy = mine.y - zoneCenter.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist >= influenceRadius || dist <= 8) continue;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const falloff = (influenceRadius - dist) / influenceRadius;
+        const drift = zoneStrength * (12 + falloff * 16);
+        mine.x += nx * drift * dt * 60;
+        mine.y += ny * drift * dt * 60;
       }
     }
   }
@@ -946,7 +980,7 @@ export class Game {
           overlay: {
             fill: "#0bb866",
             stroke: "#7cffb8",
-            hole: "rgba(0, 0, 0, 0.6)",
+            hole: "transparent",
           },
         };
       case 0:
@@ -967,6 +1001,7 @@ export class Game {
     }
     this.yellowBlocks = [];
     this.yellowBlockBodyIndex.clear();
+    this.yellowBlockSwordHitCooldown.clear();
     this.networkYellowBlockHp = [];
 
     // Remove center hole bodies
@@ -984,6 +1019,54 @@ export class Game {
     // Reset map state
     this.mapTime = 0;
     this.playerMovementDirection = 1;
+  }
+
+  private damageYellowBlock(
+    blockIndex: number,
+    hitX: number,
+    hitY: number,
+    amount: number = 1,
+  ): void {
+    const blockState = this.yellowBlocks[blockIndex];
+    if (!blockState || blockState.hp <= 0) return;
+
+    blockState.hp -= amount;
+    this.spawnHitParticles(hitX, hitY, "#ffee00", 10);
+
+    if (blockState.hp <= 0 && blockState.body) {
+      this.physics.removeBody(blockState.body);
+      this.yellowBlockBodyIndex.delete(blockState.body.id);
+      this.yellowBlockSwordHitCooldown.delete(blockIndex);
+      blockState.body = undefined;
+      this.renderer.spawnExplosion(hitX, hitY, "#ffee00");
+    }
+  }
+
+  private tryDamageYellowBlockWithSword(
+    blockIndex: number,
+    hitX: number,
+    hitY: number,
+  ): void {
+    const now = performance.now();
+    const nextAllowed = this.yellowBlockSwordHitCooldown.get(blockIndex) ?? 0;
+    if (now < nextAllowed) return;
+
+    this.yellowBlockSwordHitCooldown.set(blockIndex, now + 180);
+    this.damageYellowBlock(blockIndex, hitX, hitY);
+  }
+
+  private isPointInsideBlock(
+    x: number,
+    y: number,
+    block: YellowBlock,
+    padding: number,
+  ): boolean {
+    return (
+      x >= block.x - padding &&
+      x <= block.x + block.width + padding &&
+      y >= block.y - padding &&
+      y <= block.y + block.height + padding
+    );
   }
 
   private spawnHitParticles(
@@ -2055,6 +2138,51 @@ export class Game {
             this.splitAsteroid(asteroid, pos.x, pos.y);
           } else {
             this.trySpawnPowerUp(pos.x, pos.y);
+          }
+        }
+      }
+
+      // Check sword-to-yellow-block collisions on Cache map.
+      // Swords chip blocks with a short cooldown so damage feels controlled.
+      if (
+        this.getCurrentMap().id === 1 &&
+        (powerUp.leftSwordActive || powerUp.rightSwordActive)
+      ) {
+        const swordPadding = 10;
+        for (let blockIndex = 0; blockIndex < this.yellowBlocks.length; blockIndex++) {
+          const blockState = this.yellowBlocks[blockIndex];
+          if (!blockState || blockState.hp <= 0 || !blockState.body) continue;
+
+          if (
+            powerUp.leftSwordActive &&
+            this.isPointInsideBlock(
+              leftSwordCenterX,
+              leftSwordCenterY,
+              blockState.block,
+              swordPadding,
+            )
+          ) {
+            this.tryDamageYellowBlockWithSword(
+              blockIndex,
+              leftSwordCenterX,
+              leftSwordCenterY,
+            );
+          }
+
+          if (
+            powerUp.rightSwordActive &&
+            this.isPointInsideBlock(
+              rightSwordCenterX,
+              rightSwordCenterY,
+              blockState.block,
+              swordPadding,
+            )
+          ) {
+            this.tryDamageYellowBlockWithSword(
+              blockIndex,
+              rightSwordCenterX,
+              rightSwordCenterY,
+            );
           }
         }
       }
