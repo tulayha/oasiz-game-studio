@@ -190,6 +190,14 @@ export class Renderer {
     }
   }
 
+  getScreenShakeIntensity(): number {
+    return this.screenShake.intensity;
+  }
+
+  getScreenShakeDuration(): number {
+    return this.screenShake.duration;
+  }
+
   addScreenShake(intensity: number, duration: number): void {
     this.screenShake.intensity = Math.max(
       this.screenShake.intensity,

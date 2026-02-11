@@ -248,7 +248,6 @@ export class GameFlowManager {
 
   private triggerScreenShake(intensity: number, duration: number): void {
     this.renderer.addScreenShake(intensity, duration);
-    this.network.broadcastScreenShake(intensity, duration);
   }
 
   checkEliminationWin(players: Map<string, PlayerData>): void {
@@ -378,33 +377,6 @@ export class GameFlowManager {
         this.submitScore(myPlayer.roundWins);
       }
     }
-  }
-
-  async restartGame(
-    players: Map<string, PlayerData>,
-    ships: Map<string, Ship>,
-    pilots: Map<string, Pilot>,
-    projectiles: Projectile[],
-    pendingInputs: Map<string, PlayerInput>,
-    pendingDashes: Set<string>,
-  ): Promise<void> {
-    if (!this.network.isHost()) {
-      console.log("[Game] Non-host cannot restart game, waiting for host");
-      return;
-    }
-
-    await this.network.resetAllPlayerStates();
-
-    this.clearGameState(
-      ships,
-      pilots,
-      projectiles,
-      pendingInputs,
-      pendingDashes,
-      players,
-    );
-    this.setPhase("LOBBY");
-    this.onPlayersUpdate?.();
   }
 
   clearGameState(
