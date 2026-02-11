@@ -1,0 +1,812 @@
+{
+    "section1": {
+        "files": [
+            {
+                "url": "assets/FufuSuperDino.png",
+                "type": "image",
+                "key": "FufuSuperDino"
+            },
+            {
+                "url": "assets/CustomTiles/spike.png",
+                "type": "image",
+                "key": "ground_spike"
+            },
+            {
+                "url": "assets/dungeon_tileset.png",
+                "type": "spritesheet",
+                "key": "dungeon_tileset",
+                "frameConfig": {
+                    "frameWidth": 16,
+                    "frameHeight": 16
+                }
+            },
+            {
+                "url": "assets/punyworld-dungeon-tileset.png",
+                "type": "spritesheet",
+                "key": "punyworld_tileset",
+                "frameConfig": {
+                    "frameWidth": 16,
+                    "frameHeight": 16
+                }
+            },
+            {
+                "url": "assets/PlayerSprites/Hero03 Knight Idle-Sheet.png",
+                "type": "spritesheet",
+                "key": "player_idle",
+                "frameConfig": {
+                    "frameWidth": 19,
+                    "frameHeight": 20
+                }
+            },
+            {
+                "url": "assets/PlayerSprites/Hero03 Knight Walkingcycle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "player_walk",
+                "frameConfig": {
+                    "frameWidth": 38,
+                    "frameHeight": 40
+                }
+            },
+            {
+                "url": "assets/PlayerSprites/Hero03 Knight Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "player_attack",
+                "frameConfig": {
+                    "frameWidth": 38,
+                    "frameHeight": 40
+                }
+            },
+            {
+                "url": "assets/MagePlayer/Hero01 Mage Idle2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "mage_idle",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 36
+                }
+            },
+            {
+                "url": "assets/MagePlayer/Hero01 Mage Walkcycle2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "mage_walk",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 36
+                }
+            },
+            {
+                "url": "assets/MagePlayer/Hero01 Mage Atk2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "mage_attack",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 36
+                }
+            },
+            {
+                "url": "assets/ArcherPlayer/Hero02 Archer Idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "archer_idle",
+                "frameConfig": {
+                    "frameWidth": 30,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/ArcherPlayer/Hero02 Archer Walking-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "archer_walk",
+                "frameConfig": {
+                    "frameWidth": 30,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/ArcherPlayer/Hero02 Archer Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "archer_attack",
+                "frameConfig": {
+                    "frameWidth": 30,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/ArcherPlayer/Arrow Archer-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "archer_arrow",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 32
+                }
+            },
+            {
+                "url": "assets/RoguePlayer/Hero04 Rogue Idle2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "rogue_idle",
+                "frameConfig": {
+                    "frameWidth": 42,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/RoguePlayer/Hero04 Rogue Walkcycle2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "rogue_walk",
+                "frameConfig": {
+                    "frameWidth": 42,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/RoguePlayer/Hero04 Rogue Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "rogue_attack",
+                "frameConfig": {
+                    "frameWidth": 42,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/MagePlayer/Creating Fireball-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "mage_fireball",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 32
+                }
+            },
+            {
+                "url": "assets/CustomTiles/Torch Yellow-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "torch_yellow",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 36
+                }
+            },
+            {
+                "url": "assets/CustomTiles/heart.png",
+                "type": "image",
+                "key": "ui_heart"
+            },
+            {
+                "url": "assets/CustomTiles/Icon2x.png",
+                "type": "spritesheet",
+                "key": "icons2x",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 32
+                }
+            },
+            {
+                "url": "assets/CustomTiles/Chest.png",
+                "type": "spritesheet",
+                "key": "chest",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 38
+                }
+            },
+            {
+                "url": "assets/Audio/playerGotHit.wav",
+                "type": "audio",
+                "key": "playerGotHit"
+            },
+            {
+                "url": "assets/Audio/enemyHit.wav",
+                "type": "audio",
+                "key": "enemyHit"
+            },
+            {
+                "url": "assets/Audio/getKey.wav",
+                "type": "audio",
+                "key": "getKey"
+            },
+            {
+                "url": "assets/Audio/openDoor.wav",
+                "type": "audio",
+                "key": "openDoor"
+            },
+            {
+                "url": "assets/Audio/enemyShoot.wav",
+                "type": "audio",
+                "key": "enemyShoot"
+            },
+            {
+                "url": "assets/Audio/DragonShoot.wav",
+                "type": "audio",
+                "key": "dragonShoot"
+            },
+            {
+                "url": "assets/Audio/SlimeShoot.wav",
+                "type": "audio",
+                "key": "slimeShoot"
+            },
+            {
+                "url": "assets/Audio/MummyShot.wav",
+                "type": "audio",
+                "key": "mummyShoot"
+            },
+            {
+                "url": "assets/Audio/playerShoot.wav",
+                "type": "audio",
+                "key": "playerShoot"
+            },
+            {
+                "url": "assets/Audio/mageShoot.wav",
+                "type": "audio",
+                "key": "mageShoot"
+            },
+            {
+                "url": "assets/Audio/3HitFirst.wav",
+                "type": "audio",
+                "key": "threeHitFirst"
+            },
+            {
+                "url": "assets/Audio/chestOpen.wav",
+                "type": "audio",
+                "key": "chestOpen"
+            },
+            {
+                "url": "assets/Audio/CharacterChange.wav",
+                "type": "audio",
+                "key": "characterChange"
+            },
+            {
+                "url": "assets/Audio/dungeonBgMusic.mp3",
+                "type": "audio",
+                "key": "dungeonBgMusic"
+            },
+            {
+                "url": "assets/Enemies/Rat/Enemy01idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "rat_idle",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 22
+                }
+            },
+            {
+                "url": "assets/Enemies/Rat/Enemy01Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "rat_attack",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 22
+                }
+            },
+            {
+                "url": "assets/Enemies/Rat/Enemy01Dying-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "rat_dying",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 22
+                }
+            },
+            {
+                "url": "assets/Enemies/Beholder/Enemy03Idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "beholder_idle",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 38
+                }
+            },
+            {
+                "url": "assets/Enemies/Beholder/Enemy03Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "beholder_attack",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 38
+                }
+            },
+            {
+                "url": "assets/Enemies/Beholder/Enemy03Dying-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "beholder_dying",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 38
+                }
+            },
+            {
+                "url": "assets/Enemies/Golem/Enemy02Idle2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "golem_idle",
+                "frameConfig": {
+                    "frameWidth": 42,
+                    "frameHeight": 36
+                }
+            },
+            {
+                "url": "assets/Enemies/Golem/Enemy02Atk2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "golem_attack",
+                "frameConfig": {
+                    "frameWidth": 42,
+                    "frameHeight": 36
+                }
+            },
+            {
+                "url": "assets/Enemies/Golem/Enemy02Dying2x-Sheet.png",
+                "type": "spritesheet",
+                "key": "golem_dying",
+                "frameConfig": {
+                    "frameWidth": 42,
+                    "frameHeight": 36
+                }
+            },
+            {
+                "url": "assets/Enemies/Skeleton/Enemy05Idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "skeleton_idle",
+                "frameConfig": {
+                    "frameWidth": 36,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/Enemies/Skeleton/Enemy05Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "skeleton_attack",
+                "frameConfig": {
+                    "frameWidth": 36,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/Enemies/Skeleton/Enemy05Dying-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "skeleton_dying",
+                "frameConfig": {
+                    "frameWidth": 36,
+                    "frameHeight": 34
+                }
+            },
+            {
+                "url": "assets/Enemies/SlimeBoss/Enemy06Idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "slime_idle",
+                "frameConfig": {
+                    "frameWidth": 34,
+                    "frameHeight": 32
+                }
+            },
+            {
+                "url": "assets/Enemies/SlimeBoss/Enemy06Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "slime_attack",
+                "frameConfig": {
+                    "frameWidth": 34,
+                    "frameHeight": 32
+                }
+            },
+            {
+                "url": "assets/Enemies/SlimeBoss/Enemy06Dying-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "slime_dying",
+                "frameConfig": {
+                    "frameWidth": 34,
+                    "frameHeight": 32
+                }
+            },
+            {
+                "url": "assets/Enemies/MummyBos/Enemy07Idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "mummy_idle",
+                "frameConfig": {
+                    "frameWidth": 44,
+                    "frameHeight": 66
+                }
+            },
+            {
+                "url": "assets/Enemies/MummyBos/Enemy07Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "mummy_attack",
+                "frameConfig": {
+                    "frameWidth": 44,
+                    "frameHeight": 66
+                }
+            },
+            {
+                "url": "assets/Enemies/MummyBos/Enemy07Dying-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "mummy_dying",
+                "frameConfig": {
+                    "frameWidth": 44,
+                    "frameHeight": 66
+                }
+            },
+            {
+                "url": "assets/Enemies/DragonBoss/Enemy10idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "dragon_idle",
+                "frameConfig": {
+                    "frameWidth": 110,
+                    "frameHeight": 72
+                }
+            },
+            {
+                "url": "assets/Enemies/DragonBoss/Enemy10atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "dragon_attack",
+                "frameConfig": {
+                    "frameWidth": 110,
+                    "frameHeight": 72
+                }
+            },
+            {
+                "url": "assets/Enemies/DragonBoss/Enemy10Dying-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "dragon_dying",
+                "frameConfig": {
+                    "frameWidth": 110,
+                    "frameHeight": 72
+                }
+            },
+            {
+                "url": "assets/Enemies/Stinger/Enemy04idle-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "stinger_idle",
+                "frameConfig": {
+                    "frameWidth": 46,
+                    "frameHeight": 40
+                }
+            },
+            {
+                "url": "assets/Enemies/Stinger/Enemy04Atk-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "stinger_attack",
+                "frameConfig": {
+                    "frameWidth": 46,
+                    "frameHeight": 40
+                }
+            },
+            {
+                "url": "assets/Enemies/Stinger/Enemy04Dying-Sheet2x.png",
+                "type": "spritesheet",
+                "key": "stinger_dying",
+                "frameConfig": {
+                    "frameWidth": 46,
+                    "frameHeight": 40
+                }
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Book shelf 01 2x.png",
+                "type": "image",
+                "key": "ct_book_shelf_01"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Book shelf 02 2x.png",
+                "type": "image",
+                "key": "ct_book_shelf_02"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Pile of Books 01 2x.png",
+                "type": "image",
+                "key": "ct_pile_books_01"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Book Green2x.png",
+                "type": "image",
+                "key": "ct_book_green"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Book Red2x.png",
+                "type": "image",
+                "key": "ct_book_red"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Book Yellow2x.png",
+                "type": "image",
+                "key": "ct_book_yellow"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Board Large2x.png",
+                "type": "image",
+                "key": "ct_board_large"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Table Long2x.png",
+                "type": "image",
+                "key": "ct_table_long"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Table2x.png",
+                "type": "image",
+                "key": "ct_table"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Chair01 2x.png",
+                "type": "image",
+                "key": "ct_chair01"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Chair02 2x.png",
+                "type": "image",
+                "key": "ct_chair02"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Lamp2x.png",
+                "type": "image",
+                "key": "ct_lamp"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Lamp Big2x.png",
+                "type": "image",
+                "key": "ct_lamp_big"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Paiting Big2x.png",
+                "type": "image",
+                "key": "ct_painting_big"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Paiting 1 2x.png",
+                "type": "image",
+                "key": "ct_painting_1"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Potion HP2x.png",
+                "type": "image",
+                "key": "ct_potion_hp"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Potion Mana2x.png",
+                "type": "image",
+                "key": "ct_potion_mana"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Vase Yellow2x.png",
+                "type": "image",
+                "key": "ct_vase_yellow"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Vase Grey2x.png",
+                "type": "image",
+                "key": "ct_vase_grey"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Vase Grey Broken2x.png",
+                "type": "image",
+                "key": "ct_vase_grey_broken"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Gold Rock2x.png",
+                "type": "image",
+                "key": "ct_gold_rock"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Gold01 2x.png",
+                "type": "image",
+                "key": "ct_gold_01"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Gold02 2x.png",
+                "type": "image",
+                "key": "ct_gold_02"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Gold03 2x.png",
+                "type": "image",
+                "key": "ct_gold_03"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Tombstone 01 2x.png",
+                "type": "image",
+                "key": "ct_tombstone_01"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Tombstone 02 2x.png",
+                "type": "image",
+                "key": "ct_tombstone_02"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Tombstone Moss2x.png",
+                "type": "image",
+                "key": "ct_tombstone_moss"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/books2.png",
+                "type": "image",
+                "key": "ct_books2"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_br_tl.png",
+                "type": "image",
+                "key": "ct_carpet_br_tl"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_br_tr.png",
+                "type": "image",
+                "key": "ct_carpet_br_tr"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_br_bl.png",
+                "type": "image",
+                "key": "ct_carpet_br_bl"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_br_br.png",
+                "type": "image",
+                "key": "ct_carpet_br_br"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_big_tl.png",
+                "type": "image",
+                "key": "ct_carpet_big_tl"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_big_tm.png",
+                "type": "image",
+                "key": "ct_carpet_big_tm"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_big_tr.png",
+                "type": "image",
+                "key": "ct_carpet_big_tr"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_big_bl.png",
+                "type": "image",
+                "key": "ct_carpet_big_bl"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_big_bm.png",
+                "type": "image",
+                "key": "ct_carpet_big_bm"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_big_br.png",
+                "type": "image",
+                "key": "ct_carpet_big_br"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_00.png",
+                "type": "image",
+                "key": "ct_carpet_00"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_01.png",
+                "type": "image",
+                "key": "ct_carpet_01"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/ct_carpet_02.png",
+                "type": "image",
+                "key": "ct_carpet_02"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Throne2x.png",
+                "type": "image",
+                "key": "ct_throne"
+            },
+            {
+                "url": "assets/CustomTiles/32x32/Flag Red2x.png",
+                "type": "image",
+                "key": "ct_flag_red"
+            },
+            {
+                "url": "assets/PlayerSprites/Vase Grey2x.png",
+                "type": "image",
+                "key": "bVase1"
+            },
+            {
+                "url": "assets/PlayerSprites/Vase Grey Broken2x.png",
+                "type": "image",
+                "key": "bVaseBroken1"
+            },
+            {
+                "url": "assets/PlayerSprites/Vase Yellow2x.png",
+                "type": "image",
+                "key": "bVase2"
+            },
+            {
+                "url": "assets/PlayerSprites/Vase Yellow Broken2x.png",
+                "type": "image",
+                "key": "bVaseBroken2"
+            },
+            {
+                "url": "assets/PlayerSprites/Acid puddle2x.png",
+                "type": "image",
+                "key": "bAcid"
+            },
+            {
+                "url": "assets/PlayerSprites/Blood2x.png",
+                "type": "image",
+                "key": "bBlood"
+            },
+            {
+                "url": "assets/PlayerSprites/Wall Chain 01 2x.png",
+                "type": "image",
+                "key": "pChain"
+            },
+            {
+                "url": "assets/PlayerSprites/Book shelf 01 2x.png",
+                "type": "image",
+                "key": "bBookShelf"
+            },
+            {
+                "url": "assets/PlayerSprites/books2.png",
+                "type": "image",
+                "key": "bBooks"
+            },
+            {
+                "url": "assets/PlayerSprites/Chair01 2x.png",
+                "type": "image",
+                "key": "bChair1"
+            },
+            {
+                "url": "assets/PlayerSprites/Chair02 2x.png",
+                "type": "image",
+                "key": "bChair2"
+            },
+            {
+                "url": "assets/PlayerSprites/Skulls2x.png",
+                "type": "image",
+                "key": "bSkulls"
+            },
+            {
+                "url": "assets/PlayerSprites/Paiting 1 2x.png",
+                "type": "image",
+                "key": "painting1"
+            },
+            {
+                "url": "assets/PlayerSprites/Paiting 2 2x.png",
+                "type": "image",
+                "key": "painting2"
+            },
+            {
+                "url": "assets/PlayerSprites/Paiting 3 2x.png",
+                "type": "image",
+                "key": "painting3"
+            },
+            {
+                "url": "assets/PlayerSprites/Paiting 4 2x.png",
+                "type": "image",
+                "key": "painting4"
+            },
+            {
+                "url": "assets/PlayerSprites/Crate 01 2x.png",
+                "type": "image",
+                "key": "crate1"
+            },
+            {
+                "url": "assets/PlayerSprites/Crate 02 2x.png",
+                "type": "image",
+                "key": "crate2"
+            },
+            {
+                "url": "assets/CustomTiles/Coffin2x.png",
+                "type": "spritesheet",
+                "key": "coffin",
+                "frameConfig": {
+                    "frameWidth": 32,
+                    "frameHeight": 32
+                }
+            },
+            {
+                "url": "assets/CustomTiles/Door Rock2x.png",
+                "type": "image",
+                "key": "door_rock"
+            },
+            {
+                "url": "assets/Tile Dungeon2x.png",
+                "type": "spritesheet",
+                "key": "b_tileset",
+                "frameConfig": {
+                    "frameWidth": 16,
+                    "frameHeight": 16
+                }
+            }
+        ]
+    },
+    "meta": {
+        "app": "Phaser Editor 2D - Asset Pack Editor",
+        "contentType": "phasereditor2d.pack.core.AssetContentType",
+        "url": "https://phasereditor2d.com",
+        "version": 2
+    }
+}
