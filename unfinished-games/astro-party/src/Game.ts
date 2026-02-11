@@ -761,6 +761,7 @@ export class Game {
             x: pilot.body.position.x,
             y: pilot.body.position.y,
           };
+          const pilotAngle = pilot.body.angle;
           pilot.destroy();
           this.pilots.delete(playerId);
           this.flowMgr.respawnPlayer(
@@ -768,6 +769,7 @@ export class Game {
             pilotPosition,
             this.ships,
             this.playerMgr.players,
+            pilotAngle,
           );
         }
       });

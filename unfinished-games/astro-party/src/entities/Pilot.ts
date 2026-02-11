@@ -15,6 +15,8 @@ export class Pilot {
   private physics: Physics;
   private aiThinkTimer: number = 0;
   private targetDirection: { x: number; y: number } = { x: 0, y: 0 };
+  private aiTargetAngle: number = 0;
+  private aiShouldDash: boolean = false;
 
   constructor(
     physics: Physics,
@@ -61,12 +63,22 @@ export class Pilot {
       this.updateAI(threats);
     }
 
-    // Apply movement toward target direction
-    const speed = 0.00005;
-    Body.applyForce(this.body, this.body.position, {
-      x: this.targetDirection.x * speed,
-      y: this.targetDirection.y * speed,
-    });
+    const angleDiff = this.normalizeAngle(
+      this.aiTargetAngle - this.body.angle,
+    );
+    const shouldRotate = Math.abs(angleDiff) > 0.35;
+    const shouldDash = this.aiShouldDash && Math.abs(angleDiff) <= 0.35;
+    const now = performance.now();
+    this.applyInput(
+      {
+        buttonA: shouldRotate,
+        buttonB: shouldDash,
+        timestamp: now,
+        clientTimeMs: now,
+      },
+      rotationDirection,
+      dt,
+    );
   }
 
   applyInput(input: PlayerInput, rotationDirection: number, dt: number): void {
@@ -106,23 +118,35 @@ export class Pilot {
     }
 
     if (nearestThreat) {
-      // Run away from threat
       const dx = this.body.position.x - nearestThreat.x;
       const dy = this.body.position.y - nearestThreat.y;
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len > 0) {
         this.targetDirection = { x: dx / len, y: dy / len };
+        this.aiTargetAngle = Math.atan2(
+          this.targetDirection.y,
+          this.targetDirection.x,
+        );
+        this.aiShouldDash = nearestDist < 140;
       }
     } else {
-      // Drift randomly
-      if (Math.random() < 0.2) {
+      this.aiShouldDash = false;
+      if (Math.random() < 0.3) {
         const angle = Math.random() * Math.PI * 2;
         this.targetDirection = {
           x: Math.cos(angle),
           y: Math.sin(angle),
         };
+        this.aiTargetAngle = angle;
+        this.aiShouldDash = Math.random() < 0.25;
       }
     }
+  }
+
+  private normalizeAngle(angle: number): number {
+    while (angle > Math.PI) angle -= 2 * Math.PI;
+    while (angle < -Math.PI) angle += 2 * Math.PI;
+    return angle;
   }
 
   hasSurvived(): boolean {

@@ -271,6 +271,7 @@ export class GameFlowManager {
     position: { x: number; y: number },
     ships: Map<string, Ship>,
     players: Map<string, PlayerData>,
+    angle?: number,
   ): void {
     const player = players.get(playerId);
     if (!player) return;
@@ -282,6 +283,7 @@ export class GameFlowManager {
       centerY - position.y,
       centerX - position.x,
     );
+    const spawnAngle = angle ?? angleToCenter;
 
     const ship = new Ship(
       this.physics,
@@ -289,7 +291,7 @@ export class GameFlowManager {
       position.y,
       playerId,
       color,
-      angleToCenter,
+      spawnAngle,
     );
     ship.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
     ships.set(playerId, ship);

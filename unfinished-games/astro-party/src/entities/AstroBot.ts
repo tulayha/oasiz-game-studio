@@ -305,7 +305,7 @@ export class AstroBot extends Bot {
     // Should we rotate? (rotate clockwise by holding A)
     // Ship rotates clockwise when buttonA is held
     // We want to rotate if the target is in our rotation direction
-    const shouldRotate = !isAimed && angleDiff > 0;
+    const shouldRotate = !isAimed;
 
     return { shouldRotate, isAimed };
   }
