@@ -20,6 +20,10 @@ import { FireSystem } from "./managers/FireSystem";
 import { TurretManager } from "./managers/TurretManager";
 import { GameRenderer } from "./systems/GameRenderer";
 import { NetworkSyncSystem } from "./network/NetworkSyncSystem";
+import type {
+  RenderNetworkState,
+  NetworkPredictionDebugTelemetry,
+} from "./network/NetworkSyncSystem";
 import { PlayerInputResolver } from "./systems/PlayerInputResolver";
 import { DeterministicRNGManager } from "./systems/DeterministicRNGManager";
 import { TickSystem } from "./systems/TickSystem";
@@ -595,6 +599,7 @@ export class Game {
       return;
     }
 
+    this.networkSync.queueLocalDashPrediction();
     this.network.sendDashRequest();
   }
 
@@ -756,17 +761,24 @@ export class Game {
       (this.network.isHost() &&
         (this.flowMgr.phase === "COUNTDOWN" ||
           this.flowMgr.phase === "ROUND_END"));
+    let frameRenderState: RenderNetworkState | null = null;
+    if (!this.network.isHost() && this.flowMgr.phase === "PLAYING") {
+      frameRenderState = this.networkSync.getRenderState(
+        this.network.getMyPlayerId(),
+        this.latencyMs,
+      );
+    }
 
     if (runTicks) {
       this.tickSystem.update((tick) => this.simulateTick(tick));
       if (this.flowMgr.phase === "PLAYING") {
-        this.updateVisualEffects();
+        this.updateVisualEffects(frameRenderState);
       }
     }
 
     this.renderer.updateParticles(frameDt);
     this.renderer.updateScreenShake(frameDt);
-    this.render(frameDt);
+    this.render(frameDt, frameRenderState);
 
     requestAnimationFrame((t) => this.loop(t));
   }
@@ -1022,7 +1034,7 @@ export class Game {
     this._onRoundResult?.(payload);
   }
 
-  private updateVisualEffects(): void {
+  private updateVisualEffects(renderState: RenderNetworkState | null = null): void {
     // Spawn nitro particles for joust power-up (runs for all clients)
     // For host: use this.ships with physics bodies
     if (this.network.isHost()) {
@@ -1040,14 +1052,13 @@ export class Game {
       });
     } else {
       // For non-host: use smoothed ship positions so particles track the rendered ship
-      const renderState = this.networkSync.getRenderState(
-        this.network.getMyPlayerId(),
-        this.latencyMs,
-      );
-      const smoothedShips = renderState.useBufferedInterpolation
-        ? renderState.networkShips
-        : renderState.shipSmoother.smooth(
-            renderState.networkShips,
+      const networkRenderState =
+        renderState ??
+        this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
+      const smoothedShips = networkRenderState.useBufferedInterpolation
+        ? networkRenderState.networkShips
+        : networkRenderState.shipSmoother.smooth(
+            networkRenderState.networkShips,
             (s) => s.playerId,
           );
       smoothedShips.forEach((shipState) => {
@@ -1065,11 +1076,10 @@ export class Game {
     }
   }
 
-  private render(dt: number): void {
-    const renderState = this.networkSync.getRenderState(
-      this.network.getMyPlayerId(),
-      this.latencyMs,
-    );
+  private render(dt: number, renderState: RenderNetworkState | null = null): void {
+    const frameRenderState =
+      renderState ??
+      this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
     this.gameRenderer.render({
       dt,
       nowMs: this.simTimeMs,
@@ -1089,22 +1099,22 @@ export class Game {
       turretBullets: this.turretMgr.getTurretBullets(),
       playerPowerUps: this.playerPowerUps,
       players: this.playerMgr.players,
-      networkShips: renderState.networkShips,
-      networkPilots: renderState.networkPilots,
-      networkProjectiles: renderState.networkProjectiles,
-      networkAsteroids: renderState.networkAsteroids,
-      networkPowerUps: renderState.networkPowerUps,
-      networkLaserBeams: renderState.networkLaserBeams,
-      networkMines: renderState.networkMines,
-      networkHomingMissiles: renderState.networkHomingMissiles,
-      networkTurret: renderState.networkTurret,
-      networkTurretBullets: renderState.networkTurretBullets,
-      shipSmoother: renderState.shipSmoother,
-      projectileSmoother: renderState.projectileSmoother,
-      asteroidSmoother: renderState.asteroidSmoother,
-      pilotSmoother: renderState.pilotSmoother,
-      missileSmoother: renderState.missileSmoother,
-      useBufferedInterpolation: renderState.useBufferedInterpolation,
+      networkShips: frameRenderState.networkShips,
+      networkPilots: frameRenderState.networkPilots,
+      networkProjectiles: frameRenderState.networkProjectiles,
+      networkAsteroids: frameRenderState.networkAsteroids,
+      networkPowerUps: frameRenderState.networkPowerUps,
+      networkLaserBeams: frameRenderState.networkLaserBeams,
+      networkMines: frameRenderState.networkMines,
+      networkHomingMissiles: frameRenderState.networkHomingMissiles,
+      networkTurret: frameRenderState.networkTurret,
+      networkTurretBullets: frameRenderState.networkTurretBullets,
+      shipSmoother: frameRenderState.shipSmoother,
+      projectileSmoother: frameRenderState.projectileSmoother,
+      asteroidSmoother: frameRenderState.asteroidSmoother,
+      pilotSmoother: frameRenderState.pilotSmoother,
+      missileSmoother: frameRenderState.missileSmoother,
+      useBufferedInterpolation: frameRenderState.useBufferedInterpolation,
     });
   }
 
@@ -1169,6 +1179,10 @@ export class Game {
       snapshotIntervalMs: telemetry.snapshotIntervalMs,
       webrtcConnected: this.network.isWebRtcConnected(),
     };
+  }
+
+  getPredictionDebugTelemetry(): NetworkPredictionDebugTelemetry {
+    return this.networkSync.getPredictionDebugTelemetry();
   }
 
   getHostId(): string | null {

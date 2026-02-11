@@ -1,4 +1,5 @@
 import { DisplaySmoother } from "./DisplaySmoother";
+import Matter from "matter-js";
 import { Renderer } from "../systems/Renderer";
 import { NetworkManager } from "./NetworkManager";
 import { PlayerManager } from "../managers/PlayerManager";
@@ -30,6 +31,9 @@ import { Mine } from "../entities/Mine";
 import { HomingMissile } from "../entities/HomingMissile";
 import { Turret } from "../entities/Turret";
 import { TurretBullet } from "../entities/TurretBullet";
+import { Physics } from "../systems/Physics";
+
+const { Body } = Matter;
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
@@ -40,6 +44,11 @@ const lerpAngle = (a: number, b: number, t: number): number => {
   if (diff < -Math.PI) diff += twoPi;
   return a + diff * t;
 };
+
+interface LocalPredictionRuntime {
+  dashTimerSec: number;
+  recoilTimerSec: number;
+}
 
 export interface BroadcastStateInput {
   ships: Map<string, Ship>;
@@ -79,16 +88,47 @@ export interface RenderNetworkState {
   useBufferedInterpolation: boolean;
 }
 
+export interface NetworkPredictionDebugTelemetry {
+  predictionErrorPxLast: number;
+  predictionErrorPxEwma: number;
+  presentationLagPxLast: number;
+  presentationLagPxEwma: number;
+  wallCorrectionEvents: number;
+  wallOscillationEvents: number;
+  wallOscillationRatio: number;
+  hostNowBiasTicks: number | null;
+  hostNowBiasMs: number | null;
+  estimatedHostNowTick: number | null;
+  latestSnapshotTick: number | null;
+  capturedInputTick: number | null;
+  latestHostAckTick: number | null;
+  inputAckGapTicks: number | null;
+  inputAckGapMs: number | null;
+}
+
 export class NetworkSyncSystem {
   private static readonly DEFAULT_TICK_MS = 1000 / 60;
   private static readonly MIN_REMOTE_DELAY_TICKS = 6;
   private static readonly MAX_REMOTE_DELAY_TICKS = 120;
+  private static readonly MAX_LOCAL_LEAD_TICKS = 24;
+  private static readonly MAX_PREDICTION_REPLAY_TICKS_PER_FRAME = 4;
+  // FIX BUG R2: Increased thresholds to reduce unnecessary corrections
+  // Position: 8px → 16px (allow more tolerance for wall bounce rounding)
+  private static readonly LOCAL_RECONCILE_POSITION_EPSILON = 16;
+  // Angle: 0.08 rad (4.6°) → 0.15 rad (8.6°) (allow more rotation variance)
+  private static readonly LOCAL_RECONCILE_ANGLE_EPSILON = 0.15;
+  // Velocity: 1.5 px/frame → 3.0 px/frame (allow more speed variance)
+  private static readonly LOCAL_RECONCILE_VELOCITY_EPSILON = 3.0;
+  private static readonly LOCAL_CORRECTION_BLEND = 0.35;
+  private static readonly LOCAL_CORRECTION_SNAP_DISTANCE = 120;
   private static readonly SNAPSHOT_HISTORY_LIMIT = 360;
   private static readonly DELAY_SMOOTHING_STEP_PER_FRAME = 0.5;
   private static readonly LATENCY_EWMA_ALPHA = 0.1;
   private static readonly LOCAL_PREDICTION_HISTORY_TICKS = 720;
-  private static readonly LOCAL_PRESENTATION_BLEND = 0.35;
-  private static readonly LOCAL_SNAP_DISTANCE = 160;
+  private static readonly DEBUG_EWMA_ALPHA = 0.2;
+  // FIX BUG W2: Increased wall proximity margin from 24px → 40px
+  // Ship radius is ~15px, so 40px gives more early detection
+  private static readonly WALL_PROXIMITY_MARGIN = 40;
 
   private shipSmoother = new DisplaySmoother(0.25, 100);
   private projectileSmoother = new DisplaySmoother(0.4, 150);
@@ -137,9 +177,31 @@ export class NetworkSyncSystem {
   };
   private localPredictedTick: number | null = null;
   private localPredictedShipState: ShipState | null = null;
+  private localPredictionPhysics: Physics | null = null;
+  private localPredictionShipBody: Matter.Body | null = null;
+  private localPredictionPlayerId: string | null = null;
+  private localPredictedRuntime: LocalPredictionRuntime = {
+    dashTimerSec: 0,
+    recoilTimerSec: 0,
+  };
   private localPresentationShipState: ShipState | null = null;
   private localInputHistoryByTick: Map<number, PlayerInput> = new Map();
   private localStateHistoryByTick: Map<number, ShipState> = new Map();
+  private localRuntimeHistoryByTick: Map<number, LocalPredictionRuntime> =
+    new Map();
+  private localDashTicks: Set<number> = new Set();
+  private localInputCaptureCursorTick: number | null = null;
+  private lastMeasuredLatencyMs: number = 0;
+  private predictionErrorPxLast: number = 0;
+  private predictionErrorPxEwma: number = 0;
+  private presentationLagPxLast: number = 0;
+  private presentationLagPxEwma: number = 0;
+  private wallCorrectionEvents: number = 0;
+  private wallOscillationEvents: number = 0;
+  private lastWallCorrectionAxis: "x" | "y" | null = null;
+  private lastWallCorrectionSign: number = 0;
+  private lastCapturedInputTick: number | null = null;
+  private latestHostAckTick: number | null = null;
 
   constructor(
     private network: NetworkManager,
@@ -151,12 +213,27 @@ export class NetworkSyncSystem {
 
   setLocalInput(input: PlayerInput): void {
     this.localInputState = input;
+    const captureTick = this.captureInputForPredictedTicks(input);
+    if (captureTick !== null) {
+      this.lastCapturedInputTick = captureTick;
+    }
+  }
+
+  queueLocalDashPrediction(): void {
+    if (this.network.isHost()) return;
+    const hostNowTick = this.estimateHostNowTickForLocal(performance.now());
+    if (hostNowTick === null) return;
+    const dashTick = Math.max(0, Math.floor(hostNowTick) + 1);
+    this.localDashTicks.add(dashTick);
   }
 
   getRenderState(
     myPlayerId: string | null = null,
     latencyMs: number = 0,
   ): RenderNetworkState {
+    if (Number.isFinite(latencyMs) && latencyMs >= 0) {
+      this.lastMeasuredLatencyMs = latencyMs;
+    }
     const bufferedSnapshot = this.buildBufferedRenderState(myPlayerId, latencyMs);
     const baseShips = bufferedSnapshot ? bufferedSnapshot.ships : this.networkShips;
     const renderShips = this.applyPredictedLocalShip(baseShips, myPlayerId);
@@ -400,11 +477,8 @@ export class NetworkSyncSystem {
     this.smoothedLatencyMs = 0;
     this.currentRemoteDelayTicks = NetworkSyncSystem.MIN_REMOTE_DELAY_TICKS;
     this.lastAppliedHostTick = -1;
-    this.localPredictedTick = null;
-    this.localPredictedShipState = null;
-    this.localPresentationShipState = null;
-    this.localInputHistoryByTick.clear();
-    this.localStateHistoryByTick.clear();
+    this.resetLocalPredictionState();
+    this.resetDebugTelemetry();
   }
 
   clearClientTracking(): void {
@@ -524,13 +598,33 @@ export class NetworkSyncSystem {
     return remoteSnapshot;
   }
 
+  // FIX BUG T1: Separate local vs remote tick estimation
+  // For local prediction: no half-RTT compensation (predict at actual host time, not ahead)
+  private estimateHostNowTickForLocal(nowMs: number): number | null {
+    if (this.snapshotHistory.length === 0) return null;
+    const latest = this.snapshotHistory[this.snapshotHistory.length - 1];
+    const tickMs =
+      latest.state.tickDurationMs || NetworkSyncSystem.DEFAULT_TICK_MS;
+    const elapsedTicks = (nowMs - latest.receivedAtMs) / tickMs;
+    // No half-RTT added for local prediction
+    return latest.state.hostTick + Math.max(0, elapsedTicks);
+  }
+
+  // For remote rendering: add half-RTT compensation (smooths remote entity display)
   private estimateHostNowTick(nowMs: number): number | null {
     if (this.snapshotHistory.length === 0) return null;
     const latest = this.snapshotHistory[this.snapshotHistory.length - 1];
     const tickMs =
       latest.state.tickDurationMs || NetworkSyncSystem.DEFAULT_TICK_MS;
     const elapsedTicks = (nowMs - latest.receivedAtMs) / tickMs;
-    return latest.state.hostTick + Math.max(0, elapsedTicks);
+    const latencyMs =
+      this.smoothedLatencyMs > 0 ? this.smoothedLatencyMs : this.lastMeasuredLatencyMs;
+    const halfRttTicks = Math.max(0, (latencyMs * 0.5) / tickMs);
+    const boundedHalfRttTicks = Math.min(
+      NetworkSyncSystem.MAX_LOCAL_LEAD_TICKS,
+      halfRttTicks,
+    );
+    return latest.state.hostTick + Math.max(0, elapsedTicks) + boundedHalfRttTicks;
   }
 
   private getTargetRemoteDelayTicks(latencyMs: number): number {
@@ -824,6 +918,55 @@ export class NetworkSyncSystem {
     };
   }
 
+  getPredictionDebugTelemetry(): NetworkPredictionDebugTelemetry {
+    const nowMs = performance.now();
+    const latest = this.snapshotHistory[this.snapshotHistory.length - 1];
+    const estimatedHostNowTick = this.estimateHostNowTick(nowMs);
+    let hostNowBiasTicks: number | null = null;
+    let hostNowBiasMs: number | null = null;
+    let latestSnapshotTick: number | null = null;
+    if (latest && estimatedHostNowTick !== null) {
+      latestSnapshotTick = latest.state.hostTick;
+      const tickMs =
+        latest.state.tickDurationMs || NetworkSyncSystem.DEFAULT_TICK_MS;
+      const elapsedTicks = Math.max(0, (nowMs - latest.receivedAtMs) / tickMs);
+      const halfRttTicks = (this.lastMeasuredLatencyMs * 0.5) / tickMs;
+      const compensatedHostNowTick =
+        latest.state.hostTick + elapsedTicks + halfRttTicks;
+      hostNowBiasTicks = estimatedHostNowTick - compensatedHostNowTick;
+      hostNowBiasMs = hostNowBiasTicks * tickMs;
+    }
+
+    const inputAckGapTicks =
+      this.lastCapturedInputTick !== null && this.latestHostAckTick !== null
+        ? this.lastCapturedInputTick - this.latestHostAckTick
+        : null;
+    const tickMs = this.getTickDurationEstimate();
+    const inputAckGapMs =
+      inputAckGapTicks !== null ? inputAckGapTicks * tickMs : null;
+
+    return {
+      predictionErrorPxLast: this.predictionErrorPxLast,
+      predictionErrorPxEwma: this.predictionErrorPxEwma,
+      presentationLagPxLast: this.presentationLagPxLast,
+      presentationLagPxEwma: this.presentationLagPxEwma,
+      wallCorrectionEvents: this.wallCorrectionEvents,
+      wallOscillationEvents: this.wallOscillationEvents,
+      wallOscillationRatio:
+        this.wallCorrectionEvents > 0
+          ? this.wallOscillationEvents / this.wallCorrectionEvents
+          : 0,
+      hostNowBiasTicks,
+      hostNowBiasMs,
+      estimatedHostNowTick,
+      latestSnapshotTick,
+      capturedInputTick: this.lastCapturedInputTick,
+      latestHostAckTick: this.latestHostAckTick,
+      inputAckGapTicks,
+      inputAckGapMs,
+    };
+  }
+
   private applyPredictedLocalShip(
     baseShips: ShipState[],
     myPlayerId: string | null,
@@ -862,66 +1005,77 @@ export class NetworkSyncSystem {
       return null;
     }
 
-    const hostNowTick = this.estimateHostNowTick(performance.now());
+    // Use local estimate (no half-RTT) for local prediction
+    const hostNowTick = this.estimateHostNowTickForLocal(performance.now());
     if (hostNowTick === null) {
       return this.localPresentationShipState
         ? { ...this.localPresentationShipState }
         : { ...this.localPredictedShipState };
     }
 
-    const targetTick = Math.max(this.localPredictedTick, Math.floor(hostNowTick));
-    this.replayPredictionToTick(targetTick);
+    const desiredTick = Math.max(this.localPredictedTick, Math.floor(hostNowTick));
+    const maxCatchUpTick =
+      this.localPredictedTick +
+      NetworkSyncSystem.MAX_PREDICTION_REPLAY_TICKS_PER_FRAME;
+    const targetTick = Math.min(desiredTick, maxCatchUpTick);
+    if (targetTick > this.localPredictedTick) {
+      this.replayPredictionToTick(targetTick);
+    }
 
     if (!this.localPredictedShipState) return null;
     if (!this.localPresentationShipState) {
+      // First initialization - start synced
       this.localPresentationShipState = { ...this.localPredictedShipState };
     } else {
+      // SMOOTH BLENDING: Presentation chases predicted over multiple frames
       const dx = this.localPredictedShipState.x - this.localPresentationShipState.x;
       const dy = this.localPredictedShipState.y - this.localPresentationShipState.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > NetworkSyncSystem.LOCAL_SNAP_DISTANCE) {
+      this.presentationLagPxLast = dist;
+      this.presentationLagPxEwma = this.updateEwma(
+        this.presentationLagPxEwma,
+        dist,
+      );
+
+      // Adaptive blend factor: blend faster for large errors, slower for small
+      let blendFactor: number;
+      if (dist > 100) {
+        // Very far - snap immediately (probably teleport or major correction)
         this.localPresentationShipState = { ...this.localPredictedShipState };
-      } else if (dist <= 4) {
-        this.localPresentationShipState = { ...this.localPredictedShipState };
+      } else if (dist > 30) {
+        // Medium distance - blend aggressively (60% per frame = smooth over 2-3 frames)
+        blendFactor = 0.6;
+      } else if (dist > 10) {
+        // Small distance - blend moderately (40% per frame = smooth over 3-4 frames)
+        blendFactor = 0.4;
+      } else if (dist > 2) {
+        // Tiny distance - blend gently (25% per frame = smooth over 5-6 frames)
+        blendFactor = 0.25;
       } else {
-        const t = dist <= 30 ? 0.7 : NetworkSyncSystem.LOCAL_PRESENTATION_BLEND;
-        this.localPresentationShipState.x = lerp(
-          this.localPresentationShipState.x,
-          this.localPredictedShipState.x,
-          t,
-        );
-        this.localPresentationShipState.y = lerp(
-          this.localPresentationShipState.y,
-          this.localPredictedShipState.y,
-          t,
-        );
-        this.localPresentationShipState.vx = lerp(
-          this.localPresentationShipState.vx,
-          this.localPredictedShipState.vx,
-          t,
-        );
-        this.localPresentationShipState.vy = lerp(
-          this.localPresentationShipState.vy,
-          this.localPredictedShipState.vy,
-          t,
-        );
-        this.localPresentationShipState.angle = lerpAngle(
-          this.localPresentationShipState.angle,
-          this.localPredictedShipState.angle,
-          t,
-        );
-        this.localPresentationShipState.alive = this.localPredictedShipState.alive;
-        this.localPresentationShipState.invulnerableUntil =
-          this.localPredictedShipState.invulnerableUntil;
-        this.localPresentationShipState.ammo = this.localPredictedShipState.ammo;
-        this.localPresentationShipState.maxAmmo =
-          this.localPredictedShipState.maxAmmo;
-        this.localPresentationShipState.lastShotTime =
-          this.localPredictedShipState.lastShotTime;
-        this.localPresentationShipState.reloadStartTime =
-          this.localPredictedShipState.reloadStartTime;
-        this.localPresentationShipState.isReloading =
-          this.localPredictedShipState.isReloading;
+        // Essentially synced (<2px) - snap to eliminate tiny jitter
+        this.localPresentationShipState = { ...this.localPredictedShipState };
+      }
+
+      // Apply blending if not snapped
+      if (dist > 2 && dist <= 100) {
+        this.localPresentationShipState = {
+          ...this.localPresentationShipState,
+          playerId: this.localPredictedShipState.playerId,
+          alive: this.localPredictedShipState.alive,
+          x: lerp(this.localPresentationShipState.x, this.localPredictedShipState.x, blendFactor),
+          y: lerp(this.localPresentationShipState.y, this.localPredictedShipState.y, blendFactor),
+          vx: lerp(this.localPresentationShipState.vx, this.localPredictedShipState.vx, blendFactor),
+          vy: lerp(this.localPresentationShipState.vy, this.localPredictedShipState.vy, blendFactor),
+          angle: lerpAngle(this.localPresentationShipState.angle, this.localPredictedShipState.angle, blendFactor),
+          // Snap non-interpolatable fields
+          ammo: this.localPredictedShipState.ammo,
+          maxAmmo: this.localPredictedShipState.maxAmmo,
+          lastShotTime: this.localPredictedShipState.lastShotTime,
+          reloadStartTime: this.localPredictedShipState.reloadStartTime,
+          isReloading: this.localPredictedShipState.isReloading,
+          color: this.localPredictedShipState.color,
+          invulnerableUntil: this.localPredictedShipState.invulnerableUntil,
+        };
       }
     }
 
@@ -938,19 +1092,19 @@ export class NetworkSyncSystem {
     const tick = Math.floor(latest.state.hostTick);
     this.localPredictedTick = tick;
     this.localPredictedShipState = { ...hostShip };
+    this.syncLocalPredictionBodyFromState(hostShip);
+    this.localPredictedRuntime = this.runtimeFromHostShip(hostShip, tick);
     this.localPresentationShipState = { ...hostShip };
     this.localStateHistoryByTick.set(tick, { ...hostShip });
+    this.localRuntimeHistoryByTick.set(tick, { ...this.localPredictedRuntime });
+    this.localInputCaptureCursorTick = tick;
     this.pruneLocalPredictionHistory(tick);
   }
 
   private reconcileLocalPrediction(state: GameStateSync): void {
     if (this.network.isHost()) return;
     if (GameConfig.getMode() !== "STANDARD") {
-      this.localPredictedTick = null;
-      this.localPredictedShipState = null;
-      this.localPresentationShipState = null;
-      this.localInputHistoryByTick.clear();
-      this.localStateHistoryByTick.clear();
+      this.resetLocalPredictionState();
       return;
     }
 
@@ -958,24 +1112,115 @@ export class NetworkSyncSystem {
     if (!myPlayerId) return;
     const hostShip = state.ships.find((ship) => ship.playerId === myPlayerId);
     if (!hostShip) {
-      this.localPredictedTick = null;
-      this.localPredictedShipState = null;
-      this.localPresentationShipState = null;
-      this.localInputHistoryByTick.clear();
-      this.localStateHistoryByTick.clear();
+      this.resetLocalPredictionState();
       return;
     }
 
     const snapshotTick = Math.floor(state.hostTick);
-    const replayTarget = Math.max(
-      snapshotTick,
-      this.localPredictedTick ?? snapshotTick,
-    );
+    const replayTarget = snapshotTick;
+    this.latestHostAckTick = snapshotTick;
 
+    const predictedAtSnapshot = this.localStateHistoryByTick.get(snapshotTick);
+    const runtimeAtSnapshot = this.localRuntimeHistoryByTick.get(snapshotTick);
+    if (predictedAtSnapshot) {
+      const errorDx = hostShip.x - predictedAtSnapshot.x;
+      const errorDy = hostShip.y - predictedAtSnapshot.y;
+      const errorDist = Math.sqrt(errorDx * errorDx + errorDy * errorDy);
+      this.predictionErrorPxLast = errorDist;
+      this.predictionErrorPxEwma = this.updateEwma(
+        this.predictionErrorPxEwma,
+        errorDist,
+      );
+      this.trackWallCorrectionOscillation(hostShip, errorDx, errorDy);
+
+      const velocityError = Math.sqrt(
+        (hostShip.vx - predictedAtSnapshot.vx) ** 2 +
+          (hostShip.vy - predictedAtSnapshot.vy) ** 2,
+      );
+      const angleError = this.absAngleDelta(
+        hostShip.angle,
+        predictedAtSnapshot.angle,
+      );
+
+      // FIX BUG W1: Skip reconciliation for moderate errors near walls
+      // Wall physics divergence is expected (Matter.js non-deterministic)
+      // Let presentation blending smooth it out instead of hard corrections
+      const nearWall = this.isNearArenaWall(hostShip) || this.isNearArenaWall(predictedAtSnapshot);
+      const moderateError = errorDist > NetworkSyncSystem.LOCAL_RECONCILE_POSITION_EPSILON &&
+                           errorDist < 50; // Not huge error
+      if (nearWall && moderateError) {
+        // Near wall with moderate error - skip hard correction, let blend smooth it
+        this.localStateHistoryByTick.set(
+          snapshotTick,
+          this.mergeAuthoritativeShipFields(predictedAtSnapshot, hostShip),
+        );
+        if (this.localPredictedTick !== null) {
+          this.pruneLocalPredictionHistory(this.localPredictedTick);
+        }
+        return;
+      }
+
+      const smallError =
+        errorDist <= NetworkSyncSystem.LOCAL_RECONCILE_POSITION_EPSILON &&
+        velocityError <= NetworkSyncSystem.LOCAL_RECONCILE_VELOCITY_EPSILON &&
+        angleError <= NetworkSyncSystem.LOCAL_RECONCILE_ANGLE_EPSILON;
+
+      if (smallError) {
+        this.localStateHistoryByTick.set(
+          snapshotTick,
+          this.mergeAuthoritativeShipFields(predictedAtSnapshot, hostShip),
+        );
+        if (this.localPredictedTick !== null) {
+          this.pruneLocalPredictionHistory(this.localPredictedTick);
+        }
+        return;
+      }
+
+      const correctedBase = this.buildCorrectedSnapshotState(
+        predictedAtSnapshot,
+        hostShip,
+        errorDist,
+      );
+      this.localPredictedTick = snapshotTick;
+      this.localPredictedShipState = { ...correctedBase };
+      // FIX BUG R1: Reset presentation to match corrected predicted state
+      this.localPresentationShipState = { ...correctedBase };
+      this.syncLocalPredictionBodyFromState(correctedBase);
+      this.localPredictedRuntime = runtimeAtSnapshot
+        ? { ...runtimeAtSnapshot }
+        : this.runtimeFromHostShip(hostShip, snapshotTick);
+      this.localStateHistoryByTick.set(snapshotTick, { ...correctedBase });
+      this.localRuntimeHistoryByTick.set(snapshotTick, {
+        ...this.localPredictedRuntime,
+      });
+      if (
+        this.localInputCaptureCursorTick === null ||
+        this.localInputCaptureCursorTick < snapshotTick
+      ) {
+        this.localInputCaptureCursorTick = snapshotTick;
+      }
+      this.replayPredictionToTick(replayTarget);
+      this.pruneLocalPredictionHistory(replayTarget);
+      return;
+    }
+
+    // No prediction history - initialize from host state
     this.localPredictedTick = snapshotTick;
     this.localPredictedShipState = { ...hostShip };
-    this.localStateHistoryByTick.clear();
+    // FIX BUG R1: Reset presentation to match when initializing from host
+    this.localPresentationShipState = { ...hostShip };
+    this.syncLocalPredictionBodyFromState(hostShip);
+    this.localPredictedRuntime = this.runtimeFromHostShip(hostShip, snapshotTick);
     this.localStateHistoryByTick.set(snapshotTick, { ...hostShip });
+    this.localRuntimeHistoryByTick.set(snapshotTick, {
+      ...this.localPredictedRuntime,
+    });
+    if (
+      this.localInputCaptureCursorTick === null ||
+      this.localInputCaptureCursorTick < snapshotTick
+    ) {
+      this.localInputCaptureCursorTick = snapshotTick;
+    }
 
     this.replayPredictionToTick(replayTarget);
     this.pruneLocalPredictionHistory(replayTarget);
@@ -985,86 +1230,389 @@ export class NetworkSyncSystem {
     if (this.localPredictedShipState === null || this.localPredictedTick === null) {
       return;
     }
+    if (targetTick <= this.localPredictedTick) {
+      return;
+    }
     const cfg = GameConfig.config;
     const tickMs = this.getTickDurationEstimate();
 
     for (let tick = this.localPredictedTick + 1; tick <= targetTick; tick++) {
-      const input =
-        this.localInputHistoryByTick.get(tick) ?? this.cloneInput(this.localInputState);
-      if (!this.localInputHistoryByTick.has(tick)) {
-        this.localInputHistoryByTick.set(tick, this.cloneInput(input));
-      }
-      this.localPredictedShipState = this.simulateStandardPredictionStep(
+      const input = this.getInputForTick(tick);
+      const stepResult = this.simulateStandardPredictionStep(
         this.localPredictedShipState,
+        this.localPredictedRuntime,
         input,
         tickMs,
         cfg,
+        tick,
+        this.localDashTicks.has(tick),
       );
+      this.localPredictedShipState = stepResult.state;
+      this.localPredictedRuntime = stepResult.runtime;
       this.localPredictedTick = tick;
       this.localStateHistoryByTick.set(tick, { ...this.localPredictedShipState });
+      this.localRuntimeHistoryByTick.set(tick, { ...this.localPredictedRuntime });
     }
   }
 
   private simulateStandardPredictionStep(
     state: ShipState,
+    runtime: LocalPredictionRuntime,
     input: PlayerInput,
     dtMs: number,
     cfg: typeof GameConfig.config,
-  ): ShipState {
-    if (!state.alive) return { ...state };
+    tick: number,
+    shouldDash: boolean,
+  ): { state: ShipState; runtime: LocalPredictionRuntime } {
+    if (!state.alive) {
+      return {
+        state: { ...state },
+        runtime: { ...runtime },
+      };
+    }
 
     const dtSec = dtMs / 1000;
-    const dtTicks = dtMs / NetworkSyncSystem.DEFAULT_TICK_MS;
     const rotationDirection = this.networkRotationDirection || 1;
-    let angle = state.angle;
+    const predictionBody = this.ensureLocalPredictionShipBody(state);
+    Body.setPosition(predictionBody, { x: state.x, y: state.y });
+    Body.setVelocity(predictionBody, { x: state.vx, y: state.vy });
+    Body.setAngle(predictionBody, state.angle);
+    Body.setAngularVelocity(predictionBody, 0);
+
+    const preRotationAngle = predictionBody.angle;
     if (input.buttonA) {
-      angle += cfg.ROTATION_SPEED * dtSec * rotationDirection;
+      Body.rotate(predictionBody, cfg.ROTATION_SPEED * dtSec * rotationDirection);
+    }
+
+    let dashTimerSec = runtime.dashTimerSec;
+    let recoilTimerSec = runtime.recoilTimerSec;
+    if (shouldDash) {
+      dashTimerSec = cfg.SHIP_DASH_DURATION;
+    }
+    if (dashTimerSec > 0) {
+      dashTimerSec = Math.max(0, dashTimerSec - dtSec);
+    }
+    if (recoilTimerSec > 0) {
+      recoilTimerSec = Math.max(0, recoilTimerSec - dtSec);
+    }
+
+    const simNowMs = tick * dtMs;
+    let ammo = state.ammo;
+    const maxAmmo = state.maxAmmo;
+    let lastShotTime = state.lastShotTime;
+    let reloadStartTime = state.reloadStartTime;
+    let isReloading = state.isReloading;
+
+    if (input.buttonB && ammo > 0 && simNowMs - lastShotTime > cfg.FIRE_COOLDOWN) {
+      lastShotTime = simNowMs;
+      ammo -= 1;
+      recoilTimerSec = cfg.SHIP_RECOIL_DURATION;
+      if (ammo < maxAmmo && !isReloading) {
+        isReloading = true;
+        reloadStartTime = simNowMs;
+      }
+    }
+
+    if (isReloading && ammo < maxAmmo) {
+      const reloadProgress = simNowMs - reloadStartTime;
+      if (reloadProgress >= GAME_CONFIG.AMMO_RELOAD_TIME) {
+        ammo += 1;
+        reloadStartTime = simNowMs;
+        if (ammo >= maxAmmo) {
+          ammo = maxAmmo;
+          isReloading = false;
+        }
+      }
     }
 
     const powerUp = this.playerPowerUps.get(state.playerId);
     const speedMultiplier = powerUp?.type === "JOUST" ? 1.4 : 1;
-    const targetSpeed = Math.max(0, cfg.SHIP_TARGET_SPEED * speedMultiplier);
-    const desiredVx = Math.cos(angle) * targetSpeed;
-    const desiredVy = Math.sin(angle) * targetSpeed;
+    const dashBoost = dashTimerSec > 0 ? cfg.SHIP_DASH_BOOST : 0;
+    const recoilSlowdown = recoilTimerSec > 0 ? cfg.SHIP_RECOIL_SLOWDOWN : 0;
+    const targetSpeed = Math.max(
+      0,
+      (cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown) * speedMultiplier,
+    );
+    const desiredVx = Math.cos(preRotationAngle) * targetSpeed;
+    const desiredVy = Math.sin(preRotationAngle) * targetSpeed;
     const response = cfg.SHIP_SPEED_RESPONSE;
     const t = 1 - Math.exp(-response * dtSec);
-    let vx = state.vx + (desiredVx - state.vx) * t;
-    let vy = state.vy + (desiredVy - state.vy) * t;
-    let x = state.x + vx * dtTicks;
-    let y = state.y + vy * dtTicks;
+    const nextVx = state.vx + (desiredVx - state.vx) * t;
+    const nextVy = state.vy + (desiredVy - state.vy) * t;
+    Body.setVelocity(predictionBody, {
+      x: nextVx,
+      y: nextVy,
+    });
+    this.localPredictionPhysics?.updateFixed(dtMs);
 
-    const shipRadius = 15;
-    const width = GAME_CONFIG.ARENA_WIDTH;
-    const height = GAME_CONFIG.ARENA_HEIGHT;
-    const minX = shipRadius;
-    const maxX = width - shipRadius;
-    const minY = shipRadius;
-    const maxY = height - shipRadius;
-
-    if (x < minX) {
-      x = minX;
-      if (vx < 0) vx = 0;
-    } else if (x > maxX) {
-      x = maxX;
-      if (vx > 0) vx = 0;
-    }
-
-    if (y < minY) {
-      y = minY;
-      if (vy < 0) vy = 0;
-    } else if (y > maxY) {
-      y = maxY;
-      if (vy > 0) vy = 0;
-    }
+    const x = predictionBody.position.x;
+    const y = predictionBody.position.y;
+    const vx = predictionBody.velocity.x;
+    const vy = predictionBody.velocity.y;
+    const angle = predictionBody.angle;
 
     return {
-      ...state,
-      x,
-      y,
-      vx,
-      vy,
-      angle,
+      state: {
+        ...state,
+        x,
+        y,
+        vx,
+        vy,
+        angle,
+        ammo,
+        maxAmmo,
+        lastShotTime,
+        reloadStartTime,
+        isReloading,
+      },
+      runtime: {
+        dashTimerSec,
+        recoilTimerSec,
+      },
     };
+  }
+
+  private captureInputForPredictedTicks(input: PlayerInput): number | null {
+    if (this.network.isHost()) return null;
+    // Use local estimate (no half-RTT) for input capture
+    const hostNowTick = this.estimateHostNowTickForLocal(performance.now());
+    const baseTick =
+      this.localPredictedTick ??
+      (hostNowTick !== null ? Math.floor(hostNowTick) : null);
+    if (baseTick === null) return null;
+    const captureTick = Math.max(0, baseTick + 1);
+    const captured = this.cloneInput(input);
+    if (
+      this.localInputCaptureCursorTick === null ||
+      captureTick > this.localInputCaptureCursorTick
+    ) {
+      const fromTick =
+        this.localInputCaptureCursorTick === null
+          ? captureTick
+          : this.localInputCaptureCursorTick + 1;
+      for (let tick = fromTick; tick <= captureTick; tick++) {
+        this.localInputHistoryByTick.set(tick, this.cloneInput(captured));
+      }
+      this.localInputCaptureCursorTick = captureTick;
+      return captureTick;
+    }
+
+    this.localInputHistoryByTick.set(captureTick, captured);
+    return captureTick;
+  }
+
+  private getInputForTick(tick: number): PlayerInput {
+    const direct = this.localInputHistoryByTick.get(tick);
+    if (direct) {
+      return this.cloneInput(direct);
+    }
+
+    const fallback = this.getLatestCapturedInputBeforeTick(tick) ?? this.localInputState;
+    const cloned = this.cloneInput(fallback);
+    this.localInputHistoryByTick.set(tick, cloned);
+    if (
+      this.localInputCaptureCursorTick === null ||
+      tick > this.localInputCaptureCursorTick
+    ) {
+      this.localInputCaptureCursorTick = tick;
+    }
+    return this.cloneInput(cloned);
+  }
+
+  private getLatestCapturedInputBeforeTick(tick: number): PlayerInput | null {
+    const keepFrom = tick - NetworkSyncSystem.LOCAL_PREDICTION_HISTORY_TICKS;
+    for (let t = tick - 1; t >= keepFrom; t--) {
+      const input = this.localInputHistoryByTick.get(t);
+      if (input) {
+        return input;
+      }
+    }
+    return null;
+  }
+
+  private runtimeFromHostShip(
+    shipState: ShipState,
+    tick: number,
+  ): LocalPredictionRuntime {
+    const tickMs = this.getTickDurationEstimate();
+    const snapshotNowMs = tick * tickMs;
+    const lastShotTime = Number.isFinite(shipState.lastShotTime)
+      ? shipState.lastShotTime
+      : 0;
+    const elapsedSinceShotSec = Math.max(0, (snapshotNowMs - lastShotTime) / 1000);
+    const recoilTimerSec = Math.max(
+      0,
+      GameConfig.config.SHIP_RECOIL_DURATION - elapsedSinceShotSec,
+    );
+    return {
+      dashTimerSec: 0,
+      recoilTimerSec,
+    };
+  }
+
+  private resetLocalPredictionState(): void {
+    this.localPredictedTick = null;
+    this.localPredictedShipState = null;
+    this.localPredictedRuntime = {
+      dashTimerSec: 0,
+      recoilTimerSec: 0,
+    };
+    this.localPresentationShipState = null;
+    this.localInputHistoryByTick.clear();
+    this.localStateHistoryByTick.clear();
+    this.localRuntimeHistoryByTick.clear();
+    this.localDashTicks.clear();
+    this.localInputCaptureCursorTick = null;
+    this.destroyLocalPredictionPhysics();
+  }
+
+  private ensureLocalPredictionShipBody(state: ShipState): Matter.Body {
+    if (!this.localPredictionPhysics) {
+      this.localPredictionPhysics = new Physics();
+      this.localPredictionPhysics.createWalls(
+        GAME_CONFIG.ARENA_WIDTH,
+        GAME_CONFIG.ARENA_HEIGHT,
+      );
+    }
+
+    if (
+      !this.localPredictionShipBody ||
+      this.localPredictionPlayerId !== state.playerId
+    ) {
+      if (this.localPredictionShipBody) {
+        this.localPredictionPhysics.removeBody(this.localPredictionShipBody);
+      }
+      this.localPredictionShipBody = this.localPredictionPhysics.createShip(
+        state.x,
+        state.y,
+        state.playerId,
+      );
+      this.localPredictionPlayerId = state.playerId;
+    }
+
+    return this.localPredictionShipBody;
+  }
+
+  private syncLocalPredictionBodyFromState(state: ShipState): void {
+    const body = this.ensureLocalPredictionShipBody(state);
+    Body.setPosition(body, { x: state.x, y: state.y });
+    Body.setVelocity(body, { x: state.vx, y: state.vy });
+    Body.setAngle(body, state.angle);
+    Body.setAngularVelocity(body, 0);
+  }
+
+  private destroyLocalPredictionPhysics(): void {
+    if (this.localPredictionPhysics && this.localPredictionShipBody) {
+      this.localPredictionPhysics.removeBody(this.localPredictionShipBody);
+    }
+    this.localPredictionShipBody = null;
+    this.localPredictionPhysics = null;
+    this.localPredictionPlayerId = null;
+  }
+
+  private resetDebugTelemetry(): void {
+    this.lastMeasuredLatencyMs = 0;
+    this.predictionErrorPxLast = 0;
+    this.predictionErrorPxEwma = 0;
+    this.presentationLagPxLast = 0;
+    this.presentationLagPxEwma = 0;
+    this.wallCorrectionEvents = 0;
+    this.wallOscillationEvents = 0;
+    this.lastWallCorrectionAxis = null;
+    this.lastWallCorrectionSign = 0;
+    this.lastCapturedInputTick = null;
+    this.latestHostAckTick = null;
+  }
+
+  private updateEwma(current: number, sample: number): number {
+    if (current <= 0) return sample;
+    return (
+      current * (1 - NetworkSyncSystem.DEBUG_EWMA_ALPHA) +
+      sample * NetworkSyncSystem.DEBUG_EWMA_ALPHA
+    );
+  }
+
+  private absAngleDelta(a: number, b: number): number {
+    const twoPi = Math.PI * 2;
+    let diff = (a - b) % twoPi;
+    if (diff > Math.PI) diff -= twoPi;
+    if (diff < -Math.PI) diff += twoPi;
+    return Math.abs(diff);
+  }
+
+  private mergeAuthoritativeShipFields(
+    predicted: ShipState,
+    host: ShipState,
+  ): ShipState {
+    return {
+      ...predicted,
+      alive: host.alive,
+      invulnerableUntil: host.invulnerableUntil,
+      ammo: host.ammo,
+      maxAmmo: host.maxAmmo,
+      lastShotTime: host.lastShotTime,
+      reloadStartTime: host.reloadStartTime,
+      isReloading: host.isReloading,
+    };
+  }
+
+  private buildCorrectedSnapshotState(
+    predicted: ShipState,
+    host: ShipState,
+    errorDist: number,
+  ): ShipState {
+    if (errorDist >= NetworkSyncSystem.LOCAL_CORRECTION_SNAP_DISTANCE) {
+      return { ...host };
+    }
+
+    const t = NetworkSyncSystem.LOCAL_CORRECTION_BLEND;
+    return {
+      ...host,
+      x: lerp(predicted.x, host.x, t),
+      y: lerp(predicted.y, host.y, t),
+      vx: lerp(predicted.vx, host.vx, t),
+      vy: lerp(predicted.vy, host.vy, t),
+      angle: lerpAngle(predicted.angle, host.angle, t),
+    };
+  }
+
+  private isNearArenaWall(ship: ShipState): boolean {
+    const margin = NetworkSyncSystem.WALL_PROXIMITY_MARGIN;
+    const width = GAME_CONFIG.ARENA_WIDTH;
+    const height = GAME_CONFIG.ARENA_HEIGHT;
+    return (
+      ship.x <= margin ||
+      ship.x >= width - margin ||
+      ship.y <= margin ||
+      ship.y >= height - margin
+    );
+  }
+
+  private trackWallCorrectionOscillation(
+    hostShip: ShipState,
+    errorDx: number,
+    errorDy: number,
+  ): void {
+    if (!this.isNearArenaWall(hostShip)) return;
+    const ax = Math.abs(errorDx);
+    const ay = Math.abs(errorDy);
+    if (ax < 0.25 && ay < 0.25) return;
+
+    const axis: "x" | "y" = ax >= ay ? "x" : "y";
+    const signedError = axis === "x" ? errorDx : errorDy;
+    const sign = Math.sign(signedError);
+    if (sign === 0) return;
+
+    this.wallCorrectionEvents += 1;
+    if (
+      this.lastWallCorrectionAxis === axis &&
+      this.lastWallCorrectionSign !== 0 &&
+      this.lastWallCorrectionSign !== sign
+    ) {
+      this.wallOscillationEvents += 1;
+    }
+    this.lastWallCorrectionAxis = axis;
+    this.lastWallCorrectionSign = sign;
   }
 
   private pruneLocalPredictionHistory(currentTick: number): void {
@@ -1079,6 +1627,22 @@ export class NetworkSyncSystem {
       if (tick < keepFrom) {
         this.localStateHistoryByTick.delete(tick);
       }
+    }
+    for (const tick of this.localRuntimeHistoryByTick.keys()) {
+      if (tick < keepFrom) {
+        this.localRuntimeHistoryByTick.delete(tick);
+      }
+    }
+    for (const tick of this.localDashTicks) {
+      if (tick < keepFrom) {
+        this.localDashTicks.delete(tick);
+      }
+    }
+    if (
+      this.localInputCaptureCursorTick !== null &&
+      this.localInputCaptureCursorTick < keepFrom
+    ) {
+      this.localInputCaptureCursorTick = keepFrom;
     }
   }
 
