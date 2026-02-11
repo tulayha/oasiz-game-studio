@@ -1,0 +1,2171 @@
+import {
+  getRoomCode,
+  getState,
+  insertCoin,
+  isHost,
+  myPlayer,
+  onPlayerJoin,
+  setState,
+  type PlayerState,
+} from "playroomkit";
+
+type Phase =
+  | "lobby"
+  | "role_reveal"
+  | "clue"
+  | "discussion"
+  | "voting"
+  | "round_result"
+  | "match_end";
+
+type Role = "member" | "imposter";
+
+type HapticType = "light" | "medium" | "heavy" | "success" | "error";
+
+interface GameConfig {
+  totalPlayers: number;
+  imposters: number;
+  rounds: number;
+  revealSeconds: number;
+  clueSeconds: number;
+  discussionSeconds: number;
+  votingSeconds: number;
+  resultSeconds: number;
+}
+
+interface Settings {
+  music: boolean;
+  fx: boolean;
+  haptics: boolean;
+}
+
+interface ClueEntry {
+  playerId: string;
+  clue: string;
+  round: number;
+  auto: boolean;
+}
+
+interface RoundResult {
+  round: number;
+  winner: "members" | "imposters";
+  eliminatedId: string;
+  eliminatedName: string;
+  eliminatedRole: Role;
+  revealedWord: string;
+  voteCounts: Record<string, number>;
+}
+
+interface ScoreEntry {
+  playerId: string;
+  name: string;
+  score: number;
+  role: Role | "none";
+}
+
+declare global {
+  interface Window {
+    __ROOM_CODE__?: string;
+    __PLAYER_NAME__?: string;
+    __PLAYER_AVATAR__?: string;
+    shareRoomCode?: (roomCode: string | null) => void;
+    triggerHaptic?: (type: HapticType) => void;
+    submitScore?: (score: number) => void;
+  }
+}
+
+const SETTINGS_KEY = "imposter-settings";
+
+const STATE_KEYS = {
+  phase: "imposter_phase",
+  config: "imposter_config",
+  hostId: "imposter_host_id",
+  round: "imposter_round",
+  phaseEndsAt: "imposter_phase_ends_at",
+  participants: "imposter_participants",
+  turnOrder: "imposter_turn_order",
+  turnIndex: "imposter_turn_index",
+  clues: "imposter_clues",
+  result: "imposter_result",
+  scoreboard: "imposter_scoreboard",
+};
+
+const PLAYER_KEYS = {
+  customName: "customName",
+  ready: "ready",
+  score: "score",
+  role: "imposter_role",
+  secretWord: "imposter_secret_word",
+  revealReady: "imposter_reveal_ready",
+  hasVoted: "imposter_has_voted",
+  voteTarget: "imposter_vote_target",
+};
+
+const DEFAULT_CONFIG: GameConfig = {
+  totalPlayers: 2,
+  imposters: 1,
+  rounds: 5,
+  revealSeconds: 25,
+  clueSeconds: 22,
+  discussionSeconds: 30,
+  votingSeconds: 25,
+  resultSeconds: 8,
+};
+
+const WORD_BANK = [
+  "Volcano",
+  "Passport",
+  "Museum",
+  "Lantern",
+  "Glacier",
+  "Jungle",
+  "Harbor",
+  "Compass",
+  "Saturn",
+  "Orchestra",
+  "Pyramid",
+  "Fireworks",
+  "Backpack",
+  "Dessert",
+  "Galaxy",
+  "Carnival",
+  "Skateboard",
+  "Avalanche",
+  "Hammock",
+  "Fountain",
+  "Lighthouse",
+  "Postcard",
+  "Kite",
+  "Submarine",
+  "Canyon",
+  "Espresso",
+  "Moonlight",
+  "Violin",
+  "Blueprint",
+  "Dragon",
+  "Treasure",
+  "Cabin",
+  "Tornado",
+  "Mirage",
+  "Sunglasses",
+  "Carousel",
+  "Feather",
+  "Potion",
+  "Bonfire",
+  "Waterfall",
+  "Origami",
+  "Festival",
+  "Telescope",
+  "Picnic",
+  "Raindrop",
+  "Snowflake",
+  "Sculpture",
+  "Echo",
+  "Riddle",
+  "Meadow",
+  "Airship",
+  "Rocket",
+  "Comet",
+  "Anchor",
+  "Notebook",
+  "Jigsaw",
+  "Lightning",
+  "Trophy",
+  "Sunset",
+  "Dolphin",
+  "Cloud",
+  "Guitar",
+  "Library",
+  "Magnet",
+  "Keyhole",
+  "Bicycle",
+  "Train",
+  "Garden",
+  "Trampoline",
+  "Camera",
+  "Robot",
+  "Umbrella",
+];
+
+const startScreen = getEl<HTMLElement>("start-screen");
+const loadingScreen = getEl<HTMLElement>("loading-screen");
+const lobbyScreen = getEl<HTMLElement>("lobby-screen");
+const gameScreen = getEl<HTMLElement>("game-screen");
+
+const startButtons = getEl<HTMLElement>("start-buttons");
+const joinRoomSection = getEl<HTMLElement>("join-room-section");
+const joinRoomInput = getEl<HTMLInputElement>("join-room-input");
+const joinError = getEl<HTMLElement>("join-error");
+
+const loadingText = getEl<HTMLElement>("loading-text");
+
+const createRoomBtn = getEl<HTMLButtonElement>("create-room-btn");
+const joinRoomBtn = getEl<HTMLButtonElement>("join-room-btn");
+const joinSubmitBtn = getEl<HTMLButtonElement>("join-submit-btn");
+const backToStartBtn = getEl<HTMLButtonElement>("back-to-start");
+const backBtn = getEl<HTMLButtonElement>("back-btn");
+
+const settingsBtn = getEl<HTMLButtonElement>("settings-btn");
+const settingsModal = getEl<HTMLElement>("settings-modal");
+
+let app: ImposterGame | null = null;
+
+function getEl<T extends HTMLElement>(id: string): T {
+  const element = document.getElementById(id);
+  if (!element) {
+    throw new Error("Missing element with id " + id);
+  }
+  return element as T;
+}
+
+function log(scope: string, message: string): void {
+  console.log("[" + scope + "]", message);
+}
+
+function sanitizeRoomCode(raw: string): string {
+  return raw
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+}
+
+function generateRoomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 4; i += 1) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+function getRoomCodeFromURL(): string | null {
+  const hash = window.location.hash;
+  const roomMatch = hash.match(/[#&]r=([A-Z0-9]+)/i);
+  return roomMatch ? roomMatch[1].toUpperCase() : null;
+}
+
+function triggerPlatformHaptic(type: HapticType): void {
+  if (typeof window.triggerHaptic === "function") {
+    window.triggerHaptic(type);
+  }
+}
+
+function shareRoomCode(roomCode: string | null): void {
+  if (typeof window.shareRoomCode === "function") {
+    window.shareRoomCode(roomCode);
+  }
+}
+
+function showLoading(text: string): void {
+  loadingText.textContent = text;
+  loadingScreen.classList.remove("hidden");
+  startScreen.classList.add("hidden");
+  lobbyScreen.classList.add("hidden");
+  gameScreen.classList.add("hidden");
+}
+
+function showStartScreen(): void {
+  startScreen.classList.remove("hidden");
+  loadingScreen.classList.add("hidden");
+  lobbyScreen.classList.add("hidden");
+  gameScreen.classList.add("hidden");
+  backBtn.classList.add("hidden");
+  settingsBtn.classList.add("hidden");
+  settingsModal.classList.add("hidden");
+
+  startButtons.classList.remove("hidden");
+  joinRoomSection.classList.add("hidden");
+  joinRoomInput.value = "";
+  joinError.classList.add("hidden");
+}
+
+function hideLoading(): void {
+  loadingScreen.classList.add("hidden");
+}
+
+async function connectToRoom(roomCode: string): Promise<boolean> {
+  showLoading("Connecting to room...");
+
+  try {
+    await insertCoin({
+      skipLobby: true,
+      maxPlayersPerRoom: 12,
+      roomCode,
+      defaultPlayerStates: {
+        [PLAYER_KEYS.ready]: false,
+        [PLAYER_KEYS.score]: 0,
+        [PLAYER_KEYS.role]: "",
+        [PLAYER_KEYS.secretWord]: "",
+        [PLAYER_KEYS.revealReady]: false,
+        [PLAYER_KEYS.hasVoted]: false,
+        [PLAYER_KEYS.voteTarget]: "",
+      },
+    });
+
+    const connectedCode = getRoomCode();
+    log("connectToRoom", "Connected to room " + String(connectedCode || roomCode));
+    shareRoomCode(connectedCode || roomCode);
+
+    hideLoading();
+
+    startScreen.classList.add("hidden");
+    lobbyScreen.classList.remove("hidden");
+    backBtn.classList.remove("hidden");
+    settingsBtn.classList.remove("hidden");
+
+    if (app) {
+      app.destroy();
+    }
+    app = new ImposterGame();
+
+    return true;
+  } catch (error) {
+    log("connectToRoom", "Failed to connect " + String(error));
+    hideLoading();
+    showStartScreen();
+    return false;
+  }
+}
+
+async function leaveRoom(): Promise<void> {
+  triggerPlatformHaptic("light");
+
+  shareRoomCode(null);
+
+  try {
+    const player = myPlayer();
+    if (player) {
+      await player.leaveRoom();
+    }
+  } catch (error) {
+    log("leaveRoom", "Failed to leave room cleanly " + String(error));
+  }
+
+  if (app) {
+    app.destroy();
+    app = null;
+  }
+
+  showStartScreen();
+}
+
+async function attemptJoinRoom(): Promise<void> {
+  const code = sanitizeRoomCode(joinRoomInput.value.trim());
+  joinRoomInput.value = code;
+
+  if (code.length < 4) {
+    joinError.textContent = "Code must be at least 4 characters";
+    joinError.classList.remove("hidden");
+    triggerPlatformHaptic("error");
+    return;
+  }
+
+  triggerPlatformHaptic("light");
+  const success = await connectToRoom(code);
+  if (!success) {
+    joinError.textContent = "Could not connect to room";
+    joinError.classList.remove("hidden");
+  }
+}
+
+function setupStartScreen(): void {
+  createRoomBtn.addEventListener("click", async () => {
+    triggerPlatformHaptic("light");
+    const code = generateRoomCode();
+    log("setupStartScreen", "Creating room " + code);
+    await connectToRoom(code);
+  });
+
+  joinRoomBtn.addEventListener("click", () => {
+    triggerPlatformHaptic("light");
+    startButtons.classList.add("hidden");
+    joinRoomSection.classList.remove("hidden");
+    joinError.classList.add("hidden");
+    joinRoomInput.focus();
+  });
+
+  backToStartBtn.addEventListener("click", () => {
+    triggerPlatformHaptic("light");
+    startButtons.classList.remove("hidden");
+    joinRoomSection.classList.add("hidden");
+    joinError.classList.add("hidden");
+    joinRoomInput.value = "";
+  });
+
+  joinRoomInput.addEventListener("input", () => {
+    joinRoomInput.value = sanitizeRoomCode(joinRoomInput.value);
+    joinError.classList.add("hidden");
+  });
+
+  joinRoomInput.addEventListener("keydown", async (event) => {
+    if (event.key === "Enter") {
+      await attemptJoinRoom();
+    }
+  });
+
+  joinSubmitBtn.addEventListener("click", async () => {
+    await attemptJoinRoom();
+  });
+
+  backBtn.addEventListener("click", () => {
+    void leaveRoom();
+  });
+}
+
+class AudioEngine {
+  private audioContext: AudioContext | null = null;
+  private sequenceTimer: ReturnType<typeof setInterval> | null = null;
+  private sequenceStep = 0;
+
+  private ensureContext(): AudioContext | null {
+    if (this.audioContext) {
+      return this.audioContext;
+    }
+
+    try {
+      this.audioContext = new AudioContext();
+      return this.audioContext;
+    } catch (error) {
+      log("AudioEngine.ensureContext", "Audio context unavailable " + String(error));
+      return null;
+    }
+  }
+
+  private playTone(
+    frequency: number,
+    durationMs: number,
+    type: OscillatorType,
+    gainValue: number,
+  ): void {
+    const context = this.ensureContext();
+    if (!context) {
+      return;
+    }
+
+    if (context.state === "suspended") {
+      void context.resume();
+    }
+
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(frequency, context.currentTime);
+
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(
+      Math.max(0.0001, gainValue),
+      context.currentTime + 0.02,
+    );
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + durationMs / 1000);
+
+    osc.connect(gain);
+    gain.connect(context.destination);
+
+    osc.start();
+    osc.stop(context.currentTime + durationMs / 1000 + 0.02);
+  }
+
+  public stopMusic(): void {
+    if (this.sequenceTimer) {
+      clearInterval(this.sequenceTimer);
+      this.sequenceTimer = null;
+      this.sequenceStep = 0;
+    }
+  }
+
+  public startLobbyMusic(): void {
+    this.stopMusic();
+    this.sequenceTimer = setInterval(() => {
+      const sequence = [220, 247, 294, 330];
+      const index = this.sequenceStep % sequence.length;
+      this.playTone(sequence[index], 180, "triangle", 0.04);
+      this.sequenceStep += 1;
+    }, 420);
+  }
+
+  public startRoundMusic(): void {
+    this.stopMusic();
+    this.sequenceTimer = setInterval(() => {
+      const sequence = [164, 196, 220, 196, 146, 196];
+      const index = this.sequenceStep % sequence.length;
+      this.playTone(sequence[index], 140, "sawtooth", 0.035);
+      this.sequenceStep += 1;
+    }, 350);
+  }
+
+  public playClick(): void {
+    this.playTone(560, 70, "square", 0.05);
+  }
+
+  public playReveal(): void {
+    this.playTone(330, 120, "triangle", 0.05);
+    setTimeout(() => this.playTone(440, 130, "triangle", 0.05), 80);
+  }
+
+  public playVoteLock(): void {
+    this.playTone(180, 110, "sawtooth", 0.06);
+  }
+
+  public playWin(): void {
+    this.playTone(392, 160, "triangle", 0.06);
+    setTimeout(() => this.playTone(523, 220, "triangle", 0.06), 120);
+  }
+
+  public playLose(): void {
+    this.playTone(220, 140, "sawtooth", 0.05);
+    setTimeout(() => this.playTone(174, 180, "sawtooth", 0.05), 120);
+  }
+}
+
+class ImposterGame {
+  private players: PlayerState[] = [];
+  private phase: Phase = "lobby";
+  private hostId = "";
+  private config: GameConfig = { ...DEFAULT_CONFIG };
+  private round = 1;
+  private participants: string[] = [];
+  private turnOrder: string[] = [];
+  private turnIndex = 0;
+  private clues: ClueEntry[] = [];
+  private phaseEndsAt = 0;
+  private result: RoundResult | null = null;
+  private selectedVoteTarget = "";
+  private hasSubmittedScore = false;
+
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private hostTickInterval: ReturnType<typeof setInterval> | null = null;
+  private nameDebounce: ReturnType<typeof setTimeout> | null = null;
+  private playerJoinCleanup: (() => void) | null = null;
+  private abortController: AbortController;
+  private isInteractingWithConfig = false;
+  private myReadyState = false;
+
+  private settings: Settings;
+  private audio: AudioEngine;
+
+  private roomCodeDisplay = getEl<HTMLElement>("room-code-display");
+  private copyCodeBtn = getEl<HTMLButtonElement>("copy-code-btn");
+  private lobbyStatus = getEl<HTMLElement>("lobby-status");
+  private lobbyPlayerCount = getEl<HTMLElement>("lobby-player-count");
+
+  private hostConfigPanel = getEl<HTMLElement>("host-config-panel");
+  private totalPlayersInput = getEl<HTMLInputElement>("total-players-input");
+  private impostersInput = getEl<HTMLInputElement>("imposters-input");
+  private roundsInput = getEl<HTMLInputElement>("rounds-input");
+
+  private totalPlayersValue = getEl<HTMLElement>("total-players-value");
+  private impostersValue = getEl<HTMLElement>("imposters-value");
+  private roundsValue = getEl<HTMLElement>("rounds-value");
+  private hostConfigNote = getEl<HTMLElement>("host-config-note");
+
+  private playerNameInput = getEl<HTMLInputElement>("player-name-input");
+  private lobbyPlayerList = getEl<HTMLElement>("lobby-player-list");
+  private readyBtn = getEl<HTMLButtonElement>("ready-btn");
+  private startMatchBtn = getEl<HTMLButtonElement>("start-match-btn");
+
+  private gameHud = getEl<HTMLElement>("game-hud");
+  private phasePill = getEl<HTMLElement>("phase-pill");
+  private roundLabel = getEl<HTMLElement>("round-label");
+  private timerLabel = getEl<HTMLElement>("timer-label");
+  private spectatorNote = getEl<HTMLElement>("spectator-note");
+
+  private rolePanel = getEl<HTMLElement>("role-panel");
+  private roleBadge = getEl<HTMLElement>("role-badge");
+  private roleWord = getEl<HTMLElement>("role-word");
+  private roleSubtitle = getEl<HTMLElement>("role-subtitle");
+  private roleNote = getEl<HTMLElement>("role-note");
+  private revealReadyBtn = getEl<HTMLButtonElement>("reveal-ready-btn");
+
+  private cluePanel = getEl<HTMLElement>("clue-panel");
+  private currentTurnLabel = getEl<HTMLElement>("current-turn");
+  private clueInput = getEl<HTMLInputElement>("clue-input");
+  private clueFeed = getEl<HTMLElement>("clue-feed");
+  private submitClueBtn = getEl<HTMLButtonElement>("submit-clue-btn");
+
+  private discussionPanel = getEl<HTMLElement>("discussion-panel");
+  private discussionClues = getEl<HTMLElement>("discussion-clues");
+
+  private votePanel = getEl<HTMLElement>("vote-panel");
+  private voteSubtitle = getEl<HTMLElement>("vote-subtitle");
+  private voteGrid = getEl<HTMLElement>("vote-grid");
+  private confirmVoteBtn = getEl<HTMLButtonElement>("confirm-vote-btn");
+
+  private resultPanel = getEl<HTMLElement>("result-panel");
+  private resultWinner = getEl<HTMLElement>("result-winner");
+  private resultDetail = getEl<HTMLElement>("result-detail");
+  private revealedWord = getEl<HTMLElement>("revealed-word");
+  private resultNextNote = getEl<HTMLElement>("result-next-note");
+  private scoreboard = getEl<HTMLElement>("scoreboard");
+
+  private matchPanel = getEl<HTMLElement>("match-panel");
+  private matchScoreboard = getEl<HTMLElement>("match-scoreboard");
+  private playAgainBtn = getEl<HTMLButtonElement>("play-again-btn");
+
+  private settingsCloseBtn = getEl<HTMLButtonElement>("settings-close");
+  private musicToggle = getEl<HTMLButtonElement>("toggle-music");
+  private fxToggle = getEl<HTMLButtonElement>("toggle-fx");
+  private hapticsToggle = getEl<HTMLButtonElement>("toggle-haptics");
+
+  constructor() {
+    log("ImposterGame.constructor", "Initializing in-room controller");
+
+    this.abortController = new AbortController();
+    this.settings = this.loadSettings();
+    this.audio = new AudioEngine();
+
+    this.setupSettingsListeners();
+    this.setupLobbyListeners();
+    this.setupGameListeners();
+    this.setupPlayroomListeners();
+
+    this.syncPlayerIdentity();
+    this.ensureHostConfigState();
+    this.startPolling();
+
+    this.renderAll();
+  }
+
+  private loadSettings(): Settings {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Settings;
+        return {
+          music: Boolean(parsed.music),
+          fx: Boolean(parsed.fx),
+          haptics: Boolean(parsed.haptics),
+        };
+      }
+    } catch (error) {
+      log("ImposterGame.loadSettings", "Failed to load settings " + String(error));
+    }
+
+    return {
+      music: true,
+      fx: true,
+      haptics: true,
+    };
+  }
+
+  private saveSettings(): void {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+    } catch (error) {
+      log("ImposterGame.saveSettings", "Failed to save settings " + String(error));
+    }
+  }
+
+  private setupSettingsListeners(): void {
+    const signal = this.abortController.signal;
+
+    settingsBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.playFx("click");
+      settingsModal.classList.remove("hidden");
+    }, { signal });
+
+    this.settingsCloseBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.playFx("click");
+      settingsModal.classList.add("hidden");
+    }, { signal });
+
+    settingsModal.addEventListener("click", (event) => {
+      if (event.target === settingsModal) {
+        this.triggerHaptic("light");
+        settingsModal.classList.add("hidden");
+      }
+    }, { signal });
+
+    this.musicToggle.addEventListener("click", () => {
+      this.settings.music = !this.settings.music;
+      this.applySettingsState();
+      this.saveSettings();
+      this.triggerHaptic("light");
+      if (this.settings.music) {
+        this.applyMusicForPhase();
+      } else {
+        this.audio.stopMusic();
+      }
+    }, { signal });
+
+    this.fxToggle.addEventListener("click", () => {
+      this.settings.fx = !this.settings.fx;
+      this.applySettingsState();
+      this.saveSettings();
+      this.triggerHaptic("light");
+      this.playFx("click");
+    }, { signal });
+
+    this.hapticsToggle.addEventListener("click", () => {
+      this.settings.haptics = !this.settings.haptics;
+      this.applySettingsState();
+      this.saveSettings();
+      if (typeof window.triggerHaptic === "function") {
+        window.triggerHaptic("light");
+      }
+    }, { signal });
+
+    this.applySettingsState();
+  }
+
+  private applySettingsState(): void {
+    this.musicToggle.classList.toggle("active", this.settings.music);
+    this.fxToggle.classList.toggle("active", this.settings.fx);
+    this.hapticsToggle.classList.toggle("active", this.settings.haptics);
+  }
+
+  private setupLobbyListeners(): void {
+    const signal = this.abortController.signal;
+
+    this.copyCodeBtn.addEventListener("click", () => {
+      const code = getRoomCode();
+      if (!code) {
+        return;
+      }
+
+      void navigator.clipboard
+        .writeText(code)
+        .then(() => {
+          this.triggerHaptic("light");
+          this.playFx("click");
+          this.copyCodeBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.41 1.41L9 19 21 7l-1.41-1.41Z"/></svg>';
+          setTimeout(() => {
+            this.copyCodeBtn.innerHTML =
+              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H5a2 2 0 0 0-2 2v12h2V3h11V1Zm3 4H9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H9V7h10v14Z"/></svg>';
+          }, 1200);
+        })
+        .catch((error) => {
+          log("setupLobbyListeners.copyCode", "Clipboard failed " + String(error));
+        });
+    }, { signal });
+
+    this.playerNameInput.addEventListener("input", () => {
+      if (this.nameDebounce) {
+        clearTimeout(this.nameDebounce);
+      }
+
+      this.nameDebounce = setTimeout(() => {
+        this.savePlayerName();
+      }, 220);
+    }, { signal });
+
+    this.playerNameInput.addEventListener("blur", () => {
+      this.savePlayerName();
+    }, { signal });
+
+    this.readyBtn.addEventListener("click", () => {
+      this.triggerHaptic("light");
+      this.playFx("click");
+      this.toggleReady();
+    }, { signal });
+
+    this.startMatchBtn.addEventListener("click", () => {
+      this.triggerHaptic("medium");
+      this.playFx("vote");
+      this.startMatchIfHost();
+    }, { signal });
+
+    const configInputs = [this.totalPlayersInput, this.impostersInput, this.roundsInput];
+
+    for (const input of configInputs) {
+      input.addEventListener("input", () => {
+        this.isInteractingWithConfig = true;
+        this.onHostConfigInput();
+      }, { signal });
+
+      input.addEventListener("pointerdown", () => {
+        this.isInteractingWithConfig = true;
+      }, { signal });
+
+      input.addEventListener("pointerup", () => {
+        this.isInteractingWithConfig = false;
+      }, { signal });
+
+      input.addEventListener("change", () => {
+        this.isInteractingWithConfig = false;
+      }, { signal });
+    }
+  }
+
+  private setupGameListeners(): void {
+    const signal = this.abortController.signal;
+
+    this.revealReadyBtn.addEventListener("click", () => {
+      this.markRevealReady();
+    }, { signal });
+
+    this.submitClueBtn.addEventListener("click", () => {
+      this.submitClue();
+    }, { signal });
+
+    this.clueInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        this.submitClue();
+      }
+    }, { signal });
+
+    this.confirmVoteBtn.addEventListener("click", () => {
+      this.confirmVote();
+    }, { signal });
+
+    this.playAgainBtn.addEventListener("click", () => {
+      this.restartToLobby();
+    }, { signal });
+  }
+
+  private setupPlayroomListeners(): void {
+    const cleanupMaybe = onPlayerJoin((player) => {
+      const alreadyExists = this.players.some((entry) => entry.id === player.id);
+      if (!alreadyExists) {
+        this.players.push(player);
+      }
+
+      log("setupPlayroomListeners.onPlayerJoin", "Player joined " + player.id);
+      this.renderLobby();
+
+      if (isHost()) {
+        this.ensureHostConfigState();
+      }
+
+      player.onQuit(() => {
+        log("setupPlayroomListeners.onQuit", "Player left " + player.id);
+        this.players = this.players.filter((entry) => entry.id !== player.id);
+        if (this.selectedVoteTarget === player.id) {
+          this.selectedVoteTarget = "";
+        }
+
+        this.renderAll();
+      });
+    });
+
+    const cleanupUnknown = cleanupMaybe as unknown;
+    if (typeof cleanupUnknown === "function") {
+      this.playerJoinCleanup = cleanupUnknown as () => void;
+    }
+  }
+
+  private startPolling(): void {
+    this.pollInterval = setInterval(() => {
+      this.pullState();
+      this.renderAll();
+      this.syncRoleCard();
+      this.updateTimer();
+      this.submitScoreAtMatchEndIfNeeded();
+    }, 120);
+
+    this.hostTickInterval = setInterval(() => {
+      if (!isHost()) {
+        return;
+      }
+      this.hostTick();
+    }, 200);
+  }
+
+  private pullState(): void {
+    const phase = (getState(STATE_KEYS.phase) as Phase | undefined) || "lobby";
+    if (phase !== this.phase) {
+      this.phase = phase;
+      this.onPhaseChanged();
+    }
+
+    const config = getState(STATE_KEYS.config) as GameConfig | undefined;
+    if (config) {
+      this.config = this.sanitizeConfig(config);
+    }
+
+    this.hostId = String(getState(STATE_KEYS.hostId) || "");
+
+    const round = (getState(STATE_KEYS.round) as number | undefined) || 1;
+    this.round = Math.max(1, Math.floor(round));
+
+    this.participants = ((getState(STATE_KEYS.participants) as string[] | undefined) || []).slice();
+    this.turnOrder = ((getState(STATE_KEYS.turnOrder) as string[] | undefined) || []).slice();
+    this.turnIndex =
+      (getState(STATE_KEYS.turnIndex) as number | undefined) !== undefined
+        ? Math.max(0, Number(getState(STATE_KEYS.turnIndex) as number))
+        : 0;
+
+    this.phaseEndsAt = (getState(STATE_KEYS.phaseEndsAt) as number | undefined) || 0;
+
+    this.clues = ((getState(STATE_KEYS.clues) as ClueEntry[] | undefined) || []).slice();
+
+    this.result = (getState(STATE_KEYS.result) as RoundResult | null | undefined) || null;
+
+    if (this.players.length === 0) {
+      this.lobbyStatus.textContent = "Waiting for player sync...";
+    }
+  }
+
+  private onPhaseChanged(): void {
+    log("onPhaseChanged", "Phase changed to " + this.phase);
+
+    if (this.phase === "lobby") {
+      this.myReadyState = false;
+    }
+
+    this.applyMusicForPhase();
+
+    if (this.phase === "role_reveal") {
+      this.selectedVoteTarget = "";
+      this.playFx("reveal");
+      this.triggerHaptic("medium");
+    }
+
+    if (this.phase === "round_result" && this.result) {
+      const myRole = this.getMyRole();
+      if (this.result.winner === "members" && myRole === "member") {
+        this.playFx("win");
+        this.triggerHaptic("success");
+      } else if (this.result.winner === "imposters" && myRole === "imposter") {
+        this.playFx("win");
+        this.triggerHaptic("success");
+      } else {
+        this.playFx("lose");
+        this.triggerHaptic("error");
+      }
+    }
+
+    if (this.phase === "match_end") {
+      this.playFx("win");
+      this.triggerHaptic("success");
+    }
+  }
+
+  private applyMusicForPhase(): void {
+    if (!this.settings.music) {
+      this.audio.stopMusic();
+      return;
+    }
+
+    if (this.phase === "lobby") {
+      this.audio.startLobbyMusic();
+      return;
+    }
+
+    if (
+      this.phase === "role_reveal" ||
+      this.phase === "clue" ||
+      this.phase === "discussion" ||
+      this.phase === "voting"
+    ) {
+      this.audio.startRoundMusic();
+      return;
+    }
+
+    this.audio.stopMusic();
+  }
+
+  private syncPlayerIdentity(): void {
+    const profile = myPlayer()?.getProfile();
+    const injectedName = window.__PLAYER_NAME__;
+    const fallbackName = injectedName || profile?.name || "Player";
+
+    this.playerNameInput.value = fallbackName;
+
+    this.myReadyState = false;
+
+    const me = myPlayer();
+    if (me) {
+      me.setState(PLAYER_KEYS.customName, fallbackName, true);
+      me.setState(PLAYER_KEYS.ready, false, true);
+      me.setState(PLAYER_KEYS.score, 0, true);
+    }
+  }
+
+  private savePlayerName(): void {
+    const me = myPlayer();
+    if (!me) {
+      return;
+    }
+
+    const name = this.playerNameInput.value.trim().slice(0, 18);
+    if (!name) {
+      return;
+    }
+
+    this.playerNameInput.value = name;
+    me.setState(PLAYER_KEYS.customName, name, true);
+    log("savePlayerName", "Updated name " + name);
+  }
+
+  private toggleReady(): void {
+    if (this.phase !== "lobby") {
+      log("toggleReady", "Not in lobby phase, skipping");
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me) {
+      log("toggleReady", "No player found, skipping");
+      return;
+    }
+
+    this.myReadyState = !this.myReadyState;
+    me.setState(PLAYER_KEYS.ready, this.myReadyState, true);
+    log("toggleReady", "Ready toggled to " + String(this.myReadyState));
+
+    this.readyBtn.textContent = this.myReadyState ? "Unready" : "Ready";
+  }
+
+  private onHostConfigInput(): void {
+    if (!isHost() || this.phase !== "lobby") {
+      this.applyConfigInputs();
+      return;
+    }
+
+    const rawConfig: GameConfig = {
+      ...this.config,
+      totalPlayers: Number(this.totalPlayersInput.value),
+      imposters: Number(this.impostersInput.value),
+      rounds: Number(this.roundsInput.value),
+    };
+
+    const next = this.sanitizeConfig(rawConfig);
+    this.config = next;
+    setState(STATE_KEYS.config, next, true);
+    this.applyConfigInputs();
+    this.triggerHaptic("light");
+  }
+
+  private sanitizeConfig(input: GameConfig): GameConfig {
+    const totalPlayers = clamp(Math.floor(input.totalPlayers), 2, 10);
+    const maxImposters = Math.min(3, totalPlayers - 1);
+    const imposters = clamp(Math.floor(input.imposters), 1, maxImposters);
+    const rounds = clamp(Math.floor(input.rounds), 3, 9);
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...input,
+      totalPlayers,
+      imposters,
+      rounds,
+    };
+  }
+
+  private ensureHostConfigState(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    const current = getState(STATE_KEYS.config) as GameConfig | undefined;
+    if (!current) {
+      setState(STATE_KEYS.config, this.config, true);
+    } else {
+      this.config = this.sanitizeConfig(current);
+    }
+
+    const me = myPlayer();
+    if (me && this.hostId !== me.id) {
+      setState(STATE_KEYS.hostId, me.id, true);
+    }
+
+    const currentPhase = getState(STATE_KEYS.phase) as Phase | undefined;
+    if (!currentPhase) {
+      setState(STATE_KEYS.phase, "lobby", true);
+      setState(STATE_KEYS.round, 1, true);
+      setState(STATE_KEYS.participants, [], true);
+      setState(STATE_KEYS.turnOrder, [], true);
+      setState(STATE_KEYS.turnIndex, 0, true);
+      setState(STATE_KEYS.clues, [], true);
+      setState(STATE_KEYS.result, null, true);
+      setState(STATE_KEYS.scoreboard, [], true);
+      setState(STATE_KEYS.phaseEndsAt, 0, true);
+    }
+  }
+
+  private startMatchIfHost(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    if (this.phase !== "lobby") {
+      return;
+    }
+
+    const livePlayers = [...this.players];
+    if (livePlayers.length !== this.config.totalPlayers) {
+      log(
+        "startMatchIfHost",
+        "Cannot start: connected " + String(livePlayers.length) + " expected " + String(this.config.totalPlayers),
+      );
+      return;
+    }
+
+    const myId = myPlayer()?.id || "";
+    const allReady = livePlayers.every((player) => {
+      if (player.id === myId) {
+        return this.myReadyState;
+      }
+      return player.getState(PLAYER_KEYS.ready) === true;
+    });
+    if (!allReady) {
+      log("startMatchIfHost", "Cannot start: not all players ready");
+      return;
+    }
+
+    const participantIds = livePlayers.map((player) => player.id);
+    this.participants = participantIds;
+    this.round = 1;
+    setState(STATE_KEYS.round, this.round, true);
+    setState(STATE_KEYS.participants, participantIds, true);
+
+    for (const player of livePlayers) {
+      player.setState(PLAYER_KEYS.score, 0, true);
+      player.setState(PLAYER_KEYS.hasVoted, false, true);
+      player.setState(PLAYER_KEYS.voteTarget, "", true);
+      player.setState(PLAYER_KEYS.revealReady, false, true);
+    }
+
+    this.assignRolesForRound();
+  }
+
+  private assignRolesForRound(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    const players = this.getParticipantPlayers();
+    if (players.length === 0) {
+      return;
+    }
+
+    const shuffled = shuffle(players.map((player) => player.id));
+    const imposterIds = new Set(shuffled.slice(0, this.config.imposters));
+    const secretWord = randomFrom(WORD_BANK);
+
+    for (const player of players) {
+      const role: Role = imposterIds.has(player.id) ? "imposter" : "member";
+      player.setState(PLAYER_KEYS.role, role, true);
+      player.setState(PLAYER_KEYS.secretWord, role === "member" ? secretWord : "", true);
+      player.setState(PLAYER_KEYS.revealReady, false, true);
+      player.setState(PLAYER_KEYS.hasVoted, false, true);
+      player.setState(PLAYER_KEYS.voteTarget, "", true);
+    }
+
+    setState(STATE_KEYS.turnOrder, [], true);
+    setState(STATE_KEYS.turnIndex, 0, true);
+    setState(STATE_KEYS.clues, [], true);
+    setState(STATE_KEYS.result, null, true);
+
+    this.setPhase("role_reveal", this.config.revealSeconds);
+  }
+
+  private setPhase(nextPhase: Phase, durationSeconds: number): void {
+    const endsAt = Date.now() + durationSeconds * 1000;
+    setState(STATE_KEYS.phase, nextPhase, true);
+    setState(STATE_KEYS.phaseEndsAt, endsAt, true);
+    this.phase = nextPhase;
+    this.phaseEndsAt = endsAt;
+  }
+
+  private startCluePhase(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    const order = shuffle(this.participants.slice());
+    setState(STATE_KEYS.turnOrder, order, true);
+    setState(STATE_KEYS.turnIndex, 0, true);
+    setState(STATE_KEYS.clues, [], true);
+    this.turnOrder = order;
+    this.turnIndex = 0;
+    this.clues = [];
+    this.setPhase("clue", this.config.clueSeconds);
+  }
+
+  private startDiscussionPhase(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    this.setPhase("discussion", this.config.discussionSeconds);
+  }
+
+  private startVotingPhase(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    for (const player of this.getParticipantPlayers()) {
+      player.setState(PLAYER_KEYS.hasVoted, false, true);
+      player.setState(PLAYER_KEYS.voteTarget, "", true);
+    }
+
+    this.selectedVoteTarget = "";
+    this.setPhase("voting", this.config.votingSeconds);
+  }
+
+  private endRoundAndPrepareNext(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    if (!this.result) {
+      return;
+    }
+
+    if (this.round >= this.config.rounds) {
+      this.finishMatch();
+      return;
+    }
+
+    this.round += 1;
+    setState(STATE_KEYS.round, this.round, true);
+    this.assignRolesForRound();
+  }
+
+  private finishMatch(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    const standings = this.buildScoreEntries();
+    setState(STATE_KEYS.scoreboard, standings, true);
+    setState(STATE_KEYS.phase, "match_end", true);
+    setState(STATE_KEYS.phaseEndsAt, 0, true);
+  }
+
+  private restartToLobby(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    this.triggerHaptic("light");
+    this.playFx("click");
+    this.myReadyState = false;
+
+    for (const player of this.players) {
+      player.setState(PLAYER_KEYS.ready, false, true);
+      player.setState(PLAYER_KEYS.score, 0, true);
+      player.setState(PLAYER_KEYS.role, "", true);
+      player.setState(PLAYER_KEYS.secretWord, "", true);
+      player.setState(PLAYER_KEYS.revealReady, false, true);
+      player.setState(PLAYER_KEYS.hasVoted, false, true);
+      player.setState(PLAYER_KEYS.voteTarget, "", true);
+    }
+
+    this.hasSubmittedScore = false;
+    setState(STATE_KEYS.phase, "lobby", true);
+    setState(STATE_KEYS.round, 1, true);
+    setState(STATE_KEYS.participants, [], true);
+    setState(STATE_KEYS.turnOrder, [], true);
+    setState(STATE_KEYS.turnIndex, 0, true);
+    setState(STATE_KEYS.clues, [], true);
+    setState(STATE_KEYS.result, null, true);
+    setState(STATE_KEYS.scoreboard, [], true);
+    setState(STATE_KEYS.phaseEndsAt, 0, true);
+  }
+
+  private hostTick(): void {
+    const me = myPlayer();
+    if (me && this.hostId !== me.id) {
+      setState(STATE_KEYS.hostId, me.id, true);
+    }
+
+    const now = Date.now();
+
+    if (this.phase === "role_reveal") {
+      const players = this.getParticipantPlayers();
+      if (players.length === 0) {
+        return;
+      }
+
+      const allReady = players.every((player) => player.getState(PLAYER_KEYS.revealReady) === true);
+      if (allReady || now >= this.phaseEndsAt) {
+        this.startCluePhase();
+      }
+      return;
+    }
+
+    if (this.phase === "clue") {
+      if (this.turnOrder.length === 0) {
+        this.startCluePhase();
+        return;
+      }
+
+      if (this.turnIndex >= this.turnOrder.length) {
+        this.startDiscussionPhase();
+        return;
+      }
+
+      const currentPlayerId = this.turnOrder[this.turnIndex];
+      const clueSubmitted = this.clues.some(
+        (entry) => entry.round === this.round && entry.playerId === currentPlayerId,
+      );
+
+      if (clueSubmitted) {
+        this.advanceClueTurn();
+        return;
+      }
+
+      if (now >= this.phaseEndsAt) {
+        const autoClue: ClueEntry = {
+          playerId: currentPlayerId,
+          clue: "No clue",
+          round: this.round,
+          auto: true,
+        };
+        const nextClues = [...this.clues, autoClue];
+        setState(STATE_KEYS.clues, nextClues, true);
+        this.advanceClueTurn();
+      }
+      return;
+    }
+
+    if (this.phase === "discussion") {
+      if (now >= this.phaseEndsAt) {
+        this.startVotingPhase();
+      }
+      return;
+    }
+
+    if (this.phase === "voting") {
+      const participants = this.getParticipantPlayers();
+      const allVoted =
+        participants.length > 0 && participants.every((player) => player.getState(PLAYER_KEYS.hasVoted) === true);
+      if (allVoted || now >= this.phaseEndsAt) {
+        this.finalizeVoting();
+      }
+      return;
+    }
+
+    if (this.phase === "round_result") {
+      if (now >= this.phaseEndsAt) {
+        this.endRoundAndPrepareNext();
+      }
+    }
+  }
+
+  private advanceClueTurn(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    const nextIndex = this.turnIndex + 1;
+    if (nextIndex >= this.turnOrder.length) {
+      this.startDiscussionPhase();
+      return;
+    }
+
+    const nextEndsAt = Date.now() + this.config.clueSeconds * 1000;
+    setState(STATE_KEYS.turnIndex, nextIndex, true);
+    setState(STATE_KEYS.phaseEndsAt, nextEndsAt, true);
+    this.turnIndex = nextIndex;
+    this.phaseEndsAt = nextEndsAt;
+  }
+
+  private finalizeVoting(): void {
+    if (!isHost()) {
+      return;
+    }
+
+    const participants = this.getParticipantPlayers();
+    if (participants.length === 0) {
+      return;
+    }
+
+    const counts: Record<string, number> = {};
+
+    for (const player of participants) {
+      const target = String(player.getState(PLAYER_KEYS.voteTarget) || "");
+      if (!target) {
+        continue;
+      }
+      counts[target] = (counts[target] || 0) + 1;
+    }
+
+    let maxVotes = 0;
+    let tiedCandidates: string[] = [];
+
+    for (const [playerId, voteCount] of Object.entries(counts)) {
+      if (voteCount > maxVotes) {
+        maxVotes = voteCount;
+        tiedCandidates = [playerId];
+      } else if (voteCount === maxVotes) {
+        tiedCandidates.push(playerId);
+      }
+    }
+
+    if (tiedCandidates.length === 0) {
+      tiedCandidates = [participants[0].id];
+    }
+
+    tiedCandidates.sort((a, b) => a.localeCompare(b));
+    const eliminatedId = tiedCandidates[0];
+    const eliminatedPlayer = participants.find((player) => player.id === eliminatedId) || participants[0];
+
+    const eliminatedRoleRaw = String(eliminatedPlayer.getState(PLAYER_KEYS.role) || "member");
+    const eliminatedRole: Role = eliminatedRoleRaw === "imposter" ? "imposter" : "member";
+
+    const winner: "members" | "imposters" = eliminatedRole === "imposter" ? "members" : "imposters";
+
+    const memberPlayer = participants.find(
+      (player) => String(player.getState(PLAYER_KEYS.role) || "") === "member",
+    );
+
+    const revealedWord = memberPlayer
+      ? String(memberPlayer.getState(PLAYER_KEYS.secretWord) || "Unknown")
+      : "Unknown";
+
+    for (const player of participants) {
+      const roleRaw = String(player.getState(PLAYER_KEYS.role) || "member");
+      const role: Role = roleRaw === "imposter" ? "imposter" : "member";
+      const currentScore = Number(player.getState(PLAYER_KEYS.score) || 0);
+
+      let delta = 0;
+      if (winner === "members" && role === "member") {
+        delta = 1;
+      }
+      if (winner === "imposters" && role === "imposter") {
+        delta = 2;
+      }
+
+      player.setState(PLAYER_KEYS.score, currentScore + delta, true);
+    }
+
+    const result: RoundResult = {
+      round: this.round,
+      winner,
+      eliminatedId,
+      eliminatedName: this.getPlayerName(eliminatedPlayer),
+      eliminatedRole,
+      revealedWord,
+      voteCounts: counts,
+    };
+
+    setState(STATE_KEYS.result, result, true);
+    this.setPhase("round_result", this.config.resultSeconds);
+  }
+
+  private markRevealReady(): void {
+    if (this.phase !== "role_reveal") {
+      return;
+    }
+
+    if (!this.isMyParticipant()) {
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me) {
+      return;
+    }
+
+    me.setState(PLAYER_KEYS.revealReady, true, true);
+    this.triggerHaptic("medium");
+    this.playFx("reveal");
+  }
+
+  private submitClue(): void {
+    if (this.phase !== "clue") {
+      return;
+    }
+
+    if (!this.isMyParticipant()) {
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me) {
+      return;
+    }
+
+    const turnPlayerId = this.turnOrder[this.turnIndex] || "";
+    if (turnPlayerId !== me.id) {
+      return;
+    }
+
+    const clue = this.clueInput.value.trim().slice(0, 48);
+    if (!clue) {
+      this.triggerHaptic("error");
+      return;
+    }
+
+    const alreadySubmitted = this.clues.some(
+      (entry) => entry.round === this.round && entry.playerId === me.id,
+    );
+
+    if (alreadySubmitted) {
+      return;
+    }
+
+    const nextEntry: ClueEntry = {
+      playerId: me.id,
+      clue,
+      round: this.round,
+      auto: false,
+    };
+
+    setState(STATE_KEYS.clues, [...this.clues, nextEntry], true);
+    this.clueInput.value = "";
+
+    this.triggerHaptic("light");
+    this.playFx("click");
+  }
+
+  private confirmVote(): void {
+    if (this.phase !== "voting") {
+      return;
+    }
+
+    if (!this.isMyParticipant()) {
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me) {
+      return;
+    }
+
+    if (!this.selectedVoteTarget) {
+      this.triggerHaptic("error");
+      return;
+    }
+
+    me.setState(PLAYER_KEYS.voteTarget, this.selectedVoteTarget, true);
+    me.setState(PLAYER_KEYS.hasVoted, true, true);
+
+    this.triggerHaptic("medium");
+    this.playFx("vote");
+  }
+
+  private renderAll(): void {
+    this.renderRoomHeader();
+    this.renderLobby();
+    this.renderGame();
+  }
+
+  private renderRoomHeader(): void {
+    const code = getRoomCode();
+    if (code) {
+      this.roomCodeDisplay.textContent = code;
+    }
+  }
+
+  private renderLobby(): void {
+    this.applyConfigInputs();
+
+    this.lobbyPlayerCount.textContent = String(this.players.length) + "/" + String(this.config.totalPlayers);
+
+    const me = myPlayer();
+    const myId = me?.id || "";
+
+    this.readyBtn.textContent = this.myReadyState ? "Unready" : "Ready";
+
+    const canHostControl = isHost() && this.phase === "lobby";
+    this.totalPlayersInput.disabled = !canHostControl;
+    this.impostersInput.disabled = !canHostControl;
+    this.roundsInput.disabled = !canHostControl;
+    this.startMatchBtn.disabled = !canHostControl;
+
+    this.hostConfigPanel.style.opacity = canHostControl ? "1" : "0.75";
+
+    this.lobbyPlayerList.innerHTML = this.players
+      .map((player) => {
+        const name = this.escapeHtml(this.getPlayerName(player));
+        const isMe = player.id === myId;
+        const ready = isMe ? this.myReadyState : player.getState(PLAYER_KEYS.ready) === true;
+        const host = this.hostId === player.id;
+
+        const statusParts: string[] = [];
+        if (host) {
+          statusParts.push("Host");
+        }
+        if (isMe) {
+          statusParts.push("You");
+        }
+        if (!ready) {
+          statusParts.push("Not ready");
+        }
+
+        return (
+          '<li class="lobby-player-item">' +
+          '<div class="player-label">' +
+          '<span class="player-dot ' + (ready ? "ready" : "") + '"></span>' +
+          '<span class="player-name">' +
+          name +
+          "</span>" +
+          "</div>" +
+          '<div class="player-meta">' +
+          this.escapeHtml(statusParts.join(" • ")) +
+          "</div>" +
+          "</li>"
+        );
+      })
+      .join("");
+
+    if (this.phase !== "lobby") {
+      this.lobbyStatus.textContent = "Match in progress";
+      this.startMatchBtn.disabled = true;
+      return;
+    }
+
+    if (isHost()) {
+      const missing = this.config.totalPlayers - this.players.length;
+      const readyCount = this.players.filter((player) => {
+        if (player.id === myId) {
+          return this.myReadyState;
+        }
+        return player.getState(PLAYER_KEYS.ready) === true;
+      }).length;
+
+      if (missing > 0) {
+        this.lobbyStatus.textContent = "Waiting for " + String(missing) + " more players";
+        this.startMatchBtn.disabled = true;
+      } else if (readyCount < this.players.length) {
+        this.lobbyStatus.textContent = "Waiting for all players to ready up";
+        this.startMatchBtn.disabled = true;
+      } else {
+        this.lobbyStatus.textContent = "All set. Start the match when ready.";
+        this.startMatchBtn.disabled = false;
+      }
+
+      this.hostConfigNote.textContent =
+        "Set players, imposters, and rounds. Match starts when everyone is ready.";
+    } else {
+      this.lobbyStatus.textContent = "Waiting for host to start";
+      this.hostConfigNote.textContent = "Only host can update match settings.";
+      this.startMatchBtn.disabled = true;
+    }
+  }
+
+  private renderGame(): void {
+    const inLobby = this.phase === "lobby";
+
+    lobbyScreen.classList.toggle("hidden", !inLobby);
+    gameScreen.classList.toggle("hidden", inLobby);
+
+    if (inLobby) {
+      return;
+    }
+
+    this.roundLabel.textContent = "Round " + String(this.round) + " / " + String(this.config.rounds);
+    this.phasePill.textContent = this.formatPhaseLabel(this.phase);
+
+    this.spectatorNote.classList.toggle("hidden", this.isMyParticipant());
+
+    this.rolePanel.classList.add("hidden");
+    this.cluePanel.classList.add("hidden");
+    this.discussionPanel.classList.add("hidden");
+    this.votePanel.classList.add("hidden");
+    this.resultPanel.classList.add("hidden");
+    this.matchPanel.classList.add("hidden");
+
+    if (this.phase === "role_reveal") {
+      this.rolePanel.classList.remove("hidden");
+      this.renderRolePanel();
+    } else if (this.phase === "clue") {
+      this.cluePanel.classList.remove("hidden");
+      this.renderCluePanel();
+    } else if (this.phase === "discussion") {
+      this.discussionPanel.classList.remove("hidden");
+      this.renderDiscussionPanel();
+    } else if (this.phase === "voting") {
+      this.votePanel.classList.remove("hidden");
+      this.renderVotePanel();
+    } else if (this.phase === "round_result") {
+      this.resultPanel.classList.remove("hidden");
+      this.renderResultPanel();
+    } else if (this.phase === "match_end") {
+      this.matchPanel.classList.remove("hidden");
+      this.renderMatchPanel();
+    }
+  }
+
+  private renderRolePanel(): void {
+    const role = this.getMyRole();
+    const secretWord = this.getMySecretWord();
+    const me = myPlayer();
+    const acknowledged = me?.getState(PLAYER_KEYS.revealReady) === true;
+
+    if (!this.isMyParticipant()) {
+      this.roleBadge.textContent = "Spectator";
+      this.roleBadge.classList.remove("member");
+      this.roleBadge.classList.remove("imposter");
+      this.roleWord.textContent = "Waiting for next round";
+      this.roleSubtitle.textContent = "This round is already in progress.";
+      this.roleNote.textContent = "You will join automatically when the next round starts.";
+      this.revealReadyBtn.disabled = true;
+      this.revealReadyBtn.textContent = "Spectating";
+      return;
+    }
+
+    const isImposter = role === "imposter";
+
+    this.roleBadge.textContent = isImposter ? "Imposter" : "Member";
+    this.roleBadge.classList.toggle("imposter", isImposter);
+    this.roleBadge.classList.toggle("member", !isImposter);
+
+    this.roleWord.textContent = isImposter ? "You get no word" : secretWord || "...";
+    this.roleSubtitle.textContent = isImposter
+      ? "Blend in during clues and avoid detection."
+      : "Share one subtle clue without saying the word.";
+    this.roleNote.textContent = "Keep this card private from other players.";
+
+    this.revealReadyBtn.disabled = acknowledged;
+    this.revealReadyBtn.textContent = acknowledged ? "Ready" : "I Understand";
+  }
+
+  private renderCluePanel(): void {
+    const currentPlayerId = this.turnOrder[this.turnIndex] || "";
+    const currentPlayer = this.players.find((player) => player.id === currentPlayerId);
+    const currentName = currentPlayer ? this.getPlayerName(currentPlayer) : "Waiting";
+
+    this.currentTurnLabel.textContent = "Current turn: " + currentName;
+
+    const me = myPlayer();
+    const isMyTurn = Boolean(me && me.id === currentPlayerId);
+    const canType = this.isMyParticipant() && isMyTurn;
+
+    this.clueInput.disabled = !canType;
+    this.submitClueBtn.disabled = !canType;
+    this.clueInput.placeholder = canType ? "Type one short clue" : "Waiting for current player";
+
+    this.clueFeed.innerHTML = this.clues
+      .filter((entry) => entry.round === this.round)
+      .map((entry) => {
+        const player = this.players.find((candidate) => candidate.id === entry.playerId);
+        const name = player ? this.getPlayerName(player) : "Player";
+        const clueText = this.escapeHtml(entry.clue);
+        const marker = entry.auto ? " (auto)" : "";
+        return (
+          '<li class="clue-item">' +
+          '<span class="clue-name">' +
+          this.escapeHtml(name) +
+          "</span>" +
+          clueText +
+          this.escapeHtml(marker) +
+          "</li>"
+        );
+      })
+      .join("");
+  }
+
+  private renderDiscussionPanel(): void {
+    this.discussionClues.innerHTML = this.clues
+      .filter((entry) => entry.round === this.round)
+      .map((entry) => {
+        const player = this.players.find((candidate) => candidate.id === entry.playerId);
+        const name = player ? this.getPlayerName(player) : "Player";
+        return (
+          '<li class="clue-item"><span class="clue-name">' +
+          this.escapeHtml(name) +
+          "</span>" +
+          this.escapeHtml(entry.clue) +
+          "</li>"
+        );
+      })
+      .join("");
+  }
+
+  private renderVotePanel(): void {
+    const me = myPlayer();
+    const hasVoted = me?.getState(PLAYER_KEYS.hasVoted) === true;
+
+    if (!this.isMyParticipant()) {
+      this.voteSubtitle.textContent = "You are spectating this round.";
+    } else if (hasVoted) {
+      this.voteSubtitle.textContent = "Vote locked. Waiting for other players.";
+    } else {
+      this.voteSubtitle.textContent = "Select one player and confirm your vote.";
+    }
+
+    const voteOptions = this.getParticipantPlayers().filter((player) => player.id !== me?.id);
+
+    this.voteGrid.innerHTML = voteOptions
+      .map((player) => {
+        const selected = this.selectedVoteTarget === player.id;
+        const lockedClass = hasVoted || !this.isMyParticipant() ? " locked" : "";
+        const selectedClass = selected ? " selected" : "";
+
+        return (
+          '<button class="vote-card' +
+          selectedClass +
+          lockedClass +
+          '" data-player-id="' +
+          this.escapeHtml(player.id) +
+          '">' +
+          this.escapeHtml(this.getPlayerName(player)) +
+          "</button>"
+        );
+      })
+      .join("");
+
+    const cards = Array.from(this.voteGrid.querySelectorAll(".vote-card"));
+    for (const card of cards) {
+      card.addEventListener("click", () => {
+        if (!this.isMyParticipant()) {
+          return;
+        }
+        if (hasVoted) {
+          return;
+        }
+
+        const target = card.getAttribute("data-player-id") || "";
+        this.selectedVoteTarget = target;
+        this.triggerHaptic("light");
+        this.playFx("click");
+        this.renderVotePanel();
+      });
+    }
+
+    this.confirmVoteBtn.disabled = !this.isMyParticipant() || hasVoted || !this.selectedVoteTarget;
+  }
+
+  private renderResultPanel(): void {
+    if (!this.result) {
+      this.resultWinner.textContent = "Waiting for result";
+      this.resultDetail.textContent = "Calculating...";
+      this.revealedWord.textContent = "Secret word: -";
+      this.scoreboard.innerHTML = "";
+      return;
+    }
+
+    this.resultWinner.classList.toggle("member", this.result.winner === "members");
+    this.resultWinner.classList.toggle("imposter", this.result.winner === "imposters");
+    this.resultWinner.textContent =
+      this.result.winner === "members" ? "Members win this round" : "Imposters win this round";
+
+    this.resultDetail.textContent =
+      this.result.eliminatedName +
+      " was voted out and revealed as " +
+      (this.result.eliminatedRole === "imposter" ? "Imposter" : "Member") +
+      ".";
+
+    this.revealedWord.textContent = "Secret word: " + this.result.revealedWord;
+
+    this.scoreboard.innerHTML = this.buildScoreEntries()
+      .map((entry) => {
+        const mine = entry.playerId === myPlayer()?.id;
+        return (
+          '<li class="score-item' +
+          (mine ? " me" : "") +
+          '"><span>' +
+          this.escapeHtml(entry.name) +
+          "</span><strong>" +
+          String(entry.score) +
+          "</strong></li>"
+        );
+      })
+      .join("");
+
+    this.resultNextNote.textContent =
+      this.round >= this.config.rounds
+        ? "Final round complete. Showing match standings soon."
+        : "Next round is preparing...";
+  }
+
+  private renderMatchPanel(): void {
+    const scoreboardState =
+      (getState(STATE_KEYS.scoreboard) as ScoreEntry[] | undefined) || this.buildScoreEntries();
+
+    const sorted = scoreboardState
+      .slice()
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+    this.matchScoreboard.innerHTML = sorted
+      .map((entry, index) => {
+        const mine = entry.playerId === myPlayer()?.id;
+        return (
+          '<li class="score-item' +
+          (mine ? " me" : "") +
+          '"><span>' +
+          String(index + 1) +
+          ". " +
+          this.escapeHtml(entry.name) +
+          "</span><strong>" +
+          String(entry.score) +
+          "</strong></li>"
+        );
+      })
+      .join("");
+
+    this.playAgainBtn.disabled = !isHost();
+  }
+
+  private buildScoreEntries(): ScoreEntry[] {
+    return this.getParticipantPlayers()
+      .map((player) => {
+        const roleRaw = String(player.getState(PLAYER_KEYS.role) || "");
+        const role: Role | "none" = roleRaw === "imposter" || roleRaw === "member" ? roleRaw : "none";
+
+        return {
+          playerId: player.id,
+          name: this.getPlayerName(player),
+          score: Number(player.getState(PLAYER_KEYS.score) || 0),
+          role,
+        };
+      })
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  }
+
+  private updateTimer(): void {
+    if (!this.phaseEndsAt || this.phase === "match_end") {
+      this.timerLabel.textContent = "--";
+      return;
+    }
+
+    const seconds = Math.max(0, Math.ceil((this.phaseEndsAt - Date.now()) / 1000));
+    this.timerLabel.textContent = String(seconds) + "s";
+  }
+
+  private syncRoleCard(): void {
+    if (this.phase !== "role_reveal") {
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me || !this.isMyParticipant()) {
+      return;
+    }
+
+    const role = this.getMyRole();
+    const word = this.getMySecretWord();
+
+    if (role === "imposter") {
+      this.roleBadge.textContent = "Imposter";
+      this.roleWord.textContent = "You get no word";
+    }
+
+    if (role === "member") {
+      this.roleBadge.textContent = "Member";
+      this.roleWord.textContent = word || "...";
+    }
+  }
+
+  private applyConfigInputs(): void {
+    this.totalPlayersValue.textContent = String(this.config.totalPlayers);
+    this.impostersValue.textContent = String(clamp(this.config.imposters, 1, Math.min(3, this.config.totalPlayers - 1)));
+    this.roundsValue.textContent = String(this.config.rounds);
+
+    if (this.isInteractingWithConfig) {
+      return;
+    }
+
+    this.totalPlayersInput.value = String(this.config.totalPlayers);
+
+    const maxImposters = Math.min(3, this.config.totalPlayers - 1);
+    this.impostersInput.max = String(maxImposters);
+
+    const imposters = clamp(this.config.imposters, 1, maxImposters);
+    this.impostersInput.value = String(imposters);
+
+    this.roundsInput.value = String(this.config.rounds);
+  }
+
+  private formatPhaseLabel(phase: Phase): string {
+    if (phase === "role_reveal") {
+      return "Role Reveal";
+    }
+    if (phase === "round_result") {
+      return "Round Result";
+    }
+    if (phase === "match_end") {
+      return "Match End";
+    }
+    if (phase === "clue") {
+      return "Clues";
+    }
+    if (phase === "discussion") {
+      return "Discussion";
+    }
+    if (phase === "voting") {
+      return "Voting";
+    }
+    return "Lobby";
+  }
+
+  private getParticipantPlayers(): PlayerState[] {
+    if (this.participants.length === 0) {
+      return [];
+    }
+    const idSet = new Set(this.participants);
+    return this.players.filter((player) => idSet.has(player.id));
+  }
+
+  private isMyParticipant(): boolean {
+    const me = myPlayer();
+    if (!me) {
+      return false;
+    }
+
+    if (this.phase === "lobby") {
+      return true;
+    }
+
+    return this.participants.includes(me.id);
+  }
+
+  private getMyRole(): Role {
+    const me = myPlayer();
+    if (!me) {
+      return "member";
+    }
+
+    const raw = String(me.getState(PLAYER_KEYS.role) || "member");
+    return raw === "imposter" ? "imposter" : "member";
+  }
+
+  private getMySecretWord(): string {
+    const me = myPlayer();
+    if (!me) {
+      return "";
+    }
+    return String(me.getState(PLAYER_KEYS.secretWord) || "");
+  }
+
+  private getPlayerName(player: PlayerState): string {
+    const custom = String(player.getState(PLAYER_KEYS.customName) || "").trim();
+    const profile = player.getProfile();
+
+    if (custom) {
+      return custom;
+    }
+
+    if (profile?.name) {
+      return profile.name;
+    }
+
+    return "Player " + player.id.slice(0, 4).toUpperCase();
+  }
+
+  private escapeHtml(raw: string): string {
+    const div = document.createElement("div");
+    div.textContent = raw;
+    return div.innerHTML;
+  }
+
+  private triggerHaptic(type: HapticType): void {
+    if (!this.settings.haptics) {
+      return;
+    }
+
+    if (typeof window.triggerHaptic === "function") {
+      window.triggerHaptic(type);
+    }
+  }
+
+  private playFx(kind: "click" | "reveal" | "vote" | "win" | "lose"): void {
+    if (!this.settings.fx) {
+      return;
+    }
+
+    if (kind === "click") {
+      this.audio.playClick();
+      return;
+    }
+
+    if (kind === "reveal") {
+      this.audio.playReveal();
+      return;
+    }
+
+    if (kind === "vote") {
+      this.audio.playVoteLock();
+      return;
+    }
+
+    if (kind === "win") {
+      this.audio.playWin();
+      return;
+    }
+
+    this.audio.playLose();
+  }
+
+  private submitScoreAtMatchEndIfNeeded(): void {
+    if (this.phase !== "match_end") {
+      return;
+    }
+
+    if (this.hasSubmittedScore) {
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me) {
+      return;
+    }
+
+    const rawScore = Number(me.getState(PLAYER_KEYS.score) || 0);
+    const finalScore = Math.max(0, Math.floor(rawScore));
+
+    log("submitScoreAtMatchEndIfNeeded", "Submitting score " + String(finalScore));
+    if (typeof window.submitScore === "function") {
+      window.submitScore(finalScore);
+    }
+
+    this.hasSubmittedScore = true;
+  }
+
+  public destroy(): void {
+    log("destroy", "Destroying game controller");
+
+    this.abortController.abort();
+    this.audio.stopMusic();
+
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+
+    if (this.hostTickInterval) {
+      clearInterval(this.hostTickInterval);
+      this.hostTickInterval = null;
+    }
+
+    if (this.nameDebounce) {
+      clearTimeout(this.nameDebounce);
+      this.nameDebounce = null;
+    }
+
+    if (this.playerJoinCleanup) {
+      this.playerJoinCleanup();
+      this.playerJoinCleanup = null;
+    }
+
+    settingsModal.classList.add("hidden");
+  }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function randomFrom<T>(items: T[]): T {
+  const index = Math.floor(Math.random() * items.length);
+  return items[index];
+}
+
+function shuffle<T>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = result[i];
+    result[i] = result[j];
+    result[j] = tmp;
+  }
+  return result;
+}
+
+async function init(): Promise<void> {
+  setupStartScreen();
+  showStartScreen();
+
+  if (window.__ROOM_CODE__) {
+    log("init", "Auto joining injected room " + window.__ROOM_CODE__);
+    await connectToRoom(window.__ROOM_CODE__);
+    return;
+  }
+
+  const urlRoomCode = getRoomCodeFromURL();
+  if (urlRoomCode) {
+    log("init", "Joining room from URL " + urlRoomCode);
+    await connectToRoom(urlRoomCode);
+  }
+}
+
+void init();
