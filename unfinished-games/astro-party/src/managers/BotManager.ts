@@ -249,6 +249,7 @@ export class BotManager {
     ships: Map<string, Ship>,
     pilots: Map<string, Pilot>,
     projectiles: Projectile[],
+    nowMs: number,
   ): BotVisibleData {
     const myShip = ships.get(botPlayerId);
     const myPilot = pilots.get(botPlayerId);
@@ -294,6 +295,7 @@ export class BotManager {
     });
 
     return {
+      nowMs,
       myShip: myShip
         ? {
             x: myShip.body.position.x,

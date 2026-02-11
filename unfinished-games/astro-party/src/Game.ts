@@ -22,6 +22,7 @@ import { GameRenderer } from "./systems/GameRenderer";
 import { NetworkSyncSystem } from "./network/NetworkSyncSystem";
 import { PlayerInputResolver } from "./systems/PlayerInputResolver";
 import { DeterministicRNGManager } from "./systems/DeterministicRNGManager";
+import { TickSystem } from "./systems/TickSystem";
 import {
   GamePhase,
   GameMode,
@@ -52,6 +53,8 @@ export class Game {
   private rngManager: DeterministicRNGManager;
   private rngSeed: number | null = null;
   private pendingRngSeed: number | null = null;
+  private tickSystem: TickSystem;
+  private simTimeMs: number = 0;
 
   // Managers
   private playerMgr: PlayerManager;
@@ -106,6 +109,7 @@ export class Game {
     this.rngManager = new DeterministicRNGManager();
     AstroBot.setRng(this.rngManager.getAIRng());
     this.renderer.setVisualRng(this.rngManager.getVisualRng());
+    this.tickSystem = new TickSystem();
 
     // Create managers
     this.playerMgr = new PlayerManager(this.network);
@@ -189,9 +193,11 @@ export class Game {
       if (this.network.isHost()) {
         this.seedRngForRound();
       }
-      this.flowMgr.beginMatch(this.playerMgr.players, this.ships);
+      this.tickSystem.reset(0);
+      this.simTimeMs = 0;
+      this.flowMgr.beginMatch(this.playerMgr.players, this.ships, this.simTimeMs);
       this.asteroidMgr.spawnInitialAsteroids();
-      this.asteroidMgr.scheduleAsteroidSpawnsIfNeeded();
+      this.asteroidMgr.scheduleAsteroidSpawnsIfNeeded(this.simTimeMs);
       this.grantStartingPowerups();
       this.turretMgr.spawn();
     };
@@ -235,12 +241,13 @@ export class Game {
   }
 
   private grantPowerUp(playerId: string, type: PowerUpType): void {
+    const nowMs = this.simTimeMs;
     if (type === "LASER") {
       this.playerPowerUps.set(playerId, {
         type: "LASER",
         charges: GAME_CONFIG.POWERUP_LASER_CHARGES,
         maxCharges: GAME_CONFIG.POWERUP_LASER_CHARGES,
-        lastFireTime: 0,
+        lastFireTime: nowMs - GAME_CONFIG.POWERUP_LASER_COOLDOWN - 1,
         shieldHits: 0,
       });
     } else if (type === "SHIELD") {
@@ -248,7 +255,7 @@ export class Game {
         type: "SHIELD",
         charges: 0,
         maxCharges: 0,
-        lastFireTime: 0,
+        lastFireTime: nowMs,
         shieldHits: 0,
       });
     } else if (type === "SCATTER") {
@@ -256,7 +263,7 @@ export class Game {
         type: "SCATTER",
         charges: GAME_CONFIG.POWERUP_SCATTER_CHARGES,
         maxCharges: GAME_CONFIG.POWERUP_SCATTER_CHARGES,
-        lastFireTime: 0,
+        lastFireTime: nowMs - GAME_CONFIG.POWERUP_SCATTER_COOLDOWN - 1,
         shieldHits: 0,
       });
     } else if (type === "MINE") {
@@ -264,7 +271,7 @@ export class Game {
         type: "MINE",
         charges: 1,
         maxCharges: 1,
-        lastFireTime: 0,
+        lastFireTime: nowMs,
         shieldHits: 0,
       });
     } else if (type === "REVERSE") {
@@ -279,7 +286,7 @@ export class Game {
         type: "JOUST",
         charges: 0,
         maxCharges: 0,
-        lastFireTime: 0,
+        lastFireTime: nowMs,
         shieldHits: 0,
         leftSwordActive: true,
         rightSwordActive: true,
@@ -289,7 +296,7 @@ export class Game {
         type: "HOMING_MISSILE",
         charges: 1,
         maxCharges: 1,
-        lastFireTime: 0,
+        lastFireTime: nowMs,
         shieldHits: 0,
       });
     }
@@ -306,7 +313,7 @@ export class Game {
     this.network.broadcastDashParticles(playerId, pos.x, pos.y, angle, color);
   }
 
-  private spawnRandomPowerUp(): void {
+  private spawnRandomPowerUp(nowMs: number): void {
     if (!this.network.isHost()) return;
 
     const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
@@ -331,7 +338,7 @@ export class Game {
     const y =
       padding + rng.next() * (GAME_CONFIG.ARENA_HEIGHT - padding * 2);
 
-    const powerUp = new PowerUp(this.physics, x, y, type);
+    const powerUp = new PowerUp(this.physics, x, y, type, nowMs);
     this.powerUps.push(powerUp);
 
     console.log(
@@ -356,7 +363,13 @@ export class Game {
     onAdvancedSettingsChange?: (settings: AdvancedSettings) => void;
     onSystemMessage?: (message: string, durationMs?: number) => void;
   }): void {
-    this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
+    this.flowMgr.onPhaseChange = (phase) => {
+      if (phase === "PLAYING" && !this.network.isHost()) {
+        this.tickSystem.reset(0);
+        this.simTimeMs = 0;
+      }
+      callbacks.onPhaseChange(phase);
+    };
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
     this._onPlayersUpdate = callbacks.onPlayersUpdate;
     this._onGameModeChange = callbacks.onGameModeChange ?? null;
@@ -723,22 +736,51 @@ export class Game {
   }
 
   private loop(timestamp: number): void {
-    const dt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
+    const frameDt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
     this.lastTime = timestamp;
 
-    this.update(dt);
-    this.render(dt);
+    // Capture local input every frame (local-only timing)
+    const now = performance.now();
+    this.inputResolver.captureLocalInput(now, this.botMgr.useTouchForHost);
+    this.inputResolver.sendLocalInputIfNeeded(now);
+
+    const runTicks =
+      this.flowMgr.phase === "PLAYING" ||
+      (this.network.isHost() &&
+        (this.flowMgr.phase === "COUNTDOWN" ||
+          this.flowMgr.phase === "ROUND_END"));
+
+    if (runTicks) {
+      this.tickSystem.update((tick) => this.simulateTick(tick));
+      if (this.flowMgr.phase === "PLAYING") {
+        this.updateVisualEffects();
+      }
+    }
+
+    this.renderer.updateParticles(frameDt);
+    this.renderer.updateScreenShake(frameDt);
+    this.render(frameDt);
 
     requestAnimationFrame((t) => this.loop(t));
   }
 
-  private update(dt: number): void {
+  private simulateTick(tick: number): void {
+    const dtMs = this.tickSystem.getTickDurationMs();
+    if (this.network.isHost()) {
+      const phaseBefore = this.flowMgr.phase;
+      this.flowMgr.updateTimers(dtMs);
+      if (phaseBefore !== "PLAYING") {
+        return;
+      }
+    }
+
     if (this.flowMgr.phase !== "PLAYING") return;
 
-    // Send local input (throttled to sync rate)
-    const now = performance.now();
-    this.inputResolver.captureLocalInput(now, this.botMgr.useTouchForHost);
-    this.inputResolver.sendLocalInputIfNeeded(now);
+    const dt = dtMs / 1000;
+    this.simTimeMs = tick * dtMs;
+    const nowMs = this.simTimeMs;
+    const syncNow = performance.now();
+    this.collisionMgr.setSimTimeMs(nowMs);
 
     // Check dev keys for testing powerups (only for local player on host)
     const devKeys = this.input.consumeDevKeys();
@@ -773,18 +815,20 @@ export class Game {
 
       if (devKeys.spawnPowerUp) {
         console.log("[Dev] Spawning random power-up");
-        this.spawnRandomPowerUp();
+        this.spawnRandomPowerUp(nowMs);
       }
     }
 
     // Host: process all inputs and update physics
     if (this.network.isHost()) {
+      this.asteroidMgr.updateSpawning(nowMs);
       this.ships.forEach((ship, playerId) => {
         const { input, shouldDash } = this.inputResolver.resolveHostInput(
           playerId,
           this.ships,
           this.pilots,
           this.projectiles,
+          nowMs,
         );
 
         // Check if player has joust for speed boost
@@ -796,10 +840,17 @@ export class Game {
           input,
           shouldDash,
           dt,
+          nowMs,
           this.rotationDirection,
           speedMultiplier,
         );
-        this.fireSystem.processFire(playerId, ship, fireResult, shouldDash);
+        this.fireSystem.processFire(
+          playerId,
+          ship,
+          fireResult,
+          shouldDash,
+          nowMs,
+        );
         if (shouldDash) {
           this.spawnDashParticles(playerId, ship);
         }
@@ -822,9 +873,9 @@ export class Game {
           pilot.controlMode === "player"
             ? this.inputResolver.getPilotInputForPlayer(playerId)
             : undefined;
-        pilot.update(dt, threats, input, this.rotationDirection);
+        pilot.update(dt, nowMs, threats, input, this.rotationDirection);
 
-        if (pilot.hasSurvived()) {
+        if (pilot.hasSurvived(nowMs)) {
           const pilotPosition = {
             x: pilot.body.position.x,
             y: pilot.body.position.y,
@@ -838,16 +889,17 @@ export class Game {
             this.ships,
             this.playerMgr.players,
             pilotAngle,
+            nowMs,
           );
         }
       });
 
-      this.physics.update(dt * 1000);
+      this.physics.updateFixed(this.tickSystem.getTickDurationMs());
 
       // Clean up expired projectiles
       this.cleanupExpired(
         this.projectiles,
-        (projectile) => projectile.isExpired(),
+        (projectile) => projectile.isExpired(nowMs),
         (projectile) => projectile.destroy(),
       );
 
@@ -871,20 +923,20 @@ export class Game {
       });
 
       this.powerUps.forEach((powerUp) => {
-        powerUp.update(shipPositionsForPowerUps, dt);
+        powerUp.update(shipPositionsForPowerUps, dt, nowMs);
       });
 
       // Clean up expired power-ups
       this.cleanupExpired(
         this.powerUps,
-        (powerUp) => powerUp.isExpired(),
+        (powerUp) => powerUp.isExpired(nowMs),
         (powerUp) => powerUp.destroy(),
       );
 
       // Clean up expired laser beams
       this.cleanupExpired(
         this.laserBeams,
-        (beam) => beam.isExpired(),
+        (beam) => beam.isExpired(nowMs),
         (beam) => beam.destroy(),
       );
 
@@ -892,7 +944,7 @@ export class Game {
       this.collisionMgr.checkMineCollisions();
       this.cleanupExpired(
         this.mines,
-        (mine) => mine.isExpired(),
+        (mine) => mine.isExpired(nowMs),
         (mine) => mine.destroy(),
       );
 
@@ -901,7 +953,7 @@ export class Game {
       this.collisionMgr.checkHomingMissileCollisions();
       this.cleanupExpired(
         this.homingMissiles,
-        (missile) => missile.isExpired() || !missile.alive,
+        (missile) => missile.isExpired(nowMs) || !missile.alive,
         (missile) => missile.destroy(),
       );
 
@@ -909,10 +961,11 @@ export class Game {
       this.collisionMgr.checkJoustCollisions();
 
       // Update turret and bullets
-      this.turretMgr.update(dt);
+      this.turretMgr.update(dt, nowMs);
+      this.collisionMgr.update(nowMs);
 
       // Broadcast state (throttled to sync rate)
-      if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
+      if (syncNow - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.networkSync.broadcastState({
           ships: this.ships,
           pilots: this.pilots,
@@ -928,17 +981,10 @@ export class Game {
           rotationDirection: this.rotationDirection,
           screenShakeIntensity: this.renderer.getScreenShakeIntensity(),
           screenShakeDuration: this.renderer.getScreenShakeDuration(),
-        });
-        this.lastBroadcastTime = now;
+        }, nowMs);
+        this.lastBroadcastTime = syncNow;
       }
     }
-
-    // Update particles and effects
-    this.renderer.updateParticles(dt);
-    this.renderer.updateScreenShake(dt);
-
-    // Update visual effects for all clients (nitro particles, etc.)
-    this.updateVisualEffects();
   }
 
   private cleanupExpired<T>(
@@ -1009,6 +1055,7 @@ export class Game {
     const renderState = this.networkSync.getRenderState();
     this.gameRenderer.render({
       dt,
+      nowMs: this.simTimeMs,
       phase: this.flowMgr.phase,
       countdown: this.flowMgr.countdown,
       isHost: this.network.isHost(),

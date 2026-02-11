@@ -16,18 +16,19 @@ export class Projectile {
     y: number,
     angle: number,
     ownerId: string,
+    spawnTimeMs: number,
     speed?: number,
     lifetime?: number,
   ) {
     this.physics = physics;
     this.ownerId = ownerId;
-    this.spawnTime = Date.now();
+    this.spawnTime = spawnTimeMs;
     this.lifetime = lifetime ?? GAME_CONFIG.PROJECTILE_LIFETIME;
     this.body = physics.createProjectile(x, y, angle, ownerId, speed);
   }
 
-  isExpired(): boolean {
-    return Date.now() - this.spawnTime > this.lifetime;
+  isExpired(nowMs: number): boolean {
+    return nowMs - this.spawnTime > this.lifetime;
   }
 
   destroy(): void {

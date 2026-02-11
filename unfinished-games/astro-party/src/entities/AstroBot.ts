@@ -7,6 +7,7 @@ import { SeededRNG } from "../systems/SeededRNG";
 
 // Data provided to bot for decision making
 export interface BotVisibleData {
+  nowMs: number;
   myShip: {
     x: number;
     y: number;
@@ -115,7 +116,7 @@ export class AstroBot extends Bot {
   // Main AI decision function - called by Game.ts on host
   decideAction(data: BotVisibleData): BotAction {
     // Add reaction delay for more human-like behavior
-    const now = performance.now();
+    const now = data.nowMs;
     if (now - this.lastDecisionTime < AI_CONFIG.REACTION_DELAY) {
       return this.cachedAction;
     }

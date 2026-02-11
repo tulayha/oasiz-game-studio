@@ -29,6 +29,7 @@ import {
 
 export interface RenderContext {
   dt: number;
+  nowMs: number;
   phase: GamePhase;
   countdown: number;
   isHost: boolean;
@@ -68,6 +69,9 @@ export class GameRenderer {
   render(ctx: RenderContext): void {
     this.renderer.clear();
     this.renderer.beginFrame();
+    const useSimTime =
+      ctx.phase === "PLAYING" || ctx.phase === "GAME_END" || ctx.phase === "ROUND_END";
+    this.renderer.setGameTimeMs(useSimTime ? ctx.nowMs : null);
 
     this.renderer.drawStars();
     this.renderer.drawArenaBorder();
@@ -125,7 +129,10 @@ export class GameRenderer {
         ctx.ships.forEach((ship) => {
           if (ship.alive) {
             const powerUp = ctx.playerPowerUps.get(ship.playerId);
-            const renderData = this.getShipPowerUpRenderData(powerUp);
+            const renderData = this.getShipPowerUpRenderData(
+              powerUp,
+              ctx.nowMs,
+            );
             this.renderer.drawShip(
               ship.getState(),
               ship.color,
@@ -146,7 +153,10 @@ export class GameRenderer {
             const player = ctx.players.get(state.playerId);
             if (player) {
               const powerUp = ctx.playerPowerUps.get(state.playerId);
-              const renderData = this.getShipPowerUpRenderData(powerUp);
+              const renderData = this.getShipPowerUpRenderData(
+                powerUp,
+                ctx.nowMs,
+              );
               this.renderer.drawShip(
                 state,
                 player.color,
@@ -169,7 +179,7 @@ export class GameRenderer {
           if (pilot.alive) {
             const player = ctx.players.get(pilot.playerId);
             if (player) {
-              this.renderer.drawPilot(pilot.getState(), player.color);
+              this.renderer.drawPilot(pilot.getState(ctx.nowMs), player.color);
             }
           }
         });
@@ -211,7 +221,7 @@ export class GameRenderer {
       if (ctx.isHost) {
         ctx.powerUps.forEach((powerUp) => {
           if (powerUp.alive) {
-            this.renderer.drawPowerUp(powerUp.getState());
+            this.renderer.drawPowerUp(powerUp.getState(ctx.nowMs));
           }
         });
       } else {
@@ -411,6 +421,7 @@ export class GameRenderer {
 
   private getShipPowerUpRenderData(
     powerUp: PlayerPowerUp | null | undefined,
+    nowMs: number,
   ): {
     shieldHits?: number;
     laserCharges?: number;
@@ -428,7 +439,7 @@ export class GameRenderer {
       powerUp.charges < GAME_CONFIG.POWERUP_LASER_CHARGES
         ? Math.min(
             1,
-            (Date.now() - powerUp.lastFireTime) /
+            (nowMs - powerUp.lastFireTime) /
               GAME_CONFIG.POWERUP_LASER_COOLDOWN,
           )
         : undefined;
@@ -439,7 +450,7 @@ export class GameRenderer {
       powerUp.charges < GAME_CONFIG.POWERUP_SCATTER_CHARGES
         ? Math.min(
             1,
-            (Date.now() - powerUp.lastFireTime) /
+            (nowMs - powerUp.lastFireTime) /
               GAME_CONFIG.POWERUP_SCATTER_COOLDOWN,
           )
         : undefined;

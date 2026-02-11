@@ -14,7 +14,7 @@ import {
 
 export class AsteroidManager {
   private asteroids: Asteroid[] = [];
-  private asteroidSpawnTimeout: ReturnType<typeof setTimeout> | null = null;
+  private nextSpawnTimeMs: number | null = null;
 
   constructor(
     private physics: Physics,
@@ -88,14 +88,11 @@ export class AsteroidManager {
     }
   }
 
-  scheduleAsteroidSpawnsIfNeeded(): void {
+  scheduleAsteroidSpawnsIfNeeded(nowMs: number): void {
     if (!this.network.isHost()) return;
     if (this.getAdvancedSettings().asteroidDensity !== "SPAWN") return;
-    if (this.asteroidSpawnTimeout) {
-      clearTimeout(this.asteroidSpawnTimeout);
-      this.asteroidSpawnTimeout = null;
-    }
-    this.scheduleNextAsteroidSpawn();
+    this.nextSpawnTimeMs = null;
+    this.planNextAsteroidSpawn(nowMs);
   }
 
   splitAsteroid(asteroid: Asteroid, x: number, y: number): void {
@@ -134,7 +131,7 @@ export class AsteroidManager {
     }
   }
 
-  trySpawnPowerUp(x: number, y: number): void {
+  trySpawnPowerUp(x: number, y: number, nowMs: number): void {
     if (this.powerUpRng.next() > GAME_CONFIG.POWERUP_DROP_CHANCE) return;
 
     const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
@@ -152,21 +149,33 @@ export class AsteroidManager {
       }
     }
 
-    const powerUp = new PowerUp(this.physics, x, y, type);
+    const powerUp = new PowerUp(this.physics, x, y, type, nowMs);
     this.powerUps.push(powerUp);
   }
 
   cancelSpawnTimeout(): void {
-    if (this.asteroidSpawnTimeout) {
-      clearTimeout(this.asteroidSpawnTimeout);
-      this.asteroidSpawnTimeout = null;
-    }
+    this.nextSpawnTimeMs = null;
   }
 
   cleanup(): void {
     this.asteroids.forEach((asteroid) => asteroid.destroy());
     this.asteroids = [];
     this.cancelSpawnTimeout();
+  }
+
+  updateSpawning(nowMs: number): void {
+    if (!this.network.isHost()) return;
+    if (this.getAdvancedSettings().asteroidDensity !== "SPAWN") return;
+
+    if (this.nextSpawnTimeMs === null) {
+      this.planNextAsteroidSpawn(nowMs);
+      return;
+    }
+
+    if (nowMs >= this.nextSpawnTimeMs) {
+      this.spawnAsteroidBatch();
+      this.planNextAsteroidSpawn(nowMs);
+    }
   }
 
   // ============= PRIVATE HELPERS =============
@@ -219,7 +228,7 @@ export class AsteroidManager {
     return min + this.asteroidRng.next() * (max - min);
   }
 
-  private scheduleNextAsteroidSpawn(): void {
+  private planNextAsteroidSpawn(nowMs: number): void {
     if (this.flowMgr.phase !== "PLAYING") return;
     if (this.getAdvancedSettings().asteroidDensity !== "SPAWN") return;
 
@@ -229,13 +238,7 @@ export class AsteroidManager {
       cfg.ASTEROID_SPAWN_INTERVAL_MIN +
       this.asteroidRng.next() *
         (cfg.ASTEROID_SPAWN_INTERVAL_MAX - cfg.ASTEROID_SPAWN_INTERVAL_MIN);
-
-    this.asteroidSpawnTimeout = setTimeout(() => {
-      if (this.flowMgr.phase === "PLAYING" && this.network.isHost()) {
-        this.spawnAsteroidBatch();
-        this.scheduleNextAsteroidSpawn();
-      }
-    }, delay * intervalScale);
+    this.nextSpawnTimeMs = nowMs + delay * intervalScale;
   }
 
   private getAsteroidSpawnIntervalScale(): number {

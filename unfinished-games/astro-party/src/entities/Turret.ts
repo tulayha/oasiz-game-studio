@@ -22,11 +22,13 @@ export class Turret {
 
   constructor(physics: Physics, x: number, y: number) {
     this.physics = physics;
+    this.lastFireTime = -this.fireCooldown - 1;
     this.body = physics.createTurret(x, y);
   }
 
   update(
     dt: number,
+    nowMs: number,
     shipPositions: Map<string, { x: number; y: number; alive: boolean }>,
   ): {
     shouldFire: boolean;
@@ -35,7 +37,6 @@ export class Turret {
   } | null {
     if (!this.alive) return null;
 
-    const now = Date.now();
     const turretX = this.body.position.x;
     const turretY = this.body.position.y;
 
@@ -93,8 +94,8 @@ export class Turret {
       const isAligned = Math.abs(postNormalizedDiff) <= this.fireAngleThreshold;
 
       // Check if can fire (must be roughly aligned)
-      if (isAligned && now - this.lastFireTime >= this.fireCooldown) {
-        this.lastFireTime = now;
+      if (isAligned && nowMs - this.lastFireTime >= this.fireCooldown) {
+        this.lastFireTime = nowMs;
         return {
           shouldFire: true,
           fireAngle: this.angle,

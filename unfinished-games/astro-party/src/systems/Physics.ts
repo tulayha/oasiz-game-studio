@@ -142,7 +142,6 @@ export class Physics {
     body.plugin = body.plugin || {};
     body.plugin.playerId = playerId;
     body.plugin.entityType = "pilot";
-    body.plugin.spawnTime = Date.now();
 
     Composite.add(this.world, body);
     return body;
@@ -177,7 +176,6 @@ export class Physics {
     body.plugin = body.plugin || {};
     body.plugin.ownerId = ownerId;
     body.plugin.entityType = "projectile";
-    body.plugin.spawnTime = Date.now();
 
     Composite.add(this.world, body);
     return body;
@@ -281,7 +279,6 @@ export class Physics {
 
     body.plugin = body.plugin || {};
     body.plugin.entityType = "turretBullet";
-    body.plugin.spawnTime = Date.now();
 
     Composite.add(this.world, body);
     return body;
@@ -322,6 +319,10 @@ export class Physics {
   update(dt: number): void {
     // Cap delta time to prevent physics explosions
     Engine.update(this.engine, Math.min(dt, 16.667));
+  }
+
+  updateFixed(dtMs: number = 1000 / 60): void {
+    Engine.update(this.engine, dtMs);
   }
 
   applyForce(body: Matter.Body, force: Matter.Vector): void {

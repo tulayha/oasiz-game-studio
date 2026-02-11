@@ -39,6 +39,7 @@ export class FireSystem {
     ship: Ship,
     fireResult: { shouldFire: boolean; fireAngle: number } | null,
     shouldDash: boolean,
+    nowMs: number,
   ): void {
     if (fireResult?.shouldFire) {
       const playerPowerUp = this.playerPowerUps.get(playerId);
@@ -50,12 +51,11 @@ export class FireSystem {
         const firePos = ship.getFirePosition();
 
         if (playerPowerUp?.type === "LASER" && playerPowerUp.charges > 0) {
-          const fireNow = Date.now();
           if (
-            fireNow - playerPowerUp.lastFireTime >
+            nowMs - playerPowerUp.lastFireTime >
             GAME_CONFIG.POWERUP_LASER_COOLDOWN
           ) {
-            playerPowerUp.lastFireTime = fireNow;
+            playerPowerUp.lastFireTime = nowMs;
             playerPowerUp.charges--;
 
             const beam = new LaserBeam(
@@ -64,6 +64,7 @@ export class FireSystem {
               firePos.y,
               fireResult.fireAngle,
               this.nextEntityId("beam"),
+              nowMs,
             );
             this.laserBeams.push(beam);
 
@@ -87,12 +88,11 @@ export class FireSystem {
           playerPowerUp?.type === "SCATTER" &&
           playerPowerUp.charges > 0
         ) {
-          const fireNow = Date.now();
           if (
-            fireNow - playerPowerUp.lastFireTime >
+            nowMs - playerPowerUp.lastFireTime >
             GAME_CONFIG.POWERUP_SCATTER_COOLDOWN
           ) {
-            playerPowerUp.lastFireTime = fireNow;
+            playerPowerUp.lastFireTime = nowMs;
             playerPowerUp.charges--;
 
             // Fire 3 projectiles in triangle pattern: -15°, 0°, +15°
@@ -111,6 +111,7 @@ export class FireSystem {
                 firePos.y,
                 angle,
                 playerId,
+                nowMs,
                 GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_SPEED,
                 GAME_CONFIG.POWERUP_SCATTER_PROJECTILE_LIFETIME,
               );
@@ -146,6 +147,7 @@ export class FireSystem {
             mineX,
             mineY,
             this.nextEntityId("mine"),
+            nowMs,
           );
           this.mines.push(mine);
 
@@ -171,6 +173,7 @@ export class FireSystem {
             firePos.y,
             fireResult.fireAngle,
             this.nextEntityId("missile"),
+            nowMs,
           );
           this.homingMissiles.push(missile);
 
@@ -191,6 +194,7 @@ export class FireSystem {
             firePos.y,
             fireResult.fireAngle,
             playerId,
+            nowMs,
           );
           this.projectiles.push(projectile);
           this.playGameSoundLocal("fire");

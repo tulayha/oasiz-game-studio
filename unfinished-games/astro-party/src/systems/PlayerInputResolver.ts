@@ -73,6 +73,7 @@ export class PlayerInputResolver {
     ships: Map<string, Ship>,
     pilots: Map<string, Pilot>,
     projectiles: Projectile[],
+    nowMs: number,
   ): { input: PlayerInput; shouldDash: boolean } {
     let input: PlayerInput;
     let shouldDash = false;
@@ -89,13 +90,14 @@ export class PlayerInputResolver {
           ships,
           pilots,
           projectiles,
+          nowMs,
         );
         const action = bot.decideAction(botData);
         input = {
           buttonA: action.buttonA,
           buttonB: action.buttonB,
-          timestamp: performance.now(),
-          clientTimeMs: performance.now(),
+          timestamp: nowMs,
+          clientTimeMs: nowMs,
         };
         shouldDash = action.dash;
       } else {

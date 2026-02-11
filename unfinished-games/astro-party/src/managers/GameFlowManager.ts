@@ -22,8 +22,8 @@ import {
 export class GameFlowManager {
   phase: GamePhase = "START";
   countdown: number = 0;
-  countdownInterval: ReturnType<typeof setInterval> | null = null;
-  roundEndTimeout: ReturnType<typeof setTimeout> | null = null;
+  private countdownRemainingMs: number | null = null;
+  private roundEndRemainingMs: number | null = null;
   winnerId: string | null = null;
   winnerName: string | null = null;
   currentRound: number = 1;
@@ -76,26 +76,51 @@ export class GameFlowManager {
 
   startCountdown(): void {
     this.setPhase("COUNTDOWN");
+    this.countdownRemainingMs = GAME_CONFIG.COUNTDOWN_DURATION * 1000;
+    this.roundEndRemainingMs = null;
     this.countdown = GAME_CONFIG.COUNTDOWN_DURATION;
     this.onCountdownUpdate?.(this.countdown);
     this.network.broadcastCountdown(this.countdown);
-
-    this.countdownInterval = setInterval(() => {
-      this.countdown--;
-      this.onCountdownUpdate?.(this.countdown);
-      this.network.broadcastCountdown(this.countdown);
-
-      if (this.countdown <= 0) {
-        if (this.countdownInterval) {
-          clearInterval(this.countdownInterval);
-          this.countdownInterval = null;
-        }
-        this.onBeginMatch?.();
-      }
-    }, 1000);
   }
 
-  beginMatch(players: Map<string, PlayerData>, ships: Map<string, Ship>): void {
+  updateTimers(dtMs: number): void {
+    if (!this.network.isHost()) return;
+
+    if (this.phase === "COUNTDOWN" && this.countdownRemainingMs !== null) {
+      this.countdownRemainingMs = Math.max(0, this.countdownRemainingMs - dtMs);
+      const nextCount = Math.max(
+        0,
+        Math.ceil(this.countdownRemainingMs / 1000),
+      );
+      if (nextCount !== this.countdown) {
+        this.countdown = nextCount;
+        this.onCountdownUpdate?.(this.countdown);
+        this.network.broadcastCountdown(this.countdown);
+      }
+
+      if (this.countdownRemainingMs <= 0) {
+        this.countdownRemainingMs = null;
+        this.onBeginMatch?.();
+      }
+    }
+
+    if (this.phase === "ROUND_END" && this.roundEndRemainingMs !== null) {
+      this.roundEndRemainingMs = Math.max(0, this.roundEndRemainingMs - dtMs);
+      if (this.roundEndRemainingMs <= 0) {
+        this.roundEndRemainingMs = null;
+        if (this.phase !== "ROUND_END") return;
+        this.currentRound += 1;
+        this.onResetRound?.();
+        this.startCountdown();
+      }
+    }
+  }
+
+  beginMatch(
+    players: Map<string, PlayerData>,
+    ships: Map<string, Ship>,
+    nowMs: number,
+  ): void {
     this.setPhase("PLAYING");
 
     this.physics.createWalls(GAME_CONFIG.ARENA_WIDTH, GAME_CONFIG.ARENA_HEIGHT);
@@ -119,7 +144,7 @@ export class GameFlowManager {
           color,
           spawn.angle,
         );
-        ship.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
+        ship.invulnerableUntil = nowMs + GAME_CONFIG.INVULNERABLE_TIME;
         ships.set(playerId, ship);
 
         const player = players.get(playerId);
@@ -167,6 +192,7 @@ export class GameFlowManager {
     ships: Map<string, Ship>,
     pilots: Map<string, Pilot>,
     players: Map<string, PlayerData>,
+    nowMs: number,
   ): void {
     const ship = ships.get(playerId);
     if (!ship || !ship.alive) return;
@@ -193,6 +219,7 @@ export class GameFlowManager {
       angle,
       angularVelocity * 0.6,
       this.getAiRng(),
+      nowMs,
     );
     pilots.set(playerId, pilot);
 
@@ -275,6 +302,7 @@ export class GameFlowManager {
     ships: Map<string, Ship>,
     players: Map<string, PlayerData>,
     angle?: number,
+    nowMs: number = 0,
   ): void {
     const player = players.get(playerId);
     if (!player) return;
@@ -296,7 +324,7 @@ export class GameFlowManager {
       color,
       spawnAngle,
     );
-    ship.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
+    ship.invulnerableUntil = nowMs + GAME_CONFIG.INVULNERABLE_TIME;
     ships.set(playerId, ship);
 
     player.state = "ACTIVE";
@@ -309,11 +337,6 @@ export class GameFlowManager {
   endRound(players: Map<string, PlayerData>, winnerId: string | null): void {
     if (!this.network.isHost()) return;
     if (this.phase !== "PLAYING") return;
-
-    if (this.roundEndTimeout) {
-      clearTimeout(this.roundEndTimeout);
-      this.roundEndTimeout = null;
-    }
 
     const isTie = winnerId === null;
     let winnerName: string | null = null;
@@ -356,15 +379,7 @@ export class GameFlowManager {
     }
 
     this.setPhase("ROUND_END");
-
-    this.roundEndTimeout = setTimeout(() => {
-      this.roundEndTimeout = null;
-      if (!this.network.isHost()) return;
-      if (this.phase !== "ROUND_END") return;
-      this.currentRound += 1;
-      this.onResetRound?.();
-      this.startCountdown();
-    }, GAME_CONFIG.ROUND_RESULTS_DURATION * 1000);
+    this.roundEndRemainingMs = GAME_CONFIG.ROUND_RESULTS_DURATION * 1000;
   }
 
   endGame(winnerId: string, players: Map<string, PlayerData>): void {
@@ -393,14 +408,8 @@ export class GameFlowManager {
     players: Map<string, PlayerData>,
     resetScores: boolean = true,
   ): void {
-    if (this.countdownInterval) {
-      clearInterval(this.countdownInterval);
-      this.countdownInterval = null;
-    }
-    if (this.roundEndTimeout) {
-      clearTimeout(this.roundEndTimeout);
-      this.roundEndTimeout = null;
-    }
+    this.countdownRemainingMs = null;
+    this.roundEndRemainingMs = null;
 
     ships.forEach((ship) => ship.destroy());
     ships.clear();

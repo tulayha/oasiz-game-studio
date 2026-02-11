@@ -30,12 +30,15 @@ export class Pilot {
     initialAngle: number,
     initialAngularVelocity: number = 0,
     rng: SeededRNG,
+    spawnTimeMs: number,
   ) {
     this.physics = physics;
     this.playerId = playerId;
-    this.spawnTime = Date.now();
+    this.spawnTime = spawnTimeMs;
     this.controlMode = controlMode;
     this.rng = rng;
+    const cfg = GameConfig.config;
+    this.lastDashTime = -cfg.PILOT_DASH_COOLDOWN - 1;
     this.body = physics.createPilot(
       x,
       y,
@@ -48,6 +51,7 @@ export class Pilot {
 
   update(
     dt: number,
+    nowMs: number,
     threats: { x: number; y: number }[],
     input?: PlayerInput,
     rotationDirection: number = 1,
@@ -56,7 +60,7 @@ export class Pilot {
 
     if (this.controlMode === "player") {
       if (input) {
-        this.applyInput(input, rotationDirection, dt);
+        this.applyInput(input, rotationDirection, dt, nowMs);
       }
       return;
     }
@@ -72,20 +76,25 @@ export class Pilot {
     );
     const shouldRotate = Math.abs(angleDiff) > 0.35;
     const shouldDash = this.aiShouldDash && Math.abs(angleDiff) <= 0.35;
-    const now = performance.now();
     this.applyInput(
       {
         buttonA: shouldRotate,
         buttonB: shouldDash,
-        timestamp: now,
-        clientTimeMs: now,
+        timestamp: nowMs,
+        clientTimeMs: nowMs,
       },
       rotationDirection,
       dt,
+      nowMs,
     );
   }
 
-  applyInput(input: PlayerInput, rotationDirection: number, dt: number): void {
+  applyInput(
+    input: PlayerInput,
+    rotationDirection: number,
+    dt: number,
+    nowMs: number,
+  ): void {
     const cfg = GameConfig.config;
     let angle = this.body.angle;
 
@@ -95,9 +104,11 @@ export class Pilot {
       angle = this.body.angle;
     }
 
-    const now = performance.now();
-    if (input.buttonB && now - this.lastDashTime >= cfg.PILOT_DASH_COOLDOWN) {
-      this.lastDashTime = now;
+    if (
+      input.buttonB &&
+      nowMs - this.lastDashTime >= cfg.PILOT_DASH_COOLDOWN
+    ) {
+      this.lastDashTime = nowMs;
       Body.applyForce(this.body, this.body.position, {
         x: Math.cos(angle) * cfg.PILOT_DASH_FORCE,
         y: Math.sin(angle) * cfg.PILOT_DASH_FORCE,
@@ -153,14 +164,14 @@ export class Pilot {
     return angle;
   }
 
-  hasSurvived(): boolean {
-    return Date.now() - this.spawnTime >= GAME_CONFIG.PILOT_SURVIVAL_TIME;
+  hasSurvived(nowMs: number): boolean {
+    return nowMs - this.spawnTime >= GAME_CONFIG.PILOT_SURVIVAL_TIME;
   }
 
-  getSurvivalProgress(): number {
+  getSurvivalProgress(nowMs: number): number {
     return Math.min(
       1,
-      (Date.now() - this.spawnTime) / GAME_CONFIG.PILOT_SURVIVAL_TIME,
+      (nowMs - this.spawnTime) / GAME_CONFIG.PILOT_SURVIVAL_TIME,
     );
   }
 
@@ -169,7 +180,7 @@ export class Pilot {
     this.physics.removeBody(this.body);
   }
 
-  getState(): PilotState {
+  getState(nowMs: number): PilotState {
     return {
       id: this.body.id.toString(),
       playerId: this.playerId,
@@ -179,7 +190,7 @@ export class Pilot {
       vy: this.body.velocity.y,
       angle: this.body.angle,
       spawnTime: this.spawnTime,
-      survivalProgress: this.getSurvivalProgress(),
+      survivalProgress: this.getSurvivalProgress(nowMs),
       alive: this.alive,
     };
   }

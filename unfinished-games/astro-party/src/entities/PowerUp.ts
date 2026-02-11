@@ -17,19 +17,25 @@ export class PowerUp {
   private isMagneticActive: boolean = false;
   private targetPlayerId: string | null = null;
 
-  constructor(physics: Physics, x: number, y: number, type: PowerUpType) {
+  constructor(
+    physics: Physics,
+    x: number,
+    y: number,
+    type: PowerUpType,
+    spawnTimeMs: number,
+  ) {
     this.physics = physics;
     this.type = type;
-    this.spawnTime = Date.now();
+    this.spawnTime = spawnTimeMs;
     this.body = physics.createPowerUp(x, y, type);
   }
 
-  isExpired(): boolean {
-    return Date.now() - this.spawnTime > GAME_CONFIG.POWERUP_DESPAWN_TIME;
+  isExpired(nowMs: number): boolean {
+    return nowMs - this.spawnTime > GAME_CONFIG.POWERUP_DESPAWN_TIME;
   }
 
-  getRemainingTime(): number {
-    const elapsed = Date.now() - this.spawnTime;
+  getRemainingTime(nowMs: number): number {
+    const elapsed = nowMs - this.spawnTime;
     return Math.max(0, GAME_CONFIG.POWERUP_DESPAWN_TIME - elapsed);
   }
 
@@ -39,6 +45,7 @@ export class PowerUp {
       { x: number; y: number; alive: boolean; hasPowerUp: boolean }
     >,
     dt: number,
+    _nowMs: number,
   ): void {
     if (!this.alive) return;
 
@@ -97,10 +104,10 @@ export class PowerUp {
     this.physics.removeBody(this.body);
   }
 
-  getState(): PowerUpState {
+  getState(nowMs: number): PowerUpState {
     const remaining = Math.max(
       0,
-      GAME_CONFIG.POWERUP_DESPAWN_TIME - (Date.now() - this.spawnTime),
+      GAME_CONFIG.POWERUP_DESPAWN_TIME - (nowMs - this.spawnTime),
     );
     return {
       id: this.body.id.toString(),

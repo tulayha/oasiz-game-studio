@@ -12,9 +12,15 @@ export class TurretBullet {
   private lifetime: number = 3000; // 3 seconds lifetime
   private explosionRadius: number = 100; // Same as mine explosion radius
 
-  constructor(physics: Physics, x: number, y: number, angle: number) {
+  constructor(
+    physics: Physics,
+    x: number,
+    y: number,
+    angle: number,
+    spawnTimeMs: number,
+  ) {
     this.physics = physics;
-    this.spawnTime = Date.now();
+    this.spawnTime = spawnTimeMs;
 
     // Create bullet with high speed in the locked direction
     const speed = 12;
@@ -24,23 +30,23 @@ export class TurretBullet {
     this.body = physics.createTurretBullet(x, y, vx, vy);
   }
 
-  update(dt: number): boolean {
+  update(dt: number, nowMs: number): boolean {
     if (!this.alive) return false;
 
     // Check if expired
-    if (Date.now() - this.spawnTime > this.lifetime && !this.exploded) {
-      this.explode();
+    if (nowMs - this.spawnTime > this.lifetime && !this.exploded) {
+      this.explode(nowMs);
       return true; // Still alive but exploded
     }
 
-    return !this.exploded || Date.now() - this.explosionTime < 500;
+    return !this.exploded || nowMs - this.explosionTime < 500;
   }
 
-  explode(): void {
+  explode(nowMs: number): void {
     if (this.exploded) return;
 
     this.exploded = true;
-    this.explosionTime = Date.now();
+    this.explosionTime = nowMs;
 
     // Stop the bullet
     Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
@@ -70,11 +76,11 @@ export class TurretBullet {
     return hitShips;
   }
 
-  isExpired(): boolean {
+  isExpired(nowMs: number): boolean {
     if (this.exploded) {
-      return Date.now() - this.explosionTime > 500; // 500ms explosion duration
+      return nowMs - this.explosionTime > 500; // 500ms explosion duration
     }
-    return Date.now() - this.spawnTime > this.lifetime;
+    return nowMs - this.spawnTime > this.lifetime;
   }
 
   destroy(): void {

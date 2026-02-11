@@ -34,6 +34,8 @@ export class Ship {
     this.physics = physics;
     this.playerId = playerId;
     this.color = color;
+    const cfg = GameConfig.config;
+    this.lastShotTime = -cfg.FIRE_COOLDOWN - 1;
     this.body = physics.createShip(x, y, playerId);
     // Set initial facing direction
     Body.setAngle(this.body, initialAngle);
@@ -43,6 +45,7 @@ export class Ship {
     input: PlayerInput,
     dash: boolean,
     dt: number,
+    nowMs: number,
     rotationDirection: number = 1,
     speedMultiplier: number = 1,
   ): { shouldFire: boolean; fireAngle: number } | null {
@@ -119,13 +122,11 @@ export class Ship {
     // Button B: Fire with recoil (with ammo system)
     let fireResult: { shouldFire: boolean; fireAngle: number } | null = null;
     if (input.buttonB) {
-      const now = Date.now();
-
       // Check if we can fire: have ammo and burst delay has passed
-      if (this.ammo > 0 && now - this.lastShotTime > cfg.FIRE_COOLDOWN) {
-        this.lastShotTime = now;
+      if (this.ammo > 0 && nowMs - this.lastShotTime > cfg.FIRE_COOLDOWN) {
+        this.lastShotTime = nowMs;
         this.ammo--;
-        this.lastFireTime = now;
+        this.lastFireTime = nowMs;
 
         if (mode === "STANDARD") {
           this.recoilTimer = cfg.SHIP_RECOIL_DURATION;
@@ -140,7 +141,7 @@ export class Ship {
         // Start reload if not already reloading
         if (this.ammo < this.maxAmmo && !this.isReloading) {
           this.isReloading = true;
-          this.reloadStartTime = now;
+          this.reloadStartTime = nowMs;
         }
 
         fireResult = {
@@ -151,7 +152,7 @@ export class Ship {
     }
 
     // Update ammo reload
-    this.updateReload(Date.now());
+    this.updateReload(nowMs);
 
     return fireResult;
   }
@@ -170,27 +171,28 @@ export class Ship {
     this.physics.removeBody(this.body);
   }
 
-  respawn(x: number, y: number): void {
+  respawn(x: number, y: number, nowMs: number): void {
     this.body = this.physics.createShip(x, y, this.playerId);
     this.alive = true;
-    this.invulnerableUntil = Date.now() + GAME_CONFIG.INVULNERABLE_TIME;
+    this.invulnerableUntil = nowMs + GAME_CONFIG.INVULNERABLE_TIME;
     Body.setVelocity(this.body, { x: 0, y: 0 });
     Body.setAngularVelocity(this.body, 0);
     // Reset ammo on respawn
     this.ammo = this.maxAmmo;
     this.isReloading = false;
+    this.lastShotTime = nowMs - GameConfig.config.FIRE_COOLDOWN - 1;
   }
 
-  isInvulnerable(): boolean {
-    return Date.now() < this.invulnerableUntil;
+  isInvulnerable(nowMs: number): boolean {
+    return nowMs < this.invulnerableUntil;
   }
 
-  private updateReload(now: number): void {
+  private updateReload(nowMs: number): void {
     if (this.isReloading && this.ammo < this.maxAmmo) {
-      const reloadProgress = now - this.reloadStartTime;
+      const reloadProgress = nowMs - this.reloadStartTime;
       if (reloadProgress >= GAME_CONFIG.AMMO_RELOAD_TIME) {
         this.ammo++;
-        this.reloadStartTime = now;
+        this.reloadStartTime = nowMs;
 
         // Stop reloading when full
         if (this.ammo >= this.maxAmmo) {
@@ -201,12 +203,11 @@ export class Ship {
     }
   }
 
-  getReloadProgress(): number {
+  getReloadProgress(nowMs: number): number {
     if (!this.isReloading || this.ammo >= this.maxAmmo) return 1;
-    const now = Date.now();
     return Math.min(
       1,
-      (now - this.reloadStartTime) / GAME_CONFIG.AMMO_RELOAD_TIME,
+      (nowMs - this.reloadStartTime) / GAME_CONFIG.AMMO_RELOAD_TIME,
     );
   }
 

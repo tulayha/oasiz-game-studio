@@ -38,11 +38,11 @@ export class TurretManager {
     console.log("[TurretManager] Turret spawned at center:", centerX, centerY);
   }
 
-  update(dt: number): void {
+  update(dt: number, nowMs: number): void {
     if (!this.network.isHost()) return;
 
-    this.updateTurret(dt);
-    this.updateTurretBullets(dt);
+    this.updateTurret(dt, nowMs);
+    this.updateTurretBullets(dt, nowMs);
   }
 
   clear(): void {
@@ -63,7 +63,7 @@ export class TurretManager {
     return this.turretBullets;
   }
 
-  private updateTurret(dt: number): void {
+  private updateTurret(dt: number, nowMs: number): void {
     if (!this.turret) return;
 
     const shipPositions = new Map<
@@ -78,7 +78,7 @@ export class TurretManager {
       });
     });
 
-    const fireResult = this.turret.update(dt, shipPositions);
+    const fireResult = this.turret.update(dt, nowMs, shipPositions);
     if (fireResult?.shouldFire) {
       const turretX = this.turret.body.position.x;
       const turretY = this.turret.body.position.y;
@@ -87,6 +87,7 @@ export class TurretManager {
         turretX + Math.cos(fireResult.fireAngle) * 40,
         turretY + Math.sin(fireResult.fireAngle) * 40,
         fireResult.fireAngle,
+        nowMs,
       );
       this.turretBullets.push(bullet);
 
@@ -97,7 +98,7 @@ export class TurretManager {
     }
   }
 
-  private updateTurretBullets(dt: number): void {
+  private updateTurretBullets(dt: number, nowMs: number): void {
     const shipPositions = new Map<
       string,
       { x: number; y: number; alive: boolean }
@@ -112,7 +113,7 @@ export class TurretManager {
 
     for (let i = this.turretBullets.length - 1; i >= 0; i--) {
       const bullet = this.turretBullets[i];
-      const stillActive = bullet.update(dt);
+      const stillActive = bullet.update(dt, nowMs);
 
       if (!bullet.exploded) {
         for (const ship of this.ships.values()) {
@@ -123,7 +124,7 @@ export class TurretManager {
           const dist = Math.sqrt(dx * dx + dy * dy);
 
           if (dist <= 25) {
-            bullet.explode();
+            bullet.explode(nowMs);
             this.renderer.spawnExplosion(
               bullet.body.position.x,
               bullet.body.position.y,
@@ -153,19 +154,20 @@ export class TurretManager {
                 SettingsManager.triggerHaptic("medium");
               }
             } else {
-              this.flowMgr.destroyShip(
-                shipPlayerId,
-                this.ships,
-                this.pilots,
-                this.playerMgr.players,
-              );
+            this.flowMgr.destroyShip(
+              shipPlayerId,
+              this.ships,
+              this.pilots,
+              this.playerMgr.players,
+              nowMs,
+            );
               this.playerPowerUps.delete(shipPlayerId);
             }
           }
         }
       }
 
-      if (bullet.isExpired() || !stillActive) {
+      if (bullet.isExpired(nowMs) || !stillActive) {
         bullet.destroy();
         this.turretBullets.splice(i, 1);
       }

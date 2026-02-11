@@ -54,6 +54,8 @@ export class CollisionManager {
   private onTriggerScreenShake: (intensity: number, duration: number) => void;
   private onEmitPlayersUpdate: () => void;
   private isDevModeEnabled: () => boolean;
+  private simTimeMs: number = 0;
+  private pendingEliminationCheckAtMs: number | null = null;
 
   constructor(deps: CollisionManagerDeps) {
     this.network = deps.network;
@@ -74,6 +76,23 @@ export class CollisionManager {
     this.isDevModeEnabled = deps.isDevModeEnabled;
   }
 
+  setSimTimeMs(nowMs: number): void {
+    this.simTimeMs = nowMs;
+  }
+
+  update(nowMs: number): void {
+    if (!this.network.isHost()) return;
+    if (
+      this.pendingEliminationCheckAtMs !== null &&
+      nowMs >= this.pendingEliminationCheckAtMs
+    ) {
+      this.pendingEliminationCheckAtMs = null;
+      if (this.flowMgr.phase === "PLAYING") {
+        this.flowMgr.checkEliminationWin(this.playerMgr.players);
+      }
+    }
+  }
+
   registerCollisions(physics: Physics): void {
     setupCollisions(physics, {
       onProjectileHitShip: (
@@ -83,7 +102,7 @@ export class CollisionManager {
       ) => {
         if (!this.network.isHost()) return;
         const ship = this.ships.get(shipPlayerId);
-        if (ship && ship.alive && !ship.isInvulnerable()) {
+        if (ship && ship.alive && !ship.isInvulnerable(this.simTimeMs)) {
           const powerUp = this.playerPowerUps.get(shipPlayerId);
           if (powerUp?.type === "SHIELD") {
             powerUp.shieldHits++;
@@ -108,6 +127,7 @@ export class CollisionManager {
             this.ships,
             this.pilots,
             this.playerMgr.players,
+            this.simTimeMs,
           );
           this.playerPowerUps.delete(shipPlayerId);
           this.flowMgr.removeProjectileByBody(
@@ -159,7 +179,7 @@ export class CollisionManager {
         if (!GAME_CONFIG.ASTEROID_DAMAGE_SHIPS) return;
 
         const ship = this.ships.get(shipPlayerId);
-        if (ship && ship.alive && !ship.isInvulnerable()) {
+        if (ship && ship.alive && !ship.isInvulnerable(this.simTimeMs)) {
           const powerUp = this.playerPowerUps.get(shipPlayerId);
           if (powerUp?.type === "SHIELD") {
             powerUp.shieldHits++;
@@ -185,6 +205,7 @@ export class CollisionManager {
             this.ships,
             this.pilots,
             this.playerMgr.players,
+            this.simTimeMs,
           );
           this.playerPowerUps.delete(shipPlayerId);
         }
@@ -256,7 +277,7 @@ export class CollisionManager {
     if (asteroid.isLarge()) {
       this.asteroidMgr.splitAsteroid(asteroid, pos.x, pos.y);
     } else {
-      this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y);
+    this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y, this.simTimeMs);
     }
   }
 
@@ -271,7 +292,11 @@ export class CollisionManager {
     const endY = startY + Math.sin(angle) * beamLength;
 
     this.ships.forEach((ship, shipPlayerId) => {
-      if (shipPlayerId === ownerId || !ship.alive || ship.isInvulnerable())
+      if (
+        shipPlayerId === ownerId ||
+        !ship.alive ||
+        ship.isInvulnerable(this.simTimeMs)
+      )
         return;
 
       if (
@@ -290,6 +315,7 @@ export class CollisionManager {
           this.ships,
           this.pilots,
           this.playerMgr.players,
+          this.simTimeMs,
         );
         this.playerPowerUps.delete(shipPlayerId);
       }
@@ -324,7 +350,7 @@ export class CollisionManager {
         if (asteroid.isLarge()) {
           this.asteroidMgr.splitAsteroid(asteroid, pos.x, pos.y);
         } else {
-          this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y);
+          this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y, this.simTimeMs);
         }
       }
     }
@@ -385,7 +411,7 @@ export class CollisionManager {
     if (!this.network.isHost()) return;
 
     // Mark mine as exploded - this will sync to clients immediately
-    mine.explode();
+    mine.explode(this.simTimeMs);
 
     const explosionRadius = GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS;
     const mineX = mine.x;
@@ -462,13 +488,14 @@ export class CollisionManager {
     this.onEmitPlayersUpdate();
 
     // Wait for both mine explosion (500ms) and ship debris (up to 1400ms) animations
-    // Plus extra time to see the aftermath
-    setTimeout(() => {
-      if (!this.network.isHost()) return;
-      if (this.flowMgr.phase === "PLAYING") {
-        this.flowMgr.checkEliminationWin(this.playerMgr.players);
-      }
-    }, 2000); // 2 seconds for all animations to complete
+    // Plus extra time to see the aftermath (tick-based)
+    const eliminationAt = this.simTimeMs + 2000;
+    if (
+      this.pendingEliminationCheckAtMs === null ||
+      eliminationAt < this.pendingEliminationCheckAtMs
+    ) {
+      this.pendingEliminationCheckAtMs = eliminationAt;
+    }
   }
 
   checkMineCollisions(): void {
@@ -483,7 +510,7 @@ export class CollisionManager {
       if (!mine.alive || mine.exploded) continue;
 
       // Check if mine is arming and should explode
-      if (mine.checkArmingComplete()) {
+      if (mine.checkArmingComplete(this.simTimeMs)) {
         this.explodeMine(mine, mine.triggeringPlayerId);
         mine.triggeringPlayerId = undefined;
         continue;
@@ -504,7 +531,7 @@ export class CollisionManager {
           if (shipPlayerId !== mine.ownerId) {
             // Player touched the mine - trigger arming sequence
             // Explosion happens after 1 second delay
-            mine.triggerArming();
+            mine.triggerArming(this.simTimeMs);
             mine.triggeringPlayerId = shipPlayerId;
             // Show warning effect
             this.renderer.spawnExplosion(mine.x, mine.y, "#ff4400");
@@ -588,6 +615,7 @@ export class CollisionManager {
                 this.ships,
                 this.pilots,
                 this.playerMgr.players,
+                this.simTimeMs,
               );
               this.playerPowerUps.delete(shipPlayerId);
               missile.destroy();
@@ -618,6 +646,7 @@ export class CollisionManager {
                   this.ships,
                   this.pilots,
                   this.playerMgr.players,
+                  this.simTimeMs,
                 );
                 this.playerPowerUps.delete(shipPlayerId);
                 missile.destroy();
@@ -635,6 +664,7 @@ export class CollisionManager {
               this.ships,
               this.pilots,
               this.playerMgr.players,
+              this.simTimeMs,
             );
             this.playerPowerUps.delete(shipPlayerId);
             missile.destroy();
@@ -680,7 +710,7 @@ export class CollisionManager {
           if (asteroid.isLarge()) {
             this.asteroidMgr.splitAsteroid(asteroid, pos.x, pos.y);
           } else {
-            this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y);
+            this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y, this.simTimeMs);
           }
 
           missile.destroy();
@@ -780,6 +810,7 @@ export class CollisionManager {
               this.ships,
               this.pilots,
               this.playerMgr.players,
+              this.simTimeMs,
             );
             this.playerPowerUps.delete(otherPlayerId);
 
@@ -811,6 +842,7 @@ export class CollisionManager {
               this.ships,
               this.pilots,
               this.playerMgr.players,
+              this.simTimeMs,
             );
             this.playerPowerUps.delete(otherPlayerId);
 
@@ -987,7 +1019,7 @@ export class CollisionManager {
           if (asteroid.isLarge()) {
             this.asteroidMgr.splitAsteroid(asteroid, pos.x, pos.y);
           } else {
-            this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y);
+            this.asteroidMgr.trySpawnPowerUp(pos.x, pos.y, this.simTimeMs);
           }
         }
       }

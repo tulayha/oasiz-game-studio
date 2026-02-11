@@ -19,13 +19,14 @@ export class HomingMissile {
     y: number,
     angle: number,
     id: string,
+    spawnTimeMs: number,
   ) {
     this.id = id;
     this.ownerId = ownerId;
     this.x = x;
     this.y = y;
     this.angle = angle;
-    this.spawnTime = Date.now();
+    this.spawnTime = spawnTimeMs;
 
     // Initial velocity in firing direction
     const speed = GAME_CONFIG.POWERUP_HOMING_MISSILE_SPEED;
@@ -119,9 +120,9 @@ export class HomingMissile {
     }
   }
 
-  isExpired(): boolean {
+  isExpired(nowMs: number): boolean {
     return (
-      Date.now() - this.spawnTime > GAME_CONFIG.POWERUP_HOMING_MISSILE_LIFETIME
+      nowMs - this.spawnTime > GAME_CONFIG.POWERUP_HOMING_MISSILE_LIFETIME
     );
   }
 

@@ -13,39 +13,45 @@ export class Mine {
   armingStartTime: number = 0;
   triggeringPlayerId: string | undefined = undefined; // Player who triggered the mine
 
-  constructor(ownerId: string, x: number, y: number, id: string) {
+  constructor(
+    ownerId: string,
+    x: number,
+    y: number,
+    id: string,
+    spawnTimeMs: number,
+  ) {
     this.id = id;
     this.ownerId = ownerId;
     this.x = x;
     this.y = y;
-    this.spawnTime = performance.now();
+    this.spawnTime = spawnTimeMs;
   }
 
-  isExpired(): boolean {
+  isExpired(nowMs: number): boolean {
     if (this.exploded) {
       // Keep mine alive for:
       // - 500ms explosion animation
       // - Ship debris animation (up to 1400ms)
       // - 2s delay before round end
       // - Extra buffer for client sync
-      return performance.now() - this.explosionTime > 4500; // 4.5 seconds total
+      return nowMs - this.explosionTime > 4500; // 4.5 seconds total
     }
     // Mines no longer expire - they stay until hit or round ends
     return false;
   }
 
   // Trigger arming sequence (short delay before explosion)
-  triggerArming(): void {
+  triggerArming(nowMs: number): void {
     if (!this.arming && !this.exploded) {
       this.arming = true;
-      this.armingStartTime = performance.now();
+      this.armingStartTime = nowMs;
     }
   }
 
   // Check if arming is complete and should explode
-  checkArmingComplete(): boolean {
+  checkArmingComplete(nowMs: number): boolean {
     if (this.arming && !this.exploded) {
-      return performance.now() - this.armingStartTime >= 400; // 400ms delay - quick reaction
+      return nowMs - this.armingStartTime >= 400; // 400ms delay - quick reaction
     }
     return false;
   }
@@ -54,25 +60,25 @@ export class Mine {
     return this.arming && !this.exploded;
   }
 
-  explode(): void {
+  explode(nowMs: number): void {
     if (!this.exploded) {
       this.exploded = true;
-      this.explosionTime = performance.now();
+      this.explosionTime = nowMs;
     }
   }
 
-  isExploding(): boolean {
-    return this.exploded && performance.now() - this.explosionTime < 500;
+  isExploding(nowMs: number): boolean {
+    return this.exploded && nowMs - this.explosionTime < 500;
   }
 
-  getExplosionProgress(): number {
+  getExplosionProgress(nowMs: number): number {
     if (!this.exploded) return 0;
-    const elapsed = performance.now() - this.explosionTime;
+    const elapsed = nowMs - this.explosionTime;
     return Math.min(1, elapsed / 500);
   }
 
-  isExplosionComplete(): boolean {
-    return this.exploded && performance.now() - this.explosionTime >= 500;
+  isExplosionComplete(nowMs: number): boolean {
+    return this.exploded && nowMs - this.explosionTime >= 500;
   }
 
   destroy(): void {

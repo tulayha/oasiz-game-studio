@@ -20,6 +20,7 @@ export class Renderer {
   private particles: Particle[] = [];
   private screenShake = { intensity: 0, duration: 0, offsetX: 0, offsetY: 0 };
   private visualRng: SeededRNG;
+  private gameTimeMs: number | null = null;
 
   // Dev mode visualization flag
   private devModeEnabled = false;
@@ -37,6 +38,14 @@ export class Renderer {
 
   setVisualRng(rng: SeededRNG): void {
     this.visualRng = rng;
+  }
+
+  setGameTimeMs(nowMs: number | null): void {
+    this.gameTimeMs = nowMs;
+  }
+
+  private getNowMs(): number {
+    return this.gameTimeMs ?? Date.now();
   }
 
   private random(): number {
@@ -331,10 +340,11 @@ export class Renderer {
   drawTurretBullet(state: import("../types").TurretBulletState): void {
     const { ctx } = this;
     const { x, y, vx, vy, exploded, explosionTime } = state;
+    const nowMs = this.getNowMs();
 
     if (exploded && explosionTime > 0) {
       // Draw explosion effect
-      const elapsed = Date.now() - explosionTime;
+      const elapsed = nowMs - explosionTime;
       const progress = Math.min(1, elapsed / 500);
       const radius = 100 * (0.3 + progress * 0.7); // 100px explosion radius
       const alpha = 1 - progress;
@@ -489,7 +499,8 @@ export class Renderer {
   ): void {
     const { ctx } = this;
     const { x, y, angle, invulnerableUntil } = state;
-    const isInvulnerable = Date.now() < invulnerableUntil;
+    const nowMs = this.getNowMs();
+    const isInvulnerable = nowMs < invulnerableUntil;
     const size = 15;
 
     ctx.save();
@@ -595,7 +606,7 @@ export class Renderer {
       const currentAmmo = state.ammo;
       const dotSize = 3.5;
       const orbitRadius = size * 1.3; // Distance from ship center
-      const rotation = Date.now() * 0.0008; // Slow rotation like missile
+      const rotation = nowMs * 0.0008; // Slow rotation like missile
 
       for (let i = 0; i < maxAmmo; i++) {
         // Calculate angle for this ammo rotating around the back of ship
@@ -620,7 +631,7 @@ export class Renderer {
 
     // Draw Homing Missile indicator (red ball on back) - rotates slowly
     if (homingMissileCharges !== undefined && homingMissileCharges > 0) {
-      const rotation = Date.now() * 0.001; // Slow rotation
+      const rotation = nowMs * 0.001; // Slow rotation
       const orbitRadius = size * 1.4;
       const ballX = Math.cos(Math.PI + rotation) * orbitRadius;
       const ballY = Math.sin(Math.PI + rotation) * orbitRadius;
@@ -727,16 +738,16 @@ export class Renderer {
     }
 
     // Flash when invulnerable
-    if (isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0) {
+    if (isInvulnerable && Math.floor(nowMs / 100) % 2 === 0) {
       ctx.globalAlpha = 0.5;
     }
 
     // Engine glow - ALWAYS on since ship always thrusts forward
     // Use pre-calculated random offset to avoid flicker
-    const flameLength = size * 0.8 + Math.sin(Date.now() * 0.02) * size * 0.2;
+    const flameLength = size * 0.8 + Math.sin(nowMs * 0.02) * size * 0.2;
     ctx.fillStyle = "#ff4400";
     const baseAlpha =
-      isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.35 : 0.7;
+      isInvulnerable && Math.floor(nowMs / 100) % 2 === 0 ? 0.35 : 0.7;
     ctx.globalAlpha = baseAlpha;
     ctx.beginPath();
     ctx.moveTo(-size * 0.4, 0);
@@ -746,7 +757,7 @@ export class Renderer {
     ctx.closePath();
     ctx.fill();
     ctx.globalAlpha =
-      isInvulnerable && Math.floor(Date.now() / 100) % 2 === 0 ? 0.5 : 1;
+      isInvulnerable && Math.floor(nowMs / 100) % 2 === 0 ? 0.5 : 1;
 
     // Glow effect
     ctx.shadowColor = color.glow;
@@ -781,15 +792,16 @@ export class Renderer {
   drawPilot(state: PilotState, color: PlayerColor): void {
     const { ctx } = this;
     const { x, y, vx, vy, angle, id, survivalProgress } = state;
+    const nowMs = this.getNowMs();
     const isFlashing =
-      survivalProgress > 0.6 && Math.floor(Date.now() / 150) % 2 === 0;
+      survivalProgress > 0.6 && Math.floor(nowMs / 150) % 2 === 0;
     const speed = Math.sqrt(vx * vx + vy * vy);
     const swayAmount = Math.min(1, speed / 4);
     let phase = 0;
     for (let i = 0; i < id.length; i++) {
       phase = (phase + id.charCodeAt(i) * 0.17) % (Math.PI * 2);
     }
-    const time = Date.now() * 0.01;
+    const time = nowMs * 0.01;
     const limbSway = Math.sin(time + phase) * 3 * swayAmount;
 
     ctx.save();
@@ -1608,10 +1620,11 @@ export class Renderer {
   drawMine(mine: import("../entities/Mine").Mine): void {
     const { ctx } = this;
     const { x, y, exploded, explosionTime } = mine;
+    const nowMs = this.getNowMs();
 
     if (exploded && explosionTime > 0) {
       // Draw explosion effect - lasts 500ms
-      const elapsed = Date.now() - explosionTime;
+      const elapsed = nowMs - explosionTime;
       const progress = Math.min(1, elapsed / 500);
       const radius =
         GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
@@ -1647,7 +1660,7 @@ export class Renderer {
       // Pulsing animation - scale shrinks and grows
       const pulseSpeed = 0.008;
       const pulseAmount = 0.15;
-      const pulseScale = 1 + Math.sin(Date.now() * pulseSpeed) * pulseAmount;
+      const pulseScale = 1 + Math.sin(nowMs * pulseSpeed) * pulseAmount;
       ctx.scale(pulseScale, pulseScale);
 
       const mineSize = GAME_CONFIG.POWERUP_MINE_SIZE;
@@ -1700,11 +1713,12 @@ export class Renderer {
   drawMineState(state: import("../types").MineState): void {
     const { ctx } = this;
     const { x, y, exploded, explosionTime } = state;
+    const nowMs = this.getNowMs();
 
     // Check if mine has exploded
     if (exploded && explosionTime > 0) {
       // Draw explosion effect on client - lasts 500ms
-      const elapsed = Date.now() - explosionTime;
+      const elapsed = nowMs - explosionTime;
       const progress = Math.min(1, elapsed / 500);
       const radius =
         GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
@@ -1742,7 +1756,7 @@ export class Renderer {
     // Pulsing animation
     const pulseSpeed = 0.008;
     const pulseAmount = 0.15;
-    const pulseScale = 1 + Math.sin(Date.now() * pulseSpeed) * pulseAmount;
+    const pulseScale = 1 + Math.sin(nowMs * pulseSpeed) * pulseAmount;
     ctx.scale(pulseScale, pulseScale);
 
     const mineSize = GAME_CONFIG.POWERUP_MINE_SIZE;

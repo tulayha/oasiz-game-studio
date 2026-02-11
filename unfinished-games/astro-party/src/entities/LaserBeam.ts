@@ -16,21 +16,22 @@ export class LaserBeam {
     y: number,
     angle: number,
     id: string,
+    spawnTimeMs: number,
   ) {
     this.id = id;
     this.ownerId = ownerId;
     this.x = x;
     this.y = y;
     this.angle = angle;
-    this.spawnTime = Date.now();
+    this.spawnTime = spawnTimeMs;
   }
 
-  isExpired(): boolean {
-    return Date.now() - this.spawnTime > this.duration;
+  isExpired(nowMs: number): boolean {
+    return nowMs - this.spawnTime > this.duration;
   }
 
-  getProgress(): number {
-    const elapsed = Date.now() - this.spawnTime;
+  getProgress(nowMs: number): number {
+    const elapsed = nowMs - this.spawnTime;
     return Math.min(1, elapsed / this.duration);
   }
 

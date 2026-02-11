@@ -137,7 +137,7 @@ export class NetworkSyncSystem {
     };
   }
 
-  broadcastState(input: BroadcastStateInput): void {
+  broadcastState(input: BroadcastStateInput, nowMs: number): void {
     const now = performance.now();
 
     let playerPowerUpsRecord: Record<string, PlayerPowerUp | null> | undefined;
@@ -151,10 +151,10 @@ export class NetworkSyncSystem {
 
     const state: GameStateSync = {
       ships: [...input.ships.values()].map((s) => s.getState()),
-      pilots: [...input.pilots.values()].map((p) => p.getState()),
+      pilots: [...input.pilots.values()].map((p) => p.getState(nowMs)),
       projectiles: input.projectiles.map((p) => p.getState()),
       asteroids: input.asteroids.map((a) => a.getState()),
-      powerUps: input.powerUps.map((p) => p.getState()),
+      powerUps: input.powerUps.map((p) => p.getState(nowMs)),
       laserBeams: input.laserBeams.map((b) => b.getState()),
       mines: input.mines.map((m) => m.getState()),
       homingMissiles: input.homingMissiles.map((m) => m.getState()),
