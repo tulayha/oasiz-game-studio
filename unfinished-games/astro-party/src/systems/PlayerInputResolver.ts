@@ -138,6 +138,9 @@ export class PlayerInputResolver {
     if (isMe && this.botMgr.useTouchForHost) {
       return this.multiInput?.capture(0) || this.emptyInput();
     }
+    if (isMe) {
+      return this.localInputState;
+    }
 
     return this.pendingInputs.get(playerId) || this.emptyInput();
   }

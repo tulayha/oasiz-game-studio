@@ -92,7 +92,7 @@ export class Physics {
       density: 0.001,
       collisionFilter: {
         category: 0x0001, // Ship category
-        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010, // Collide with ships (1), projectiles (2), asteroids (4), walls (8), and powerups (16)
+        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0020, // Collide with ships (1), projectiles (2), asteroids (4), walls (8), powerups (16), and turret (32)
       },
     });
 
@@ -242,13 +242,13 @@ export class Physics {
     const body = Bodies.circle(x, y, 20, {
       label: "turret",
       isStatic: true,
-      isSensor: true, // Turret doesn't physically collide
+      isSensor: false,
       frictionAir: 0,
       restitution: 0,
       friction: 0,
       collisionFilter: {
         category: 0x0020, // Turret category (32)
-        mask: 0x0000, // Don't collide with anything
+        mask: 0x0001, // Collide with ships
       },
     });
 
