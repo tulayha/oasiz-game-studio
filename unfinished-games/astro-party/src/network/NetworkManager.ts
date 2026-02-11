@@ -49,6 +49,14 @@ export interface NetworkCallbacks {
   onAdvancedSettingsReceived: (payload: AdvancedSettingsSync) => void;
 
   onScreenShakeReceived: (intensity: number, duration: number) => void;
+
+  onDashParticlesReceived?: (payload: {
+    playerId: string;
+    x: number;
+    y: number;
+    angle: number;
+    color: string;
+  }) => void;
 }
 
 interface PlayerMeta {
@@ -381,6 +389,22 @@ export class NetworkManager {
         },
       ),
     );
+
+    // Handle dash particles from host
+    this.cleanupFunctions.push(
+      RPC.register(
+        "dashParticles",
+        async (payload: {
+          playerId: string;
+          x: number;
+          y: number;
+          angle: number;
+          color: string;
+        }) => {
+          this.callbacks?.onDashParticlesReceived?.(payload);
+        },
+      ),
+    );
   }
 
   startSync(): void {
@@ -472,6 +496,18 @@ export class NetworkManager {
     const playerId = myPlayer()?.id;
     if (!playerId) return;
     RPC.call("dashRequest", playerId, RPC.Mode.HOST);
+  }
+
+  // Broadcast dash particles to all clients
+  broadcastDashParticles(
+    playerId: string,
+    x: number,
+    y: number,
+    angle: number,
+    color: string,
+  ): void {
+    if (!isHost()) return;
+    RPC.call("dashParticles", { playerId, x, y, angle, color }, RPC.Mode.ALL);
   }
 
   broadcastRoundResult(payload: RoundResultPayload): void {

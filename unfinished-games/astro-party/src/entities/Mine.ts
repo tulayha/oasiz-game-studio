@@ -34,7 +34,7 @@ export class Mine {
     return false;
   }
 
-  // Trigger arming sequence (1 second delay before explosion)
+  // Trigger arming sequence (short delay before explosion)
   triggerArming(): void {
     if (!this.arming && !this.exploded) {
       this.arming = true;
@@ -45,7 +45,7 @@ export class Mine {
   // Check if arming is complete and should explode
   checkArmingComplete(): boolean {
     if (this.arming && !this.exploded) {
-      return performance.now() - this.armingStartTime >= 1000; // 1 second delay
+      return performance.now() - this.armingStartTime >= 400; // 400ms delay - quick reaction
     }
     return false;
   }

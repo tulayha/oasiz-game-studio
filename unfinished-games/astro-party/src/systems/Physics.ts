@@ -237,6 +237,56 @@ export class Physics {
     return body;
   }
 
+  createTurret(x: number, y: number): Matter.Body {
+    // Turret base - static body that doesn't move
+    const body = Bodies.circle(x, y, 20, {
+      label: "turret",
+      isStatic: true,
+      isSensor: true, // Turret doesn't physically collide
+      frictionAir: 0,
+      restitution: 0,
+      friction: 0,
+      collisionFilter: {
+        category: 0x0020, // Turret category (32)
+        mask: 0x0000, // Don't collide with anything
+      },
+    });
+
+    body.plugin = body.plugin || {};
+    body.plugin.entityType = "turret";
+
+    Composite.add(this.world, body);
+    return body;
+  }
+
+  createTurretBullet(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+  ): Matter.Body {
+    const body = Bodies.circle(x, y, 5, {
+      label: "turretBullet",
+      frictionAir: 0,
+      restitution: 0.5,
+      friction: 0,
+      density: 0.0001,
+      collisionFilter: {
+        category: 0x0040, // Turret bullet category (64)
+        mask: 0x0001 | 0x0008, // Collide with ships (1) and walls (8)
+      },
+    });
+
+    Body.setVelocity(body, { x: vx, y: vy });
+
+    body.plugin = body.plugin || {};
+    body.plugin.entityType = "turretBullet";
+    body.plugin.spawnTime = Date.now();
+
+    Composite.add(this.world, body);
+    return body;
+  }
+
   wrapAround(body: Matter.Body): void {
     const margin = 50;
     const w = GAME_CONFIG.ARENA_WIDTH;

@@ -13,6 +13,8 @@ import { PowerUp } from "./entities/PowerUp";
 import { LaserBeam } from "./entities/LaserBeam";
 import { Mine } from "./entities/Mine";
 import { HomingMissile } from "./entities/HomingMissile";
+import { Turret } from "./entities/Turret";
+import { TurretBullet } from "./entities/TurretBullet";
 import { AudioManager } from "./AudioManager";
 import { SettingsManager } from "./SettingsManager";
 import { PlayerManager } from "./managers/PlayerManager";
@@ -33,6 +35,8 @@ import {
   LaserBeamState,
   MineState,
   HomingMissileState,
+  TurretState,
+  TurretBulletState,
   PowerUpType,
   PlayerPowerUp,
   GAME_CONFIG,
@@ -70,6 +74,8 @@ export class Game {
   private laserBeams: LaserBeam[] = [];
   private mines: Mine[] = [];
   private homingMissiles: HomingMissile[] = [];
+  private turret: Turret | null = null;
+  private turretBullets: TurretBullet[] = [];
   private playerPowerUps: Map<string, PlayerPowerUp | null> = new Map();
 
   // Input state
@@ -104,6 +110,8 @@ export class Game {
   private networkLaserBeams: LaserBeamState[] = [];
   private networkMines: MineState[] = [];
   private networkHomingMissiles: HomingMissileState[] = [];
+  private networkTurret: TurretState | null = null;
+  private networkTurretBullets: TurretBulletState[] = [];
   private networkRotationDirection: number = 1;
   private soundThrottleByKey: Map<string, number> = new Map();
   private nitroColorIndex: number = 0;
@@ -166,6 +174,7 @@ export class Game {
       this.spawnInitialAsteroids();
       this.scheduleAsteroidSpawnsIfNeeded();
       this.grantStartingPowerups();
+      this.spawnTurret();
     };
     this.flowMgr.onRoundResult = (payload) => {
       this.applyRoundResult(payload);
@@ -502,6 +511,44 @@ export class Game {
     });
   }
 
+  private spawnTurret(): void {
+    if (!this.network.isHost()) return;
+
+    // Spawn turret at center of map
+    const centerX = GAME_CONFIG.ARENA_WIDTH / 2;
+    const centerY = GAME_CONFIG.ARENA_HEIGHT / 2;
+
+    this.turret = new Turret(this.physics, centerX, centerY);
+    console.log("[Game] Turret spawned at center:", centerX, centerY);
+  }
+
+  private spawnDashParticles(playerId: string, ship: Ship): void {
+    if (!ship.alive) return;
+
+    const pos = ship.body.position;
+    const angle = ship.body.angle;
+    const color = ship.color.primary;
+
+    // Spawn particles locally
+    this.renderer.spawnDashParticles(pos.x, pos.y, angle, color);
+
+    // Broadcast to other players
+    this.broadcastDashParticles(playerId, pos.x, pos.y, angle, color);
+  }
+
+  private broadcastDashParticles(
+    playerId: string,
+    x: number,
+    y: number,
+    angle: number,
+    color: string,
+  ): void {
+    if (!this.network.isHost()) return;
+
+    // Send RPC to all clients to spawn dash particles
+    this.network.broadcastDashParticles(playerId, x, y, angle, color);
+  }
+
   private splitAsteroid(asteroid: Asteroid, x: number, y: number): void {
     const count = GAME_CONFIG.ASTEROID_SPLIT_COUNT;
     const baseVx = asteroid.body.velocity.x * 0.4;
@@ -717,6 +764,38 @@ export class Game {
 
     const powerUp = new PowerUp(this.physics, x, y, type);
     this.powerUps.push(powerUp);
+  }
+
+  private spawnRandomPowerUp(): void {
+    if (!this.network.isHost()) return;
+
+    const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
+    const entries = Object.entries(weights) as [PowerUpType, number][];
+    const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
+    const rand = Math.random() * totalWeight;
+
+    let cumulative = 0;
+    let type: PowerUpType = entries[0][0];
+    for (const [t, w] of entries) {
+      cumulative += w;
+      if (rand < cumulative) {
+        type = t;
+        break;
+      }
+    }
+
+    // Spawn at random position within arena (with padding)
+    const padding = 100;
+    const x = padding + Math.random() * (GAME_CONFIG.ARENA_WIDTH - padding * 2);
+    const y =
+      padding + Math.random() * (GAME_CONFIG.ARENA_HEIGHT - padding * 2);
+
+    const powerUp = new PowerUp(this.physics, x, y, type);
+    this.powerUps.push(powerUp);
+
+    console.log(
+      `[Game] Spawned random ${type} power-up at (${x.toFixed(0)}, ${y.toFixed(0)})`,
+    );
   }
 
   private grantPowerUp(playerId: string, type: PowerUpType): void {
@@ -1022,13 +1101,12 @@ export class Game {
         if (dist <= mineDetectionRadius) {
           if (shipPlayerId !== mine.ownerId) {
             // Player touched the mine - trigger arming sequence
-            // Explosion happens after 1 second delay
+            // Explosion happens after short delay
             mine.triggerArming();
             mine.triggeringPlayerId = shipPlayerId;
-            // Show warning effect
-            this.renderer.spawnExplosion(mine.x, mine.y, "#ff4400");
-            this.triggerScreenShake(5, 0.15);
-            SettingsManager.triggerHaptic("medium");
+            // Warning effects removed - only one explosion when mine actually detonates
+            this.triggerScreenShake(2, 0.1);
+            SettingsManager.triggerHaptic("light");
             break;
           }
         }
@@ -1539,6 +1617,133 @@ export class Game {
     | ((message: string, durationMs?: number) => void)
     | null = null;
 
+  // ============= TURRET METHODS =============
+
+  private updateTurret(dt: number): void {
+    if (!this.network.isHost()) return;
+    if (!this.turret) return;
+
+    // Create ship position map for targeting
+    const shipPositions = new Map<
+      string,
+      { x: number; y: number; alive: boolean }
+    >();
+    this.ships.forEach((ship, playerId) => {
+      shipPositions.set(playerId, {
+        x: ship.body.position.x,
+        y: ship.body.position.y,
+        alive: ship.alive,
+      });
+    });
+
+    const fireResult = this.turret.update(dt, shipPositions);
+    if (fireResult?.shouldFire) {
+      // Spawn bullet
+      const turretX = this.turret.body.position.x;
+      const turretY = this.turret.body.position.y;
+      const bullet = new TurretBullet(
+        this.physics,
+        turretX + Math.cos(fireResult.fireAngle) * 40,
+        turretY + Math.sin(fireResult.fireAngle) * 40,
+        fireResult.fireAngle,
+      );
+      this.turretBullets.push(bullet);
+
+      // Play sound
+      this.playGameSoundLocal("fire");
+      if (this.shouldBroadcastSound("fire", "turret")) {
+        this.network.broadcastGameSoundToOthers("fire", "turret");
+      }
+
+      console.log("[Game] Turret fired at angle:", fireResult.fireAngle);
+    }
+  }
+
+  private updateTurretBullets(dt: number): void {
+    if (!this.network.isHost()) return;
+
+    // Create ship position map for explosion hits
+    const shipPositions = new Map<
+      string,
+      { x: number; y: number; alive: boolean }
+    >();
+    this.ships.forEach((ship, playerId) => {
+      shipPositions.set(playerId, {
+        x: ship.body.position.x,
+        y: ship.body.position.y,
+        alive: ship.alive,
+      });
+    });
+
+    for (let i = this.turretBullets.length - 1; i >= 0; i--) {
+      const bullet = this.turretBullets[i];
+
+      // Update bullet
+      const stillActive = bullet.update(dt);
+
+      // Check for collision with ships
+      if (!bullet.exploded) {
+        for (const [shipPlayerId, ship] of this.ships) {
+          if (!ship.alive) continue;
+
+          const dx = ship.body.position.x - bullet.body.position.x;
+          const dy = ship.body.position.y - bullet.body.position.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Bullet radius (5) + ship radius (approx 20)
+          if (dist <= 25) {
+            bullet.explode();
+            this.renderer.spawnExplosion(
+              bullet.body.position.x,
+              bullet.body.position.y,
+              "#ff6600",
+            );
+            this.triggerScreenShake(8, 0.2);
+            break;
+          }
+        }
+      }
+
+      // Check explosion hits
+      if (bullet.exploded) {
+        const hitShips = bullet.checkExplosionHits(shipPositions);
+        for (const shipPlayerId of hitShips) {
+          const ship = this.ships.get(shipPlayerId);
+          if (ship && ship.alive) {
+            // Check if ship has shield
+            const powerUp = this.playerPowerUps.get(shipPlayerId);
+            if (powerUp?.type === "SHIELD") {
+              powerUp.shieldHits++;
+              this.triggerScreenShake(3, 0.1);
+              if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
+                this.renderer.spawnShieldBreakDebris(
+                  ship.body.position.x,
+                  ship.body.position.y,
+                );
+                this.playerPowerUps.delete(shipPlayerId);
+                SettingsManager.triggerHaptic("medium");
+              }
+            } else {
+              this.flowMgr.destroyShip(
+                shipPlayerId,
+                this.ships,
+                this.pilots,
+                this.playerMgr.players,
+              );
+              this.playerPowerUps.delete(shipPlayerId);
+            }
+          }
+        }
+      }
+
+      // Remove expired bullets
+      if (bullet.isExpired() || !stillActive) {
+        bullet.destroy();
+        this.turretBullets.splice(i, 1);
+      }
+    }
+  }
+
   private emitPlayersUpdate(): void {
     this._onPlayersUpdate?.(this.getPlayers());
   }
@@ -1699,6 +1904,17 @@ export class Game {
         if (this.network.isHost()) return;
         this.triggerScreenShake(intensity, duration);
       },
+
+      onDashParticlesReceived: (payload) => {
+        if (this.network.isHost()) return;
+        // Spawn dash particles on client
+        this.renderer.spawnDashParticles(
+          payload.x,
+          payload.y,
+          payload.angle,
+          payload.color,
+        );
+      },
     });
   }
 
@@ -1782,6 +1998,14 @@ export class Game {
     this.homingMissiles.forEach((missile) => missile.destroy());
     this.homingMissiles = [];
 
+    if (this.turret) {
+      this.turret.destroy();
+      this.turret = null;
+    }
+
+    this.turretBullets.forEach((bullet) => bullet.destroy());
+    this.turretBullets = [];
+
     this.playerPowerUps.clear();
 
     // Reset rotation direction
@@ -1800,6 +2024,8 @@ export class Game {
     this.networkLaserBeams = [];
     this.networkMines = [];
     this.networkHomingMissiles = [];
+    this.networkTurret = null;
+    this.networkTurretBullets = [];
     this.networkRotationDirection = 1;
 
     // Clear client tracking
@@ -1855,6 +2081,14 @@ export class Game {
 
     this.homingMissiles.forEach((missile) => missile.destroy());
     this.homingMissiles = [];
+
+    if (this.turret) {
+      this.turret.destroy();
+      this.turret = null;
+    }
+
+    this.turretBullets.forEach((bullet) => bullet.destroy());
+    this.turretBullets = [];
 
     this.playerPowerUps.clear();
 
@@ -1974,6 +2208,12 @@ export class Game {
       if (devKeys.reverse) {
         console.log("[Dev] Toggling REVERSE rotation");
         this.grantPowerUp(myPlayerId, "REVERSE");
+      }
+
+      // Spawn random power-up box with '9' key
+      if (devKeys.spawnPowerUp) {
+        console.log("[Dev] Spawning random power-up box");
+        this.spawnRandomPowerUp();
       }
     }
 
@@ -2229,6 +2469,8 @@ export class Game {
           if (this.shouldBroadcastSound("dash", playerId)) {
             this.network.broadcastGameSoundToOthers("dash", playerId);
           }
+          // Spawn dash particles
+          this.spawnDashParticles(playerId, ship);
         }
       });
 
@@ -2282,6 +2524,24 @@ export class Game {
         this.physics.wrapAround(asteroid.body);
       });
 
+      // Update power-ups (magnetic effect)
+      const shipPositionsForPowerUps = new Map<
+        string,
+        { x: number; y: number; alive: boolean; hasPowerUp: boolean }
+      >();
+      this.ships.forEach((ship, playerId) => {
+        shipPositionsForPowerUps.set(playerId, {
+          x: ship.body.position.x,
+          y: ship.body.position.y,
+          alive: ship.alive,
+          hasPowerUp: this.playerPowerUps.has(playerId),
+        });
+      });
+
+      this.powerUps.forEach((powerUp) => {
+        powerUp.update(shipPositionsForPowerUps, dt);
+      });
+
       // Clean up expired power-ups
       for (let i = this.powerUps.length - 1; i >= 0; i--) {
         if (this.powerUps[i].isExpired()) {
@@ -2323,6 +2583,10 @@ export class Game {
       // Check Joust collisions (sword-to-ship and sword-to-projectile)
       this.checkJoustCollisions();
 
+      // Update turret and bullets
+      this.updateTurret(dt);
+      this.updateTurretBullets(dt);
+
       // Broadcast state (throttled to sync rate)
       if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.broadcastState();
@@ -2359,6 +2623,8 @@ export class Game {
       laserBeams: this.laserBeams.map((b) => b.getState()),
       mines: this.mines.map((m) => m.getState()),
       homingMissiles: this.homingMissiles.map((m) => m.getState()),
+      turret: this.turret?.getState(),
+      turretBullets: this.turretBullets.map((b) => b.getState()),
       playerPowerUps: playerPowerUpsRecord,
       rotationDirection: this.rotationDirection,
     };
@@ -2403,18 +2669,18 @@ export class Game {
     this.networkLaserBeams = state.laserBeams;
     this.networkHomingMissiles = state.homingMissiles || [];
 
-    // Check for mine arming/explosions on client and trigger effects
+    // Check for mine explosions on client and trigger effects
     if (state.mines) {
       for (const mineState of state.mines) {
-        // Mine just started arming — show warning effect on client
+        // Track arming mines for client-side tracking (no effects during arming)
         if (
           mineState.arming &&
           !mineState.exploded &&
           !this.clientArmingMines.has(mineState.id)
         ) {
           this.clientArmingMines.add(mineState.id);
-          this.renderer.spawnExplosion(mineState.x, mineState.y, "#ff4400");
-          SettingsManager.triggerHaptic("medium");
+          // No warning explosion - only the actual explosion
+          SettingsManager.triggerHaptic("light");
         }
 
         if (mineState.exploded && !this.clientExplodedMines.has(mineState.id)) {
@@ -2444,6 +2710,8 @@ export class Game {
     }
 
     this.networkMines = state.mines;
+    this.networkTurret = state.turret ?? null;
+    this.networkTurretBullets = state.turretBullets || [];
     this.networkRotationDirection = state.rotationDirection ?? 1;
 
     // Sync player power-ups: update existing and remove expired ones
@@ -2720,6 +2988,8 @@ export class Game {
       const renderPowerUps = this.networkPowerUps;
       const renderLaserBeams = this.networkLaserBeams;
       const renderMines = this.networkMines;
+      const renderTurret = this.networkTurret;
+      const renderTurretBullets = this.networkTurretBullets;
 
       if (isHost) {
         this.ships.forEach((ship) => {
@@ -2937,6 +3207,32 @@ export class Game {
         });
       }
 
+      // Draw turret
+      if (isHost) {
+        if (this.turret) {
+          this.renderer.drawTurret(this.turret.getState());
+        }
+      } else {
+        if (renderTurret) {
+          this.renderer.drawTurret(renderTurret);
+        }
+      }
+
+      // Draw turret bullets
+      if (isHost) {
+        this.turretBullets.forEach((bullet) => {
+          if (bullet.alive) {
+            this.renderer.drawTurretBullet(bullet.getState());
+          }
+        });
+      } else {
+        renderTurretBullets.forEach((state) => {
+          if (state.alive) {
+            this.renderer.drawTurretBullet(state);
+          }
+        });
+      }
+
       // Draw dev mode visualization (debug circles for homing missile and mine radii)
       if (this.isDevModeEnabled()) {
         // Draw homing missile detection radius for all active missiles
@@ -2982,6 +3278,73 @@ export class Game {
                 state.x,
                 state.y,
                 mineDetectionRadius,
+              );
+            }
+          });
+        }
+
+        // Draw turret detection radius
+        if (isHost) {
+          if (this.turret) {
+            this.renderer.drawTurretDetectionRadius(
+              this.turret.body.position.x,
+              this.turret.body.position.y,
+              this.turret.getDetectionRadius(),
+            );
+          }
+        } else {
+          if (renderTurret) {
+            this.renderer.drawTurretDetectionRadius(
+              renderTurret.x,
+              renderTurret.y,
+              renderTurret.detectionRadius,
+            );
+          }
+        }
+
+        // Draw turret bullet explosion radius
+        if (isHost) {
+          this.turretBullets.forEach((bullet) => {
+            if (bullet.alive && !bullet.exploded) {
+              this.renderer.drawTurretBulletRadius(
+                bullet.body.position.x,
+                bullet.body.position.y,
+                bullet.getExplosionRadius(),
+              );
+            }
+          });
+        } else {
+          renderTurretBullets.forEach((state) => {
+            if (state.alive && !state.exploded) {
+              this.renderer.drawTurretBulletRadius(
+                state.x,
+                state.y,
+                100, // Explosion radius
+              );
+            }
+          });
+        }
+
+        // Draw power-up magnetic radius
+        if (isHost) {
+          this.powerUps.forEach((powerUp) => {
+            if (powerUp.alive) {
+              this.renderer.drawPowerUpMagneticRadius(
+                powerUp.body.position.x,
+                powerUp.body.position.y,
+                powerUp.getMagneticRadius(),
+                powerUp.getIsMagneticActive(),
+              );
+            }
+          });
+        } else {
+          renderPowerUps.forEach((state) => {
+            if (state.alive) {
+              this.renderer.drawPowerUpMagneticRadius(
+                state.x,
+                state.y,
+                state.magneticRadius || 150,
+                state.isMagneticActive || false,
               );
             }
           });
