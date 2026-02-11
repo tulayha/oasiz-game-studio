@@ -1101,13 +1101,12 @@ export class Game {
         if (dist <= mineDetectionRadius) {
           if (shipPlayerId !== mine.ownerId) {
             // Player touched the mine - trigger arming sequence
-            // Explosion happens after 1 second delay
+            // Explosion happens after short delay
             mine.triggerArming();
             mine.triggeringPlayerId = shipPlayerId;
-            // Show warning effect
-            this.renderer.spawnExplosion(mine.x, mine.y, "#ff4400");
-            this.triggerScreenShake(5, 0.15);
-            SettingsManager.triggerHaptic("medium");
+            // Warning effects removed - only one explosion when mine actually detonates
+            this.triggerScreenShake(2, 0.1);
+            SettingsManager.triggerHaptic("light");
             break;
           }
         }
@@ -2670,18 +2669,18 @@ export class Game {
     this.networkLaserBeams = state.laserBeams;
     this.networkHomingMissiles = state.homingMissiles || [];
 
-    // Check for mine arming/explosions on client and trigger effects
+    // Check for mine explosions on client and trigger effects
     if (state.mines) {
       for (const mineState of state.mines) {
-        // Mine just started arming — show warning effect on client
+        // Track arming mines for client-side tracking (no effects during arming)
         if (
           mineState.arming &&
           !mineState.exploded &&
           !this.clientArmingMines.has(mineState.id)
         ) {
           this.clientArmingMines.add(mineState.id);
-          this.renderer.spawnExplosion(mineState.x, mineState.y, "#ff4400");
-          SettingsManager.triggerHaptic("medium");
+          // No warning explosion - only the actual explosion
+          SettingsManager.triggerHaptic("light");
         }
 
         if (mineState.exploded && !this.clientExplodedMines.has(mineState.id)) {
