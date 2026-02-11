@@ -145,48 +145,62 @@ const MAP_4_BUNKERS: MapDefinition = {
 function generateCacheBlocks(): YellowBlock[] {
   const blocks: YellowBlock[] = [];
   const blockSize = 30;
-  const gap = 8;
+  const gap = 10;
+  const step = blockSize + gap;
+  const rowStartX = W * 0.18;
+  const rowEndX = W * 0.82;
+  const colStartY = H * 0.18;
+  const colEndY = H * 0.82;
 
-  // Create a grid-like pattern of yellow blocks (like Matrix lines)
-  // Horizontal bars
-  const rows = [
-    { y: H * 0.25, startX: W * 0.15, endX: W * 0.45 },
-    { y: H * 0.25, startX: W * 0.55, endX: W * 0.85 },
-    { y: H * 0.5, startX: W * 0.2, endX: W * 0.4 },
-    { y: H * 0.5, startX: W * 0.6, endX: W * 0.8 },
-    { y: H * 0.75, startX: W * 0.15, endX: W * 0.45 },
-    { y: H * 0.75, startX: W * 0.55, endX: W * 0.85 },
+  const xPositions: number[] = [];
+  for (let x = rowStartX; x <= rowEndX - blockSize; x += step) {
+    xPositions.push(x);
+  }
+  const yPositions: number[] = [];
+  for (let y = colStartY; y <= colEndY - blockSize; y += step) {
+    yPositions.push(y);
+  }
+
+  const rowIndices = [
+    Math.floor(yPositions.length * 0.35),
+    Math.floor(yPositions.length * 0.65),
+  ];
+  const colIndices = [
+    Math.floor(xPositions.length * 0.35),
+    Math.floor(xPositions.length * 0.65),
   ];
 
-  for (const row of rows) {
-    let x = row.startX;
-    while (x < row.endX) {
-      blocks.push({
-        x: x,
-        y: row.y,
-        width: blockSize,
-        height: blockSize,
-      });
-      x += blockSize + gap;
+  const rowYs = rowIndices.map(
+    (idx) => yPositions[Math.min(idx, yPositions.length - 1)],
+  );
+  const colXs = colIndices.map(
+    (idx) => xPositions[Math.min(idx, xPositions.length - 1)],
+  );
+
+  const used = new Set<string>();
+  const addBlock = (x: number, y: number): void => {
+    const key = `${Math.round(x)}|${Math.round(y)}`;
+    if (used.has(key)) return;
+    used.add(key);
+    blocks.push({
+      x,
+      y,
+      width: blockSize,
+      height: blockSize,
+    });
+  };
+
+  // Two long horizontal rows
+  for (const y of rowYs) {
+    for (const x of xPositions) {
+      addBlock(x, y);
     }
   }
 
-  // Vertical bars
-  const cols = [
-    { x: W * 0.3, startY: H * 0.3, endY: H * 0.7 },
-    { x: W * 0.7, startY: H * 0.3, endY: H * 0.7 },
-  ];
-
-  for (const col of cols) {
-    let y = col.startY;
-    while (y < col.endY) {
-      blocks.push({
-        x: col.x,
-        y: y,
-        width: blockSize,
-        height: blockSize,
-      });
-      y += blockSize + gap;
+  // Two vertical columns to form a hash sign
+  for (const x of colXs) {
+    for (const y of yPositions) {
+      addBlock(x, y);
     }
   }
 
@@ -194,9 +208,9 @@ function generateCacheBlocks(): YellowBlock[] {
 }
 
 function generateBunkerBoxes(): OverlayBox[] {
-  const boxW = 220;
-  const boxH = 170;
-  const margin = 70;
+  const boxW = 240;
+  const boxH = 180;
+  const margin = 120;
 
   return [
     // Top-left

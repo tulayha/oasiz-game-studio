@@ -944,9 +944,9 @@ export class Game {
         return {
           border: "#00ff88",
           overlay: {
-            fill: "rgba(0, 140, 80, 0.95)",
-            stroke: "rgba(120, 255, 180, 0.85)",
-            hole: "rgba(120, 255, 180, 0.65)",
+            fill: "#0bb866",
+            stroke: "#7cffb8",
+            hole: "rgba(0, 0, 0, 0.6)",
           },
         };
       case 0:
@@ -2421,6 +2421,7 @@ export class Game {
       this.handleLocalDash();
     });
 
+    this.botMgr.resetLocalState();
     this.flowMgr.setPhase("LOBBY");
   }
 
@@ -2450,6 +2451,7 @@ export class Game {
     }
     this.clearAllGameState();
     this.playerMgr.clear();
+    this.botMgr.resetLocalState();
     this._originalHostLeft = false;
     this.resetAdvancedSettings();
     this.flowMgr.setPhase("START");
@@ -4041,6 +4043,7 @@ export class Game {
 
     this.clearAllGameState();
     this.playerMgr.clear();
+    this.botMgr.resetLocalState();
     this._originalHostLeft = false;
     this.resetAdvancedSettings();
 

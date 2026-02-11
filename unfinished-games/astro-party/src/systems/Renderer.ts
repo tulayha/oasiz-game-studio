@@ -1927,37 +1927,18 @@ export class Renderer {
 
     // Glow
     ctx.shadowColor = "#ffee00";
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 12;
 
-    // Block body - Matrix-like grid pattern
-    ctx.fillStyle = "#ffee00";
-    ctx.strokeStyle = "#ccbb00";
-    ctx.lineWidth = 2;
-    ctx.fillRect(block.x, block.y, block.width, block.height);
-    ctx.strokeRect(block.x, block.y, block.width, block.height);
+    // Hollow frame
+    ctx.strokeStyle = "#ffee00";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(block.x + 1.5, block.y + 1.5, block.width - 3, block.height - 3);
 
-    // Inner grid lines for # pattern
+    // Inner rim for depth
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
-    ctx.lineWidth = 1;
-
-    // Horizontal lines
-    const hStep = block.height / 3;
-    for (let i = 1; i < 3; i++) {
-      ctx.beginPath();
-      ctx.moveTo(block.x, block.y + hStep * i);
-      ctx.lineTo(block.x + block.width, block.y + hStep * i);
-      ctx.stroke();
-    }
-
-    // Vertical lines
-    const vStep = block.width / 3;
-    for (let i = 1; i < 3; i++) {
-      ctx.beginPath();
-      ctx.moveTo(block.x + vStep * i, block.y);
-      ctx.lineTo(block.x + vStep * i, block.y + block.height);
-      ctx.stroke();
-    }
+    ctx.strokeStyle = "rgba(255, 255, 180, 0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(block.x + 5, block.y + 5, block.width - 10, block.height - 10);
 
     ctx.restore();
   }
@@ -2117,6 +2098,24 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(zone.x, zone.y, drawRadius, 0, Math.PI * 2);
     ctx.stroke();
+
+    // Wave lines expanding outward
+    ctx.shadowBlur = 0;
+    const waveCount = 3;
+    const maxWaveRadius = drawRadius * 1.15;
+    const waveSpeed = 28;
+    for (let i = 0; i < waveCount; i++) {
+      const waveOffset =
+        (time * waveSpeed + (i * maxWaveRadius) / waveCount) % maxWaveRadius;
+      const waveAlpha = 0.35 * (1 - waveOffset / maxWaveRadius);
+      ctx.globalAlpha = waveAlpha;
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(zone.x, zone.y, waveOffset, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
 
     // Repulsion arrows pointing outward
     ctx.shadowBlur = 0;
