@@ -61,6 +61,7 @@ export interface RenderContext {
   asteroidSmoother: DisplaySmoother;
   pilotSmoother: DisplaySmoother;
   missileSmoother: DisplaySmoother;
+  useBufferedInterpolation: boolean;
 }
 
 export class GameRenderer {
@@ -84,33 +85,41 @@ export class GameRenderer {
       let renderHomingMissiles: HomingMissileState[];
 
       if (!ctx.isHost) {
-        const dtMs = ctx.dt * 1000;
-        ctx.shipSmoother.update(dtMs);
-        ctx.projectileSmoother.update(dtMs);
-        ctx.asteroidSmoother.update(dtMs);
-        ctx.pilotSmoother.update(dtMs);
-        ctx.missileSmoother.update(dtMs);
+        if (ctx.useBufferedInterpolation) {
+          renderShips = ctx.networkShips;
+          renderPilots = ctx.networkPilots;
+          renderProjectiles = ctx.networkProjectiles;
+          renderAsteroids = ctx.networkAsteroids;
+          renderHomingMissiles = ctx.networkHomingMissiles;
+        } else {
+          const dtMs = ctx.dt * 1000;
+          ctx.shipSmoother.update(dtMs);
+          ctx.projectileSmoother.update(dtMs);
+          ctx.asteroidSmoother.update(dtMs);
+          ctx.pilotSmoother.update(dtMs);
+          ctx.missileSmoother.update(dtMs);
 
-        renderShips = ctx.shipSmoother.smooth(
-          ctx.networkShips,
-          (s) => s.playerId,
-        );
-        renderPilots = ctx.pilotSmoother.smooth(
-          ctx.networkPilots,
-          (p) => p.playerId,
-        );
-        renderProjectiles = ctx.projectileSmoother.smooth(
-          ctx.networkProjectiles,
-          (p) => p.id,
-        );
-        renderAsteroids = ctx.asteroidSmoother.smooth(
-          ctx.networkAsteroids,
-          (a) => a.id,
-        );
-        renderHomingMissiles = ctx.missileSmoother.smooth(
-          ctx.networkHomingMissiles,
-          (m) => m.id,
-        );
+          renderShips = ctx.shipSmoother.smooth(
+            ctx.networkShips,
+            (s) => s.playerId,
+          );
+          renderPilots = ctx.pilotSmoother.smooth(
+            ctx.networkPilots,
+            (p) => p.playerId,
+          );
+          renderProjectiles = ctx.projectileSmoother.smooth(
+            ctx.networkProjectiles,
+            (p) => p.id,
+          );
+          renderAsteroids = ctx.asteroidSmoother.smooth(
+            ctx.networkAsteroids,
+            (a) => a.id,
+          );
+          renderHomingMissiles = ctx.missileSmoother.smooth(
+            ctx.networkHomingMissiles,
+            (m) => m.id,
+          );
+        }
       } else {
         renderShips = ctx.networkShips;
         renderPilots = ctx.networkPilots;

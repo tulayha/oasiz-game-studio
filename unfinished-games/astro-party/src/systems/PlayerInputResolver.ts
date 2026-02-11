@@ -8,7 +8,10 @@ import { Pilot } from "../entities/Pilot";
 import { Projectile } from "../entities/Projectile";
 
 export class PlayerInputResolver {
+  private static readonly REMOTE_INPUT_STALE_TIMEOUT_MS = 1000;
+
   private pendingInputs: Map<string, PlayerInput> = new Map();
+  private pendingInputReceivedAt: Map<string, number> = new Map();
   private pendingDashes: Set<string> = new Set();
   private localInputState: PlayerInput = {
     buttonA: false,
@@ -62,6 +65,7 @@ export class PlayerInputResolver {
 
   setPendingInput(playerId: string, input: PlayerInput): void {
     this.pendingInputs.set(playerId, input);
+    this.pendingInputReceivedAt.set(playerId, performance.now());
   }
 
   queueDash(playerId: string): void {
@@ -118,7 +122,7 @@ export class PlayerInputResolver {
         input = this.localInputState;
         shouldDash = this.consumeDash(playerId);
       } else {
-        input = this.pendingInputs.get(playerId) || this.emptyInput();
+        input = this.getRemoteInputWithStaleGuard(playerId);
         shouldDash = this.consumeDash(playerId);
       }
     }
@@ -144,7 +148,7 @@ export class PlayerInputResolver {
       return this.localInputState;
     }
 
-    return this.pendingInputs.get(playerId) || this.emptyInput();
+    return this.getRemoteInputWithStaleGuard(playerId);
   }
 
   private consumeDash(playerId: string): boolean {
@@ -160,5 +164,21 @@ export class PlayerInputResolver {
       timestamp: 0,
       clientTimeMs: 0,
     };
+  }
+
+  private getRemoteInputWithStaleGuard(playerId: string): PlayerInput {
+    const receivedAt = this.pendingInputReceivedAt.get(playerId) || 0;
+    const isStale =
+      receivedAt > 0 &&
+      performance.now() - receivedAt >
+        PlayerInputResolver.REMOTE_INPUT_STALE_TIMEOUT_MS;
+
+    if (isStale) {
+      this.pendingInputs.delete(playerId);
+      this.pendingInputReceivedAt.delete(playerId);
+      return this.emptyInput();
+    }
+
+    return this.pendingInputs.get(playerId) || this.emptyInput();
   }
 }

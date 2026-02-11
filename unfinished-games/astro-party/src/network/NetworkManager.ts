@@ -433,15 +433,6 @@ export class NetworkManager {
         }
       }
 
-      // Host: collect inputs from all players
-      if (isHost()) {
-        this.players.forEach((player, playerId) => {
-          const input = player.getState("input") as PlayerInput;
-          if (input) {
-            this.callbacks?.onInputReceived(playerId, input);
-          }
-        });
-      }
     }, GAME_CONFIG.SYNC_INTERVAL);
   }
 
@@ -458,6 +449,17 @@ export class NetworkManager {
     if (player) {
       player.setState("input", input, false); // Unreliable for frequent updates
     }
+  }
+
+  // Host-side high-cadence input polling (called from game loop)
+  pollHostInputs(): void {
+    if (!this.connected || !isHost()) return;
+    this.players.forEach((player, playerId) => {
+      const input = player.getState("input") as PlayerInput;
+      if (input) {
+        this.callbacks?.onInputReceived(playerId, input);
+      }
+    });
   }
 
   // Host broadcasts game state to all clients (frequent position updates)

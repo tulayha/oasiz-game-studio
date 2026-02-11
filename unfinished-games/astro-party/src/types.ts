@@ -215,6 +215,8 @@ export interface GameStateSync {
   rotationDirection: number; // 1 for normal, -1 for reversed
   screenShakeIntensity: number;
   screenShakeDuration: number;
+  hostTick: number; // Host simulation tick for buffered interpolation
+  tickDurationMs: number; // Host fixed tick duration (typically 16.667ms)
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)
 }
 

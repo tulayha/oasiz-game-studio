@@ -52,6 +52,10 @@ export class Renderer {
     return this.visualRng.next();
   }
 
+  private clamp01(value: number): number {
+    return Math.max(0, Math.min(1, value));
+  }
+
   resize(): void {
     const rect = this.canvas.getBoundingClientRect();
     const rootStyles = getComputedStyle(document.documentElement);
@@ -345,7 +349,7 @@ export class Renderer {
     if (exploded && explosionTime > 0) {
       // Draw explosion effect
       const elapsed = nowMs - explosionTime;
-      const progress = Math.min(1, elapsed / 500);
+      const progress = this.clamp01(elapsed / 500);
       const radius = 100 * (0.3 + progress * 0.7); // 100px explosion radius
       const alpha = 1 - progress;
 
@@ -1625,7 +1629,7 @@ export class Renderer {
     if (exploded && explosionTime > 0) {
       // Draw explosion effect - lasts 500ms
       const elapsed = nowMs - explosionTime;
-      const progress = Math.min(1, elapsed / 500);
+      const progress = this.clamp01(elapsed / 500);
       const radius =
         GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
       const alpha = 1 - progress;
@@ -1719,7 +1723,7 @@ export class Renderer {
     if (exploded && explosionTime > 0) {
       // Draw explosion effect on client - lasts 500ms
       const elapsed = nowMs - explosionTime;
-      const progress = Math.min(1, elapsed / 500);
+      const progress = this.clamp01(elapsed / 500);
       const radius =
         GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
       const alpha = 1 - progress;

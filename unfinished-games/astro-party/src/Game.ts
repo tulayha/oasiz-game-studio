@@ -741,8 +741,15 @@ export class Game {
 
     // Capture local input every frame (local-only timing)
     const now = performance.now();
-    this.inputResolver.captureLocalInput(now, this.botMgr.useTouchForHost);
+    const localInput = this.inputResolver.captureLocalInput(
+      now,
+      this.botMgr.useTouchForHost,
+    );
+    this.networkSync.setLocalInput(localInput);
     this.inputResolver.sendLocalInputIfNeeded(now);
+    if (this.network.isHost()) {
+      this.network.pollHostInputs();
+    }
 
     const runTicks =
       this.flowMgr.phase === "PLAYING" ||
@@ -981,6 +988,8 @@ export class Game {
           rotationDirection: this.rotationDirection,
           screenShakeIntensity: this.renderer.getScreenShakeIntensity(),
           screenShakeDuration: this.renderer.getScreenShakeDuration(),
+          hostTick: tick,
+          tickDurationMs: this.tickSystem.getTickDurationMs(),
         }, nowMs);
         this.lastBroadcastTime = syncNow;
       }
@@ -1031,11 +1040,16 @@ export class Game {
       });
     } else {
       // For non-host: use smoothed ship positions so particles track the rendered ship
-      const renderState = this.networkSync.getRenderState();
-      const smoothedShips = renderState.shipSmoother.smooth(
-        renderState.networkShips,
-        (s) => s.playerId,
+      const renderState = this.networkSync.getRenderState(
+        this.network.getMyPlayerId(),
+        this.latencyMs,
       );
+      const smoothedShips = renderState.useBufferedInterpolation
+        ? renderState.networkShips
+        : renderState.shipSmoother.smooth(
+            renderState.networkShips,
+            (s) => s.playerId,
+          );
       smoothedShips.forEach((shipState) => {
         const joustPowerUp = this.playerPowerUps.get(shipState.playerId);
         if (joustPowerUp?.type === "JOUST") {
@@ -1052,7 +1066,10 @@ export class Game {
   }
 
   private render(dt: number): void {
-    const renderState = this.networkSync.getRenderState();
+    const renderState = this.networkSync.getRenderState(
+      this.network.getMyPlayerId(),
+      this.latencyMs,
+    );
     this.gameRenderer.render({
       dt,
       nowMs: this.simTimeMs,
@@ -1087,6 +1104,7 @@ export class Game {
       asteroidSmoother: renderState.asteroidSmoother,
       pilotSmoother: renderState.pilotSmoother,
       missileSmoother: renderState.missileSmoother,
+      useBufferedInterpolation: renderState.useBufferedInterpolation,
     });
   }
 
