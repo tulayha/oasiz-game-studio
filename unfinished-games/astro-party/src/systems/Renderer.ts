@@ -909,27 +909,6 @@ export class Renderer {
 
     ctx.restore();
 
-    // Draw HP indicator for grey asteroids with more than 1 HP
-    if (isGrey && state.hp > 0 && state.maxHp > 1) {
-      ctx.save();
-      ctx.translate(x, y);
-      const dotSpacing = 6;
-      const totalWidth = (state.maxHp - 1) * dotSpacing;
-      const startX = -totalWidth / 2;
-      const dotY = -state.size - 8;
-
-      for (let i = 0; i < state.maxHp; i++) {
-        ctx.beginPath();
-        ctx.arc(startX + i * dotSpacing, dotY, 2, 0, Math.PI * 2);
-        if (i < state.hp) {
-          ctx.fillStyle = "#ffffff";
-        } else {
-          ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
-        }
-        ctx.fill();
-      }
-      ctx.restore();
-    }
   }
 
   // ============= PROJECTILE RENDERING =============
@@ -1558,7 +1537,7 @@ export class Renderer {
 
   // ============= ARENA BORDER =============
 
-  drawArenaBorder(): void {
+  drawArenaBorder(color: string = "#00f0ff"): void {
     const { ctx } = this;
     const w = GAME_CONFIG.ARENA_WIDTH;
     const h = GAME_CONFIG.ARENA_HEIGHT;
@@ -1566,8 +1545,8 @@ export class Renderer {
 
     // Neon border glow
     ctx.save();
-    ctx.strokeStyle = "#00f0ff";
-    ctx.shadowColor = "#00f0ff";
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
     ctx.shadowBlur = 20;
     ctx.lineWidth = borderWidth;
 
@@ -1983,18 +1962,39 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawCenterHole(hole: CenterHole, time: number, playerMovementDirection: number): void {
+  drawCenterHole(
+    hole: CenterHole,
+    time: number,
+    playerMovementDirection: number,
+    theme?: {
+      ring: string;
+      innerRing: string;
+      arrow: string;
+      glow: string;
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+    },
+  ): void {
     const { ctx } = this;
     ctx.save();
+
+    const gradientInner = theme?.gradientInner ?? "rgba(0, 0, 0, 0.95)";
+    const gradientMid = theme?.gradientMid ?? "rgba(10, 10, 30, 0.9)";
+    const gradientOuter = theme?.gradientOuter ?? "rgba(20, 20, 50, 0.6)";
+    const ringColor = theme?.ring ?? "#4444ff";
+    const ringGlow = theme?.glow ?? ringColor;
+    const innerRingColor = theme?.innerRing ?? "#6666ff";
+    const arrowColor = theme?.arrow ?? "#00f0ff";
 
     // Dark void circle
     const gradient = ctx.createRadialGradient(
       hole.x, hole.y, 0,
       hole.x, hole.y, hole.radius,
     );
-    gradient.addColorStop(0, "rgba(0, 0, 0, 0.95)");
-    gradient.addColorStop(0.7, "rgba(10, 10, 30, 0.9)");
-    gradient.addColorStop(1, "rgba(20, 20, 50, 0.6)");
+    gradient.addColorStop(0, gradientInner);
+    gradient.addColorStop(0.7, gradientMid);
+    gradient.addColorStop(1, gradientOuter);
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
@@ -2002,8 +2002,8 @@ export class Renderer {
     ctx.fill();
 
     // Glowing border ring
-    ctx.strokeStyle = "#4444ff";
-    ctx.shadowColor = "#4444ff";
+    ctx.strokeStyle = ringColor;
+    ctx.shadowColor = ringGlow;
     ctx.shadowBlur = 20;
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -2012,7 +2012,7 @@ export class Renderer {
 
     // Inner ring
     ctx.shadowBlur = 10;
-    ctx.strokeStyle = "#6666ff";
+    ctx.strokeStyle = innerRingColor;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(hole.x, hole.y, hole.radius * 0.6, 0, Math.PI * 2);
@@ -2031,10 +2031,10 @@ export class Renderer {
 
       ctx.save();
       ctx.translate(ax, ay);
-      ctx.rotate(arrowAngle + Math.PI / 2 * playerMovementDirection);
+      ctx.rotate(arrowAngle + Math.PI / 2);
 
-      ctx.fillStyle = "#00f0ff";
-      ctx.shadowColor = "#00f0ff";
+      ctx.fillStyle = arrowColor;
+      ctx.shadowColor = arrowColor;
       ctx.shadowBlur = 15;
       ctx.beginPath();
       ctx.moveTo(0, -arrowSize);
@@ -2050,7 +2050,7 @@ export class Renderer {
         const tx = hole.x + Math.cos(trailAngle) * arrowRadius;
         const ty = hole.y + Math.sin(trailAngle) * arrowRadius;
         ctx.globalAlpha = 0.6 - i * 0.12;
-        ctx.fillStyle = "#00f0ff";
+        ctx.fillStyle = arrowColor;
         ctx.beginPath();
         ctx.arc(tx, ty, 3 - i * 0.5, 0, Math.PI * 2);
         ctx.fill();
@@ -2061,9 +2061,29 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawRepulsionZone(zone: RepulsionZone, time: number): void {
+  drawRepulsionZone(
+    zone: RepulsionZone,
+    time: number,
+    theme?: {
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+      core: string;
+      ring: string;
+      arrow: string;
+      glow: string;
+    },
+  ): void {
     const { ctx } = this;
     ctx.save();
+
+    const gradientInner = theme?.gradientInner ?? "rgba(255, 50, 50, 0.4)";
+    const gradientMid = theme?.gradientMid ?? "rgba(255, 100, 50, 0.2)";
+    const gradientOuter = theme?.gradientOuter ?? "rgba(255, 100, 50, 0)";
+    const coreColor = theme?.core ?? "rgba(200, 30, 30, 0.6)";
+    const ringColor = theme?.ring ?? "#ff4444";
+    const arrowColor = theme?.arrow ?? "rgba(255, 100, 50, 0.7)";
+    const ringGlow = theme?.glow ?? ringColor;
 
     // Pulsing effect
     const pulse = 0.9 + Math.sin(time * 3) * 0.1;
@@ -2074,9 +2094,9 @@ export class Renderer {
       zone.x, zone.y, 0,
       zone.x, zone.y, drawRadius,
     );
-    gradient.addColorStop(0, "rgba(255, 50, 50, 0.4)");
-    gradient.addColorStop(0.5, "rgba(255, 100, 50, 0.2)");
-    gradient.addColorStop(1, "rgba(255, 100, 50, 0)");
+    gradient.addColorStop(0, gradientInner);
+    gradient.addColorStop(0.5, gradientMid);
+    gradient.addColorStop(1, gradientOuter);
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
@@ -2084,14 +2104,14 @@ export class Renderer {
     ctx.fill();
 
     // Core
-    ctx.fillStyle = "rgba(200, 30, 30, 0.6)";
+    ctx.fillStyle = coreColor;
     ctx.beginPath();
     ctx.arc(zone.x, zone.y, drawRadius * 0.3, 0, Math.PI * 2);
     ctx.fill();
 
     // Ring
-    ctx.strokeStyle = "#ff4444";
-    ctx.shadowColor = "#ff4444";
+    ctx.strokeStyle = ringColor;
+    ctx.shadowColor = ringGlow;
     ctx.shadowBlur = 15;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -2110,7 +2130,7 @@ export class Renderer {
       ctx.save();
       ctx.translate(ax, ay);
       ctx.rotate(angle);
-      ctx.fillStyle = "rgba(255, 100, 50, 0.7)";
+      ctx.fillStyle = arrowColor;
       ctx.beginPath();
       ctx.moveTo(6, 0);
       ctx.lineTo(-3, -4);
@@ -2123,20 +2143,27 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawOverlayBox(box: OverlayBox): void {
+  drawOverlayBox(
+    box: OverlayBox,
+    theme?: { fill: string; stroke: string; hole: string },
+  ): void {
     const { ctx } = this;
     ctx.save();
+
+    const fillColor = theme?.fill ?? "rgba(20, 25, 40, 0.85)";
+    const strokeColor = theme?.stroke ?? "rgba(100, 120, 160, 0.6)";
+    const holeStrokeColor = theme?.hole ?? "rgba(100, 120, 160, 0.4)";
 
     // Create a clipping path that excludes the holes
     ctx.beginPath();
     ctx.rect(box.x, box.y, box.width, box.height);
 
     // Cut out holes using composite operation
-    ctx.fillStyle = "rgba(20, 25, 40, 0.85)";
+    ctx.fillStyle = fillColor;
     ctx.fill();
 
     // Border
-    ctx.strokeStyle = "rgba(100, 120, 160, 0.6)";
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
     ctx.strokeRect(box.x, box.y, box.width, box.height);
 
@@ -2150,7 +2177,7 @@ export class Renderer {
     ctx.globalCompositeOperation = "source-over";
 
     // Draw hole borders
-    ctx.strokeStyle = "rgba(100, 120, 160, 0.4)";
+    ctx.strokeStyle = holeStrokeColor;
     ctx.lineWidth = 1;
     for (const hole of box.holes) {
       ctx.beginPath();

@@ -93,7 +93,7 @@ const MAP_2_VORTEX: MapDefinition = {
     {
       x: W / 2,
       y: H / 2,
-      radius: 80,
+      radius: 110,
       hasRotatingArrow: true,
     },
   ],
@@ -112,13 +112,13 @@ const MAP_3_REPULSE: MapDefinition = {
   centerHoles: [],
   repulsionZones: [
     {
-      x: W * 0.18,
+      x: W * 0.25,
       y: H / 2,
       radius: 70,
       strength: 0.004,
     },
     {
-      x: W * 0.82,
+      x: W * 0.75,
       y: H / 2,
       radius: 70,
       strength: 0.004,
@@ -194,9 +194,9 @@ function generateCacheBlocks(): YellowBlock[] {
 }
 
 function generateBunkerBoxes(): OverlayBox[] {
-  const boxW = 180;
-  const boxH = 140;
-  const margin = 60;
+  const boxW = 220;
+  const boxH = 170;
+  const margin = 70;
 
   return [
     // Top-left

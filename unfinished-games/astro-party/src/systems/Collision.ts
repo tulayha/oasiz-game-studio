@@ -19,6 +19,11 @@ export interface CollisionCallbacks {
     pilotBody: Matter.Body,
   ) => void;
   onProjectileHitWall: (projectileBody: Matter.Body) => void;
+  onProjectileHitYellowBlock: (
+    projectileOwnerId: string,
+    yellowBlockBody: Matter.Body,
+    projectileBody: Matter.Body,
+  ) => void;
   onProjectileHitAsteroid: (
     projectileOwnerId: string,
     asteroidBody: Matter.Body,
@@ -127,6 +132,23 @@ export function setupCollisions(
       ) {
         const projectile = getBody("projectile")!;
         callbacks.onProjectileHitWall(projectile);
+      }
+
+      // Projectile hits Yellow Block
+      if (
+        (labelA === "projectile" && labelB === "yellowBlock") ||
+        (labelA === "yellowBlock" && labelB === "projectile")
+      ) {
+        const projectile = getBody("projectile")!;
+        const yellowBlock = getBody("yellowBlock")!;
+        const projectileOwnerId = projectile.plugin?.ownerId as string;
+        if (projectileOwnerId) {
+          callbacks.onProjectileHitYellowBlock(
+            projectileOwnerId,
+            yellowBlock,
+            projectile,
+          );
+        }
       }
 
       // Projectile hits Asteroid

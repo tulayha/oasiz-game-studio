@@ -60,6 +60,13 @@ import {
 } from "./maps/MapDefinitions";
 import type { MapId } from "./types";
 
+interface YellowBlockState {
+  block: YellowBlock;
+  body?: Matter.Body;
+  hp: number;
+  maxHp: number;
+}
+
 export class Game {
   private physics: Physics;
   private renderer: Renderer;
@@ -88,7 +95,11 @@ export class Game {
   // Map system
   private selectedMapId: MapId = 0;
   private currentMap: MapDefinition | undefined = undefined;
-  private yellowBlockBodies: Matter.Body[] = [];
+  private yellowBlocks: YellowBlockState[] = [];
+  private yellowBlockBodyIndex: Map<number, number> = new Map();
+  private centerHoleBodies: Matter.Body[] = [];
+  private repulsionZoneBodies: Matter.Body[] = [];
+  private networkYellowBlockHp: number[] = [];
   private mapTime: number = 0;
   private playerMovementDirection: number = 1; // 1 = clockwise, -1 = counter-clockwise
 
@@ -265,6 +276,42 @@ export class Game {
         if (!this.network.isHost()) return;
         this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
       },
+      onProjectileHitYellowBlock: (
+        _projectileOwnerId,
+        yellowBlockBody,
+        projectileBody,
+      ) => {
+        if (!this.network.isHost()) return;
+
+        const blockIndex =
+          (yellowBlockBody.plugin?.blockIndex as number | undefined) ??
+          this.yellowBlockBodyIndex.get(yellowBlockBody.id);
+        if (blockIndex === undefined) {
+          this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
+          return;
+        }
+
+        const blockState = this.yellowBlocks[blockIndex];
+        if (!blockState || blockState.hp <= 0) {
+          this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
+          return;
+        }
+
+        blockState.hp -= 1;
+
+        const hitX = projectileBody.position.x;
+        const hitY = projectileBody.position.y;
+        this.spawnHitParticles(hitX, hitY, "#ffee00", 10);
+
+        if (blockState.hp <= 0 && blockState.body) {
+          this.physics.removeBody(blockState.body);
+          this.yellowBlockBodyIndex.delete(blockState.body.id);
+          blockState.body = undefined;
+          this.renderer.spawnExplosion(hitX, hitY, "#ffee00");
+        }
+
+        this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
+      },
       onProjectileHitAsteroid: (
         projectileOwnerId,
         asteroidBody,
@@ -301,6 +348,9 @@ export class Game {
             // Hit but not destroyed (grey asteroid with HP > 0)
             this.triggerScreenShake(3, 0.1);
             this.renderer.spawnExplosion(pos.x, pos.y, color);
+            if (asteroid.isGrey()) {
+              this.spawnHitParticles(pos.x, pos.y, color, 12);
+            }
           }
         }
 
@@ -572,6 +622,8 @@ export class Game {
     this.ensureMapInitialized();
 
     this.spawnYellowBlocks();
+    this.spawnCenterHoleObstacles();
+    this.spawnRepulsionZoneObstacles();
     this.spawnAsteroidsForMap();
   }
 
@@ -580,8 +632,8 @@ export class Game {
     const blocks = map.yellowBlocks;
     if (blocks.length === 0) return;
 
-    const cfg = GameConfig.config;
-    for (const block of blocks) {
+    for (const [index, block] of blocks.entries()) {
+      const hp = 2 + Math.floor(Math.random() * 2); // 2 or 3 hits
       const body = Matter.Bodies.rectangle(
         block.x,
         block.y,
@@ -591,14 +643,66 @@ export class Game {
           isStatic: true,
           label: "yellowBlock",
           friction: 0,
-          restitution: 1.0,
+          restitution: 0.9,
+          collisionFilter: {
+            category: 0x0008, // Treat like wall for collisions
+            mask: 0x0001 | 0x0002 | 0x0004, // Ships, projectiles, asteroids
+          },
         }
       );
+      body.plugin = body.plugin || {};
+      body.plugin.blockIndex = index;
       Matter.Composite.add(this.physics.world, body);
-      this.yellowBlockBodies.push(body);
+      this.yellowBlocks.push({
+        block,
+        body,
+        hp,
+        maxHp: hp,
+      });
+      this.yellowBlockBodyIndex.set(body.id, index);
     }
     const currentMapDef = this.getCurrentMap();
     console.log("[Game] Spawned", blocks.length, "yellow blocks for map", currentMapDef.name);
+  }
+
+  private spawnCenterHoleObstacles(): void {
+    const map = this.getCurrentMap();
+    if (map.centerHoles.length === 0) return;
+
+    for (const hole of map.centerHoles) {
+      const body = Matter.Bodies.circle(hole.x, hole.y, hole.radius * 0.92, {
+        isStatic: true,
+        label: "wall",
+        friction: 0,
+        restitution: 0.9,
+        collisionFilter: {
+          category: 0x0008, // Wall category
+          mask: 0x0001 | 0x0002 | 0x0004, // Ships, projectiles, asteroids
+        },
+      });
+      Matter.Composite.add(this.physics.world, body);
+      this.centerHoleBodies.push(body);
+    }
+  }
+
+  private spawnRepulsionZoneObstacles(): void {
+    const map = this.getCurrentMap();
+    if (map.repulsionZones.length === 0) return;
+
+    for (const zone of map.repulsionZones) {
+      const body = Matter.Bodies.circle(zone.x, zone.y, zone.radius * 0.9, {
+        isStatic: true,
+        label: "wall",
+        friction: 0,
+        restitution: 0.9,
+        collisionFilter: {
+          category: 0x0008, // Wall category
+          mask: 0x0001 | 0x0002 | 0x0004, // Ships, projectiles, asteroids
+        },
+      });
+      Matter.Composite.add(this.physics.world, body);
+      this.repulsionZoneBodies.push(body);
+    }
   }
 
   private spawnAsteroidsForMap(): void {
@@ -734,39 +838,163 @@ export class Game {
   // ===== MAP RENDERING =====
   private renderMapFeatures(): void {
     const map = this.getCurrentMap();
-    
+    const theme = this.getMapTheme();
+
     // Draw yellow blocks
-    for (const block of map.yellowBlocks) {
+    for (const block of this.getYellowBlocksForRender()) {
       this.renderer.drawYellowBlock(block);
     }
 
     // Draw center holes with rotating arrows
     for (const hole of map.centerHoles) {
-      this.renderer.drawCenterHole(hole, this.mapTime, this.playerMovementDirection);
+      this.renderer.drawCenterHole(
+        hole,
+        this.mapTime,
+        this.playerMovementDirection,
+        theme.centerHole,
+      );
     }
 
     // Draw repulsion zones (visual indicator)
     for (const zone of map.repulsionZones) {
-      this.renderer.drawRepulsionZone(zone, this.mapTime);
+      this.renderer.drawRepulsionZone(zone, this.mapTime, theme.repulsion);
+    }
+  }
+
+  private renderOverlayBoxes(): void {
+    const map = this.getCurrentMap();
+    const theme = this.getMapTheme();
+    for (const box of map.overlayBoxes) {
+      this.renderer.drawOverlayBox(box, theme.overlay);
+    }
+  }
+
+  private getYellowBlocksForRender(): YellowBlock[] {
+    const map = this.getCurrentMap();
+    if (this.network.isHost()) {
+      return this.yellowBlocks
+        .filter((block) => block.hp > 0)
+        .map((block) => block.block);
     }
 
-    // Draw overlay boxes
-    for (const box of map.overlayBoxes) {
-      this.renderer.drawOverlayBox(box);
+    if (this.networkYellowBlockHp.length === map.yellowBlocks.length) {
+      return map.yellowBlocks.filter(
+        (_, index) => (this.networkYellowBlockHp[index] ?? 1) > 0,
+      );
+    }
+
+    return map.yellowBlocks;
+  }
+
+  private getMapTheme(): {
+    border: string;
+    centerHole?: {
+      ring: string;
+      innerRing: string;
+      arrow: string;
+      glow: string;
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+    };
+    repulsion?: {
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+      core: string;
+      ring: string;
+      arrow: string;
+      glow: string;
+    };
+    overlay?: { fill: string; stroke: string; hole: string };
+  } {
+    const map = this.getCurrentMap();
+    switch (map.id) {
+      case 1: // Cache
+        return {
+          border: "#ffee00",
+        };
+      case 2: // Vortex
+        return {
+          border: "#ff5a2b",
+          centerHole: {
+            ring: "#ff5a2b",
+            innerRing: "#ffb36b",
+            arrow: "#ff8844",
+            glow: "#ff5a2b",
+            gradientInner: "rgba(0, 0, 0, 0.95)",
+            gradientMid: "rgba(40, 12, 0, 0.9)",
+            gradientOuter: "rgba(90, 35, 10, 0.65)",
+          },
+        };
+      case 3: // Repulse
+        return {
+          border: "#ff5a2b",
+          repulsion: {
+            gradientInner: "rgba(255, 90, 40, 0.45)",
+            gradientMid: "rgba(255, 140, 60, 0.2)",
+            gradientOuter: "rgba(255, 120, 50, 0)",
+            core: "rgba(230, 50, 30, 0.65)",
+            ring: "#ff5a2b",
+            arrow: "rgba(255, 140, 80, 0.75)",
+            glow: "#ff5a2b",
+          },
+        };
+      case 4: // Bunkers
+        return {
+          border: "#00ff88",
+          overlay: {
+            fill: "rgba(0, 140, 80, 0.95)",
+            stroke: "rgba(120, 255, 180, 0.85)",
+            hole: "rgba(120, 255, 180, 0.65)",
+          },
+        };
+      case 0:
+      default:
+        return {
+          border: "#00f0ff",
+        };
     }
   }
 
   // ===== MAP CLEANUP =====
   private clearMapFeatures(): void {
     // Remove yellow block bodies
-    for (const body of this.yellowBlockBodies) {
+    for (const block of this.yellowBlocks) {
+      if (block.body) {
+        this.physics.removeBody(block.body);
+      }
+    }
+    this.yellowBlocks = [];
+    this.yellowBlockBodyIndex.clear();
+    this.networkYellowBlockHp = [];
+
+    // Remove center hole bodies
+    for (const body of this.centerHoleBodies) {
       this.physics.removeBody(body);
     }
-    this.yellowBlockBodies = [];
+    this.centerHoleBodies = [];
+
+    // Remove repulsion zone bodies
+    for (const body of this.repulsionZoneBodies) {
+      this.physics.removeBody(body);
+    }
+    this.repulsionZoneBodies = [];
 
     // Reset map state
     this.mapTime = 0;
     this.playerMovementDirection = 1;
+  }
+
+  private spawnHitParticles(
+    x: number,
+    y: number,
+    color: string,
+    count: number = 8,
+  ): void {
+    for (let i = 0; i < count; i++) {
+      this.renderer.spawnParticle(x, y, color, "hit");
+    }
   }
 
   private spawnDashParticles(playerId: string, ship: Ship): void {
@@ -2894,6 +3122,7 @@ export class Game {
       turret: this.turret?.getState(),
       turretBullets: this.turretBullets.map((b) => b.getState()),
       playerPowerUps: playerPowerUpsRecord,
+      yellowBlockHp: this.yellowBlocks.map((block) => block.hp),
       rotationDirection: this.rotationDirection,
     };
 
@@ -2936,6 +3165,7 @@ export class Game {
     this.networkPowerUps = state.powerUps;
     this.networkLaserBeams = state.laserBeams;
     this.networkHomingMissiles = state.homingMissiles || [];
+    this.networkYellowBlockHp = state.yellowBlockHp || [];
 
     // Check for mine explosions on client and trigger effects
     if (state.mines) {
@@ -3208,7 +3438,7 @@ export class Game {
     this.renderer.beginFrame();
 
     this.renderer.drawStars();
-    this.renderer.drawArenaBorder();
+    this.renderer.drawArenaBorder(this.getMapTheme().border);
 
     // Draw map features (yellow blocks, center holes, overlay boxes, etc.)
     this.renderMapFeatures();
@@ -3624,6 +3854,8 @@ export class Game {
 
       this.renderer.drawParticles();
     }
+
+    this.renderOverlayBoxes();
 
     if (this.flowMgr.phase === "COUNTDOWN" && this.flowMgr.countdown > 0) {
       this.renderer.drawCountdown(this.flowMgr.countdown);
