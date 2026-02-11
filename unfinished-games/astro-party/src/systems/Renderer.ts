@@ -12,6 +12,12 @@ import {
   PLAYER_COLORS,
   GAME_CONFIG,
 } from "../types";
+import type {
+  YellowBlock,
+  CenterHole,
+  RepulsionZone,
+  OverlayBox,
+} from "../maps/MapDefinitions";
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -858,18 +864,23 @@ export class Renderer {
   drawAsteroid(state: AsteroidState): void {
     const { ctx } = this;
     const { x, y, angle, vertices } = state;
+    const isGrey = state.variant === "GREY";
+
+    const fillColor = isGrey ? GAME_CONFIG.GREY_ASTEROID_COLOR : GAME_CONFIG.ASTEROID_COLOR;
+    const glowColor = isGrey ? GAME_CONFIG.GREY_ASTEROID_GLOW : GAME_CONFIG.ASTEROID_GLOW;
+    const strokeColor = isGrey ? "#aaaabb" : "#ffaa00";
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
 
     // Glow effect
-    ctx.shadowColor = GAME_CONFIG.ASTEROID_GLOW;
-    ctx.shadowBlur = 15;
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = isGrey ? 8 : 15;
 
     // Asteroid body
-    ctx.fillStyle = GAME_CONFIG.ASTEROID_COLOR;
-    ctx.strokeStyle = "#ffaa00";
+    ctx.fillStyle = fillColor;
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
 
     ctx.beginPath();
@@ -897,6 +908,28 @@ export class Renderer {
     ctx.fill();
 
     ctx.restore();
+
+    // Draw HP indicator for grey asteroids with more than 1 HP
+    if (isGrey && state.hp > 0 && state.maxHp > 1) {
+      ctx.save();
+      ctx.translate(x, y);
+      const dotSpacing = 6;
+      const totalWidth = (state.maxHp - 1) * dotSpacing;
+      const startX = -totalWidth / 2;
+      const dotY = -state.size - 8;
+
+      for (let i = 0; i < state.maxHp; i++) {
+        ctx.beginPath();
+        ctx.arc(startX + i * dotSpacing, dotY, 2, 0, Math.PI * 2);
+        if (i < state.hp) {
+          ctx.fillStyle = "#ffffff";
+        } else {
+          ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+        }
+        ctx.fill();
+      }
+      ctx.restore();
+    }
   }
 
   // ============= PROJECTILE RENDERING =============
@@ -1904,6 +1937,227 @@ export class Renderer {
     }
 
     ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // ============= MAP FEATURE RENDERING =============
+
+  drawYellowBlock(block: YellowBlock): void {
+    const { ctx } = this;
+    ctx.save();
+
+    // Glow
+    ctx.shadowColor = "#ffee00";
+    ctx.shadowBlur = 10;
+
+    // Block body - Matrix-like grid pattern
+    ctx.fillStyle = "#ffee00";
+    ctx.strokeStyle = "#ccbb00";
+    ctx.lineWidth = 2;
+    ctx.fillRect(block.x, block.y, block.width, block.height);
+    ctx.strokeRect(block.x, block.y, block.width, block.height);
+
+    // Inner grid lines for # pattern
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
+    ctx.lineWidth = 1;
+
+    // Horizontal lines
+    const hStep = block.height / 3;
+    for (let i = 1; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(block.x, block.y + hStep * i);
+      ctx.lineTo(block.x + block.width, block.y + hStep * i);
+      ctx.stroke();
+    }
+
+    // Vertical lines
+    const vStep = block.width / 3;
+    for (let i = 1; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(block.x + vStep * i, block.y);
+      ctx.lineTo(block.x + vStep * i, block.y + block.height);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  drawCenterHole(hole: CenterHole, time: number, playerMovementDirection: number): void {
+    const { ctx } = this;
+    ctx.save();
+
+    // Dark void circle
+    const gradient = ctx.createRadialGradient(
+      hole.x, hole.y, 0,
+      hole.x, hole.y, hole.radius,
+    );
+    gradient.addColorStop(0, "rgba(0, 0, 0, 0.95)");
+    gradient.addColorStop(0.7, "rgba(10, 10, 30, 0.9)");
+    gradient.addColorStop(1, "rgba(20, 20, 50, 0.6)");
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glowing border ring
+    ctx.strokeStyle = "#4444ff";
+    ctx.shadowColor = "#4444ff";
+    ctx.shadowBlur = 20;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner ring
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "#6666ff";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.radius * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Rotating arrow around the circle
+    if (hole.hasRotatingArrow) {
+      ctx.shadowBlur = 0;
+      const arrowRadius = hole.radius + 20;
+      const arrowAngle = time * 2.0 * playerMovementDirection;
+
+      // Draw arrow
+      const ax = hole.x + Math.cos(arrowAngle) * arrowRadius;
+      const ay = hole.y + Math.sin(arrowAngle) * arrowRadius;
+      const arrowSize = 12;
+
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(arrowAngle + Math.PI / 2 * playerMovementDirection);
+
+      ctx.fillStyle = "#00f0ff";
+      ctx.shadowColor = "#00f0ff";
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(0, -arrowSize);
+      ctx.lineTo(-arrowSize * 0.6, arrowSize * 0.5);
+      ctx.lineTo(arrowSize * 0.6, arrowSize * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // Trail dots
+      for (let i = 1; i <= 4; i++) {
+        const trailAngle = arrowAngle - (i * 0.3 * playerMovementDirection);
+        const tx = hole.x + Math.cos(trailAngle) * arrowRadius;
+        const ty = hole.y + Math.sin(trailAngle) * arrowRadius;
+        ctx.globalAlpha = 0.6 - i * 0.12;
+        ctx.fillStyle = "#00f0ff";
+        ctx.beginPath();
+        ctx.arc(tx, ty, 3 - i * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    ctx.restore();
+  }
+
+  drawRepulsionZone(zone: RepulsionZone, time: number): void {
+    const { ctx } = this;
+    ctx.save();
+
+    // Pulsing effect
+    const pulse = 0.9 + Math.sin(time * 3) * 0.1;
+    const drawRadius = zone.radius * pulse;
+
+    // Outer glow
+    const gradient = ctx.createRadialGradient(
+      zone.x, zone.y, 0,
+      zone.x, zone.y, drawRadius,
+    );
+    gradient.addColorStop(0, "rgba(255, 50, 50, 0.4)");
+    gradient.addColorStop(0.5, "rgba(255, 100, 50, 0.2)");
+    gradient.addColorStop(1, "rgba(255, 100, 50, 0)");
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, drawRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core
+    ctx.fillStyle = "rgba(200, 30, 30, 0.6)";
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, drawRadius * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ring
+    ctx.strokeStyle = "#ff4444";
+    ctx.shadowColor = "#ff4444";
+    ctx.shadowBlur = 15;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, drawRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Repulsion arrows pointing outward
+    ctx.shadowBlur = 0;
+    const arrowCount = 6;
+    for (let i = 0; i < arrowCount; i++) {
+      const angle = (i / arrowCount) * Math.PI * 2 + time * 1.5;
+      const dist = drawRadius * 0.6 + Math.sin(time * 4 + i) * 5;
+      const ax = zone.x + Math.cos(angle) * dist;
+      const ay = zone.y + Math.sin(angle) * dist;
+
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(angle);
+      ctx.fillStyle = "rgba(255, 100, 50, 0.7)";
+      ctx.beginPath();
+      ctx.moveTo(6, 0);
+      ctx.lineTo(-3, -4);
+      ctx.lineTo(-3, 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  drawOverlayBox(box: OverlayBox): void {
+    const { ctx } = this;
+    ctx.save();
+
+    // Create a clipping path that excludes the holes
+    ctx.beginPath();
+    ctx.rect(box.x, box.y, box.width, box.height);
+
+    // Cut out holes using composite operation
+    ctx.fillStyle = "rgba(20, 25, 40, 0.85)";
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = "rgba(100, 120, 160, 0.6)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+    // Cut out holes (draw transparent circles)
+    ctx.globalCompositeOperation = "destination-out";
+    for (const hole of box.holes) {
+      ctx.beginPath();
+      ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
+
+    // Draw hole borders
+    ctx.strokeStyle = "rgba(100, 120, 160, 0.4)";
+    ctx.lineWidth = 1;
+    for (const hole of box.holes) {
+      ctx.beginPath();
+      ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }

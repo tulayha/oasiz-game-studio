@@ -1,3 +1,4 @@
+import Matter from "matter-js";
 import { Physics } from "./systems/Physics";
 import { Renderer } from "./systems/Renderer";
 import { InputManager } from "./systems/Input";
@@ -52,6 +53,12 @@ import {
   isCustomComparedToTemplate,
   sanitizeAdvancedSettings,
 } from "./advancedSettings";
+import {
+  MapDefinition,
+  getMapDefinition,
+  YellowBlock,
+} from "./maps/MapDefinitions";
+import type { MapId } from "./types";
 
 export class Game {
   private physics: Physics;
@@ -77,6 +84,13 @@ export class Game {
   private turret: Turret | null = null;
   private turretBullets: TurretBullet[] = [];
   private playerPowerUps: Map<string, PlayerPowerUp | null> = new Map();
+
+  // Map system
+  private selectedMapId: MapId = 0;
+  private currentMap: MapDefinition | undefined = undefined;
+  private yellowBlockBodies: Matter.Body[] = [];
+  private mapTime: number = 0;
+  private playerMovementDirection: number = 1; // 1 = clockwise, -1 = counter-clockwise
 
   // Input state
   private pendingInputs: Map<string, PlayerInput> = new Map();
@@ -172,6 +186,7 @@ export class Game {
     this.flowMgr.onBeginMatch = () => {
       this.flowMgr.beginMatch(this.playerMgr.players, this.ships);
       this.spawnInitialAsteroids();
+      this.spawnMapFeatures(); // Spawn map-specific features (yellow blocks, map asteroids, etc.)
       this.scheduleAsteroidSpawnsIfNeeded();
       this.grantStartingPowerups();
       this.spawnTurret();
@@ -263,27 +278,29 @@ export class Game {
         if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
           const asteroid = this.asteroids[asteroidIndex];
           const pos = asteroid.body.position;
+          const color = asteroid.getColor();
 
-          this.renderer.spawnExplosion(
-            pos.x,
-            pos.y,
-            GAME_CONFIG.ASTEROID_COLOR,
-          );
-          this.renderer.spawnAsteroidDebris(
-            pos.x,
-            pos.y,
-            asteroid.size,
-            GAME_CONFIG.ASTEROID_COLOR,
-          );
-          this.triggerScreenShake(8, 0.2);
+          const destroyed = asteroid.hit();
 
-          asteroid.destroy();
-          this.asteroids.splice(asteroidIndex, 1);
+          if (destroyed) {
+            this.renderer.spawnExplosion(pos.x, pos.y, color);
+            this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, color);
+            this.triggerScreenShake(8, 0.2);
 
-          if (asteroid.isLarge()) {
-            this.splitAsteroid(asteroid, pos.x, pos.y);
+            asteroid.destroy();
+            this.asteroids.splice(asteroidIndex, 1);
+
+            if (asteroid.isGrey()) {
+              // Grey asteroids drop nothing
+            } else if (asteroid.isLarge()) {
+              this.splitAsteroid(asteroid, pos.x, pos.y);
+            } else {
+              this.trySpawnPowerUp(pos.x, pos.y);
+            }
           } else {
-            this.trySpawnPowerUp(pos.x, pos.y);
+            // Hit but not destroyed (grey asteroid with HP > 0)
+            this.triggerScreenShake(3, 0.1);
+            this.renderer.spawnExplosion(pos.x, pos.y, color);
           }
         }
 
@@ -306,21 +323,15 @@ export class Game {
             if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
               const asteroid = this.asteroids[asteroidIndex];
               const pos = asteroid.body.position;
-              this.renderer.spawnExplosion(
-                pos.x,
-                pos.y,
-                GAME_CONFIG.ASTEROID_COLOR,
-              );
-              this.renderer.spawnAsteroidDebris(
-                pos.x,
-                pos.y,
-                asteroid.size,
-                GAME_CONFIG.ASTEROID_COLOR,
-              );
+              const color = asteroid.getColor();
+              this.renderer.spawnExplosion(pos.x, pos.y, color);
+              this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, color);
               this.triggerScreenShake(10, 0.3);
               asteroid.destroy();
               this.asteroids.splice(asteroidIndex, 1);
-              this.trySpawnPowerUp(pos.x, pos.y);
+              if (!asteroid.isGrey()) {
+                this.trySpawnPowerUp(pos.x, pos.y);
+              }
             }
 
             this.triggerScreenShake(3, 0.1);
@@ -342,21 +353,15 @@ export class Game {
           if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
             const asteroid = this.asteroids[asteroidIndex];
             const pos = asteroid.body.position;
-            this.renderer.spawnExplosion(
-              pos.x,
-              pos.y,
-              GAME_CONFIG.ASTEROID_COLOR,
-            );
-            this.renderer.spawnAsteroidDebris(
-              pos.x,
-              pos.y,
-              asteroid.size,
-              GAME_CONFIG.ASTEROID_COLOR,
-            );
+            const color = asteroid.getColor();
+            this.renderer.spawnExplosion(pos.x, pos.y, color);
+            this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, color);
             this.triggerScreenShake(10, 0.3);
             asteroid.destroy();
             this.asteroids.splice(asteroidIndex, 1);
-            this.trySpawnPowerUp(pos.x, pos.y);
+            if (!asteroid.isGrey()) {
+              this.trySpawnPowerUp(pos.x, pos.y);
+            }
           }
 
           this.flowMgr.destroyShip(
@@ -380,21 +385,15 @@ export class Game {
           if (asteroidIndex !== -1 && this.asteroids[asteroidIndex].alive) {
             const asteroid = this.asteroids[asteroidIndex];
             const pos = asteroid.body.position;
-            this.renderer.spawnExplosion(
-              pos.x,
-              pos.y,
-              GAME_CONFIG.ASTEROID_COLOR,
-            );
-            this.renderer.spawnAsteroidDebris(
-              pos.x,
-              pos.y,
-              asteroid.size,
-              GAME_CONFIG.ASTEROID_COLOR,
-            );
+            const color = asteroid.getColor();
+            this.renderer.spawnExplosion(pos.x, pos.y, color);
+            this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, color);
             this.triggerScreenShake(6, 0.2);
             asteroid.destroy();
             this.asteroids.splice(asteroidIndex, 1);
-            this.trySpawnPowerUp(pos.x, pos.y);
+            if (!asteroid.isGrey()) {
+              this.trySpawnPowerUp(pos.x, pos.y);
+            }
           }
 
           this.flowMgr.killPilot(
@@ -441,6 +440,14 @@ export class Game {
   private spawnInitialAsteroids(): void {
     if (!this.network.isHost()) return;
     if (this.advancedSettings.asteroidDensity === "NONE") return;
+
+    // If map has custom asteroid config, skip default spawning
+    // The map asteroids will be spawned via spawnMapFeatures() -> spawnAsteroidsForMap()
+    const map = this.getCurrentMap();
+    if (map.asteroidConfig.enabled) {
+      console.log("[Game] Using map asteroid config, skipping default spawning");
+      return;
+    }
 
     const cfg = GameConfig.config;
     const count = this.randomInt(
@@ -514,12 +521,252 @@ export class Game {
   private spawnTurret(): void {
     if (!this.network.isHost()) return;
 
+    // Only spawn turret if map has turret
+    const map = this.getCurrentMap();
+    if (!map.hasTurret) {
+      console.log("[Game] Turret disabled for this map");
+      return;
+    }
+
     // Spawn turret at center of map
     const centerX = GAME_CONFIG.ARENA_WIDTH / 2;
     const centerY = GAME_CONFIG.ARENA_HEIGHT / 2;
 
     this.turret = new Turret(this.physics, centerX, centerY);
     console.log("[Game] Turret spawned at center:", centerX, centerY);
+  }
+
+  private ensureMapInitialized(): void {
+    if (!this.currentMap) {
+      this.currentMap = getMapDefinition(this.selectedMapId);
+    }
+  }
+  public setMap(mapId: MapId): void {
+    if (this.flowMgr.phase !== "LOBBY") return;
+    this.selectedMapId = mapId;
+    this.currentMap = getMapDefinition(mapId);
+    console.log("[Game] Map set to:", this.currentMap.name);
+    // Broadcast to other players if host
+    if (this.network.isHost()) {
+      this.network.broadcastMapId(mapId);
+    }
+    // Notify UI
+    this._onMapChange?.(mapId);
+  }
+
+  public getMapId(): MapId {
+    return this.selectedMapId;
+  }
+
+  public getCurrentMap(): MapDefinition {
+    // Lazy initialization if needed
+    if (!this.currentMap) {
+      this.currentMap = getMapDefinition(this.selectedMapId);
+    }
+    return this.currentMap;
+  }
+
+  // ===== MAP FEATURE SPAWNING =====
+  private spawnMapFeatures(): void {
+    if (!this.isHost()) return;
+    this.ensureMapInitialized();
+
+    this.spawnYellowBlocks();
+    this.spawnAsteroidsForMap();
+  }
+
+  private spawnYellowBlocks(): void {
+    const map = this.getCurrentMap();
+    const blocks = map.yellowBlocks;
+    if (blocks.length === 0) return;
+
+    const cfg = GameConfig.config;
+    for (const block of blocks) {
+      const body = Matter.Bodies.rectangle(
+        block.x,
+        block.y,
+        block.width,
+        block.height,
+        {
+          isStatic: true,
+          label: "yellowBlock",
+          friction: 0,
+          restitution: 1.0,
+        }
+      );
+      Matter.Composite.add(this.physics.world, body);
+      this.yellowBlockBodies.push(body);
+    }
+    const currentMapDef = this.getCurrentMap();
+    console.log("[Game] Spawned", blocks.length, "yellow blocks for map", currentMapDef.name);
+  }
+
+  private spawnAsteroidsForMap(): void {
+    const currentMapDef = this.getCurrentMap();
+    const asteroidConfig = currentMapDef.asteroidConfig;
+    if (!asteroidConfig.enabled) return;
+    if (this.advancedSettings.asteroidDensity === "NONE") return;
+
+    const cfg = GameConfig.config;
+    const count = this.randomInt(
+      asteroidConfig.minCount,
+      asteroidConfig.maxCount,
+    );
+    const centerX = cfg.ARENA_WIDTH / 2;
+    const centerY = cfg.ARENA_HEIGHT / 2;
+    const spreadX = cfg.ARENA_WIDTH * 0.28;
+    const spreadY = cfg.ARENA_HEIGHT * 0.28;
+    const maxAttempts = 20;
+
+    for (let i = 0; i < count; i++) {
+      // Spawn orange asteroids (60%) and grey asteroids (40%) based on map config
+      const isGrey = Math.random() < asteroidConfig.greyRatio;
+      const variant: "ORANGE" | "GREY" = isGrey ? "GREY" : "ORANGE";
+      const tier = i === 0 ? "LARGE" : this.rollAsteroidTier();
+      const size = isGrey
+        ? this.randomRange(cfg.GREY_ASTEROID_MIN, cfg.GREY_ASTEROID_MAX)
+        : this.randomAsteroidSize(tier);
+
+      let spawnX = centerX;
+      let spawnY = centerY;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const candidateX = centerX + (Math.random() * 2 - 1) * spreadX;
+        const candidateY = centerY + (Math.random() * 2 - 1) * spreadY;
+        if (this.isAsteroidSpawnClear(candidateX, candidateY, size)) {
+          spawnX = candidateX;
+          spawnY = candidateY;
+          break;
+        }
+      }
+
+      const velocity = this.randomAsteroidVelocity();
+      velocity.x *= 0.75;
+      velocity.y *= 0.75;
+      const angularVelocity = this.randomAsteroidAngularVelocity();
+
+      const asteroid = new Asteroid(
+        this.physics,
+        spawnX,
+        spawnY,
+        velocity,
+        angularVelocity,
+        tier,
+        size,
+        variant,
+      );
+      this.asteroids.push(asteroid);
+    }
+
+    console.log(
+      `[Game] Spawned ${count} asteroids for map ${currentMapDef.name} (${asteroidConfig.greyRatio * 100}% grey)`,
+    );
+  }
+
+  // ===== MAP UPDATE LOOP =====
+  private updateMapFeatures(dt: number): void {
+    this.mapTime += dt;
+
+    // Track player movement direction for rotating elements
+    this.detectPlayerMovementDirection();
+
+    // Apply repulsion zones
+    const map = this.getCurrentMap();
+    if (map.repulsionZones.length > 0) {
+      this.applyRepulsionForces(dt);
+    }
+  }
+
+  private detectPlayerMovementDirection(): void {
+    // Calculate average angular velocity of all ships
+    let totalAngularVel = 0;
+    let shipCount = 0;
+
+    for (const ship of this.ships.values()) {
+      if (ship.alive && ship.body) {
+        totalAngularVel += ship.body.angularVelocity;
+        shipCount++;
+      }
+    }
+
+    if (shipCount > 0) {
+      const avgAngularVel = totalAngularVel / shipCount;
+      // Update direction based on majority movement
+      if (avgAngularVel > 0.05) {
+        this.playerMovementDirection = 1;
+      } else if (avgAngularVel < -0.05) {
+        this.playerMovementDirection = -1;
+      }
+    }
+  }
+
+  private applyRepulsionForces(dt: number): void {
+    const map = this.getCurrentMap();
+    const zones = map.repulsionZones;
+    for (const zone of zones) {
+      const zoneCenter = { x: zone.x, y: zone.y };
+      const zoneRadius = zone.radius;
+      const zoneStrength = zone.strength;
+
+      for (const ship of this.ships.values()) {
+        if (!ship.alive || !ship.body) continue;
+
+        const dx = ship.body.position.x - zoneCenter.x;
+        const dy = ship.body.position.y - zoneCenter.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // If ship is within repulsion zone
+        if (dist < zoneRadius && dist > 10) {
+          // Apply repulsion force (push away from center)
+          const forceMagnitude = zoneStrength / (dist * dist);
+          const forceX = (dx / dist) * forceMagnitude;
+          const forceY = (dy / dist) * forceMagnitude;
+
+          Matter.Body.applyForce(ship.body, ship.body.position, {
+            x: forceX * dt,
+            y: forceY * dt,
+          });
+        }
+      }
+    }
+  }
+
+  // ===== MAP RENDERING =====
+  private renderMapFeatures(): void {
+    const map = this.getCurrentMap();
+    
+    // Draw yellow blocks
+    for (const block of map.yellowBlocks) {
+      this.renderer.drawYellowBlock(block);
+    }
+
+    // Draw center holes with rotating arrows
+    for (const hole of map.centerHoles) {
+      this.renderer.drawCenterHole(hole, this.mapTime, this.playerMovementDirection);
+    }
+
+    // Draw repulsion zones (visual indicator)
+    for (const zone of map.repulsionZones) {
+      this.renderer.drawRepulsionZone(zone, this.mapTime);
+    }
+
+    // Draw overlay boxes
+    for (const box of map.overlayBoxes) {
+      this.renderer.drawOverlayBox(box);
+    }
+  }
+
+  // ===== MAP CLEANUP =====
+  private clearMapFeatures(): void {
+    // Remove yellow block bodies
+    for (const body of this.yellowBlockBodies) {
+      this.physics.removeBody(body);
+    }
+    this.yellowBlockBodies = [];
+
+    // Reset map state
+    this.mapTime = 0;
+    this.playerMovementDirection = 1;
   }
 
   private spawnDashParticles(playerId: string, ship: Ship): void {
@@ -910,16 +1157,15 @@ export class Game {
         )
       ) {
         const pos = asteroid.body.position;
-        this.renderer.spawnExplosion(pos.x, pos.y, GAME_CONFIG.ASTEROID_COLOR);
-        this.renderer.spawnAsteroidDebris(
-          pos.x,
-          pos.y,
-          asteroid.size,
-          GAME_CONFIG.ASTEROID_COLOR,
-        );
+        const color = asteroid.getColor();
+        // Laser instantly destroys regardless of HP
+        this.renderer.spawnExplosion(pos.x, pos.y, color);
+        this.renderer.spawnAsteroidDebris(pos.x, pos.y, asteroid.size, color);
         asteroid.destroy();
         this.asteroids.splice(i, 1);
-        if (asteroid.isLarge()) {
+        if (asteroid.isGrey()) {
+          // Grey asteroids drop nothing
+        } else if (asteroid.isLarge()) {
           this.splitAsteroid(asteroid, pos.x, pos.y);
         } else {
           this.trySpawnPowerUp(pos.x, pos.y);
@@ -1597,6 +1843,7 @@ export class Game {
     onRoundResult?: (payload: RoundResultPayload) => void;
     onAdvancedSettingsChange?: (settings: AdvancedSettings) => void;
     onSystemMessage?: (message: string, durationMs?: number) => void;
+    onMapChange?: (mapId: MapId) => void;
   }): void {
     this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
@@ -1605,6 +1852,7 @@ export class Game {
     this._onRoundResult = callbacks.onRoundResult ?? null;
     this._onAdvancedSettingsChange = callbacks.onAdvancedSettingsChange ?? null;
     this._onSystemMessage = callbacks.onSystemMessage ?? null;
+    this._onMapChange = callbacks.onMapChange ?? null;
   }
 
   private _onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
@@ -1616,6 +1864,7 @@ export class Game {
   private _onSystemMessage:
     | ((message: string, durationMs?: number) => void)
     | null = null;
+  private _onMapChange: ((mapId: MapId) => void) | null = null;
 
   // ============= TURRET METHODS =============
 
@@ -1900,6 +2149,15 @@ export class Game {
         this.applyModeStateFromNetwork(payload);
       },
 
+      onMapIdReceived: (mapId: number) => {
+        if (this.network.isHost()) return;
+        this.selectedMapId = mapId as MapId;
+        this.currentMap = getMapDefinition(mapId as MapId);
+        console.log("[Game] MapId received from network:", this.currentMap.name);
+        // Notify UI
+        this._onMapChange?.(mapId as MapId);
+      },
+
       onScreenShakeReceived: (intensity, duration) => {
         if (this.network.isHost()) return;
         this.triggerScreenShake(intensity, duration);
@@ -1985,6 +2243,9 @@ export class Game {
 
     this.asteroids.forEach((asteroid) => asteroid.destroy());
     this.asteroids = [];
+
+    // Clear map features
+    this.clearMapFeatures();
 
     this.powerUps.forEach((powerUp) => powerUp.destroy());
     this.powerUps = [];
@@ -2075,6 +2336,10 @@ export class Game {
 
     this.laserBeams.forEach((beam) => beam.destroy());
     this.laserBeams = [];
+
+    // Clear and respawn map features
+    this.clearMapFeatures();
+    this.spawnMapFeatures();
 
     this.mines.forEach((mine) => mine.destroy());
     this.mines = [];
@@ -2587,6 +2852,9 @@ export class Game {
       this.updateTurret(dt);
       this.updateTurretBullets(dt);
 
+      // Update map features (repulsion zones, etc.)
+      this.updateMapFeatures(dt);
+
       // Broadcast state (throttled to sync rate)
       if (now - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.broadcastState();
@@ -2941,6 +3209,9 @@ export class Game {
 
     this.renderer.drawStars();
     this.renderer.drawArenaBorder();
+
+    // Draw map features (yellow blocks, center holes, overlay boxes, etc.)
+    this.renderMapFeatures();
 
     if (this.flowMgr.phase === "PLAYING" || this.flowMgr.phase === "GAME_END") {
       const isHost = this.network.isHost();

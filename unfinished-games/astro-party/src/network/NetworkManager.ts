@@ -48,6 +48,8 @@ export interface NetworkCallbacks {
 
   onAdvancedSettingsReceived: (payload: AdvancedSettingsSync) => void;
 
+  onMapIdReceived: (mapId: number) => void;
+
   onScreenShakeReceived: (intensity: number, duration: number) => void;
 
   onDashParticlesReceived?: (payload: {
@@ -378,6 +380,14 @@ export class NetworkManager {
       ),
     );
 
+    // Handle map selection from host
+    this.cleanupFunctions.push(
+      RPC.register("mapId", async (mapId: number) => {
+        console.log("[NetworkManager] RPC mapId received:", mapId);
+        this.callbacks?.onMapIdReceived(mapId);
+      }),
+    );
+
     this.cleanupFunctions.push(
       RPC.register(
         "screenShake",
@@ -526,6 +536,11 @@ export class NetworkManager {
     if (!isHost()) return;
     console.log("[NetworkManager] Broadcasting advanced settings");
     RPC.call("advancedSettings", payload, RPC.Mode.ALL);
+  }
+  broadcastMapId(mapId: number): void {
+    if (!isHost()) return;
+    console.log("[NetworkManager] Broadcasting mapId:", mapId);
+    RPC.call("mapId", mapId, RPC.Mode.ALL);
   }
 
   // Broadcast player list (host only) - authoritative order for colors
