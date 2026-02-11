@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Dungeon Loop</title>
+    <link rel="stylesheet" href="/style.css">
+
+    <!-- Tailwind & Fonts -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link href="https://fonts.googleapis.com" rel="preconnect" />
+    <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&amp;display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'industrial-bg': '#121212', // Very dark charcoal gray
+                        'industrial-module': '#d1d5db', // Light cool gray (zinc-300ish)
+                        'industrial-black': '#000000', // Strong black
+                        'industrial-accent': '#c54b4b', // Bright desaturated red
+                        'industrial-placeholder': 'rgba(0, 0, 0, 0.15)',
+                    },
+                    fontFamily: {
+                        display: ["'Press Start 2P'", "cursive"],
+                        cinzel: ["'Cinzel'", "serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "8px",
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 3s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        }
+                    }
+                },
+            },
+        };
+    </script>
+    <style type="text/tailwindcss">
+        .pixel-border {
+            border: 4px solid theme('colors.industrial-black');
+            box-shadow: 
+                inset -4px -4px 0px 0px rgba(0,0,0,0.1),
+                4px 4px 0px 0px rgba(0,0,0,0.4);
+        }
+        .pixel-button {
+            border: 4px solid theme('colors.industrial-black');
+            box-shadow: inset -4px -4px 0px 0px rgba(0,0,0,0.5);
+            transition: transform 0.1s, background-color 0.2s;
+        }
+        .pixel-button:active {
+            transform: scale(0.95);
+            box-shadow: inset 4px 4px 0px 0px rgba(0,0,0,0.5);
+        }
+        .placeholder-box {
+            background-color: theme('colors.industrial-placeholder');
+            border-radius: 2px;
+        }
+        
+        /* Overlay Container */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        
+        .menu-container {
+            pointer-events: auto;
+        }
+
+        /* Title Glow Effect */
+        .title-glow {
+            text-shadow: 0 0 10px #c54b4b, 0 0 20px #c54b4b, 0 0 40px #000000;
+        }
+        
+        .menu-fade-out {
+            animation: fadeOut 0.8s forwards;
+            pointer-events: none;
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div id="game-container"></div>
+    </div>
+
+    <div id="ui-layer">
+        <!-- Main Menu -->
+        <div id="main-menu"
+            class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center space-y-12 z-50 pointer-events-auto backdrop-blur-sm transition-opacity duration-1000">
+            <div class="text-center space-y-4 animate-float">
+                <h1
+                    class="font-display text-4xl md:text-6xl text-white tracking-widest title-glow stroke-black stroke-2">
+                    DUNGEON LOOP
+                </h1>
+
+            </div>
+
+            <button id="btn-play"
+                class="pixel-button bg-industrial-accent text-white px-12 py-6 text-xl font-display hover:bg-red-600 hover:scale-105 transition-all shadow-xl animate-pulse-slow">
+                PLAY GAME
+            </button>
+            <button id="btn-tutorial"
+                class="pixel-button bg-industrial-black text-white px-12 py-5 text-lg font-display hover:bg-gray-800 hover:scale-105 transition-all shadow-xl">
+                TUTORIAL
+            </button>
+
+
+        </div>
+
+        <!-- Pause Menu -->
+        <div id="pause-menu" class="hidden menu-container max-w-sm w-full p-4">
+            <div class="pixel-border bg-industrial-module p-8 rounded-xl flex flex-col items-center gap-6 shadow-2xl">
+                <h2 class="font-display text-2xl text-industrial-black mb-2 tracking-widest">PAUSED</h2>
+
+                <div class="w-full h-2 bg-industrial-black mb-4 opacity-20"></div>
+
+                <button id="btn-resume"
+                    class="pixel-button bg-industrial-black text-white w-full py-4 text-sm font-display hover:bg-gray-800 transition-colors">
+                    RESUME
+                </button>
+
+                <div class="w-full space-y-3">
+                    <div class="flex justify-between items-center pixel-button bg-gray-200 p-3 cursor-pointer hover:bg-white transition-colors"
+                        id="btn-toggle-music">
+                        <span class="font-display text-xs text-industrial-black">MUSIC</span>
+                        <span class="font-display text-xs text-industrial-accent" id="val-music">ON</span>
+                    </div>
+                    <div class="flex justify-between items-center pixel-button bg-gray-200 p-3 cursor-pointer hover:bg-white transition-colors"
+                        id="btn-toggle-fx">
+                        <span class="font-display text-xs text-industrial-black">FX</span>
+                        <span class="font-display text-xs text-industrial-accent" id="val-fx">ON</span>
+                    </div>
+                    <div class="flex justify-between items-center pixel-button bg-gray-200 p-3 cursor-pointer hover:bg-white transition-colors"
+                        id="btn-toggle-haptics">
+                        <span class="font-display text-xs text-industrial-black">HAPTICS</span>
+                        <span class="font-display text-xs text-industrial-accent" id="val-haptics">ON</span>
+                    </div>
+                </div>
+
+                <button id="btn-restart"
+                    class="pixel-button bg-industrial-accent text-white w-full py-4 text-sm font-display hover:bg-red-700 transition-colors">
+                    RESTART
+                </button>
+            </div>
+        </div>
+
+        <!-- Skills Info Menu -->
+        <div id="skills-info-menu" class="hidden menu-container w-full max-w-3xl p-4">
+            <div class="pixel-border bg-industrial-module p-8 rounded-xl flex flex-col items-center gap-5 shadow-2xl">
+                <h2 id="skills-info-title" class="font-display text-2xl text-industrial-black mb-2 tracking-widest">SKILLS</h2>
+
+                <div class="w-full h-2 bg-industrial-black mb-2 opacity-20"></div>
+
+                <div id="skills-info-list" class="skill-info-list w-full"></div>
+
+                <button id="btn-skillinfo-close"
+                    class="pixel-button bg-industrial-accent text-white w-full max-w-xs py-4 text-sm font-display hover:bg-red-700 transition-colors">
+                    CLOSE
+                </button>
+            </div>
+        </div>
+
+        <!-- Character Select Menu -->
+        <div id="character-select-menu" class="hidden menu-container w-full max-w-5xl p-4">
+            <div class="pixel-border bg-industrial-module p-8 rounded-xl flex flex-col items-center gap-5 shadow-2xl">
+                <h2 class="font-display text-2xl text-industrial-black mb-2 tracking-widest">SELECT CHARACTER</h2>
+
+                <div class="w-full h-2 bg-industrial-black mb-4 opacity-20"></div>
+
+                <div class="character-options-grid w-full">
+                    <button id="btn-char-option-1"
+                        class="pixel-button char-option-card bg-industrial-black text-white font-display hover:bg-gray-800 transition-colors">
+                        <span class="char-sprite char-sprite-knight" aria-hidden="true"></span>
+                        <span class="char-name">WARRIOR</span>
+                    </button>
+                    <button id="btn-char-option-2"
+                        class="pixel-button char-option-card bg-industrial-black text-white font-display hover:bg-gray-800 transition-colors">
+                        <span class="char-sprite char-sprite-mage" aria-hidden="true"></span>
+                        <span class="char-name">MAGE</span>
+                    </button>
+                    <button id="btn-char-option-3"
+                        class="pixel-button char-option-card bg-industrial-black text-white font-display hover:bg-gray-800 transition-colors">
+                        <span class="char-sprite char-sprite-rogue" aria-hidden="true"></span>
+                        <span class="char-name">ROGUE</span>
+                    </button>
+                </div>
+
+                <button id="btn-char-cancel"
+                    class="pixel-button bg-industrial-accent text-white w-full max-w-xs py-4 text-sm font-display hover:bg-red-700 transition-colors">
+                    CANCEL
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Over Menu -->
+        <div id="gameover-menu" class="hidden menu-container max-w-sm w-full p-4">
+            <div class="pixel-border bg-industrial-module p-8 rounded-xl flex flex-col items-center gap-6 shadow-2xl">
+                <h2 class="font-display text-2xl text-industrial-accent mb-2 tracking-widest">GAME OVER</h2>
+
+                <div class="w-full h-2 bg-industrial-black mb-4 opacity-20"></div>
+
+                <div class="flex flex-col items-center w-full bg-industrial-placeholder p-6 rounded pixel-border mb-2">
+                    <span class="font-display text-xs text-industrial-black mb-3">FINAL SCORE</span>
+                    <span id="score-display" class="font-display text-4xl text-industrial-black">0</span>
+                </div>
+
+                <button id="btn-retry"
+                    class="pixel-button bg-industrial-black text-white w-full py-4 text-sm font-display hover:bg-gray-800 transition-colors">
+                    TRY AGAIN
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
