@@ -28,6 +28,18 @@ export class LaserBeam {
     return Math.min(1, elapsed / this.duration);
   }
 
+  getStartPoint(): { x: number; y: number } {
+    return { x: this.x, y: this.y };
+  }
+
+  getEndPoint(): { x: number; y: number } {
+    const beamLength = GAME_CONFIG.POWERUP_BEAM_LENGTH;
+    return {
+      x: this.x + Math.cos(this.angle) * beamLength,
+      y: this.y + Math.sin(this.angle) * beamLength,
+    };
+  }
+
   destroy(): void {
     this.alive = false;
   }

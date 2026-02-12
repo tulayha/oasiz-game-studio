@@ -86,6 +86,7 @@ export class Game {
   private asteroids: Asteroid[] = [];
   private powerUps: PowerUp[] = [];
   private laserBeams: LaserBeam[] = [];
+  private mapPowerUpsSpawned = false; // Track if map power-ups have been spawned
   private mines: Mine[] = [];
   private homingMissiles: HomingMissile[] = [];
   private turret: Turret | null = null;
@@ -450,15 +451,19 @@ export class Game {
         const existingPowerUp = this.playerPowerUps.get(shipPlayerId);
         if (existingPowerUp) return;
 
+        // Find powerup by body ID instead of object reference (more reliable)
         const powerUpIndex = this.powerUps.findIndex(
-          (p) => p.body === powerUpBody,
+          (p) => p.body.id === powerUpBody.id,
         );
         if (powerUpIndex !== -1 && this.powerUps[powerUpIndex].alive) {
           const powerUp = this.powerUps[powerUpIndex];
+          console.log(`[PowerUp] Ship ${shipPlayerId} collected ${powerUp.type} powerup`);
           this.grantPowerUp(shipPlayerId, powerUp.type);
           powerUp.destroy();
           this.powerUps.splice(powerUpIndex, 1);
           SettingsManager.triggerHaptic("medium");
+        } else {
+          console.log(`[PowerUp] Warning: Could not find powerup with body ID ${powerUpBody.id}. Available:`, this.powerUps.map(p => ({id: p.body.id, type: p.type, alive: p.alive})));
         }
       },
     });
@@ -765,15 +770,35 @@ export class Game {
     
     // Use powerUpConfig if defined for this map
     if (map.powerUpConfig?.enabled) {
+      // Only spawn map power-ups once per game session (not per round)
+      // The respawnPerRound flag controls whether they respawn in resetForNextRound()
+      if (this.mapPowerUpsSpawned && map.powerUpConfig.respawnPerRound) {
+        // Power-ups will respawn in resetForNextRound()
+        return;
+      }
+      
       const cfg = map.powerUpConfig;
       const x = cfg.x * GAME_CONFIG.ARENA_WIDTH;
       const y = cfg.y * GAME_CONFIG.ARENA_HEIGHT;
+      
+      // Check if a powerup already exists at this exact location
+      const existingPowerUp = this.powerUps.find(p => {
+        const dx = Math.abs(p.body.position.x - x);
+        const dy = Math.abs(p.body.position.y - y);
+        return dx < 5 && dy < 5; // Exact position match (within 5 pixels)
+      });
+      
+      if (existingPowerUp) {
+        console.log(`[Game] Powerup already exists at center, skipping spawn`);
+        return;
+      }
       
       const randomType = cfg.types[Math.floor(Math.random() * cfg.types.length)];
       
       const powerUp = new PowerUp(this.physics, x, y, randomType);
       this.powerUps.push(powerUp);
-      console.log(`[Game] Spawned ${randomType} powerup for ${map.name}`);
+      this.mapPowerUpsSpawned = true;
+      console.log(`[Game] Spawned ${randomType} powerup at (${x.toFixed(0)}, ${y.toFixed(0)}) for ${map.name}. Total powerups: ${this.powerUps.length}`);
     }
   }
 
@@ -1658,6 +1683,25 @@ export class Game {
       }
     });
 
+    // Destroy yellow blocks in explosion radius
+    for (let i = this.yellowBlocks.length - 1; i >= 0; i--) {
+      const block = this.yellowBlocks[i];
+      if (!block.body) continue;
+
+      const dx = block.body.position.x - mineX;
+      const dy = block.body.position.y - mineY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist <= explosionRadius) {
+        const pos = block.body.position;
+        // Spawn yellow debris
+        this.renderer.spawnAsteroidDebris(pos.x, pos.y, 40, "#ffee00");
+        this.physics.removeBody(block.body);
+        this.yellowBlockBodyIndex.delete(block.body.id);
+        this.yellowBlocks.splice(i, 1);
+      }
+    }
+
     // Update player list to show eliminations
     this.emitPlayersUpdate();
 
@@ -1714,6 +1758,87 @@ export class Game {
         }
       }
     }
+  }
+
+  private checkLaserBeamCollisions(): void {
+    if (!this.network.isHost()) return;
+
+    for (const beam of this.laserBeams) {
+      if (!beam.alive) continue;
+
+      const beamStart = beam.getStartPoint();
+      const beamEnd = beam.getEndPoint();
+
+      // Check collision with yellow blocks
+      for (let i = this.yellowBlocks.length - 1; i >= 0; i--) {
+        const block = this.yellowBlocks[i];
+        if (!block.body) continue;
+
+        const blockX = block.body.position.x;
+        const blockY = block.body.position.y;
+        const blockHalfSize = block.block.width / 2;
+
+        // Check if beam line segment intersects with block
+        if (this.lineIntersectsRect(beamStart, beamEnd, blockX, blockY, blockHalfSize)) {
+          // Destroy the yellow block
+          this.renderer.spawnAsteroidDebris(blockX, blockY, 40, "#ffee00");
+          this.physics.removeBody(block.body);
+          this.yellowBlockBodyIndex.delete(block.body.id);
+          this.yellowBlocks.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  private lineIntersectsRect(
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    rectX: number,
+    rectY: number,
+    halfSize: number,
+  ): boolean {
+    // Check if line intersects rectangle
+    const left = rectX - halfSize;
+    const right = rectX + halfSize;
+    const top = rectY - halfSize;
+    const bottom = rectY + halfSize;
+
+    // Check if either endpoint is inside the rect
+    if (this.pointInRect(start, left, right, top, bottom) ||
+        this.pointInRect(end, left, right, top, bottom)) {
+      return true;
+    }
+
+    // Check line intersection with each edge
+    return this.lineIntersectsLine(start, end, { x: left, y: top }, { x: right, y: top }) ||
+           this.lineIntersectsLine(start, end, { x: right, y: top }, { x: right, y: bottom }) ||
+           this.lineIntersectsLine(start, end, { x: right, y: bottom }, { x: left, y: bottom }) ||
+           this.lineIntersectsLine(start, end, { x: left, y: bottom }, { x: left, y: top });
+  }
+
+  private pointInRect(
+    point: { x: number; y: number },
+    left: number,
+    right: number,
+    top: number,
+    bottom: number,
+  ): boolean {
+    return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom;
+  }
+
+  private lineIntersectsLine(
+    p1: { x: number; y: number },
+    p2: { x: number; y: number },
+    p3: { x: number; y: number },
+    p4: { x: number; y: number },
+  ): boolean {
+    const denominator = (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+    if (denominator === 0) return false;
+
+    const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / denominator;
+    const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / denominator;
+
+    return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
   }
 
   private updateHomingMissiles(dt: number): void {
@@ -2734,8 +2859,18 @@ export class Game {
     this.asteroids.forEach((asteroid) => asteroid.destroy());
     this.asteroids = [];
 
-    this.powerUps.forEach((powerUp) => powerUp.destroy());
+    console.log(`[ResetRound] Clearing ${this.powerUps.length} powerups`);
+    this.powerUps.forEach((powerUp) => {
+      console.log(`[ResetRound] Destroying powerup ${powerUp.type} at (${powerUp.body.position.x.toFixed(0)}, ${powerUp.body.position.y.toFixed(0)})`);
+      powerUp.destroy();
+    });
     this.powerUps = [];
+    
+    // Reset map power-up spawn flag if respawnPerRound is enabled
+    const map = this.getCurrentMap();
+    if (map.powerUpConfig?.respawnPerRound) {
+      this.mapPowerUpsSpawned = false;
+    }
 
     this.laserBeams.forEach((beam) => beam.destroy());
     this.laserBeams = [];
@@ -3240,6 +3375,9 @@ export class Game {
           this.laserBeams.splice(i, 1);
         }
       }
+
+      // Check laser beam collisions with yellow blocks
+      this.checkLaserBeamCollisions();
 
       // Check mine collisions and clean up expired mines
       this.checkMineCollisions();
