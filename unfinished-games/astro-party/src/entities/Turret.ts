@@ -13,6 +13,7 @@ export class Turret {
   private fireCooldown: number = 1500; // 1.5 seconds between shots
   private detectionRadius: number = 300; // Radius to detect ships
   private orbitRadius: number = 50; // Visual orbit radius
+  private fireAngleThreshold: number = 0.25; // Radians: must be roughly facing target
 
   // Current target info for visual purposes
   currentTargetId: string | null = null;
@@ -73,7 +74,7 @@ export class Turret {
         Math.sin(angleDiff),
         Math.cos(angleDiff),
       );
-      const rotationSpeed = 3.0; // rad/s
+      const rotationSpeed = 4.0; // rad/s
       this.angle += normalizedDiff * rotationSpeed * dt;
 
       // Normalize angle
@@ -84,8 +85,15 @@ export class Turret {
       this.targetAngle = targetAngle;
       this.isTracking = true;
 
-      // Check if can fire
-      if (now - this.lastFireTime >= this.fireCooldown) {
+      const postDiff = targetAngle - this.angle;
+      const postNormalizedDiff = Math.atan2(
+        Math.sin(postDiff),
+        Math.cos(postDiff),
+      );
+      const isAligned = Math.abs(postNormalizedDiff) <= this.fireAngleThreshold;
+
+      // Check if can fire (must be roughly aligned)
+      if (isAligned && now - this.lastFireTime >= this.fireCooldown) {
         this.lastFireTime = now;
         return {
           shouldFire: true,

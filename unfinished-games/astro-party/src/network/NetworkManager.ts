@@ -415,6 +415,7 @@ export class NetworkManager {
         },
       ),
     );
+
   }
 
   startSync(): void {
@@ -500,6 +501,7 @@ export class NetworkManager {
     if (!isHost()) return;
     RPC.call("screenShake", { intensity, duration }, RPC.Mode.OTHERS);
   }
+
 
   // Send dash request to host (any player can call)
   sendDashRequest(): void {
