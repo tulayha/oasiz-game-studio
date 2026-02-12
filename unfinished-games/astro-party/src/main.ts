@@ -1,5 +1,5 @@
 import { Game } from "./Game";
-import { GamePhase, GameMode, PlayerData, MapId } from "./types";
+import { GamePhase, GameMode, PlayerData } from "./types";
 import { AudioManager } from "./AudioManager";
 import { triggerHaptic } from "./ui/haptics";
 import { createViewportController, tryLockOrientation } from "./ui/viewport";
@@ -49,8 +49,6 @@ async function init(): Promise<void> {
           screenController.showScreen("lobby");
           lobbyUI.updateRoomCode(game.getRoomCode());
           screenController.resetEndScreenButtons();
-          // Initialize map UI when entering lobby
-          lobbyUI.updateMapSelector();
           break;
         case "COUNTDOWN":
         case "PLAYING":
@@ -108,9 +106,6 @@ async function init(): Promise<void> {
     onAdvancedSettingsChange: (settings) => {
       advancedSettingsUI.updateAdvancedSettingsUI(settings);
       screenController.updateScoreTrack(game.getPlayers());
-    },
-    onMapChange: (mapId: MapId) => {
-      lobbyUI.setMapUI(mapId, "remote");
     },
     onSystemMessage: (message, durationMs) => {
       screenController.showSystemMessage(message, durationMs);

@@ -1,5 +1,5 @@
 import { Game } from "../Game";
-import { GameMode, MapId, PlayerData } from "../types";
+import { GameMode, PlayerData } from "../types";
 import { AudioManager } from "../AudioManager";
 import { triggerHaptic } from "./haptics";
 import { elements } from "./elements";
@@ -9,8 +9,6 @@ export interface LobbyUI {
   updateLobbyUI: (players: PlayerData[]) => void;
   setModeUI: (mode: GameMode, source?: "local" | "remote") => void;
   updateRoomCode: (code: string) => void;
-  setMapUI: (mapId: MapId, source?: "local" | "remote") => void;
-  updateMapSelector: () => void;
 }
 
 export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
@@ -232,33 +230,6 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     }
   }
 
-  function setMapUI(
-    mapId: MapId,
-    _source: "local" | "remote" = "local",
-  ): void {
-    elements.mapBtn0.classList.toggle("active", mapId === 0);
-    elements.mapBtn1.classList.toggle("active", mapId === 1);
-    elements.mapBtn2.classList.toggle("active", mapId === 2);
-    elements.mapBtn3.classList.toggle("active", mapId === 3);
-    elements.mapBtn4.classList.toggle("active", mapId === 4);
-    // Only call game.setMap if source is local
-    if (_source === "local") {
-      game.setMap(mapId);
-    }
-  }
-
-  function updateMapSelector(): void {
-    const lobbyIsHost = game.isHost();
-    elements.mapSelectorSection.classList.toggle("hidden", false);
-    elements.mapSelectorSection.classList.toggle("readonly", !lobbyIsHost);
-    elements.mapBtn0.disabled = !lobbyIsHost;
-    elements.mapBtn1.disabled = !lobbyIsHost;
-    elements.mapBtn2.disabled = !lobbyIsHost;
-    elements.mapBtn3.disabled = !lobbyIsHost;
-    elements.mapBtn4.disabled = !lobbyIsHost;
-    setMapUI(game.getMapId());
-  }
-
   elements.copyCodeBtn.addEventListener("click", () => {
     const code = game.getRoomCode();
     navigator.clipboard.writeText(code).then(() => {
@@ -366,32 +337,6 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     setModeUI("SANE");
   });
 
-  // Map button click handlers
-  elements.mapBtn0.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(0, "local");
-  });
-
-  elements.mapBtn1.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(1, "local");
-  });
-
-  elements.mapBtn2.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(2, "local");
-  });
-
-  elements.mapBtn3.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(3, "local");
-  });
-
-  elements.mapBtn4.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(4, "local");
-  });
-
   elements.leaveLobbyBtn.addEventListener("click", async () => {
     triggerHaptic("light");
     elements.leaveLobbyBtn.disabled = true;
@@ -402,8 +347,6 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   return {
     updateLobbyUI,
     setModeUI,
-    setMapUI,
-    updateMapSelector,
     updateRoomCode,
   };
 }

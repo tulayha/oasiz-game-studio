@@ -7,7 +7,6 @@ export class Projectile {
   ownerId: string;
   spawnTime: number;
   private physics: Physics;
-  alive: boolean = true;
 
   private lifetime: number;
 
@@ -32,7 +31,6 @@ export class Projectile {
   }
 
   destroy(): void {
-    this.alive = false;
     this.physics.removeBody(this.body);
   }
 

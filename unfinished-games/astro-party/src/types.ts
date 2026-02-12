@@ -65,8 +65,6 @@ export interface ProjectileState {
   spawnTime: number;
 }
 
-export type AsteroidVariant = "ORANGE" | "GREY";
-
 export interface AsteroidState {
   id: string;
   x: number;
@@ -78,9 +76,6 @@ export interface AsteroidState {
   size: number;
   alive: boolean;
   vertices: { x: number; y: number }[];
-  variant: AsteroidVariant;
-  hp: number;
-  maxHp: number;
 }
 
 export interface PowerUpState {
@@ -165,8 +160,6 @@ export type PowerUpType =
   | "JOUST"
   | "HOMING_MISSILE";
 
-export type MapId = 0 | 1 | 2 | 3 | 4;
-
 export type GameMode = "STANDARD" | "SANE" | "CHAOTIC" | "CUSTOM";
 export type BaseGameMode = Exclude<GameMode, "CUSTOM">;
 
@@ -219,7 +212,6 @@ export interface GameStateSync {
   turret?: TurretState;
   turretBullets: TurretBulletState[];
   playerPowerUps?: Record<string, PlayerPowerUp | null>;
-  yellowBlockHp?: number[];
   rotationDirection: number; // 1 for normal, -1 for reversed
   screenShakeIntensity: number;
   screenShakeDuration: number;
@@ -384,12 +376,6 @@ export const GAME_CONFIG = {
   ASTEROID_VERTICES_MAX: 10,
   ASTEROID_COLOR: "#ff8800",
   ASTEROID_GLOW: "#ff4400",
-
-  // Grey Asteroids (debris - smaller, tougher, no drops)
-  GREY_ASTEROID_MIN: 12,
-  GREY_ASTEROID_MAX: 18,
-  GREY_ASTEROID_COLOR: "#888899",
-  GREY_ASTEROID_GLOW: "#666677",
 
   // Asteroid Spawning
   ASTEROID_SPAWN_INTERVAL_MIN: 2000, // ms

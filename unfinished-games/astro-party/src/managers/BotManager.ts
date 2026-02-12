@@ -33,18 +33,12 @@ export class BotManager {
   }
 
   async addAIBot(phase: GamePhase): Promise<boolean> {
-    if (phase !== "LOBBY" && phase !== "START") {
+    if (phase !== "LOBBY") {
       console.log("[Game] Cannot add bots outside lobby phase");
       return false;
     }
     const bot = await this.network.addAIBot();
     return bot !== null;
-  }
-
-  resetLocalState(): void {
-    this.localPlayerSlots.clear();
-    this.reservedLocalSlots.clear();
-    this.useTouchForHost = false;
   }
 
   async addLocalBot(
