@@ -1,4 +1,4 @@
-import { MapId, GAME_CONFIG } from "../types";
+import { MapId, GAME_CONFIG, PowerUpType } from "../types";
 
 /**
  * Map feature definitions for each map variant.
@@ -42,6 +42,14 @@ export interface AsteroidSpawnConfig {
   spawnAroundCenter?: boolean; // For map 2 - spawn around center hole
 }
 
+export interface MapPowerUpConfig {
+  enabled: boolean;
+  x: number; // 0-1 percentage of arena width
+  y: number; // 0-1 percentage of arena height
+  types: PowerUpType[]; // Allowed powerup types (random if multiple)
+  respawnPerRound: boolean; // Whether to respawn every round
+}
+
 export interface MapDefinition {
   id: MapId;
   name: string;
@@ -52,6 +60,7 @@ export interface MapDefinition {
   overlayBoxes: OverlayBox[];
   asteroidConfig: AsteroidSpawnConfig;
   hasTurret: boolean;
+  powerUpConfig?: MapPowerUpConfig; // Optional powerup configuration
 }
 
 const W = GAME_CONFIG.ARENA_WIDTH;
@@ -70,17 +79,24 @@ const MAP_0_DEFAULT: MapDefinition = {
   hasTurret: true,
 };
 
-// Map 1: The Cache - Yellow blocks + grey/orange asteroids
+// Map 1: The Cache - Yellow blocks + center powerup
 const MAP_1_CACHE: MapDefinition = {
   id: 1,
   name: "The Cache",
-  description: "Yellow blocks and asteroids fill the arena",
+  description: "Yellow blocks and a powerup in the center",
   yellowBlocks: generateCacheBlocks(),
   centerHoles: [],
   repulsionZones: [],
   overlayBoxes: [],
-  asteroidConfig: { enabled: true, minCount: 9, maxCount: 9, greyRatio: 0.55 },
+  asteroidConfig: { enabled: false, minCount: 0, maxCount: 0, greyRatio: 0 },
   hasTurret: false,
+  powerUpConfig: {
+    enabled: true,
+    x: 0.5, // Center of arena (50%)
+    y: 0.5, // Center of arena (50%)
+    types: ["LASER", "SHIELD", "SCATTER", "MINE", "HOMING_MISSILE", "JOUST"],
+    respawnPerRound: true,
+  },
 };
 
 // Map 2: The Vortex - Center hole with rotating arrow
@@ -93,13 +109,19 @@ const MAP_2_VORTEX: MapDefinition = {
     {
       x: W / 2,
       y: H / 2,
-      radius: 110,
-      hasRotatingArrow: true,
+      radius: 140,
+      hasRotatingArrow: false,
     },
   ],
   repulsionZones: [],
   overlayBoxes: [],
-  asteroidConfig: { enabled: true, minCount: 7, maxCount: 7, greyRatio: 0.43, spawnAroundCenter: true },
+  asteroidConfig: {
+    enabled: true,
+    minCount: 7,
+    maxCount: 7,
+    greyRatio: 0.43,
+    spawnAroundCenter: true,
+  },
   hasTurret: false,
 };
 
@@ -115,13 +137,13 @@ const MAP_3_REPULSE: MapDefinition = {
       x: W * 0.3,
       y: H / 2,
       radius: 84,
-      strength: 0.009,
+      strength: 0.035,
     },
     {
       x: W * 0.7,
       y: H / 2,
       radius: 84,
-      strength: 0.009,
+      strength: 0.035,
     },
   ],
   overlayBoxes: [],
@@ -144,13 +166,13 @@ const MAP_4_BUNKERS: MapDefinition = {
 
 function generateCacheBlocks(): YellowBlock[] {
   const blocks: YellowBlock[] = [];
-  const blockSize = 30;
-  const gap = 10;
+  const blockSize = 28; // Slightly smaller blocks
+  const gap = 0; // No gap between blocks - they touch each other
   const step = blockSize + gap;
-  const rowStartX = W * 0.18;
-  const rowEndX = W * 0.82;
-  const colStartY = H * 0.18;
-  const colEndY = H * 0.82;
+  const rowStartX = 0; // Full map width
+  const rowEndX = W;
+  const colStartY = 0; // Full map height
+  const colEndY = H;
 
   const xPositions: number[] = [];
   for (let x = rowStartX; x <= rowEndX - blockSize; x += step) {

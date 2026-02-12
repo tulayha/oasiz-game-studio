@@ -866,8 +866,12 @@ export class Renderer {
     const { x, y, angle, vertices } = state;
     const isGrey = state.variant === "GREY";
 
-    const fillColor = isGrey ? GAME_CONFIG.GREY_ASTEROID_COLOR : GAME_CONFIG.ASTEROID_COLOR;
-    const glowColor = isGrey ? GAME_CONFIG.GREY_ASTEROID_GLOW : GAME_CONFIG.ASTEROID_GLOW;
+    const fillColor = isGrey
+      ? GAME_CONFIG.GREY_ASTEROID_COLOR
+      : GAME_CONFIG.ASTEROID_COLOR;
+    const glowColor = isGrey
+      ? GAME_CONFIG.GREY_ASTEROID_GLOW
+      : GAME_CONFIG.ASTEROID_GLOW;
     const strokeColor = isGrey ? "#aaaabb" : "#ffaa00";
 
     ctx.save();
@@ -908,7 +912,6 @@ export class Renderer {
     ctx.fill();
 
     ctx.restore();
-
   }
 
   // ============= PROJECTILE RENDERING =============
@@ -1927,18 +1930,18 @@ export class Renderer {
 
     // Glow
     ctx.shadowColor = "#ffee00";
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 8;
 
-    // Hollow frame
+    // Outer thin frame
     ctx.strokeStyle = "#ffee00";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(block.x + 1.5, block.y + 1.5, block.width - 3, block.height - 3);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(block.x + 1, block.y + 1, block.width - 2, block.height - 2);
 
-    // Inner rim for depth
+    // Inner rim for depth - thinner and closer to edge for larger hollow
     ctx.shadowBlur = 0;
     ctx.strokeStyle = "rgba(255, 255, 180, 0.55)";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(block.x + 5, block.y + 5, block.width - 10, block.height - 10);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(block.x + 4, block.y + 4, block.width - 8, block.height - 8);
 
     ctx.restore();
   }
@@ -1970,8 +1973,12 @@ export class Renderer {
 
     // Dark void circle
     const gradient = ctx.createRadialGradient(
-      hole.x, hole.y, 0,
-      hole.x, hole.y, hole.radius,
+      hole.x,
+      hole.y,
+      0,
+      hole.x,
+      hole.y,
+      hole.radius,
     );
     gradient.addColorStop(0, gradientInner);
     gradient.addColorStop(0.7, gradientMid);
@@ -1999,44 +2006,151 @@ export class Renderer {
     ctx.arc(hole.x, hole.y, hole.radius * 0.6, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Rotating arrow around the circle
+    // Rotating indicator around the circle - follows ship rotation direction
     if (hole.hasRotatingArrow) {
       ctx.shadowBlur = 0;
-      const arrowRadius = hole.radius + 20;
-      const arrowAngle = time * 2.0 * playerMovementDirection;
+      const lineRadius = hole.radius + 18;
+      // Rotate based on time and ship direction (1 = clockwise, -1 = counter-clockwise)
+      const rotationAngle = time * 1.5 * playerMovementDirection;
 
-      // Draw arrow
-      const ax = hole.x + Math.cos(arrowAngle) * arrowRadius;
-      const ay = hole.y + Math.sin(arrowAngle) * arrowRadius;
-      const arrowSize = 12;
+      // Draw a glowing line that rotates around the center hole
+      const segments = 3;
+      const segmentArc = Math.PI / 6; // 30 degrees per segment
+      const gapArc = Math.PI / 12; // 15 degrees gap
+
+      for (let i = 0; i < segments; i++) {
+        const startAngle = rotationAngle + i * (segmentArc + gapArc);
+        const endAngle = startAngle + segmentArc;
+
+        ctx.beginPath();
+        ctx.arc(hole.x, hole.y, lineRadius, startAngle, endAngle);
+        ctx.strokeStyle = arrowColor;
+        ctx.lineWidth = 4;
+        ctx.shadowColor = arrowColor;
+        ctx.shadowBlur = 12;
+        ctx.stroke();
+      }
+
+      // Draw arrow head in front of the line (ahead in rotation direction)
+      const arrowAngle = rotationAngle + 0.25 * playerMovementDirection; // Slightly ahead of the line
+      const ax = hole.x + Math.cos(arrowAngle) * (lineRadius + 8);
+      const ay = hole.y + Math.sin(arrowAngle) * (lineRadius + 8);
+      const arrowSize = 10;
 
       ctx.save();
       ctx.translate(ax, ay);
-      ctx.rotate(arrowAngle + Math.PI / 2);
+      // Point the arrow forward (in the direction of movement/rotation)
+      ctx.rotate(
+        arrowAngle + (playerMovementDirection > 0 ? Math.PI / 2 : -Math.PI / 2),
+      );
 
       ctx.fillStyle = arrowColor;
       ctx.shadowColor = arrowColor;
       ctx.shadowBlur = 15;
       ctx.beginPath();
       ctx.moveTo(0, -arrowSize);
-      ctx.lineTo(-arrowSize * 0.6, arrowSize * 0.5);
-      ctx.lineTo(arrowSize * 0.6, arrowSize * 0.5);
+      ctx.lineTo(-arrowSize * 0.5, arrowSize * 0.5);
+      ctx.lineTo(arrowSize * 0.5, arrowSize * 0.5);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
 
-      // Trail dots
-      for (let i = 1; i <= 4; i++) {
-        const trailAngle = arrowAngle - (i * 0.3 * playerMovementDirection);
-        const tx = hole.x + Math.cos(trailAngle) * arrowRadius;
-        const ty = hole.y + Math.sin(trailAngle) * arrowRadius;
-        ctx.globalAlpha = 0.6 - i * 0.12;
-        ctx.fillStyle = arrowColor;
+      // Trail effect - fading line segments behind
+      ctx.shadowBlur = 0;
+      for (let i = 1; i <= 5; i++) {
+        const trailAngle = rotationAngle - i * 0.4 * playerMovementDirection;
+        const trailAlpha = 0.5 - i * 0.08;
+        ctx.globalAlpha = Math.max(0, trailAlpha);
+        ctx.strokeStyle = arrowColor;
+        ctx.lineWidth = 3 - i * 0.4;
+
         ctx.beginPath();
-        ctx.arc(tx, ty, 3 - i * 0.5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.arc(
+          hole.x,
+          hole.y,
+          lineRadius,
+          trailAngle,
+          trailAngle + Math.PI / 8,
+        );
+        ctx.stroke();
       }
       ctx.globalAlpha = 1;
+    }
+
+    // Vortex Snake - moves along the circle edge
+    // Only draw for Vortex map (identified by orange/red theme colors)
+    if (theme?.ring === "#ff5a2b") {
+      this.drawVortexSnake(hole, time, playerMovementDirection, theme);
+    }
+
+    ctx.restore();
+  }
+
+  private drawVortexSnake(
+    hole: CenterHole,
+    time: number,
+    playerMovementDirection: number,
+    theme: {
+      ring: string;
+      innerRing: string;
+      arrow: string;
+      glow: string;
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+    },
+  ): void {
+    const { ctx } = this;
+    const snakeRadius = hole.radius + 25; // Slightly outside the hole
+    const snakeSpeed = 1.2; // Speed of movement
+    const segmentCount = 8; // Number of snake segments
+    const segmentSpacing = 0.25; // Radians between segments
+
+    // Base angle moves over time, following player movement direction
+    const baseAngle = time * snakeSpeed * playerMovementDirection;
+
+    ctx.save();
+
+    // Draw snake segments from tail to head
+    for (let i = segmentCount - 1; i >= 0; i--) {
+      const segmentAngle = baseAngle - i * segmentSpacing * playerMovementDirection;
+      const x = hole.x + Math.cos(segmentAngle) * snakeRadius;
+      const y = hole.y + Math.sin(segmentAngle) * snakeRadius;
+
+      // Size decreases from head to tail
+      const size = 8 - i * 0.6;
+      const alpha = 1 - i * 0.08;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(segmentAngle);
+
+      // Glow for head segment
+      if (i === 0) {
+        ctx.shadowColor = "#ff8844";
+        ctx.shadowBlur = 20;
+      }
+
+      // Snake body color gradient from head (orange) to tail (darker)
+      const r = 255;
+      const g = Math.floor(136 - i * 12);
+      const b = Math.floor(68 - i * 6);
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+      // Draw oval segment
+      ctx.beginPath();
+      ctx.ellipse(0, 0, size * 1.2, size * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core for head
+      if (i === 0) {
+        ctx.fillStyle = "#ffaa66";
+        ctx.beginPath();
+        ctx.ellipse(size * 0.3, 0, size * 0.5, size * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
     }
 
     ctx.restore();
@@ -2072,8 +2186,12 @@ export class Renderer {
 
     // Outer glow
     const gradient = ctx.createRadialGradient(
-      zone.x, zone.y, 0,
-      zone.x, zone.y, drawRadius,
+      zone.x,
+      zone.y,
+      0,
+      zone.x,
+      zone.y,
+      drawRadius,
     );
     gradient.addColorStop(0, gradientInner);
     gradient.addColorStop(0.5, gradientMid);

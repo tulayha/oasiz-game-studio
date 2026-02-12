@@ -284,9 +284,7 @@ export class Game {
       ) => {
         if (!this.network.isHost()) return;
 
-        const blockIndex =
-          (yellowBlockBody.plugin?.blockIndex as number | undefined) ??
-          this.yellowBlockBodyIndex.get(yellowBlockBody.id);
+        const blockIndex = this.yellowBlockBodyIndex.get(yellowBlockBody.id);
         if (blockIndex === undefined) {
           this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
           return;
@@ -297,6 +295,7 @@ export class Game {
           this.flowMgr.removeProjectileByBody(projectileBody, this.projectiles);
           return;
         }
+        
         const hitX = projectileBody.position.x;
         const hitY = projectileBody.position.y;
         this.damageYellowBlock(blockIndex, hitX, hitY);
@@ -482,10 +481,10 @@ export class Game {
     if (!this.network.isHost()) return;
     if (this.advancedSettings.asteroidDensity === "NONE") return;
 
-    // If map has custom asteroid config, skip default spawning
+    // If map has asteroid config (enabled or disabled), skip default spawning
     // The map asteroids will be spawned via spawnMapFeatures() -> spawnAsteroidsForMap()
     const map = this.getCurrentMap();
-    if (map.asteroidConfig.enabled) {
+    if (map.asteroidConfig.enabled || map.asteroidConfig.minCount === 0) {
       console.log("[Game] Using map asteroid config, skipping default spawning");
       return;
     }
@@ -616,6 +615,7 @@ export class Game {
     this.spawnCenterHoleObstacles();
     this.spawnRepulsionZoneObstacles();
     this.spawnAsteroidsForMap();
+    this.spawnMapPowerUps();
   }
 
   private spawnYellowBlocks(): void {
@@ -623,8 +623,23 @@ export class Game {
     const blocks = map.yellowBlocks;
     if (blocks.length === 0) return;
 
+    console.log(`[SpawnYellowBlocks] ********** STARTING SPAWN **********`);
+    console.log(`[SpawnYellowBlocks] Host: ${this.network.isHost()}, Current blocks in array: ${this.yellowBlocks.length}`);
+    
+    // SAFETY: If array is not empty, something went wrong - clear it first
+    if (this.yellowBlocks.length > 0) {
+      console.log(`[SpawnYellowBlocks] WARNING: Array not empty! Clearing ${this.yellowBlocks.length} old blocks first`);
+      for (const block of this.yellowBlocks) {
+        if (block.body) {
+          this.physics.removeBody(block.body);
+        }
+      }
+      this.yellowBlocks = [];
+      this.yellowBlockBodyIndex.clear();
+    }
+
     for (const [index, block] of blocks.entries()) {
-      const hp = 2 + Math.floor(Math.random() * 2); // 2 or 3 hits
+      const hp = 1; // 1 shot to destroy
       const body = Matter.Bodies.rectangle(
         block.x,
         block.y,
@@ -653,7 +668,8 @@ export class Game {
       this.yellowBlockBodyIndex.set(body.id, index);
     }
     const currentMapDef = this.getCurrentMap();
-    console.log("[Game] Spawned", blocks.length, "yellow blocks for map", currentMapDef.name);
+    console.log(`[SpawnYellowBlocks] ********** SPAWN COMPLETE **********`);
+    console.log(`[SpawnYellowBlocks] Total blocks in array: ${this.yellowBlocks.length}, Index map size: ${this.yellowBlockBodyIndex.size}`);
   }
 
   private spawnCenterHoleObstacles(): void {
@@ -741,6 +757,24 @@ export class Game {
     console.log(
       `[Game] Spawned ${count} asteroids for map ${currentMapDef.name} (${asteroidConfig.greyRatio * 100}% grey)`,
     );
+  }
+
+  private spawnMapPowerUps(): void {
+    if (!this.isHost()) return;
+    const map = this.getCurrentMap();
+    
+    // Use powerUpConfig if defined for this map
+    if (map.powerUpConfig?.enabled) {
+      const cfg = map.powerUpConfig;
+      const x = cfg.x * GAME_CONFIG.ARENA_WIDTH;
+      const y = cfg.y * GAME_CONFIG.ARENA_HEIGHT;
+      
+      const randomType = cfg.types[Math.floor(Math.random() * cfg.types.length)];
+      
+      const powerUp = new PowerUp(this.physics, x, y, randomType);
+      this.powerUps.push(powerUp);
+      console.log(`[Game] Spawned ${randomType} powerup for ${map.name}`);
+    }
   }
 
   // ===== MAP UPDATE LOOP =====
@@ -911,13 +945,16 @@ export class Game {
         .map((block) => block.block);
     }
 
-    if (this.networkYellowBlockHp.length === map.yellowBlocks.length) {
+    // Client-side rendering based on network state
+    // Only render blocks if we have received state from host
+    if (this.networkYellowBlockHp.length > 0 && this.networkYellowBlockHp.length === map.yellowBlocks.length) {
       return map.yellowBlocks.filter(
         (_, index) => (this.networkYellowBlockHp[index] ?? 1) > 0,
       );
     }
 
-    return map.yellowBlocks;
+    // If no state received yet, don't render any blocks (wait for host sync)
+    return [];
   }
 
   private getMapTheme(): {
@@ -993,16 +1030,24 @@ export class Game {
 
   // ===== MAP CLEANUP =====
   private clearMapFeatures(): void {
+    console.log(`[ClearMapFeatures] ********** STARTING CLEANUP **********`);
+    console.log(`[ClearMapFeatures] Host: ${this.network.isHost()}, Current blocks: ${this.yellowBlocks.length}`);
+    
     // Remove yellow block bodies
     for (const block of this.yellowBlocks) {
       if (block.body) {
         this.physics.removeBody(block.body);
       }
     }
+    
+    // CRITICAL: Clear the array
     this.yellowBlocks = [];
+    console.log(`[ClearMapFeatures] Array cleared. Length now: ${this.yellowBlocks.length}`);
+    
     this.yellowBlockBodyIndex.clear();
     this.yellowBlockSwordHitCooldown.clear();
     this.networkYellowBlockHp = [];
+    console.log(`[ClearMapFeatures] ********** CLEANUP COMPLETE **********`);
 
     // Remove center hole bodies
     for (const body of this.centerHoleBodies) {
@@ -2697,6 +2742,8 @@ export class Game {
 
     // Clear and respawn map features
     this.clearMapFeatures();
+    // Step physics to ensure bodies are fully removed from collision detection
+    this.physics.update(16.667);
     this.spawnMapFeatures();
 
     this.mines.forEach((mine) => mine.destroy());
@@ -2722,6 +2769,19 @@ export class Game {
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
     this.clientShipPositions.clear();
+
+    // Clear network state arrays to prevent stale data on clients
+    this.networkShips = [];
+    this.networkPilots = [];
+    this.networkProjectiles = [];
+    this.networkAsteroids = [];
+    this.networkPowerUps = [];
+    this.networkLaserBeams = [];
+    this.networkMines = [];
+    this.networkHomingMissiles = [];
+    this.networkTurret = null;
+    this.networkTurretBullets = [];
+    this.networkYellowBlockHp = [];
 
     if (this.asteroidSpawnTimeout) {
       clearTimeout(this.asteroidSpawnTimeout);
