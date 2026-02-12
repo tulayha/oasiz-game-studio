@@ -12,6 +12,12 @@ import {
   PLAYER_COLORS,
   GAME_CONFIG,
 } from "../types";
+import type {
+  YellowBlock,
+  CenterHole,
+  RepulsionZone,
+  OverlayBox,
+} from "../maps/MapDefinitions";
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -866,18 +872,27 @@ export class Renderer {
   drawAsteroid(state: AsteroidState): void {
     const { ctx } = this;
     const { x, y, angle, vertices } = state;
+    const isGrey = state.variant === "GREY";
+
+    const fillColor = isGrey
+      ? GAME_CONFIG.GREY_ASTEROID_COLOR
+      : GAME_CONFIG.ASTEROID_COLOR;
+    const glowColor = isGrey
+      ? GAME_CONFIG.GREY_ASTEROID_GLOW
+      : GAME_CONFIG.ASTEROID_GLOW;
+    const strokeColor = isGrey ? "#aaaabb" : "#ffaa00";
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
 
     // Glow effect
-    ctx.shadowColor = GAME_CONFIG.ASTEROID_GLOW;
-    ctx.shadowBlur = 15;
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = isGrey ? 8 : 15;
 
     // Asteroid body
-    ctx.fillStyle = GAME_CONFIG.ASTEROID_COLOR;
-    ctx.strokeStyle = "#ffaa00";
+    ctx.fillStyle = fillColor;
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
 
     ctx.beginPath();
@@ -1533,7 +1548,7 @@ export class Renderer {
 
   // ============= ARENA BORDER =============
 
-  drawArenaBorder(): void {
+  drawArenaBorder(color: string = "#00f0ff"): void {
     const { ctx } = this;
     const w = GAME_CONFIG.ARENA_WIDTH;
     const h = GAME_CONFIG.ARENA_HEIGHT;
@@ -1541,8 +1556,8 @@ export class Renderer {
 
     // Neon border glow
     ctx.save();
-    ctx.strokeStyle = "#00f0ff";
-    ctx.shadowColor = "#00f0ff";
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
     ctx.shadowBlur = 20;
     ctx.lineWidth = borderWidth;
 
@@ -1912,6 +1927,386 @@ export class Renderer {
     }
 
     ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // ============= MAP FEATURE RENDERING =============
+
+  drawYellowBlock(block: YellowBlock): void {
+    const { ctx } = this;
+    ctx.save();
+
+    // Glow
+    ctx.shadowColor = "#ffee00";
+    ctx.shadowBlur = 8;
+
+    // Outer thin frame
+    ctx.strokeStyle = "#ffee00";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(block.x + 1, block.y + 1, block.width - 2, block.height - 2);
+
+    // Inner rim for depth - thinner and closer to edge for larger hollow
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255, 255, 180, 0.55)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(block.x + 4, block.y + 4, block.width - 8, block.height - 8);
+
+    ctx.restore();
+  }
+
+  drawCenterHole(
+    hole: CenterHole,
+    time: number,
+    playerMovementDirection: number,
+    theme?: {
+      ring: string;
+      innerRing: string;
+      arrow: string;
+      glow: string;
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+    },
+  ): void {
+    const { ctx } = this;
+    ctx.save();
+
+    const gradientInner = theme?.gradientInner ?? "rgba(0, 0, 0, 0.95)";
+    const gradientMid = theme?.gradientMid ?? "rgba(10, 10, 30, 0.9)";
+    const gradientOuter = theme?.gradientOuter ?? "rgba(20, 20, 50, 0.6)";
+    const ringColor = theme?.ring ?? "#4444ff";
+    const ringGlow = theme?.glow ?? ringColor;
+    const innerRingColor = theme?.innerRing ?? "#6666ff";
+    const arrowColor = theme?.arrow ?? "#00f0ff";
+
+    // Dark void circle
+    const gradient = ctx.createRadialGradient(
+      hole.x,
+      hole.y,
+      0,
+      hole.x,
+      hole.y,
+      hole.radius,
+    );
+    gradient.addColorStop(0, gradientInner);
+    gradient.addColorStop(0.7, gradientMid);
+    gradient.addColorStop(1, gradientOuter);
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glowing border ring
+    ctx.strokeStyle = ringColor;
+    ctx.shadowColor = ringGlow;
+    ctx.shadowBlur = 20;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner ring
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = innerRingColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(hole.x, hole.y, hole.radius * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Rotating indicator around the circle - follows ship rotation direction
+    if (hole.hasRotatingArrow) {
+      ctx.shadowBlur = 0;
+      const lineRadius = hole.radius + 18;
+      // Rotate based on time and ship direction (1 = clockwise, -1 = counter-clockwise)
+      const rotationAngle = time * 1.5 * playerMovementDirection;
+
+      // Draw a glowing line that rotates around the center hole
+      const segments = 3;
+      const segmentArc = Math.PI / 6; // 30 degrees per segment
+      const gapArc = Math.PI / 12; // 15 degrees gap
+
+      for (let i = 0; i < segments; i++) {
+        const startAngle = rotationAngle + i * (segmentArc + gapArc);
+        const endAngle = startAngle + segmentArc;
+
+        ctx.beginPath();
+        ctx.arc(hole.x, hole.y, lineRadius, startAngle, endAngle);
+        ctx.strokeStyle = arrowColor;
+        ctx.lineWidth = 4;
+        ctx.shadowColor = arrowColor;
+        ctx.shadowBlur = 12;
+        ctx.stroke();
+      }
+
+      // Draw arrow head in front of the line (ahead in rotation direction)
+      const arrowAngle = rotationAngle + 0.25 * playerMovementDirection; // Slightly ahead of the line
+      const ax = hole.x + Math.cos(arrowAngle) * (lineRadius + 8);
+      const ay = hole.y + Math.sin(arrowAngle) * (lineRadius + 8);
+      const arrowSize = 10;
+
+      ctx.save();
+      ctx.translate(ax, ay);
+      // Point the arrow forward (in the direction of movement/rotation)
+      ctx.rotate(
+        arrowAngle + (playerMovementDirection > 0 ? Math.PI / 2 : -Math.PI / 2),
+      );
+
+      ctx.fillStyle = arrowColor;
+      ctx.shadowColor = arrowColor;
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(0, -arrowSize);
+      ctx.lineTo(-arrowSize * 0.5, arrowSize * 0.5);
+      ctx.lineTo(arrowSize * 0.5, arrowSize * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // Trail effect - fading line segments behind
+      ctx.shadowBlur = 0;
+      for (let i = 1; i <= 5; i++) {
+        const trailAngle = rotationAngle - i * 0.4 * playerMovementDirection;
+        const trailAlpha = 0.5 - i * 0.08;
+        ctx.globalAlpha = Math.max(0, trailAlpha);
+        ctx.strokeStyle = arrowColor;
+        ctx.lineWidth = 3 - i * 0.4;
+
+        ctx.beginPath();
+        ctx.arc(
+          hole.x,
+          hole.y,
+          lineRadius,
+          trailAngle,
+          trailAngle + Math.PI / 8,
+        );
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Vortex Snake - moves along the circle edge
+    // Only draw for Vortex map (identified by orange/red theme colors)
+    if (theme?.ring === "#ff5a2b") {
+      this.drawVortexSnake(hole, time, playerMovementDirection, theme);
+    }
+
+    ctx.restore();
+  }
+
+  private drawVortexSnake(
+    hole: CenterHole,
+    time: number,
+    playerMovementDirection: number,
+    theme: {
+      ring: string;
+      innerRing: string;
+      arrow: string;
+      glow: string;
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+    },
+  ): void {
+    const { ctx } = this;
+    const snakeRadius = hole.radius + 25; // Slightly outside the hole
+    const snakeSpeed = 1.2; // Speed of movement
+    const segmentCount = 8; // Number of snake segments
+    const segmentSpacing = 0.25; // Radians between segments
+
+    // Base angle moves over time, following player movement direction
+    const baseAngle = time * snakeSpeed * playerMovementDirection;
+
+    ctx.save();
+
+    // Draw snake segments from tail to head
+    for (let i = segmentCount - 1; i >= 0; i--) {
+      const segmentAngle = baseAngle - i * segmentSpacing * playerMovementDirection;
+      const x = hole.x + Math.cos(segmentAngle) * snakeRadius;
+      const y = hole.y + Math.sin(segmentAngle) * snakeRadius;
+
+      // Size decreases from head to tail
+      const size = 8 - i * 0.6;
+      const alpha = 1 - i * 0.08;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(segmentAngle);
+
+      // Glow for head segment
+      if (i === 0) {
+        ctx.shadowColor = "#ff8844";
+        ctx.shadowBlur = 20;
+      }
+
+      // Snake body color gradient from head (orange) to tail (darker)
+      const r = 255;
+      const g = Math.floor(136 - i * 12);
+      const b = Math.floor(68 - i * 6);
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+      // Draw oval segment
+      ctx.beginPath();
+      ctx.ellipse(0, 0, size * 1.2, size * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Inner bright core for head
+      if (i === 0) {
+        ctx.fillStyle = "#ffaa66";
+        ctx.beginPath();
+        ctx.ellipse(size * 0.3, 0, size * 0.5, size * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  drawRepulsionZone(
+    zone: RepulsionZone,
+    time: number,
+    theme?: {
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+      core: string;
+      ring: string;
+      arrow: string;
+      glow: string;
+    },
+  ): void {
+    const { ctx } = this;
+    ctx.save();
+
+    const gradientInner = theme?.gradientInner ?? "rgba(255, 50, 50, 0.4)";
+    const gradientMid = theme?.gradientMid ?? "rgba(255, 100, 50, 0.2)";
+    const gradientOuter = theme?.gradientOuter ?? "rgba(255, 100, 50, 0)";
+    const coreColor = theme?.core ?? "rgba(200, 30, 30, 0.6)";
+    const ringColor = theme?.ring ?? "#ff4444";
+    const arrowColor = theme?.arrow ?? "rgba(255, 100, 50, 0.7)";
+    const ringGlow = theme?.glow ?? ringColor;
+
+    // Pulsing effect
+    const pulse = 0.9 + Math.sin(time * 3) * 0.1;
+    const drawRadius = zone.radius * pulse;
+
+    // Outer glow
+    const gradient = ctx.createRadialGradient(
+      zone.x,
+      zone.y,
+      0,
+      zone.x,
+      zone.y,
+      drawRadius,
+    );
+    gradient.addColorStop(0, gradientInner);
+    gradient.addColorStop(0.5, gradientMid);
+    gradient.addColorStop(1, gradientOuter);
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, drawRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core
+    ctx.fillStyle = coreColor;
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, drawRadius * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ring
+    ctx.strokeStyle = ringColor;
+    ctx.shadowColor = ringGlow;
+    ctx.shadowBlur = 15;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, drawRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Wave lines expanding outward
+    ctx.shadowBlur = 0;
+    const waveCount = 4;
+    const waveStart = drawRadius * 0.95;
+    const waveRange = drawRadius * 0.75;
+    const waveSpeed = 24;
+    for (let i = 0; i < waveCount; i++) {
+      const waveOffset =
+        (time * waveSpeed + (i * waveRange) / waveCount) % waveRange;
+      const waveRadius = waveStart + waveOffset;
+      const waveAlpha = 0.35 * (1 - waveOffset / waveRange);
+      ctx.globalAlpha = waveAlpha;
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(zone.x, zone.y, waveRadius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Repulsion arrows pointing outward
+    ctx.shadowBlur = 0;
+    const arrowCount = 6;
+    for (let i = 0; i < arrowCount; i++) {
+      const angle = (i / arrowCount) * Math.PI * 2 + time * 1.5;
+      const dist = drawRadius * 0.6 + Math.sin(time * 4 + i) * 5;
+      const ax = zone.x + Math.cos(angle) * dist;
+      const ay = zone.y + Math.sin(angle) * dist;
+
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(angle);
+      ctx.fillStyle = arrowColor;
+      ctx.beginPath();
+      ctx.moveTo(6, 0);
+      ctx.lineTo(-3, -4);
+      ctx.lineTo(-3, 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  drawOverlayBox(
+    box: OverlayBox,
+    theme?: { fill: string; stroke: string; hole: string },
+  ): void {
+    const { ctx } = this;
+    ctx.save();
+
+    const fillColor = theme?.fill ?? "rgba(20, 25, 40, 0.85)";
+    const strokeColor = theme?.stroke ?? "rgba(100, 120, 160, 0.6)";
+    const holeStrokeColor = theme?.hole ?? "rgba(100, 120, 160, 0.4)";
+
+    // Fill only solid overlay area (rectangle minus holes).
+    ctx.beginPath();
+    ctx.rect(box.x, box.y, box.width, box.height);
+    for (const hole of box.holes) {
+      ctx.moveTo(box.x + hole.x + hole.radius, box.y + hole.y);
+      ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = fillColor;
+    ctx.fill("evenodd");
+
+    // Border
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+    // Draw hole borders
+    if (holeStrokeColor !== "transparent") {
+      ctx.strokeStyle = holeStrokeColor;
+      ctx.lineWidth = 1;
+      for (const hole of box.holes) {
+        ctx.beginPath();
+        ctx.arc(box.x + hole.x, box.y + hole.y, hole.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
     ctx.restore();
   }
 }
