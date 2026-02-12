@@ -177,6 +177,7 @@ export class NetworkSyncSystem {
   };
   private localPredictedTick: number | null = null;
   private localPredictedShipState: ShipState | null = null;
+  private localPreviousPredictedShipState: ShipState | null = null; // Track for correction detection
   private localPredictionPhysics: Physics | null = null;
   private localPredictionShipBody: Matter.Body | null = null;
   private localPredictionPlayerId: string | null = null;
@@ -1018,16 +1019,31 @@ export class NetworkSyncSystem {
       this.localPredictedTick +
       NetworkSyncSystem.MAX_PREDICTION_REPLAY_TICKS_PER_FRAME;
     const targetTick = Math.min(desiredTick, maxCatchUpTick);
+
+    // Save previous predicted state before replay to detect corrections
+    const previousPredicted = this.localPredictedShipState ? { ...this.localPredictedShipState } : null;
+
     if (targetTick > this.localPredictedTick) {
       this.replayPredictionToTick(targetTick);
     }
 
     if (!this.localPredictedShipState) return null;
+
+    // Detect if this was a correction (predicted jumped) vs normal advancement
+    let wasCorrection = false;
+    if (previousPredicted && this.localPredictedShipState) {
+      const jumpDx = this.localPredictedShipState.x - previousPredicted.x;
+      const jumpDy = this.localPredictedShipState.y - previousPredicted.y;
+      const jumpDist = Math.sqrt(jumpDx * jumpDx + jumpDy * jumpDy);
+      // Correction if predicted jumped more than expected for normal movement
+      // Normal movement at max speed: ~14px/frame, so >20px = correction
+      wasCorrection = jumpDist > 20;
+    }
+
     if (!this.localPresentationShipState) {
       // First initialization - start synced
       this.localPresentationShipState = { ...this.localPredictedShipState };
     } else {
-      // SMOOTH BLENDING: Presentation chases predicted over multiple frames
       const dx = this.localPredictedShipState.x - this.localPresentationShipState.x;
       const dy = this.localPredictedShipState.y - this.localPresentationShipState.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1037,27 +1053,32 @@ export class NetworkSyncSystem {
         dist,
       );
 
-      // Adaptive blend factor: blend faster for large errors, slower for small
       let blendFactor: number;
       if (dist > 100) {
-        // Very far - snap immediately (probably teleport or major correction)
+        // Very far - snap immediately (teleport or major correction)
         this.localPresentationShipState = { ...this.localPredictedShipState };
-      } else if (dist > 30) {
-        // Medium distance - blend aggressively (60% per frame = smooth over 2-3 frames)
-        blendFactor = 0.6;
-      } else if (dist > 10) {
-        // Small distance - blend moderately (40% per frame = smooth over 3-4 frames)
-        blendFactor = 0.4;
-      } else if (dist > 2) {
-        // Tiny distance - blend gently (25% per frame = smooth over 5-6 frames)
-        blendFactor = 0.25;
+      } else if (wasCorrection && dist > 10) {
+        // CORRECTION DETECTED: Use slow blending to smooth out the jump
+        if (dist > 40) {
+          blendFactor = 0.5; // Medium correction - smooth over 2-3 frames
+        } else if (dist > 20) {
+          blendFactor = 0.35; // Small correction - smooth over 3-4 frames
+        } else {
+          blendFactor = 0.25; // Tiny correction - smooth over 5-6 frames
+        }
+      } else if (dist > 5) {
+        // NORMAL ADVANCEMENT: Follow predicted tightly (95% blend = almost immediate)
+        blendFactor = 0.95;
+      } else if (dist > 1) {
+        // Very close - blend tightly
+        blendFactor = 0.9;
       } else {
-        // Essentially synced (<2px) - snap to eliminate tiny jitter
+        // Essentially synced - snap to eliminate sub-pixel jitter
         this.localPresentationShipState = { ...this.localPredictedShipState };
       }
 
       // Apply blending if not snapped
-      if (dist > 2 && dist <= 100) {
+      if (dist > 1 && dist <= 100) {
         this.localPresentationShipState = {
           ...this.localPresentationShipState,
           playerId: this.localPredictedShipState.playerId,

@@ -505,6 +505,12 @@ export class Game {
             this.clearAllGameState();
           }
 
+          // FIX: Reset prediction state when new round starts
+          if (phase === "COUNTDOWN" && (oldPhase === "ROUND_END" || oldPhase === "LOBBY")) {
+            console.log("[Game] New round starting, resetting prediction state");
+            this.networkSync.resetPredictionState();
+          }
+
           this.flowMgr.onPhaseChange?.(phase);
         }
       },
