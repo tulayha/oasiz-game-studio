@@ -30,6 +30,9 @@ interface SetModeMessage {
 }
 
 interface SetAdvancedSettingsMessage extends AdvancedSettingsSync {}
+interface SetDevModeMessage {
+  enabled: boolean;
+}
 
 export class AstroPartyRoom extends Room {
   maxClients = 4;
@@ -86,6 +89,9 @@ export class AstroPartyRoom extends Room {
         onDashParticles: (payload) => {
           this.broadcast("evt:dash_particles", payload);
         },
+        onDevMode: (enabled) => {
+          this.broadcast("evt:dev_mode", { enabled });
+        },
         onError: (sessionId, code, message) => {
           const target = this.clients.find((client) => client.sessionId === sessionId);
           if (target) {
@@ -135,6 +141,10 @@ export class AstroPartyRoom extends Room {
       },
     );
 
+    this.onMessage("cmd:dev_mode", (client, payload: SetDevModeMessage) => {
+      this.simulation.setDevMode(client.sessionId, Boolean(payload?.enabled));
+    });
+
     this.onMessage("cmd:add_ai_bot", (client) => {
       this.simulation.addAIBot(client.sessionId);
     });
@@ -166,6 +176,9 @@ export class AstroPartyRoom extends Room {
     this.simulation.addHuman(client.sessionId, options?.playerName);
     client.send("evt:self", {
       playerId: this.simulation.getPlayerIdForSession(client.sessionId),
+    });
+    client.send("evt:dev_mode", {
+      enabled: this.simulation.getDevModeEnabled(),
     });
     if (this.latestSnapshot) {
       client.send("evt:snapshot", this.latestSnapshot);
