@@ -228,6 +228,39 @@ export class NetworkSyncSystem {
     this.localDashTicks.add(dashTick);
   }
 
+  resetPredictionState(): void {
+    // Clear all prediction state (called when round resets)
+    this.localPredictedTick = null;
+    this.localPredictedShipState = null;
+    this.localPreviousPredictedShipState = null;
+    this.localPresentationShipState = null;
+    this.localInputHistoryByTick.clear();
+    this.localStateHistoryByTick.clear();
+    this.localRuntimeHistoryByTick.clear();
+    this.localDashTicks.clear();
+    this.localInputCaptureCursorTick = null;
+    this.lastCapturedInputTick = null;
+    this.latestHostAckTick = null;
+    this.predictionErrorPxLast = 0;
+    this.predictionErrorPxEwma = 0;
+    this.presentationLagPxLast = 0;
+    this.presentationLagPxEwma = 0;
+
+    // Clear physics bodies if they exist
+    if (this.localPredictionPhysics && this.localPredictionShipBody) {
+      Matter.Composite.remove(
+        this.localPredictionPhysics.world,
+        this.localPredictionShipBody,
+      );
+      this.localPredictionShipBody = null;
+    }
+    this.localPredictionPlayerId = null;
+    this.localPredictedRuntime = {
+      dashTimerSec: 0,
+      recoilTimerSec: 0,
+    };
+  }
+
   getRenderState(
     myPlayerId: string | null = null,
     latencyMs: number = 0,
@@ -1053,18 +1086,23 @@ export class NetworkSyncSystem {
         dist,
       );
 
-      let blendFactor: number;
+      // HIGH RTT ADAPTIVE BLENDING: Slower corrections when network is slow
+      const highRtt = this.lastMeasuredLatencyMs > 1000;
+      const veryHighRtt = this.lastMeasuredLatencyMs > 2000;
+
+      let blendFactor: number = 0.5; // Default blend factor
       if (dist > 100) {
         // Very far - snap immediately (teleport or major correction)
         this.localPresentationShipState = { ...this.localPredictedShipState };
       } else if (wasCorrection && dist > 10) {
         // CORRECTION DETECTED: Use slow blending to smooth out the jump
+        // With high RTT, use even slower blends for smoother corrections
         if (dist > 40) {
-          blendFactor = 0.5; // Medium correction - smooth over 2-3 frames
+          blendFactor = veryHighRtt ? 0.3 : highRtt ? 0.4 : 0.5; // Medium correction
         } else if (dist > 20) {
-          blendFactor = 0.35; // Small correction - smooth over 3-4 frames
+          blendFactor = veryHighRtt ? 0.2 : highRtt ? 0.25 : 0.35; // Small correction
         } else {
-          blendFactor = 0.25; // Tiny correction - smooth over 5-6 frames
+          blendFactor = veryHighRtt ? 0.15 : highRtt ? 0.2 : 0.25; // Tiny correction
         }
       } else if (dist > 5) {
         // NORMAL ADVANCEMENT: Follow predicted tightly (95% blend = almost immediate)
@@ -1094,7 +1132,6 @@ export class NetworkSyncSystem {
           lastShotTime: this.localPredictedShipState.lastShotTime,
           reloadStartTime: this.localPredictedShipState.reloadStartTime,
           isReloading: this.localPredictedShipState.isReloading,
-          color: this.localPredictedShipState.color,
           invulnerableUntil: this.localPredictedShipState.invulnerableUntil,
         };
       }
@@ -1163,12 +1200,34 @@ export class NetworkSyncSystem {
         predictedAtSnapshot.angle,
       );
 
+      // HIGH RTT TOLERANCE: Adapt thresholds based on network conditions
+      // When RTT is high (>1000ms), trust client prediction more and reduce correction frequency
+      const highRtt = this.lastMeasuredLatencyMs > 1000;
+      const veryHighRtt = this.lastMeasuredLatencyMs > 2000;
+
+      // Adaptive thresholds
+      const positionEpsilon = veryHighRtt
+        ? NetworkSyncSystem.LOCAL_RECONCILE_POSITION_EPSILON * 2.5  // 16px → 40px
+        : highRtt
+        ? NetworkSyncSystem.LOCAL_RECONCILE_POSITION_EPSILON * 1.5  // 16px → 24px
+        : NetworkSyncSystem.LOCAL_RECONCILE_POSITION_EPSILON;       // 16px
+
+      const velocityEpsilon = highRtt
+        ? NetworkSyncSystem.LOCAL_RECONCILE_VELOCITY_EPSILON * 2    // 3.0 → 6.0
+        : NetworkSyncSystem.LOCAL_RECONCILE_VELOCITY_EPSILON;       // 3.0
+
+      const angleEpsilon = highRtt
+        ? NetworkSyncSystem.LOCAL_RECONCILE_ANGLE_EPSILON * 1.5     // 0.15 → 0.225 rad
+        : NetworkSyncSystem.LOCAL_RECONCILE_ANGLE_EPSILON;          // 0.15 rad
+
+      const moderateErrorThreshold = veryHighRtt ? 80 : highRtt ? 60 : 50;
+
       // FIX BUG W1: Skip reconciliation for moderate errors near walls
       // Wall physics divergence is expected (Matter.js non-deterministic)
       // Let presentation blending smooth it out instead of hard corrections
       const nearWall = this.isNearArenaWall(hostShip) || this.isNearArenaWall(predictedAtSnapshot);
-      const moderateError = errorDist > NetworkSyncSystem.LOCAL_RECONCILE_POSITION_EPSILON &&
-                           errorDist < 50; // Not huge error
+      const moderateError = errorDist > positionEpsilon &&
+                           errorDist < moderateErrorThreshold;
       if (nearWall && moderateError) {
         // Near wall with moderate error - skip hard correction, let blend smooth it
         this.localStateHistoryByTick.set(
@@ -1182,9 +1241,9 @@ export class NetworkSyncSystem {
       }
 
       const smallError =
-        errorDist <= NetworkSyncSystem.LOCAL_RECONCILE_POSITION_EPSILON &&
-        velocityError <= NetworkSyncSystem.LOCAL_RECONCILE_VELOCITY_EPSILON &&
-        angleError <= NetworkSyncSystem.LOCAL_RECONCILE_ANGLE_EPSILON;
+        errorDist <= positionEpsilon &&
+        velocityError <= velocityEpsilon &&
+        angleError <= angleEpsilon;
 
       if (smallError) {
         this.localStateHistoryByTick.set(

@@ -24,6 +24,7 @@ export class GameFlowManager {
   countdown: number = 0;
   private countdownRemainingMs: number | null = null;
   private roundEndRemainingMs: number | null = null;
+  countdownInterval: number | null = null; // Legacy - kept for cleanup code
   winnerId: string | null = null;
   winnerName: string | null = null;
   currentRound: number = 1;
