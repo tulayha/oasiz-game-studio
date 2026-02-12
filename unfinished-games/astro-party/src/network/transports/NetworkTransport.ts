@@ -4,6 +4,7 @@ import {
   GameMode,
   GameStateSync,
   PlayerInput,
+  PowerUpType,
   RoundResultPayload,
 } from "../../types";
 
@@ -104,6 +105,7 @@ export interface NetworkTransport {
   broadcastScreenShake(intensity: number, duration: number): void;
   broadcastRoundResult(payload: RoundResultPayload): void;
   broadcastDevMode(enabled: boolean): void;
+  requestDevPowerUp(type: PowerUpType | "SPAWN_RANDOM"): void;
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void;
   broadcastRNGSeed(baseSeed: number): void;
   broadcastPlayerList(): void;

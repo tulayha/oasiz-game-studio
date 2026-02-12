@@ -5,6 +5,7 @@ import {
   GameStateSync,
   PlayerData,
   PlayerInput,
+  PowerUpType,
   RoundResultPayload,
 } from "../types";
 import { createTransport } from "./transports/createTransport";
@@ -118,6 +119,10 @@ export class NetworkManager {
 
   broadcastDevMode(enabled: boolean): void {
     this.transport.broadcastDevMode(enabled);
+  }
+
+  requestDevPowerUp(type: PowerUpType | "SPAWN_RANDOM"): void {
+    this.transport.requestDevPowerUp(type);
   }
 
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {

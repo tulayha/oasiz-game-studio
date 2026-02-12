@@ -120,6 +120,9 @@ export class NetworkSyncSystem {
     string,
     { x: number; y: number; color: string }
   > = new Map();
+  private clientAsteroidStates: Map<string, { x: number; y: number; size: number }> =
+    new Map();
+  private clientPilotPositions: Map<string, { x: number; y: number }> = new Map();
   private lastAppliedHostTick = -1;
 
   constructor(
@@ -247,6 +250,49 @@ export class NetworkSyncSystem {
       });
     }
 
+    const incomingPilots = state.pilots || [];
+    const currentPilotIds = new Set(incomingPilots.map((pilot) => pilot.playerId));
+    for (const [playerId, pilotData] of this.clientPilotPositions) {
+      if (!currentPilotIds.has(playerId)) {
+        this.renderer.spawnExplosion(pilotData.x, pilotData.y, "#ff0000");
+        this.clientPilotPositions.delete(playerId);
+      }
+    }
+    for (const pilotState of incomingPilots) {
+      if (!pilotState.alive) continue;
+      this.clientPilotPositions.set(pilotState.playerId, {
+        x: pilotState.x,
+        y: pilotState.y,
+      });
+    }
+
+    const incomingAsteroids = state.asteroids || [];
+    const currentAsteroidIds = new Set(incomingAsteroids.map((asteroid) => asteroid.id));
+    for (const [asteroidId, asteroidData] of this.clientAsteroidStates) {
+      if (!currentAsteroidIds.has(asteroidId)) {
+        this.renderer.spawnExplosion(
+          asteroidData.x,
+          asteroidData.y,
+          GAME_CONFIG.ASTEROID_COLOR,
+        );
+        this.renderer.spawnAsteroidDebris(
+          asteroidData.x,
+          asteroidData.y,
+          asteroidData.size,
+          GAME_CONFIG.ASTEROID_COLOR,
+        );
+        this.clientAsteroidStates.delete(asteroidId);
+      }
+    }
+    for (const asteroidState of incomingAsteroids) {
+      if (!asteroidState.alive) continue;
+      this.clientAsteroidStates.set(asteroidState.id, {
+        x: asteroidState.x,
+        y: asteroidState.y,
+        size: asteroidState.size,
+      });
+    }
+
     const incomingMines = state.mines || [];
     for (const mineState of incomingMines) {
       if (
@@ -283,9 +329,9 @@ export class NetworkSyncSystem {
     }
 
     this.networkShips = incomingShips;
-    this.networkPilots = state.pilots || [];
+    this.networkPilots = incomingPilots;
     this.networkProjectiles = state.projectiles || [];
-    this.networkAsteroids = state.asteroids || [];
+    this.networkAsteroids = incomingAsteroids;
     this.networkPowerUps = state.powerUps || [];
     this.networkLaserBeams = state.laserBeams || [];
     this.networkMines = incomingMines;
@@ -336,6 +382,8 @@ export class NetworkSyncSystem {
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
     this.clientShipPositions.clear();
+    this.clientAsteroidStates.clear();
+    this.clientPilotPositions.clear();
 
     this.shipSmoother.clear();
     this.projectileSmoother.clear();
@@ -356,6 +404,8 @@ export class NetworkSyncSystem {
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
     this.clientShipPositions.clear();
+    this.clientAsteroidStates.clear();
+    this.clientPilotPositions.clear();
   }
 
   clearNetworkEntities(): void {
@@ -379,6 +429,8 @@ export class NetworkSyncSystem {
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
     this.clientShipPositions.clear();
+    this.clientAsteroidStates.clear();
+    this.clientPilotPositions.clear();
 
     this.lastAppliedHostTick = -1;
     this.hostSimTimeMs = 0;

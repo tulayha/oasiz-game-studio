@@ -850,7 +850,7 @@ export class Game {
     // Check dev keys for testing powerups (only for local player on host)
     const devKeys = this.input.consumeDevKeys();
     const myPlayerId = this.network.getMyPlayerId();
-    if (myPlayerId && this.network.isSimulationAuthority()) {
+    if (myPlayerId) {
       const myShip = this.ships.get(myPlayerId);
       const existingPowerUp = this.playerPowerUps.get(myPlayerId);
       const grantDevPowerUp = (
@@ -860,7 +860,11 @@ export class Game {
       ): void => {
         if (!flag) return;
         console.log("[Dev] Granting " + label + " powerup");
-        this.grantPowerUp(myPlayerId, type);
+        if (this.network.isSimulationAuthority()) {
+          this.grantPowerUp(myPlayerId, type);
+        } else {
+          this.network.requestDevPowerUp(type);
+        }
       };
 
       if (myShip && myShip.alive && !existingPowerUp) {
@@ -875,12 +879,20 @@ export class Game {
       // Reverse can be triggered even with existing power-up since it's global
       if (devKeys.reverse) {
         console.log("[Dev] Toggling REVERSE rotation");
-        this.grantPowerUp(myPlayerId, "REVERSE");
+        if (this.network.isSimulationAuthority()) {
+          this.grantPowerUp(myPlayerId, "REVERSE");
+        } else {
+          this.network.requestDevPowerUp("REVERSE");
+        }
       }
 
       if (devKeys.spawnPowerUp) {
         console.log("[Dev] Spawning random power-up");
-        this.spawnRandomPowerUp(nowMs);
+        if (this.network.isSimulationAuthority()) {
+          this.spawnRandomPowerUp(nowMs);
+        } else {
+          this.network.requestDevPowerUp("SPAWN_RANDOM");
+        }
       }
     }
 

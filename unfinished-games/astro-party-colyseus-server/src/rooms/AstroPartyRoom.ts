@@ -33,6 +33,17 @@ interface SetAdvancedSettingsMessage extends AdvancedSettingsSync {}
 interface SetDevModeMessage {
   enabled: boolean;
 }
+interface DevGrantPowerUpMessage {
+  type:
+    | "LASER"
+    | "SHIELD"
+    | "SCATTER"
+    | "MINE"
+    | "REVERSE"
+    | "JOUST"
+    | "HOMING_MISSILE"
+    | "SPAWN_RANDOM";
+}
 
 export class AstroPartyRoom extends Room {
   maxClients = 4;
@@ -144,6 +155,14 @@ export class AstroPartyRoom extends Room {
     this.onMessage("cmd:dev_mode", (client, payload: SetDevModeMessage) => {
       this.simulation.setDevMode(client.sessionId, Boolean(payload?.enabled));
     });
+
+    this.onMessage(
+      "cmd:dev_grant_powerup",
+      (client, payload: DevGrantPowerUpMessage) => {
+        if (!payload || typeof payload.type !== "string") return;
+        this.simulation.devGrantPowerUp(client.sessionId, payload.type);
+      },
+    );
 
     this.onMessage("cmd:add_ai_bot", (client) => {
       this.simulation.addAIBot(client.sessionId);

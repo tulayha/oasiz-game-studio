@@ -280,6 +280,9 @@ interface RuntimePlayer {
     buttonB: boolean;
     dash: boolean;
   };
+  fireButtonHeld: boolean;
+  fireRequested: boolean;
+  firePressStartMs: number;
   dashTimerSec: number;
   recoilTimerSec: number;
   angularVelocity: number;
@@ -358,6 +361,7 @@ const ARENA_HEIGHT = 800;
 const ARENA_PADDING = 50;
 
 const FIRE_COOLDOWN_MS = 180;
+const FIRE_HOLD_REPEAT_DELAY_MS = 260;
 const PROJECTILE_LIFETIME_MS = 2500;
 const PROJECTILE_SPEED_PX_PER_SEC = 14 * 60;
 const PROJECTILE_RADIUS = 4;
@@ -737,7 +741,7 @@ export class AstroPartySimulation {
     }
 
     player.input.buttonA = Boolean(payload.buttonA);
-    player.input.buttonB = Boolean(payload.buttonB);
+    this.setFireButtonState(player, Boolean(payload.buttonB));
     player.input.timestamp = this.nowMs;
     player.input.clientTimeMs = payload.clientTimeMs ?? this.nowMs;
   }
@@ -970,6 +974,35 @@ export class AstroPartySimulation {
     this.hooks.onDevMode(this.devModeEnabled);
   }
 
+  devGrantPowerUp(
+    sessionId: string,
+    type: PowerUpType | "SPAWN_RANDOM",
+  ): void {
+    const player = this.getHuman(sessionId);
+    if (!player) return;
+    if (!this.devModeEnabled) {
+      this.hooks.onError(sessionId, "DEV_MODE_REQUIRED", "Enable dev mode first");
+      return;
+    }
+
+    if (type === "SPAWN_RANDOM") {
+      this.spawnRandomPowerUp();
+      return;
+    }
+
+    if (!player.ship.alive) {
+      this.hooks.onError(sessionId, "INVALID_STATE", "You need an active ship");
+      return;
+    }
+
+    if (type !== "REVERSE" && this.playerPowerUps.get(player.id)) {
+      this.hooks.onError(sessionId, "POWERUP_OCCUPIED", "Ship already has a power-up");
+      return;
+    }
+
+    this.grantPowerUp(player.id, type);
+  }
+
   removeBot(sessionId: string, playerId: string): void {
     if (!this.ensureLeader(sessionId)) return;
     const player = this.players.get(playerId);
@@ -1044,6 +1077,9 @@ export class AstroPartySimulation {
 
     this.updateBots();
     this.updateShips(deltaMs / 1000);
+    this.resolveShipTurretCollisions(
+      SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset] ?? 0,
+    );
     this.updatePilots(deltaMs / 1000);
     this.updateProjectiles(deltaMs / 1000);
     this.updateAsteroidSpawning();
@@ -1088,6 +1124,18 @@ export class AstroPartySimulation {
 
   getDevModeEnabled(): boolean {
     return this.devModeEnabled;
+  }
+
+  private setFireButtonState(player: RuntimePlayer, pressed: boolean): void {
+    if (pressed && !player.fireButtonHeld) {
+      player.fireRequested = true;
+      player.firePressStartMs = this.nowMs;
+    } else if (!pressed && player.fireButtonHeld) {
+      player.fireRequested = false;
+      player.firePressStartMs = 0;
+    }
+    player.fireButtonHeld = pressed;
+    player.input.buttonB = pressed;
   }
 
   private getActiveConfig(): typeof STANDARD_CONFIG {
@@ -1277,6 +1325,38 @@ export class AstroPartySimulation {
       maxCharges: 1,
       lastFireTime: this.nowMs,
       shieldHits: 0,
+    });
+  }
+
+  private spawnRandomPowerUp(): void {
+    const entries = Object.entries(POWERUP_SPAWN_WEIGHTS) as Array<[PowerUpType, number]>;
+    const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+    const r = this.powerUpRng.next() * total;
+    let cumulative = 0;
+    let chosen: PowerUpType = entries[0][0];
+    for (const [type, weight] of entries) {
+      cumulative += weight;
+      if (r <= cumulative) {
+        chosen = type;
+        break;
+      }
+    }
+
+    const padding = 100;
+    const x = padding + this.powerUpRng.next() * (ARENA_WIDTH - padding * 2);
+    const y = padding + this.powerUpRng.next() * (ARENA_HEIGHT - padding * 2);
+    this.powerUps.push({
+      id: this.nextEntityId("pow"),
+      x,
+      y,
+      type: chosen,
+      spawnTime: this.nowMs,
+      remainingTimeFraction: 1,
+      alive: true,
+      magneticRadius: POWERUP_MAGNETIC_RADIUS,
+      isMagneticActive: false,
+      magneticSpeed: POWERUP_MAGNETIC_SPEED,
+      targetPlayerId: null,
     });
   }
 
@@ -1471,7 +1551,7 @@ export class AstroPartySimulation {
       if (!player || !player.isBot || player.botType !== "ai") continue;
       if (this.nowMs - player.botLastDecisionMs < AI_CONFIG.REACTION_DELAY_MS) {
         player.input.buttonA = player.botCachedAction.buttonA;
-        player.input.buttonB = player.botCachedAction.buttonB;
+        this.setFireButtonState(player, player.botCachedAction.buttonB);
         if (player.botCachedAction.dash) {
           player.dashQueued = true;
         }
@@ -1488,7 +1568,7 @@ export class AstroPartySimulation {
           dash: false,
         };
         player.input.buttonA = player.botCachedAction.buttonA;
-        player.input.buttonB = player.botCachedAction.buttonB;
+        this.setFireButtonState(player, player.botCachedAction.buttonB);
         continue;
       }
 
@@ -1500,7 +1580,7 @@ export class AstroPartySimulation {
           dash: false,
         };
         player.input.buttonA = player.botCachedAction.buttonA;
-        player.input.buttonB = player.botCachedAction.buttonB;
+        this.setFireButtonState(player, player.botCachedAction.buttonB);
         continue;
       }
 
@@ -1521,7 +1601,7 @@ export class AstroPartySimulation {
 
       player.botCachedAction = { buttonA: rotate, buttonB: fire, dash };
       player.input.buttonA = rotate;
-      player.input.buttonB = fire;
+      this.setFireButtonState(player, fire);
       if (dash) {
         player.dashQueued = true;
       }
@@ -1617,7 +1697,17 @@ export class AstroPartySimulation {
         ship.vy *= damping;
       }
 
-      if (player.input.buttonB) {
+      if (player.fireRequested) {
+        const didFire = this.tryFire(player, cfg, isStandard);
+        player.fireRequested = false;
+        if (didFire && player.firePressStartMs <= 0) {
+          player.firePressStartMs = this.nowMs;
+        }
+      } else if (
+        player.input.buttonB &&
+        player.firePressStartMs > 0 &&
+        this.nowMs - player.firePressStartMs >= FIRE_HOLD_REPEAT_DELAY_MS
+      ) {
         this.tryFire(player, cfg, isStandard);
       }
 
@@ -1671,6 +1761,37 @@ export class AstroPartySimulation {
           this.applyShipSpinFromTangential(a, -result.relativeTangentSpeed);
           this.applyShipSpinFromTangential(b, result.relativeTangentSpeed);
         }
+      }
+    }
+  }
+
+  private resolveShipTurretCollisions(shipRestitution: number): void {
+    if (!this.turret || !this.turret.alive) return;
+    for (const playerId of this.playerOrder) {
+      const player = this.players.get(playerId);
+      if (!player || !player.ship.alive) continue;
+      const ship = player.ship;
+      const dx = ship.x - this.turret.x;
+      const dy = ship.y - this.turret.y;
+      const distSq = dx * dx + dy * dy;
+      const minDistance = SHIP_RADIUS + TURRET_RADIUS;
+      if (distSq > minDistance * minDistance) continue;
+
+      const distance = Math.sqrt(Math.max(distSq, 1e-6));
+      const nx = dx / distance;
+      const ny = dy / distance;
+
+      const overlap = minDistance - distance;
+      if (overlap > 0) {
+        ship.x += nx * (overlap + 0.01);
+        ship.y += ny * (overlap + 0.01);
+      }
+
+      const velAlongNormal = ship.vx * nx + ship.vy * ny;
+      if (velAlongNormal < 0) {
+        const impulse = -(1 + clamp(shipRestitution, 0, 1)) * velAlongNormal;
+        ship.vx += impulse * nx;
+        ship.vy += impulse * ny;
       }
     }
   }
@@ -1889,7 +2010,7 @@ export class AstroPartySimulation {
       if (dash && this.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
         pilot.lastDashAtMs = this.nowMs;
         // Pilot dash is a short impulse, not a sustained acceleration step.
-        const dashImpulse = cfg.PILOT_DASH_FORCE * FORCE_TO_IMPULSE;
+        const dashImpulse = cfg.PILOT_DASH_FORCE * FORCE_TO_IMPULSE * 1.8;
         pilot.vx += Math.cos(pilot.angle) * dashImpulse;
         pilot.vy += Math.sin(pilot.angle) * dashImpulse;
       }
@@ -2000,10 +2121,10 @@ export class AstroPartySimulation {
     player: RuntimePlayer,
     cfg: typeof STANDARD_CONFIG,
     isStandard: boolean,
-  ): void {
+  ): boolean {
     const ship = player.ship;
-    if (this.nowMs - ship.lastShotTime < FIRE_COOLDOWN_MS) return;
-    if (ship.ammo <= 0) return;
+    if (this.nowMs - ship.lastShotTime < FIRE_COOLDOWN_MS) return false;
+    if (ship.ammo <= 0) return false;
 
     ship.lastShotTime = this.nowMs;
     ship.ammo -= 1;
@@ -2026,12 +2147,12 @@ export class AstroPartySimulation {
     const powerUp = this.playerPowerUps.get(player.id);
 
     if (powerUp?.type === "JOUST") {
-      return;
+      return false;
     }
 
     if (powerUp?.type === "LASER" && powerUp.charges > 0) {
       if (this.nowMs - powerUp.lastFireTime <= LASER_COOLDOWN_MS) {
-        return;
+        return false;
       }
       powerUp.lastFireTime = this.nowMs;
       powerUp.charges -= 1;
@@ -2050,12 +2171,12 @@ export class AstroPartySimulation {
       if (powerUp.charges <= 0) {
         this.playerPowerUps.delete(player.id);
       }
-      return;
+      return true;
     }
 
     if (powerUp?.type === "SCATTER" && powerUp.charges > 0) {
       if (this.nowMs - powerUp.lastFireTime <= SCATTER_COOLDOWN_MS) {
-        return;
+        return false;
       }
       powerUp.lastFireTime = this.nowMs;
       powerUp.charges -= 1;
@@ -2077,7 +2198,7 @@ export class AstroPartySimulation {
       if (powerUp.charges <= 0) {
         this.playerPowerUps.delete(player.id);
       }
-      return;
+      return true;
     }
 
     if (powerUp?.type === "MINE" && powerUp.charges > 0) {
@@ -2099,7 +2220,7 @@ export class AstroPartySimulation {
       if (powerUp.charges <= 0) {
         this.playerPowerUps.delete(player.id);
       }
-      return;
+      return true;
     }
 
     if (powerUp?.type === "HOMING_MISSILE" && powerUp.charges > 0) {
@@ -2121,7 +2242,7 @@ export class AstroPartySimulation {
       if (powerUp.charges <= 0) {
         this.playerPowerUps.delete(player.id);
       }
-      return;
+      return true;
     }
 
     this.projectiles.push({
@@ -2135,6 +2256,7 @@ export class AstroPartySimulation {
       lifetimeMs: PROJECTILE_LIFETIME_MS,
     });
     this.hooks.onSound("fire", player.id);
+    return true;
   }
 
   private updateReload(ship: ShipState): void {
@@ -3419,6 +3541,9 @@ export class AstroPartySimulation {
         buttonB: false,
         dash: false,
       };
+      player.fireButtonHeld = false;
+      player.fireRequested = false;
+      player.firePressStartMs = 0;
       player.ship = {
         ...player.ship,
         x: ARENA_WIDTH * 0.5,
@@ -3468,6 +3593,9 @@ export class AstroPartySimulation {
         buttonB: false,
         dash: false,
       },
+      fireButtonHeld: false,
+      fireRequested: false,
+      firePressStartMs: 0,
       dashTimerSec: 0,
       recoilTimerSec: 0,
       angularVelocity: 0,

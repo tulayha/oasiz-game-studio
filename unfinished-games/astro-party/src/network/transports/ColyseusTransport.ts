@@ -5,6 +5,7 @@ import {
   GameMode,
   GameStateSync,
   PlayerInput,
+  PowerUpType,
   PLAYER_COLORS,
   RoundResultPayload,
 } from "../../types";
@@ -243,6 +244,11 @@ export class ColyseusTransport implements NetworkTransport {
     this.room.send("cmd:dev_mode", { enabled });
   }
 
+  requestDevPowerUp(type: PowerUpType | "SPAWN_RANDOM"): void {
+    if (!this.room) return;
+    this.room.send("cmd:dev_grant_powerup", { type });
+  }
+
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {
     this.setAdvancedSettings(payload);
   }
@@ -479,6 +485,10 @@ export class ColyseusTransport implements NetworkTransport {
 
     room.onMessage("evt:advanced_settings", (payload: AdvancedSettingsSync) => {
       this.callbacks?.onAdvancedSettingsReceived(payload);
+    });
+
+    room.onMessage("evt:dev_mode", (payload: { enabled?: boolean }) => {
+      this.callbacks?.onDevModeReceived(Boolean(payload?.enabled));
     });
 
     room.onMessage("evt:round_result", (payload: RoundResultPayload) => {
