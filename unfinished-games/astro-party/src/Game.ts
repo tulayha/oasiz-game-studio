@@ -514,13 +514,12 @@ export class Game {
             this.clearAllGameState();
           }
 
-          // Clear old round state and reset prediction when new round starts
+          // Clear old round state when new round starts
           if (phase === "COUNTDOWN" && (oldPhase === "ROUND_END" || oldPhase === "LOBBY")) {
             console.log("[Game] Non-host: new round starting, clearing old state");
             this.resetForNextRound();
             this.networkSync.clearNetworkEntities();
             this.roundResult = null;
-            this.networkSync.resetPredictionState();
           }
 
           this.flowMgr.onPhaseChange?.(phase);
@@ -620,7 +619,6 @@ export class Game {
       return;
     }
 
-    this.networkSync.queueLocalDashPrediction();
     this.network.sendDashRequest();
   }
 
@@ -769,11 +767,10 @@ export class Game {
 
     // Capture local input every frame (local-only timing)
     const now = performance.now();
-    const localInput = this.inputResolver.captureLocalInput(
+    this.inputResolver.captureLocalInput(
       now,
       this.botMgr.useTouchForHost,
     );
-    this.networkSync.setLocalInput(localInput);
     this.inputResolver.sendLocalInputIfNeeded(now);
     if (this.network.isHost()) {
       this.network.pollHostInputs();
