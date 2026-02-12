@@ -235,13 +235,13 @@ export function createScreenController(
 
     if (game.didHostLeave()) {
       elements.playAgainBtn.style.display = "none";
-    } else if (game.isHost()) {
+    } else if (game.isLeader()) {
       elements.playAgainBtn.style.display = "block";
       elements.playAgainBtn.textContent = "Play Again";
       elements.playAgainBtn.disabled = false;
     } else {
       elements.playAgainBtn.style.display = "block";
-      elements.playAgainBtn.textContent = "Waiting for host...";
+      elements.playAgainBtn.textContent = "Waiting for leader...";
       elements.playAgainBtn.disabled = true;
     }
 
@@ -277,12 +277,12 @@ export function createScreenController(
 export function bindEndScreenUI(game: Game): void {
   elements.playAgainBtn.addEventListener("click", async () => {
     triggerHaptic("light");
-    if (game.isHost()) {
+    if (game.isLeader()) {
       elements.playAgainBtn.disabled = true;
       elements.playAgainBtn.textContent = "Restarting...";
       await game.restartGame();
     } else {
-      elements.playAgainBtn.textContent = "Waiting for host...";
+      elements.playAgainBtn.textContent = "Waiting for leader...";
       elements.playAgainBtn.disabled = true;
     }
   });

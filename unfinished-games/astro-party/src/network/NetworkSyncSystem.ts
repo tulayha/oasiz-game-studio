@@ -417,7 +417,7 @@ export class NetworkSyncSystem {
   }
 
   private syncPlayerStatesFromNetwork(): void {
-    if (this.network.isHost()) return;
+    if (this.network.isSimulationAuthority()) return;
 
     const now = performance.now();
     if (now - this.lastPlayerStateSyncMs < 200) return;

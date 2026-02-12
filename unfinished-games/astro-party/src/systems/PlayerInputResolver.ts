@@ -48,7 +48,7 @@ export class PlayerInputResolver {
   }
 
   sendLocalInputIfNeeded(now: number): void {
-    if (this.network.isHost()) return;
+    if (this.network.isSimulationAuthority()) return;
     if (now - this.lastInputSendTime < GAME_CONFIG.SYNC_INTERVAL) return;
 
     const sendInput: PlayerInput = {

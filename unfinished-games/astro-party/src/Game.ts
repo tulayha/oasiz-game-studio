@@ -96,6 +96,7 @@ export class Game {
   private _originalHostLeft = false;
 
   private roundResult: RoundResultPayload | null = null;
+  private finalScoreSubmittedForMatch = false;
   private advancedSettings: AdvancedSettings = {
     ...DEFAULT_ADVANCED_SETTINGS,
   };
@@ -194,7 +195,7 @@ export class Game {
     // Wire flow manager callbacks
     this.flowMgr.onPlayersUpdate = () => this.emitPlayersUpdate();
     this.flowMgr.onBeginMatch = () => {
-      if (this.network.isHost()) {
+      if (this.network.isSimulationAuthority()) {
         this.seedRngForRound();
       }
       this.tickSystem.reset(0);
@@ -220,7 +221,7 @@ export class Game {
     this.input.setDevModeCallback((enabled) => {
       this.renderer.setDevMode(enabled);
       // Sync dev mode state across multiplayer
-      if (this.network.isHost()) {
+      if (this.isLeader()) {
         this.network.broadcastDevMode(enabled);
       }
     });
@@ -229,7 +230,7 @@ export class Game {
   // ============= ASTEROID & POWERUP LOGIC =============
 
   private grantStartingPowerups(): void {
-    if (!this.network.isHost()) return;
+    if (!this.network.isSimulationAuthority()) return;
     if (!this.advancedSettings.startPowerups) return;
 
     const options: PowerUpType[] = ["LASER", "SHIELD", "SCATTER", "MINE"];
@@ -318,7 +319,7 @@ export class Game {
   }
 
   private spawnRandomPowerUp(nowMs: number): void {
-    if (!this.network.isHost()) return;
+    if (!this.network.isSimulationAuthority()) return;
 
     const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
     const entries = Object.entries(weights) as [PowerUpType, number][];
@@ -368,7 +369,7 @@ export class Game {
     onSystemMessage?: (message: string, durationMs?: number) => void;
   }): void {
     this.flowMgr.onPhaseChange = (phase) => {
-      if (phase === "PLAYING" && !this.network.isHost()) {
+      if (phase === "PLAYING" && !this.network.isSimulationAuthority()) {
         this.tickSystem.reset(0);
         this.simTimeMs = 0;
       }
@@ -424,7 +425,7 @@ export class Game {
           () => this.emitPlayersUpdate(),
           () => this.flowMgr.startCountdown(),
         );
-        if (this.network.isHost()) {
+        if (this.isLeader()) {
           this.broadcastModeState();
         }
       },
@@ -444,7 +445,7 @@ export class Game {
 
         this.playerMgr.removePlayer(playerId, () => this.emitPlayersUpdate());
 
-        if (this.network.isHost()) {
+        if (this.network.isSimulationAuthority()) {
           if (this.flowMgr.phase === "PLAYING") {
             this.flowMgr.checkEliminationWin(this.playerMgr.players);
           } else if (this.flowMgr.phase === "COUNTDOWN") {
@@ -463,7 +464,7 @@ export class Game {
       },
 
       onGameStateReceived: (state) => {
-        if (!this.network.isHost()) {
+        if (!this.network.isSimulationAuthority()) {
           if (this.flowMgr.phase !== "PLAYING") {
             return; // Only process snapshots during PLAYING
           }
@@ -472,7 +473,7 @@ export class Game {
       },
 
       onInputReceived: (playerId, input) => {
-        if (this.network.isHost()) {
+        if (this.network.isSimulationAuthority()) {
           this.inputResolver.setPendingInput(playerId, input);
         }
       },
@@ -482,9 +483,9 @@ export class Game {
       },
 
       onHostChanged: () => {
-        console.log("[Game] Host left, leaving room");
-        this._onSystemMessage?.("Host left, returning to menu", 5000);
-        void this.leaveGame();
+        console.log("[Game] Room leader changed");
+        this._onSystemMessage?.("Room leader updated", 2500);
+        this.emitPlayersUpdate();
       },
 
       onDisconnected: () => {
@@ -494,7 +495,7 @@ export class Game {
 
       onGamePhaseReceived: (phase, winnerId, winnerName) => {
         console.log("[Game] RPC phase received:", phase);
-        if (!this.network.isHost()) {
+        if (!this.network.isSimulationAuthority()) {
           const shouldForceRosterSync =
             phase === "COUNTDOWN" || phase === "PLAYING";
           this.network.resyncPlayerListFromState(
@@ -504,10 +505,13 @@ export class Game {
           const oldPhase = this.flowMgr.phase;
           this.flowMgr.phase = phase;
 
-          if (phase === "GAME_END" && winnerId && winnerName) {
-            this.flowMgr.winnerId = winnerId;
-            this.flowMgr.winnerName = winnerName;
-            this.emitPlayersUpdate();
+          if (phase === "GAME_END") {
+            if (winnerId && winnerName) {
+              this.flowMgr.winnerId = winnerId;
+              this.flowMgr.winnerName = winnerName;
+              this.emitPlayersUpdate();
+            }
+            this.submitFinalScoreFromAuthoritativeState();
           }
 
           if (phase === "LOBBY" && oldPhase === "GAME_END") {
@@ -517,6 +521,7 @@ export class Game {
           // Clear old round state when new round starts
           if (phase === "COUNTDOWN" && (oldPhase === "ROUND_END" || oldPhase === "LOBBY")) {
             console.log("[Game] Non-host: new round starting, clearing old state");
+            this.finalScoreSubmittedForMatch = false;
             this.resetForNextRound();
             this.networkSync.clearNetworkEntities();
             this.roundResult = null;
@@ -527,7 +532,7 @@ export class Game {
       },
 
       onCountdownReceived: (count) => {
-        if (!this.network.isHost()) {
+        if (!this.network.isSimulationAuthority()) {
           this.flowMgr.countdown = count;
           this.flowMgr.onCountdownUpdate?.(count);
         }
@@ -538,7 +543,7 @@ export class Game {
       },
 
       onDashRequested: (playerId) => {
-        if (this.network.isHost()) {
+        if (this.network.isSimulationAuthority()) {
           this.inputResolver.queueDash(playerId);
         }
       },
@@ -548,16 +553,22 @@ export class Game {
       },
 
       onPlayerListReceived: (playerOrder, _meta) => {
-        if (!this.network.isHost()) {
+        if (!this.network.isSimulationAuthority()) {
           this.playerMgr.rebuildPlayersFromOrder(playerOrder, () =>
             this.emitPlayersUpdate(),
           );
+          if (this.flowMgr.phase === "GAME_END") {
+            this.submitFinalScoreFromAuthoritativeState();
+          }
         }
       },
 
       onRoundResultReceived: (payload) => {
-        if (!this.network.isHost()) {
+        if (!this.network.isSimulationAuthority()) {
           this.applyRoundResult(payload);
+          if (this.flowMgr.phase === "GAME_END") {
+            this.submitFinalScoreFromAuthoritativeState();
+          }
         }
       },
 
@@ -570,18 +581,30 @@ export class Game {
       },
 
       onScreenShakeReceived: (intensity, duration) => {
-        if (this.network.isHost()) return;
+        if (this.network.isSimulationAuthority()) return;
         this.triggerScreenShake(intensity, duration);
       },
 
       onDashParticlesReceived: (payload) => {
-        if (this.network.isHost()) return;
+        if (this.network.isSimulationAuthority()) return;
         this.renderer.spawnDashParticles(
           payload.x,
           payload.y,
           payload.angle,
           payload.color,
         );
+      },
+
+      onTransportError: (code, message) => {
+        if (code === "LOCAL_PLAYER_UNSUPPORTED") {
+          this._onSystemMessage?.("Local players are deferred in this version", 3500);
+          return;
+        }
+        if (code === "LEADER_ONLY") {
+          this._onSystemMessage?.("Only the room leader can do that", 2500);
+          return;
+        }
+        this._onSystemMessage?.(message || "Network error", 3500);
       },
 
     });
@@ -599,7 +622,8 @@ export class Game {
 
   private initializeNetworkSession(): void {
     this.network.startSync();
-    if (!this.network.isHost()) {
+    this.finalScoreSubmittedForMatch = false;
+    if (!this.network.isSimulationAuthority()) {
       this.network.resyncPlayerListFromState("session-init", true);
     }
 
@@ -611,7 +635,7 @@ export class Game {
   }
 
   private handleLocalDash(): void {
-    if (this.network.isHost()) {
+    if (this.network.isSimulationAuthority()) {
       const myId = this.network.getMyPlayerId();
       if (myId) {
         this.inputResolver.queueDash(myId);
@@ -624,8 +648,9 @@ export class Game {
 
   private triggerScreenShake(intensity: number, duration: number): void {
     this.renderer.addScreenShake(intensity, duration);
-    // Broadcast to non-host via RPC (host-only, broadcastScreenShake guards internally)
-    this.network.broadcastScreenShake(intensity, duration);
+    if (this.network.isSimulationAuthority()) {
+      this.network.broadcastScreenShake(intensity, duration);
+    }
   }
 
   private handleDisconnected(): void {
@@ -636,6 +661,7 @@ export class Game {
     this.clearAllGameState();
     this.playerMgr.clear();
     this._originalHostLeft = false;
+    this.finalScoreSubmittedForMatch = false;
     this.resetAdvancedSettings();
     this.flowMgr.setPhase("START");
   }
@@ -682,7 +708,7 @@ export class Game {
   }
 
   private seedRngForRound(): void {
-    if (!this.network.isHost()) return;
+    if (!this.network.isSimulationAuthority()) return;
     const seed = this.pendingRngSeed ?? this.generateSeed();
     this.pendingRngSeed = null;
     this.network.broadcastRNGSeed(seed);
@@ -712,8 +738,8 @@ export class Game {
   }
 
   setNextRngSeed(seed: number | null): void {
-    if (!this.network.isHost()) {
-      console.log("[Game.setNextRngSeed] Only host can set seed");
+    if (!this.network.isSimulationAuthority()) {
+      console.log("[Game.setNextRngSeed] Only simulation authority can set seed");
       return;
     }
 
@@ -772,17 +798,17 @@ export class Game {
       this.botMgr.useTouchForHost,
     );
     this.inputResolver.sendLocalInputIfNeeded(now);
-    if (this.network.isHost()) {
+    if (this.network.isSimulationAuthority()) {
       this.network.pollHostInputs();
     }
 
     const runTicks =
       this.flowMgr.phase === "PLAYING" ||
-      (this.network.isHost() &&
+      (this.network.isSimulationAuthority() &&
         (this.flowMgr.phase === "COUNTDOWN" ||
           this.flowMgr.phase === "ROUND_END"));
     let frameRenderState: RenderNetworkState | null = null;
-    if (!this.network.isHost() && this.flowMgr.phase === "PLAYING") {
+    if (!this.network.isSimulationAuthority() && this.flowMgr.phase === "PLAYING") {
       frameRenderState = this.networkSync.getRenderState(
         this.network.getMyPlayerId(),
         this.latencyMs,
@@ -805,7 +831,7 @@ export class Game {
 
   private simulateTick(tick: number): void {
     const dtMs = this.tickSystem.getTickDurationMs();
-    if (this.network.isHost()) {
+    if (this.network.isSimulationAuthority()) {
       const phaseBefore = this.flowMgr.phase;
       this.flowMgr.updateTimers(dtMs);
       if (phaseBefore !== "PLAYING") {
@@ -824,7 +850,7 @@ export class Game {
     // Check dev keys for testing powerups (only for local player on host)
     const devKeys = this.input.consumeDevKeys();
     const myPlayerId = this.network.getMyPlayerId();
-    if (myPlayerId && this.network.isHost()) {
+    if (myPlayerId && this.network.isSimulationAuthority()) {
       const myShip = this.ships.get(myPlayerId);
       const existingPowerUp = this.playerPowerUps.get(myPlayerId);
       const grantDevPowerUp = (
@@ -858,8 +884,8 @@ export class Game {
       }
     }
 
-    // Host: process all inputs and update physics
-    if (this.network.isHost()) {
+    // Simulation authority: process all inputs and update physics
+    if (this.network.isSimulationAuthority()) {
       this.asteroidMgr.updateSpawning(nowMs);
       this.ships.forEach((ship, playerId) => {
         const { input, shouldDash } = this.inputResolver.resolveHostInput(
@@ -1056,8 +1082,8 @@ export class Game {
 
   private updateVisualEffects(renderState: RenderNetworkState | null = null): void {
     // Spawn nitro particles for joust power-up (runs for all clients)
-    // For host: use this.ships with physics bodies
-    if (this.network.isHost()) {
+    // For simulation authority: use local physics bodies
+    if (this.network.isSimulationAuthority()) {
       this.ships.forEach((ship, playerId) => {
         const joustPowerUp = this.playerPowerUps.get(playerId);
         if (joustPowerUp?.type === "JOUST") {
@@ -1071,7 +1097,7 @@ export class Game {
         }
       });
     } else {
-      // For non-host: use smoothed ship positions so particles track the rendered ship
+      // For non-authority clients: use smoothed ship positions.
       const networkRenderState =
         renderState ??
         this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
@@ -1102,10 +1128,12 @@ export class Game {
       this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
     this.gameRenderer.render({
       dt,
-      nowMs: this.network.isHost() ? this.simTimeMs : this.networkSync.hostSimTimeMs,
+      nowMs: this.network.isSimulationAuthority()
+        ? this.simTimeMs
+        : this.networkSync.hostSimTimeMs,
       phase: this.flowMgr.phase,
       countdown: this.flowMgr.countdown,
-      isHost: this.network.isHost(),
+      isHost: this.network.isSimulationAuthority(),
       isDevModeEnabled: this.isDevModeEnabled(),
       ships: this.ships,
       pilots: this.pilots,
@@ -1160,8 +1188,12 @@ export class Game {
     return this.network.getRoomCode();
   }
 
-  isHost(): boolean {
+  isLeader(): boolean {
     return this.network.isHost();
+  }
+
+  isHost(): boolean {
+    return this.isLeader();
   }
 
   didHostLeave(): boolean {
@@ -1177,7 +1209,7 @@ export class Game {
   }
 
   canStartGame(): boolean {
-    return this.network.isHost() && this.network.getPlayerCount() >= 2;
+    return this.isLeader() && this.network.getPlayerCount() >= 2;
   }
 
   getLatencyMs(): number {
@@ -1209,6 +1241,10 @@ export class Game {
     return this.network.getHostId();
   }
 
+  getLeaderId(): string | null {
+    return this.network.getHostId();
+  }
+
   shouldShowPing(): boolean {
     return Game.SHOW_PING;
   }
@@ -1235,13 +1271,13 @@ export class Game {
   }
 
   private broadcastModeState(): void {
-    if (!this.network.isHost()) return;
+    if (!this.isLeader()) return;
     const payload: AdvancedSettingsSync = {
       mode: this.currentMode,
       baseMode: this.baseMode,
       settings: this.advancedSettings,
     };
-    this.network.broadcastAdvancedSettings(payload);
+    this.network.setAdvancedSettings(payload);
   }
 
   getAdvancedSettings(): AdvancedSettings {
@@ -1252,7 +1288,7 @@ export class Game {
     settings: AdvancedSettings,
     source: "local" | "remote" = "local",
   ): void {
-    if (source === "local" && !this.network.isHost()) return;
+    if (source === "local" && !this.isLeader()) return;
     const sanitized = sanitizeAdvancedSettings(settings);
     this.advancedSettings = sanitized;
     const baseTemplate = applyModeTemplate(this.baseMode);
@@ -1261,7 +1297,7 @@ export class Game {
     const modeChanged = nextMode !== this.currentMode;
     this.currentMode = nextMode;
     this.applyAdvancedOverrides(sanitized, this.baseMode);
-    if (source === "local" && this.network.isHost()) {
+    if (source === "local" && this.isLeader()) {
       this.broadcastModeState();
     }
     if (modeChanged) {
@@ -1271,11 +1307,11 @@ export class Game {
   }
 
   setGameMode(mode: GameMode, source: "local" | "remote" = "local"): void {
-    if (source === "local" && !this.network.isHost()) return;
+    if (source === "local" && !this.isLeader()) return;
     if (mode === "CUSTOM") {
       this.currentMode = "CUSTOM";
       this._onGameModeChange?.(this.currentMode);
-      if (source === "local" && this.network.isHost()) {
+      if (source === "local" && this.isLeader()) {
         this.broadcastModeState();
       }
       return;
@@ -1289,7 +1325,8 @@ export class Game {
     this.applyAdvancedOverrides(this.advancedSettings, this.baseMode);
     this._onGameModeChange?.(this.currentMode);
     this._onAdvancedSettingsChange?.(this.advancedSettings);
-    if (source === "local" && this.network.isHost()) {
+    if (source === "local" && this.isLeader()) {
+      this.network.setMode(mode);
       this.broadcastModeState();
     }
   }
@@ -1299,10 +1336,15 @@ export class Game {
   }
 
   startGame(): void {
-    // Broadcast mode + advanced settings to all clients before starting countdown
+    if (!this.isLeader()) {
+      console.log("[Game] Non-leader cannot start game");
+      return;
+    }
+    // Push mode/settings before requesting match start on the server.
     this.broadcastModeState();
     this.roundResult = null;
-    this.flowMgr.startGame();
+    this.finalScoreSubmittedForMatch = false;
+    this.network.startGame();
   }
 
   async leaveGame(): Promise<void> {
@@ -1316,22 +1358,19 @@ export class Game {
     this.clearAllGameState();
     this.playerMgr.clear();
     this._originalHostLeft = false;
+    this.finalScoreSubmittedForMatch = false;
     this.resetAdvancedSettings();
 
     this.flowMgr.setPhase("START");
   }
 
   async restartGame(): Promise<void> {
-    if (!this.network.isHost()) {
-      console.log("[Game] Non-host cannot restart game, waiting for host");
+    if (!this.isLeader()) {
+      console.log("[Game] Non-leader cannot restart game, waiting for leader");
       return;
     }
-
-    await this.network.resetAllPlayerStates();
-
-    this.clearAllGameState();
-    this.flowMgr.setPhase("LOBBY");
-    this.emitPlayersUpdate();
+    this.finalScoreSubmittedForMatch = false;
+    this.network.restartGame();
   }
 
   setPlayerName(name: string): void {
@@ -1361,6 +1400,10 @@ export class Game {
   }
 
   async addLocalBot(keySlot: number): Promise<boolean> {
+    if (!this.supportsLocalPlayers()) {
+      this._onSystemMessage?.("Local players are deferred in this version", 3500);
+      return false;
+    }
     return this.botMgr.addLocalBot(
       keySlot,
       this.flowMgr.phase,
@@ -1373,14 +1416,14 @@ export class Game {
   }
 
   async kickPlayer(playerId: string): Promise<boolean> {
-    if (!this.network.isHost()) {
-      console.log("[Game] Only host can kick players");
+    if (!this.isLeader()) {
+      console.log("[Game] Only leader can kick players");
       return false;
     }
 
     const myId = this.network.getMyPlayerId();
     if (myId && playerId === myId) {
-      console.log("[Game] Host cannot kick themselves");
+      console.log("[Game] Leader cannot kick themselves");
       return false;
     }
 
@@ -1396,6 +1439,9 @@ export class Game {
   }
 
   getLocalPlayerCount(): number {
+    if (!this.supportsLocalPlayers()) {
+      return 1;
+    }
     return this.botMgr.getLocalPlayerCount(this.playerMgr.players);
   }
 
@@ -1408,7 +1454,12 @@ export class Game {
   }
 
   hasLocalPlayers(): boolean {
+    if (!this.supportsLocalPlayers()) return false;
     return this.botMgr.hasLocalPlayers(this.playerMgr.players);
+  }
+
+  supportsLocalPlayers(): boolean {
+    return this.network.supportsLocalPlayers();
   }
 
   setKeyboardInputEnabled(enabled: boolean): void {
@@ -1431,7 +1482,7 @@ export class Game {
     this.renderer.setDevMode(newState);
 
     // Sync dev mode state across multiplayer
-    if (this.network.isHost()) {
+    if (this.isLeader()) {
       this.network.broadcastDevMode(newState);
     }
 
@@ -1447,6 +1498,33 @@ export class Game {
   setDevModeFromNetwork(enabled: boolean): void {
     this.renderer.setDevMode(enabled);
     console.log("[Game] Dev mode synced from network:", enabled ? "ON" : "OFF");
+  }
+
+  private submitFinalScoreFromAuthoritativeState(): void {
+    if (this.network.isSimulationAuthority()) return;
+    if (this.finalScoreSubmittedForMatch) return;
+
+    const myId = this.network.getMyPlayerId();
+    if (!myId) return;
+
+    const resultScore = this.roundResult?.roundWinsById?.[myId];
+    const fallbackScore = this.playerMgr.players.get(myId)?.roundWins;
+    const rawScore =
+      Number.isFinite(resultScore) ? resultScore : fallbackScore;
+
+    if (!Number.isFinite(rawScore)) return;
+    const score = Math.max(0, Math.floor(rawScore as number));
+
+    if (
+      typeof (window as unknown as { submitScore?: (value: number) => void })
+        .submitScore === "function"
+    ) {
+      (
+        window as unknown as { submitScore: (value: number) => void }
+      ).submitScore(score);
+      console.log("[Game] Submitted authoritative final score:", score);
+      this.finalScoreSubmittedForMatch = true;
+    }
   }
 
   // ============= TOUCH LAYOUT DELEGATION =============

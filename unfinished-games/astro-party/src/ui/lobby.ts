@@ -20,9 +20,9 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
 
   function updateBotControlsVisibility(
     playerCount: number,
-    isHost: boolean,
+    isLeader: boolean,
   ): void {
-    if (!isHost) {
+    if (!isLeader) {
       elements.addBotSection.classList.add("hidden");
       return;
     }
@@ -32,7 +32,13 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
       elements.addAIBotBtn.disabled = false;
 
       const hasRemote = game.hasRemotePlayers();
-      elements.addLocalPlayerBtn.style.display = hasRemote ? "none" : "flex";
+      const supportsLocalPlayers = game.supportsLocalPlayers();
+      const canShowLocal = supportsLocalPlayers && !hasRemote;
+      elements.addLocalPlayerBtn.style.display = canShowLocal ? "flex" : "none";
+      elements.addLocalPlayerBtn.disabled = !supportsLocalPlayers;
+      elements.addLocalPlayerBtn.title = supportsLocalPlayers
+        ? "Add Local Player (same keyboard)"
+        : "Local players are deferred in this version";
     } else {
       elements.addBotSection.classList.add("hidden");
     }
@@ -75,9 +81,9 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
 
   function updateLobbyUI(players: PlayerData[]): void {
     const myPlayerId = game.getMyPlayerId();
-    const isHost = game.isHost();
-    const hostId = game.getHostId();
-    elements.lobbyScreen.classList.toggle("is-host", isHost);
+    const isLeader = game.isLeader();
+    const leaderId = game.getLeaderId();
+    elements.lobbyScreen.classList.toggle("is-host", isLeader);
 
     const shipIcon = (color: string) =>
       '<svg viewBox="0 0 24 24" fill="' +
@@ -95,7 +101,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
       '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>';
 
     const rows = players.map((player) => {
-      const isHostPlayer = hostId ? player.id === hostId : false;
+      const isLeaderPlayer = leaderId ? player.id === leaderId : false;
       const isSelf = player.id === myPlayerId;
       const nameDisplay = isSelf
         ? escapeHtml(player.name) + ' <span class="player-self">(You)</span>'
@@ -123,7 +129,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
       }
 
       const kickButton =
-        isHost && !isSelf
+        isLeader && !isSelf
           ? '<button class="player-kick" data-player-id="' +
             player.id +
             '" aria-label="Kick player">' +
@@ -143,7 +149,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
         "</div>" +
         '<div class="player-badges">' +
         typeBadge +
-        (isHostPlayer
+        (isLeaderPlayer
           ? '<span class="player-host">' + crownIcon + "</span>"
           : "") +
         kickButton +
@@ -167,7 +173,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
 
     const canStart = game.canStartGame();
 
-    if (isHost) {
+    if (isLeader) {
       elements.startGameBtn.style.display = "block";
       elements.startGameBtn.disabled = !canStart;
       if (canStart) {
@@ -179,21 +185,21 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     } else {
       elements.startGameBtn.style.display = "none";
       elements.lobbyStatus.innerHTML =
-        'Waiting for host to start<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>';
+        'Waiting for leader to start<span class="waiting-dots"><span class="waiting-dot"></span><span class="waiting-dot"></span><span class="waiting-dot"></span></span>';
     }
 
-    updateBotControlsVisibility(players.length, isHost);
+    updateBotControlsVisibility(players.length, isLeader);
     elements.gameModeSection.classList.toggle("hidden", false);
-    elements.gameModeSection.classList.toggle("readonly", !isHost);
-    elements.modeStandard.disabled = !isHost;
-    elements.modeChaotic.disabled = !isHost;
-    elements.modeSane.disabled = !isHost;
+    elements.gameModeSection.classList.toggle("readonly", !isLeader);
+    elements.modeStandard.disabled = !isLeader;
+    elements.modeChaotic.disabled = !isLeader;
+    elements.modeSane.disabled = !isLeader;
     elements.modeCustom.disabled = true;
-    elements.advancedSettingsBtn.style.display = isHost ? "block" : "none";
-    elements.advancedSettingsBtn.disabled = !isHost;
+    elements.advancedSettingsBtn.style.display = isLeader ? "block" : "none";
+    elements.advancedSettingsBtn.disabled = !isLeader;
     const actionsBox = elements.gameModeSection.closest(".lobby-actions");
     if (actionsBox) {
-      actionsBox.classList.toggle("readonly", !isHost);
+      actionsBox.classList.toggle("readonly", !isLeader);
     }
 
     attachRemoveBotHandlers();
@@ -261,6 +267,9 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   });
 
   elements.addLocalPlayerBtn.addEventListener("click", async () => {
+    if (!game.supportsLocalPlayers()) {
+      return;
+    }
     if (addingBot) return;
     addingBot = true;
     elements.addLocalPlayerBtn.disabled = true;

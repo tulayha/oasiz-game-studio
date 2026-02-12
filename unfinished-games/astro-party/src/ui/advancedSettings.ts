@@ -94,7 +94,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
   }
 
   function openModal(): void {
-    if (!game.isHost()) return;
+    if (!game.isLeader()) return;
     triggerHaptic("light");
     elements.advancedSettingsModal.classList.add("active");
     elements.advancedSettingsBackdrop.classList.add("active");
@@ -223,7 +223,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
   }
 
   elements.advancedSettingsBtn.addEventListener("click", () => {
-    if (!game.isHost()) return;
+    if (!game.isLeader()) return;
     AudioManager.playUIClick();
     openModal();
   });

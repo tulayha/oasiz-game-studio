@@ -32,8 +32,8 @@ export class PlayerManager {
       return;
     }
 
-    // If joining during countdown and we're host, restart countdown
-    if (phase === "COUNTDOWN" && this.network.isHost()) {
+    // If joining during countdown and we are simulation authority, restart countdown
+    if (phase === "COUNTDOWN" && this.network.isSimulationAuthority()) {
       console.log(
         "[Game] Player joined during countdown, restarting countdown",
       );

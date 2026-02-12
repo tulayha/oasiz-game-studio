@@ -46,6 +46,10 @@ export class BotManager {
     phase: GamePhase,
     players: Map<string, PlayerData>,
   ): Promise<boolean> {
+    if (!this.network.supportsLocalPlayers()) {
+      console.log("[Game] Local players are deferred in this version");
+      return false;
+    }
     if (phase !== "LOBBY") {
       console.log("[Game] Cannot add bots outside lobby phase");
       return false;
@@ -93,7 +97,7 @@ export class BotManager {
 
   getUsedKeySlots(players: Map<string, PlayerData>): number[] {
     const slots: number[] = [];
-    slots.push(0); // Slot 0 (WASD) is always used by the host
+    slots.push(0); // Slot 0 (WASD) is always used by the local player
 
     for (const [playerId] of players) {
       const botType = this.network.getPlayerBotType(playerId);
