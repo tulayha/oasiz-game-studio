@@ -154,6 +154,8 @@ export class NetworkSyncSystem {
   private networkTurret: TurretState | null = null;
   private networkTurretBullets: TurretBulletState[] = [];
   private networkRotationDirection: number = 1;
+  /** Derived simTimeMs for non-host, computed from host tick × tick duration */
+  hostSimTimeMs: number = 0;
 
   private clientArmingMines: Set<string> = new Set();
   private clientExplodedMines: Set<string> = new Set();
@@ -349,8 +351,8 @@ export class NetworkSyncSystem {
       turretBullets: input.turretBullets.map((b) => b.getState()),
       playerPowerUps: playerPowerUpsRecord,
       rotationDirection: input.rotationDirection,
-      screenShakeIntensity: input.screenShakeIntensity,
-      screenShakeDuration: input.screenShakeDuration,
+      screenShakeIntensity: 0,
+      screenShakeDuration: 0,
       hostTick: input.hostTick,
       tickDurationMs: input.tickDurationMs,
     };
@@ -370,7 +372,9 @@ export class NetworkSyncSystem {
     if (normalizedHostTick <= this.lastAppliedHostTick) {
       return;
     }
+    console.log(`[NetworkSync] Accepted snapshot tick=${normalizedHostTick} ships=${state.ships?.length ?? 0} asteroids=${state.asteroids?.length ?? 0} lastTick=${this.lastAppliedHostTick}`);
     this.lastAppliedHostTick = normalizedHostTick;
+    this.hostSimTimeMs = normalizedHostTick * normalizedTickDurationMs;
     state.hostTick = normalizedHostTick;
     state.tickDurationMs = normalizedTickDurationMs;
 
@@ -450,12 +454,8 @@ export class NetworkSyncSystem {
     this.networkRotationDirection = state.rotationDirection ?? 1;
     this.reconcileLocalPrediction(state);
 
-    if (!this.network.isHost()) {
-      this.renderer.addScreenShake(
-        state.screenShakeIntensity ?? 0,
-        state.screenShakeDuration ?? 0,
-      );
-    }
+    // Screen shake now handled via RPC only (broadcastScreenShake),
+    // no longer applied from state sync to avoid continuous re-triggering.
 
     if (state.playerPowerUps) {
       const activePowerUpIds = new Set(Object.keys(state.playerPowerUps));
@@ -519,6 +519,32 @@ export class NetworkSyncSystem {
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
     this.clientShipPositions.clear();
+  }
+
+  /** Clear network entity state between rounds (non-host) so stale entities don't render
+   *  and new-round snapshots (with reset tick numbers) aren't rejected */
+  clearNetworkEntities(): void {
+    this.networkShips = [];
+    this.networkPilots = [];
+    this.networkProjectiles = [];
+    this.networkAsteroids = [];
+    this.networkPowerUps = [];
+    this.networkLaserBeams = [];
+    this.networkMines = [];
+    this.networkHomingMissiles = [];
+    this.networkTurret = null;
+    this.networkTurretBullets = [];
+    this.shipSmoother.clear();
+    this.projectileSmoother.clear();
+    this.asteroidSmoother.clear();
+    this.pilotSmoother.clear();
+    this.missileSmoother.clear();
+    this.clientArmingMines.clear();
+    this.clientExplodedMines.clear();
+    this.clientShipPositions.clear();
+    // Reset tick guard so new-round snapshots (starting from tick 0) aren't rejected
+    this.lastAppliedHostTick = -1;
+    this.snapshotHistory = [];
   }
 
   private trackSnapshotTiming(receivedAt: number): void {

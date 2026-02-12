@@ -62,7 +62,14 @@ export class PlayerManager {
     playerOrder: string[],
     onPlayersUpdate: (() => void) | null,
   ): void {
-    playerOrder.forEach((playerId, index) => {
+    const orderedIds = new Set(playerOrder);
+    for (const playerId of [...this.players.keys()]) {
+      if (!orderedIds.has(playerId)) {
+        this.players.delete(playerId);
+      }
+    }
+
+    playerOrder.forEach((playerId) => {
       const existingPlayer = this.players.get(playerId);
       if (existingPlayer) {
         existingPlayer.color = this.network.getPlayerColor(playerId);

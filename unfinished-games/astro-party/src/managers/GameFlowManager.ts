@@ -279,6 +279,7 @@ export class GameFlowManager {
 
   private triggerScreenShake(intensity: number, duration: number): void {
     this.renderer.addScreenShake(intensity, duration);
+    this.network.broadcastScreenShake(intensity, duration);
   }
 
   checkEliminationWin(players: Map<string, PlayerData>): void {

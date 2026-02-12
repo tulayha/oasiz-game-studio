@@ -464,6 +464,9 @@ export class Game {
 
       onGameStateReceived: (state) => {
         if (!this.network.isHost()) {
+          if (this.flowMgr.phase !== "PLAYING") {
+            return; // Only process snapshots during PLAYING
+          }
           this.networkSync.applyNetworkState(state);
         }
       },
@@ -492,6 +495,12 @@ export class Game {
       onGamePhaseReceived: (phase, winnerId, winnerName) => {
         console.log("[Game] RPC phase received:", phase);
         if (!this.network.isHost()) {
+          const shouldForceRosterSync =
+            phase === "COUNTDOWN" || phase === "PLAYING";
+          this.network.resyncPlayerListFromState(
+            "rpc-phase-" + phase.toLowerCase(),
+            shouldForceRosterSync,
+          );
           const oldPhase = this.flowMgr.phase;
           this.flowMgr.phase = phase;
 
@@ -505,9 +514,12 @@ export class Game {
             this.clearAllGameState();
           }
 
-          // FIX: Reset prediction state when new round starts
+          // Clear old round state and reset prediction when new round starts
           if (phase === "COUNTDOWN" && (oldPhase === "ROUND_END" || oldPhase === "LOBBY")) {
-            console.log("[Game] New round starting, resetting prediction state");
+            console.log("[Game] Non-host: new round starting, clearing old state");
+            this.resetForNextRound();
+            this.networkSync.clearNetworkEntities();
+            this.roundResult = null;
             this.networkSync.resetPredictionState();
           }
 
@@ -588,6 +600,9 @@ export class Game {
 
   private initializeNetworkSession(): void {
     this.network.startSync();
+    if (!this.network.isHost()) {
+      this.network.resyncPlayerListFromState("session-init", true);
+    }
 
     this.input.setDashCallback(() => {
       this.handleLocalDash();
@@ -611,6 +626,8 @@ export class Game {
 
   private triggerScreenShake(intensity: number, duration: number): void {
     this.renderer.addScreenShake(intensity, duration);
+    // Broadcast to non-host via RPC (host-only, broadcastScreenShake guards internally)
+    this.network.broadcastScreenShake(intensity, duration);
   }
 
   private handleDisconnected(): void {
@@ -1088,7 +1105,7 @@ export class Game {
       this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
     this.gameRenderer.render({
       dt,
-      nowMs: this.simTimeMs,
+      nowMs: this.network.isHost() ? this.simTimeMs : this.networkSync.hostSimTimeMs,
       phase: this.flowMgr.phase,
       countdown: this.flowMgr.countdown,
       isHost: this.network.isHost(),

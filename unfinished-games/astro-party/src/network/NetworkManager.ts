@@ -71,12 +71,24 @@ interface PlayerMeta {
 
 type PlayerMetaMap = Map<string, PlayerMeta>;
 
+interface PlayerListPayload {
+  order: string[];
+  meta: PlayerMeta[];
+  hostId?: string | null;
+  revision?: number;
+}
+
+interface PlayerListStatePayload extends PlayerListPayload {
+  revision: number;
+}
+
 interface PingPayload {
   seq: number;
   sentAt: number;
 }
 
 export class NetworkManager {
+  private static readonly PLAYER_LIST_STATE_KEY = "playerListState";
   private players: Map<string, PlayroomPlayerState> = new Map();
   private playerOrder: string[] = [];
   private callbacks: NetworkCallbacks | null = null;
@@ -93,6 +105,8 @@ export class NetworkManager {
   private lastPingSentAt = 0;
   private lastPingEchoSeq = -1;
   private lastPingSeqByPlayer = new Map<string, number>();
+  private playerListRevision = 0;
+  private lastAppliedPlayerListRevision = -1;
   private static readonly PING_INTERVAL_MS = 1000;
 
   async createRoom(): Promise<string> {
@@ -168,6 +182,7 @@ export class NetworkManager {
       this.connected = true;
       console.log("[NetworkManager] Joined room! Code:", getRoomCode());
       this.updateHostState();
+      this.resyncPlayerListFromState("join-room", true);
 
       // Share room code with platform
       this.shareRoomCode(roomCode);
@@ -213,6 +228,8 @@ export class NetworkManager {
           const playerIndex = this.playerOrder.indexOf(botPlayer.id);
           this.callbacks?.onPlayerJoined(botPlayer.id, playerIndex);
           this.broadcastPlayerList();
+        } else {
+          this.resyncPlayerListFromState("on-player-join");
         }
 
         player.onQuit(() => {
@@ -232,6 +249,7 @@ export class NetworkManager {
             this.broadcastPlayerList();
           } else {
             this.callbacks?.onPlayerLeft(player.id);
+            this.resyncPlayerListFromState("on-player-left", true);
           }
         });
       }),
@@ -324,30 +342,10 @@ export class NetworkManager {
     this.cleanupFunctions.push(
       RPC.register(
         "playerList",
-        async (payload: {
-          order: string[];
-          meta: PlayerMeta[];
-          hostId?: string | null;
-        }) => {
+        async (payload: PlayerListPayload) => {
           if (!isHost()) {
-            this.playerOrder = [...payload.order];
-            this.playerMetaById.clear();
-            for (const meta of payload.meta) {
-              this.playerMetaById.set(meta.id, meta);
-            }
-            if (payload.hostId) {
-              this.hostId = payload.hostId;
-            }
-            console.log(
-              "[NetworkManager] playerList received:",
-              this.playerOrder.length,
-              this.playerOrder,
-            );
+            this.applyPlayerListPayload(payload, "rpc");
           }
-          this.callbacks?.onPlayerListReceived(
-            payload.order,
-            this.playerMetaById,
-          );
         },
       ),
     );
@@ -427,6 +425,7 @@ export class NetworkManager {
 
       // All clients: check for game state updates (positions, etc)
       if (!isHost()) {
+        this.resyncPlayerListFromState("sync-poll");
         const gameState = getState("gameState") as GameStateSync;
         if (gameState) {
           this.callbacks?.onGameStateReceived(gameState);
@@ -551,34 +550,30 @@ export class NetworkManager {
   broadcastPlayerList(): void {
     if (!isHost()) return;
     this.updateHostState();
-    const meta: PlayerMeta[] = this.playerOrder.map((playerId) => {
-      const player = this.players.get(playerId);
-      return {
-        id: playerId,
-        customName: (player?.getState("customName") as string) || undefined,
-        profileName: player?.getProfile()?.name || undefined,
-        botType: (player?.getState("botType") as "ai" | "local") || undefined,
-        colorIndex: (player?.getState("colorIndex") as number) ?? undefined,
-        keySlot: (player?.getState("keySlot") as number) ?? undefined,
-      };
-    });
+    const payload = this.buildPlayerListPayload();
+    setState(NetworkManager.PLAYER_LIST_STATE_KEY, payload, true);
     console.log(
       "[NetworkManager] Broadcasting playerList:",
       this.playerOrder.length,
       this.playerOrder,
     );
-    RPC.call(
-      "playerList",
-      { order: this.playerOrder, meta, hostId: this.hostId },
-      RPC.Mode.ALL,
-    );
+    RPC.call("playerList", payload, RPC.Mode.ALL);
+  }
+
+  resyncPlayerListFromState(reason: string = "manual", force = false): boolean {
+    if (isHost()) return false;
+    const payload = getState(
+      NetworkManager.PLAYER_LIST_STATE_KEY,
+    ) as PlayerListStatePayload | null;
+    if (!payload) return false;
+    return this.applyPlayerListPayload(payload, "state:" + reason, force);
   }
 
   // Reset all player states (for game restart)
   async resetAllPlayerStates(): Promise<void> {
     if (!isHost()) return;
     console.log("[NetworkManager] Resetting all player states");
-    await resetPlayersStates(["customName", "botType", "keySlot"]); // Keep bot identity fields
+    await resetPlayersStates(["customName", "botType", "keySlot", "colorIndex"]); // Keep bot identity + color fields
   }
 
   // Update player kill count
@@ -646,6 +641,9 @@ export class NetworkManager {
       return PLAYER_COLORS[(colorIndex as number) % PLAYER_COLORS.length];
     }
     const index = this.getPlayerIndex(playerId);
+    if (index < 0) {
+      return PLAYER_COLORS[0];
+    }
     return PLAYER_COLORS[index % PLAYER_COLORS.length];
   }
 
@@ -724,6 +722,71 @@ export class NetworkManager {
     this.lastPingSentAt = 0;
     this.lastPingEchoSeq = -1;
     this.lastPingSeqByPlayer.clear();
+    this.playerListRevision = 0;
+    this.lastAppliedPlayerListRevision = -1;
+  }
+
+  private buildPlayerListPayload(): PlayerListStatePayload {
+    const meta: PlayerMeta[] = this.playerOrder.map((playerId) => {
+      const player = this.players.get(playerId);
+      return {
+        id: playerId,
+        customName: (player?.getState("customName") as string) || undefined,
+        profileName: player?.getProfile()?.name || undefined,
+        botType: (player?.getState("botType") as "ai" | "local") || undefined,
+        colorIndex: (player?.getState("colorIndex") as number) ?? undefined,
+        keySlot: (player?.getState("keySlot") as number) ?? undefined,
+      };
+    });
+    this.playerListRevision += 1;
+    this.lastAppliedPlayerListRevision = this.playerListRevision;
+    return {
+      order: [...this.playerOrder],
+      meta,
+      hostId: this.hostId,
+      revision: this.playerListRevision,
+    };
+  }
+
+  private applyPlayerListPayload(
+    payload: PlayerListPayload,
+    source: string,
+    force = false,
+  ): boolean {
+    if (!Array.isArray(payload.order) || !Array.isArray(payload.meta)) {
+      return false;
+    }
+
+    const revision =
+      typeof payload.revision === "number" ? payload.revision : undefined;
+    if (
+      !force &&
+      typeof revision === "number" &&
+      revision <= this.lastAppliedPlayerListRevision
+    ) {
+      return false;
+    }
+
+    this.playerOrder = [...payload.order];
+    this.playerMetaById.clear();
+    for (const meta of payload.meta) {
+      this.playerMetaById.set(meta.id, meta);
+    }
+    if (payload.hostId !== undefined) {
+      this.hostId = payload.hostId ?? null;
+    }
+    if (typeof revision === "number") {
+      this.lastAppliedPlayerListRevision = revision;
+    }
+
+    console.log(
+      "[NetworkManager] playerList applied from",
+      source,
+      this.playerOrder.length,
+      this.playerOrder,
+    );
+    this.callbacks?.onPlayerListReceived(this.playerOrder, this.playerMetaById);
+    return true;
   }
 
   private handlePingTick(now: number): void {
