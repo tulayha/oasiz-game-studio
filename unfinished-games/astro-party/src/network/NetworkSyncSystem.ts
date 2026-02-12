@@ -52,19 +52,6 @@ interface LocalPredictionRuntime {
 
 export interface BroadcastStateInput {
   ships: Map<string, Ship>;
-  pilots: Map<string, Pilot>;
-  projectiles: Projectile[];
-  asteroids: Asteroid[];
-  powerUps: PowerUp[];
-  laserBeams: LaserBeam[];
-  mines: Mine[];
-  homingMissiles: HomingMissile[];
-  turret: Turret | null;
-  turretBullets: TurretBullet[];
-  playerPowerUps: Map<string, PlayerPowerUp | null>;
-  rotationDirection: number;
-  screenShakeIntensity: number;
-  screenShakeDuration: number;
   hostTick: number;
   tickDurationMs: number;
 }
@@ -276,15 +263,15 @@ export class NetworkSyncSystem {
     if (bufferedSnapshot) {
       return {
         networkShips: renderShips,
-        networkPilots: bufferedSnapshot.pilots,
-        networkProjectiles: bufferedSnapshot.projectiles,
-        networkAsteroids: bufferedSnapshot.asteroids,
-        networkPowerUps: bufferedSnapshot.powerUps,
-        networkLaserBeams: bufferedSnapshot.laserBeams,
-        networkMines: bufferedSnapshot.mines,
-        networkHomingMissiles: bufferedSnapshot.homingMissiles,
+        networkPilots: bufferedSnapshot.pilots ?? [],
+        networkProjectiles: bufferedSnapshot.projectiles ?? [],
+        networkAsteroids: bufferedSnapshot.asteroids ?? [],
+        networkPowerUps: bufferedSnapshot.powerUps ?? [],
+        networkLaserBeams: bufferedSnapshot.laserBeams ?? [],
+        networkMines: bufferedSnapshot.mines ?? [],
+        networkHomingMissiles: bufferedSnapshot.homingMissiles ?? [],
         networkTurret: bufferedSnapshot.turret ?? null,
-        networkTurretBullets: bufferedSnapshot.turretBullets,
+        networkTurretBullets: bufferedSnapshot.turretBullets ?? [],
         shipSmoother: this.shipSmoother,
         projectileSmoother: this.projectileSmoother,
         asteroidSmoother: this.asteroidSmoother,
@@ -326,33 +313,9 @@ export class NetworkSyncSystem {
     };
   }
 
-  broadcastState(input: BroadcastStateInput, nowMs: number): void {
-    const now = performance.now();
-
-    let playerPowerUpsRecord: Record<string, PlayerPowerUp | null> | undefined;
-    if (now - this.lastPowerUpSyncTime >= 200) {
-      this.lastPowerUpSyncTime = now;
-      playerPowerUpsRecord = {};
-      input.playerPowerUps.forEach((powerUp, playerId) => {
-        playerPowerUpsRecord![playerId] = powerUp;
-      });
-    }
-
+  broadcastState(input: BroadcastStateInput): void {
     const state: GameStateSync = {
       ships: [...input.ships.values()].map((s) => s.getState()),
-      pilots: [...input.pilots.values()].map((p) => p.getState(nowMs)),
-      projectiles: input.projectiles.map((p) => p.getState()),
-      asteroids: input.asteroids.map((a) => a.getState()),
-      powerUps: input.powerUps.map((p) => p.getState(nowMs)),
-      laserBeams: input.laserBeams.map((b) => b.getState()),
-      mines: input.mines.map((m) => m.getState()),
-      homingMissiles: input.homingMissiles.map((m) => m.getState()),
-      turret: input.turret?.getState(),
-      turretBullets: input.turretBullets.map((b) => b.getState()),
-      playerPowerUps: playerPowerUpsRecord,
-      rotationDirection: input.rotationDirection,
-      screenShakeIntensity: 0,
-      screenShakeDuration: 0,
       hostTick: input.hostTick,
       tickDurationMs: input.tickDurationMs,
     };
@@ -372,7 +335,16 @@ export class NetworkSyncSystem {
     if (normalizedHostTick <= this.lastAppliedHostTick) {
       return;
     }
-    console.log(`[NetworkSync] Accepted snapshot tick=${normalizedHostTick} ships=${state.ships?.length ?? 0} asteroids=${state.asteroids?.length ?? 0} lastTick=${this.lastAppliedHostTick}`);
+    const ships = state.ships ?? [];
+    const pilots = state.pilots ?? [];
+    const projectiles = state.projectiles ?? [];
+    const asteroids = state.asteroids ?? [];
+    const powerUps = state.powerUps ?? [];
+    const laserBeams = state.laserBeams ?? [];
+    const mines = state.mines ?? [];
+    const homingMissiles = state.homingMissiles ?? [];
+    const turretBullets = state.turretBullets ?? [];
+    console.log(`[NetworkSync] Accepted snapshot tick=${normalizedHostTick} ships=${ships.length} extras=${projectiles.length + asteroids.length + powerUps.length + mines.length} lastTick=${this.lastAppliedHostTick}`);
     this.lastAppliedHostTick = normalizedHostTick;
     this.hostSimTimeMs = normalizedHostTick * normalizedTickDurationMs;
     state.hostTick = normalizedHostTick;
@@ -383,7 +355,7 @@ export class NetworkSyncSystem {
     this.appendSnapshot(state, receivedAt);
     this.syncPlayerStatesFromNetwork();
 
-    const currentShipIds = new Set(state.ships.map((s) => s.playerId));
+    const currentShipIds = new Set(ships.map((s) => s.playerId));
     for (const [playerId, shipData] of this.clientShipPositions) {
       if (!currentShipIds.has(playerId)) {
         this.renderer.spawnExplosion(shipData.x, shipData.y, shipData.color);
@@ -392,7 +364,7 @@ export class NetworkSyncSystem {
       }
     }
 
-    for (const shipState of state.ships) {
+    for (const shipState of ships) {
       if (shipState.alive) {
         const player = this.playerMgr.players.get(shipState.playerId);
         const color = player?.color.primary || "#ffffff";
@@ -404,18 +376,18 @@ export class NetworkSyncSystem {
       }
     }
 
-    this.networkShips = state.ships;
-    this.networkPilots = state.pilots;
-    this.networkProjectiles = state.projectiles;
-    this.networkAsteroids = state.asteroids;
-    this.networkPowerUps = state.powerUps;
-    this.networkLaserBeams = state.laserBeams;
-    this.networkHomingMissiles = state.homingMissiles || [];
+    this.networkShips = ships;
+    this.networkPilots = pilots;
+    this.networkProjectiles = projectiles;
+    this.networkAsteroids = asteroids;
+    this.networkPowerUps = powerUps;
+    this.networkLaserBeams = laserBeams;
+    this.networkHomingMissiles = homingMissiles;
     this.networkTurret = state.turret ?? null;
-    this.networkTurretBullets = state.turretBullets || [];
+    this.networkTurretBullets = turretBullets;
 
-    if (state.mines) {
-      for (const mineState of state.mines) {
+    if (mines.length > 0) {
+      for (const mineState of mines) {
         if (
           mineState.arming &&
           !mineState.exploded &&
@@ -437,7 +409,7 @@ export class NetworkSyncSystem {
         }
       }
 
-      const currentMineIds = new Set(state.mines.map((m) => m.id));
+      const currentMineIds = new Set(mines.map((m) => m.id));
       for (const mineId of this.clientArmingMines) {
         if (!currentMineIds.has(mineId)) {
           this.clientArmingMines.delete(mineId);
@@ -450,7 +422,7 @@ export class NetworkSyncSystem {
       }
     }
 
-    this.networkMines = state.mines;
+    this.networkMines = mines;
     this.networkRotationDirection = state.rotationDirection ?? 1;
     this.reconcileLocalPrediction(state);
 
@@ -469,13 +441,15 @@ export class NetworkSyncSystem {
       Object.entries(state.playerPowerUps).forEach(([playerId, powerUp]) => {
         this.playerPowerUps.set(playerId, powerUp);
       });
+    } else {
+      this.playerPowerUps.clear();
     }
 
-    this.shipSmoother.applySnapshot(state.ships, (s) => s.playerId);
-    this.projectileSmoother.applySnapshot(state.projectiles, (p) => p.id);
-    this.asteroidSmoother.applySnapshot(state.asteroids, (a) => a.id);
-    this.pilotSmoother.applySnapshot(state.pilots, (p) => p.playerId);
-    this.missileSmoother.applySnapshot(state.homingMissiles || [], (m) => m.id);
+    this.shipSmoother.applySnapshot(ships, (s) => s.playerId);
+    this.projectileSmoother.applySnapshot(projectiles, (p) => p.id);
+    this.asteroidSmoother.applySnapshot(asteroids, (a) => a.id);
+    this.pilotSmoother.applySnapshot(pilots, (p) => p.playerId);
+    this.missileSmoother.applySnapshot(homingMissiles, (m) => m.id);
   }
 
   clear(): void {
@@ -801,8 +775,8 @@ export class NetworkSyncSystem {
     );
 
     result.pilots = this.interpolateCollection(
-      older.pilots,
-      newer.pilots,
+      older.pilots ?? [],
+      newer.pilots ?? [],
       (item) => item.playerId,
       t,
       ["x", "y", "vx", "vy", "survivalProgress"],
@@ -810,16 +784,16 @@ export class NetworkSyncSystem {
     );
 
     result.projectiles = this.interpolateCollection(
-      older.projectiles,
-      newer.projectiles,
+      older.projectiles ?? [],
+      newer.projectiles ?? [],
       (item) => item.id,
       t,
       ["x", "y", "vx", "vy"],
     );
 
     result.asteroids = this.interpolateCollection(
-      older.asteroids,
-      newer.asteroids,
+      older.asteroids ?? [],
+      newer.asteroids ?? [],
       (item) => item.id,
       t,
       ["x", "y", "vx", "vy", "angularVelocity", "size"],
@@ -827,16 +801,16 @@ export class NetworkSyncSystem {
     );
 
     result.powerUps = this.interpolateCollection(
-      older.powerUps,
-      newer.powerUps,
+      older.powerUps ?? [],
+      newer.powerUps ?? [],
       (item) => item.id,
       t,
       ["x", "y", "remainingTimeFraction"],
     );
 
     result.laserBeams = this.interpolateCollection(
-      older.laserBeams,
-      newer.laserBeams,
+      older.laserBeams ?? [],
+      newer.laserBeams ?? [],
       (item) => item.id,
       t,
       ["x", "y"],
@@ -844,16 +818,16 @@ export class NetworkSyncSystem {
     );
 
     result.mines = this.interpolateCollection(
-      older.mines,
-      newer.mines,
+      older.mines ?? [],
+      newer.mines ?? [],
       (item) => item.id,
       t,
       ["x", "y"],
     );
 
     result.homingMissiles = this.interpolateCollection(
-      older.homingMissiles,
-      newer.homingMissiles,
+      older.homingMissiles ?? [],
+      newer.homingMissiles ?? [],
       (item) => item.id,
       t,
       ["x", "y", "vx", "vy"],
@@ -861,8 +835,8 @@ export class NetworkSyncSystem {
     );
 
     result.turretBullets = this.interpolateCollection(
-      older.turretBullets,
-      newer.turretBullets,
+      older.turretBullets ?? [],
+      newer.turretBullets ?? [],
       (item) => item.id,
       t,
       ["x", "y", "vx", "vy"],
@@ -958,21 +932,21 @@ export class NetworkSyncSystem {
   private cloneSnapshotState(state: GameStateSync): GameStateSync {
     return {
       ships: state.ships.map((ship) => ({ ...ship })),
-      pilots: state.pilots.map((pilot) => ({ ...pilot })),
-      projectiles: state.projectiles.map((projectile) => ({ ...projectile })),
-      asteroids: state.asteroids.map((asteroid) => ({ ...asteroid })),
-      powerUps: state.powerUps.map((powerUp) => ({ ...powerUp })),
-      laserBeams: state.laserBeams.map((beam) => ({ ...beam })),
-      mines: state.mines.map((mine) => ({ ...mine })),
-      homingMissiles: state.homingMissiles.map((missile) => ({ ...missile })),
+      pilots: (state.pilots ?? []).map((pilot) => ({ ...pilot })),
+      projectiles: (state.projectiles ?? []).map((projectile) => ({ ...projectile })),
+      asteroids: (state.asteroids ?? []).map((asteroid) => ({ ...asteroid })),
+      powerUps: (state.powerUps ?? []).map((powerUp) => ({ ...powerUp })),
+      laserBeams: (state.laserBeams ?? []).map((beam) => ({ ...beam })),
+      mines: (state.mines ?? []).map((mine) => ({ ...mine })),
+      homingMissiles: (state.homingMissiles ?? []).map((missile) => ({ ...missile })),
       turret: state.turret ? { ...state.turret } : undefined,
-      turretBullets: state.turretBullets.map((bullet) => ({ ...bullet })),
+      turretBullets: (state.turretBullets ?? []).map((bullet) => ({ ...bullet })),
       playerPowerUps: state.playerPowerUps
         ? { ...state.playerPowerUps }
         : undefined,
-      rotationDirection: state.rotationDirection,
-      screenShakeIntensity: state.screenShakeIntensity,
-      screenShakeDuration: state.screenShakeDuration,
+      rotationDirection: state.rotationDirection ?? 1,
+      screenShakeIntensity: state.screenShakeIntensity ?? 0,
+      screenShakeDuration: state.screenShakeDuration ?? 0,
       hostTick: state.hostTick,
       tickDurationMs: state.tickDurationMs,
     };

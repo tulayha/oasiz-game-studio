@@ -202,19 +202,19 @@ export const PLAYER_COLORS: PlayerColor[] = [
 export interface GameStateSync {
   // Entity positions for rendering (broadcast every 50ms, unreliable)
   ships: ShipState[];
-  pilots: PilotState[];
-  projectiles: ProjectileState[];
-  asteroids: AsteroidState[];
-  powerUps: PowerUpState[];
-  laserBeams: LaserBeamState[];
-  mines: MineState[];
-  homingMissiles: HomingMissileState[];
+  pilots?: PilotState[];
+  projectiles?: ProjectileState[];
+  asteroids?: AsteroidState[];
+  powerUps?: PowerUpState[];
+  laserBeams?: LaserBeamState[];
+  mines?: MineState[];
+  homingMissiles?: HomingMissileState[];
   turret?: TurretState;
-  turretBullets: TurretBulletState[];
+  turretBullets?: TurretBulletState[];
   playerPowerUps?: Record<string, PlayerPowerUp | null>;
-  rotationDirection: number; // 1 for normal, -1 for reversed
-  screenShakeIntensity: number;
-  screenShakeDuration: number;
+  rotationDirection?: number; // 1 for normal, -1 for reversed
+  screenShakeIntensity?: number;
+  screenShakeDuration?: number;
   hostTick: number; // Host simulation tick for buffered interpolation
   tickDurationMs: number; // Host fixed tick duration (typically 16.667ms)
   // Note: phase, countdown, winnerId are sent via RPC (reliable, one-time)

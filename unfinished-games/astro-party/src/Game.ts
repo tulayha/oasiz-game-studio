@@ -200,10 +200,6 @@ export class Game {
       this.tickSystem.reset(0);
       this.simTimeMs = 0;
       this.flowMgr.beginMatch(this.playerMgr.players, this.ships, this.simTimeMs);
-      this.asteroidMgr.spawnInitialAsteroids();
-      this.asteroidMgr.scheduleAsteroidSpawnsIfNeeded(this.simTimeMs);
-      this.grantStartingPowerups();
-      this.turretMgr.spawn();
     };
     this.flowMgr.onRoundResult = (payload) => {
       this.applyRoundResult(payload);
@@ -824,208 +820,39 @@ export class Game {
     const syncNow = performance.now();
     this.collisionMgr.setSimTimeMs(nowMs);
 
-    // Check dev keys for testing powerups (only for local player on host)
-    const devKeys = this.input.consumeDevKeys();
-    const myPlayerId = this.network.getMyPlayerId();
-    if (myPlayerId && this.network.isHost()) {
-      const myShip = this.ships.get(myPlayerId);
-      const existingPowerUp = this.playerPowerUps.get(myPlayerId);
-      const grantDevPowerUp = (
-        flag: boolean,
-        type: PowerUpType,
-        label: string,
-      ): void => {
-        if (!flag) return;
-        console.log("[Dev] Granting " + label + " powerup");
-        this.grantPowerUp(myPlayerId, type);
-      };
-
-      if (myShip && myShip.alive && !existingPowerUp) {
-        grantDevPowerUp(devKeys.laser, "LASER", "LASER");
-        grantDevPowerUp(devKeys.shield, "SHIELD", "SHIELD");
-        grantDevPowerUp(devKeys.scatter, "SCATTER", "SCATTER");
-        grantDevPowerUp(devKeys.mine, "MINE", "MINE");
-        grantDevPowerUp(devKeys.joust, "JOUST", "JOUST");
-        grantDevPowerUp(devKeys.homing, "HOMING_MISSILE", "HOMING_MISSILE");
-      }
-
-      // Reverse can be triggered even with existing power-up since it's global
-      if (devKeys.reverse) {
-        console.log("[Dev] Toggling REVERSE rotation");
-        this.grantPowerUp(myPlayerId, "REVERSE");
-      }
-
-      if (devKeys.spawnPowerUp) {
-        console.log("[Dev] Spawning random power-up");
-        this.spawnRandomPowerUp(nowMs);
-      }
-    }
-
     // Host: process all inputs and update physics
     if (this.network.isHost()) {
-      this.asteroidMgr.updateSpawning(nowMs);
       this.ships.forEach((ship, playerId) => {
         const { input, shouldDash } = this.inputResolver.resolveHostInput(
           playerId,
           this.ships,
           this.pilots,
-          this.projectiles,
+          [],
           nowMs,
         );
 
-        // Check if player has joust for speed boost
-        const playerPowerUp = this.playerPowerUps.get(playerId);
-        const hasJoust = playerPowerUp?.type === "JOUST";
-        const speedMultiplier = hasJoust ? 1.4 : 1;
-
-        const fireResult = ship.applyInput(
+        ship.applyInput(
           input,
           shouldDash,
           dt,
           nowMs,
           this.rotationDirection,
-          speedMultiplier,
-        );
-        this.fireSystem.processFire(
-          playerId,
-          ship,
-          fireResult,
-          shouldDash,
-          nowMs,
+          1,
         );
         if (shouldDash) {
           this.spawnDashParticles(playerId, ship);
         }
       });
 
-      // Update pilots
-      const threats: { x: number; y: number }[] = [];
-      this.ships.forEach((ship) => {
-        if (ship.alive) {
-          threats.push({ x: ship.body.position.x, y: ship.body.position.y });
-        }
-      });
-
-      this.projectiles.forEach((proj) => {
-        threats.push({ x: proj.body.position.x, y: proj.body.position.y });
-      });
-
-      this.pilots.forEach((pilot, playerId) => {
-        const input =
-          pilot.controlMode === "player"
-            ? this.inputResolver.getPilotInputForPlayer(playerId)
-            : undefined;
-        pilot.update(dt, nowMs, threats, input, this.rotationDirection);
-
-        if (pilot.hasSurvived(nowMs)) {
-          const pilotPosition = {
-            x: pilot.body.position.x,
-            y: pilot.body.position.y,
-          };
-          const pilotAngle = pilot.body.angle;
-          pilot.destroy();
-          this.pilots.delete(playerId);
-          this.flowMgr.respawnPlayer(
-            playerId,
-            pilotPosition,
-            this.ships,
-            this.playerMgr.players,
-            pilotAngle,
-            nowMs,
-          );
-        }
-      });
-
       this.physics.updateFixed(this.tickSystem.getTickDurationMs());
-
-      // Clean up expired projectiles
-      this.cleanupExpired(
-        this.projectiles,
-        (projectile) => projectile.isExpired(nowMs),
-        (projectile) => projectile.destroy(),
-      );
-
-      // Wrap asteroids around the arena
-      this.asteroidMgr.getAsteroids().forEach((asteroid) => {
-        this.physics.wrapAround(asteroid.body);
-      });
-
-      // Update power-ups (magnetic effect)
-      const shipPositionsForPowerUps = new Map<
-        string,
-        { x: number; y: number; alive: boolean; hasPowerUp: boolean }
-      >();
-      this.ships.forEach((ship, playerId) => {
-        shipPositionsForPowerUps.set(playerId, {
-          x: ship.body.position.x,
-          y: ship.body.position.y,
-          alive: ship.alive,
-          hasPowerUp: this.playerPowerUps.has(playerId),
-        });
-      });
-
-      this.powerUps.forEach((powerUp) => {
-        powerUp.update(shipPositionsForPowerUps, dt, nowMs);
-      });
-
-      // Clean up expired power-ups
-      this.cleanupExpired(
-        this.powerUps,
-        (powerUp) => powerUp.isExpired(nowMs),
-        (powerUp) => powerUp.destroy(),
-      );
-
-      // Clean up expired laser beams
-      this.cleanupExpired(
-        this.laserBeams,
-        (beam) => beam.isExpired(nowMs),
-        (beam) => beam.destroy(),
-      );
-
-      // Check mine collisions and clean up expired mines
-      this.collisionMgr.checkMineCollisions();
-      this.cleanupExpired(
-        this.mines,
-        (mine) => mine.isExpired(nowMs),
-        (mine) => mine.destroy(),
-      );
-
-      // Update homing missiles and check collisions
-      this.collisionMgr.updateHomingMissiles(dt);
-      this.collisionMgr.checkHomingMissileCollisions();
-      this.cleanupExpired(
-        this.homingMissiles,
-        (missile) => missile.isExpired(nowMs) || !missile.alive,
-        (missile) => missile.destroy(),
-      );
-
-      // Check Joust collisions (sword-to-ship and sword-to-projectile)
-      this.collisionMgr.checkJoustCollisions();
-
-      // Update turret and bullets
-      this.turretMgr.update(dt, nowMs);
-      this.collisionMgr.update(nowMs);
 
       // Broadcast state (throttled to sync rate)
       if (syncNow - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
         this.networkSync.broadcastState({
           ships: this.ships,
-          pilots: this.pilots,
-          projectiles: this.projectiles,
-          asteroids: this.asteroidMgr.getAsteroids(),
-          powerUps: this.powerUps,
-          laserBeams: this.laserBeams,
-          mines: this.mines,
-          homingMissiles: this.homingMissiles,
-          turret: this.turretMgr.getTurret(),
-          turretBullets: this.turretMgr.getTurretBullets(),
-          playerPowerUps: this.playerPowerUps,
-          rotationDirection: this.rotationDirection,
-          screenShakeIntensity: this.renderer.getScreenShakeIntensity(),
-          screenShakeDuration: this.renderer.getScreenShakeDuration(),
           hostTick: tick,
           tickDurationMs: this.tickSystem.getTickDurationMs(),
-        }, nowMs);
+        });
         this.lastBroadcastTime = syncNow;
       }
     }
@@ -1112,26 +939,26 @@ export class Game {
       isDevModeEnabled: this.isDevModeEnabled(),
       ships: this.ships,
       pilots: this.pilots,
-      projectiles: this.projectiles,
-      asteroids: this.asteroidMgr.getAsteroids(),
-      powerUps: this.powerUps,
-      laserBeams: this.laserBeams,
-      mines: this.mines,
-      homingMissiles: this.homingMissiles,
-      turret: this.turretMgr.getTurret(),
-      turretBullets: this.turretMgr.getTurretBullets(),
+      projectiles: [],
+      asteroids: [],
+      powerUps: [],
+      laserBeams: [],
+      mines: [],
+      homingMissiles: [],
+      turret: null,
+      turretBullets: [],
       playerPowerUps: this.playerPowerUps,
       players: this.playerMgr.players,
       networkShips: frameRenderState.networkShips,
       networkPilots: frameRenderState.networkPilots,
-      networkProjectiles: frameRenderState.networkProjectiles,
-      networkAsteroids: frameRenderState.networkAsteroids,
-      networkPowerUps: frameRenderState.networkPowerUps,
-      networkLaserBeams: frameRenderState.networkLaserBeams,
-      networkMines: frameRenderState.networkMines,
-      networkHomingMissiles: frameRenderState.networkHomingMissiles,
-      networkTurret: frameRenderState.networkTurret,
-      networkTurretBullets: frameRenderState.networkTurretBullets,
+      networkProjectiles: [],
+      networkAsteroids: [],
+      networkPowerUps: [],
+      networkLaserBeams: [],
+      networkMines: [],
+      networkHomingMissiles: [],
+      networkTurret: null,
+      networkTurretBullets: [],
       shipSmoother: frameRenderState.shipSmoother,
       projectileSmoother: frameRenderState.projectileSmoother,
       asteroidSmoother: frameRenderState.asteroidSmoother,
