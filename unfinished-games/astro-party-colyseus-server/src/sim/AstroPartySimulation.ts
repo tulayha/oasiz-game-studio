@@ -1411,6 +1411,16 @@ export class AstroPartySimulation {
       ) {
         continue;
       }
+      // Check shield before destroying ship
+      const shield = this.playerPowerUps.get(playerId);
+      if (shield?.type === "SHIELD") {
+        shield.shieldHits += 1;
+        this.triggerScreenShake(3, 0.1);
+        if (shield.shieldHits >= POWERUP_SHIELD_HITS) {
+          this.playerPowerUps.delete(playerId);
+        }
+        continue;
+      }
       this.playerPowerUps.delete(playerId);
       this.onShipHit(this.players.get(ownerId), shipOwner);
     }
@@ -1675,9 +1685,11 @@ export class AstroPartySimulation {
         const dashBoost = player.dashTimerSec > 0 ? cfg.SHIP_DASH_BOOST : 0;
         const recoilSlowdown =
           player.recoilTimerSec > 0 ? cfg.SHIP_RECOIL_SLOWDOWN : 0;
+        const joustPowerUp = this.playerPowerUps.get(playerId);
+        const speedMultiplier = joustPowerUp?.type === "JOUST" ? JOUST_SPEED_MULTIPLIER : 1;
         const targetSpeedPxSec = Math.max(
           0,
-          (cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown) * 60,
+          (cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown) * speedMultiplier * 60,
         );
         const desiredVx = Math.cos(ship.angle) * targetSpeedPxSec;
         const desiredVy = Math.sin(ship.angle) * targetSpeedPxSec;
@@ -1715,29 +1727,30 @@ export class AstroPartySimulation {
       ship.x += ship.vx * dtSec;
       ship.y += ship.vy * dtSec;
 
+      // Matter.js uses max(bodyA.restitution, bodyB.restitution) for collision pairs
+      const shipWallRestitution = Math.max(shipRestitution, wallRestitution);
       if (ship.x < SHIP_RADIUS) {
         ship.x = SHIP_RADIUS;
-        ship.vx = Math.abs(ship.vx) * wallRestitution;
+        ship.vx = Math.abs(ship.vx) * shipWallRestitution;
         ship.vy *= Math.max(0, 1 - wallFriction);
       }
       if (ship.x > ARENA_WIDTH - SHIP_RADIUS) {
         ship.x = ARENA_WIDTH - SHIP_RADIUS;
-        ship.vx = -Math.abs(ship.vx) * wallRestitution;
+        ship.vx = -Math.abs(ship.vx) * shipWallRestitution;
         ship.vy *= Math.max(0, 1 - wallFriction);
       }
       if (ship.y < SHIP_RADIUS) {
         ship.y = SHIP_RADIUS;
-        ship.vy = Math.abs(ship.vy) * wallRestitution;
+        ship.vy = Math.abs(ship.vy) * shipWallRestitution;
         ship.vx *= Math.max(0, 1 - wallFriction);
       }
       if (ship.y > ARENA_HEIGHT - SHIP_RADIUS) {
         ship.y = ARENA_HEIGHT - SHIP_RADIUS;
-        ship.vy = -Math.abs(ship.vy) * wallRestitution;
+        ship.vy = -Math.abs(ship.vy) * shipWallRestitution;
         ship.vx *= Math.max(0, 1 - wallFriction);
       }
     }
 
-    // Host path previously relied on Matter collision response.
     this.resolveShipShipCollisions(shipRestitution, shipFriction);
   }
 
@@ -2052,6 +2065,8 @@ export class AstroPartySimulation {
       WALL_RESTITUTION_BY_PRESET[this.settings.wallRestitutionPreset] ?? 0;
     const wallFriction =
       WALL_FRICTION_BY_PRESET[this.settings.wallFrictionPreset] ?? 0;
+    // Matter.js uses max(bodyA.restitution, bodyB.restitution) for collision pairs
+    const effectiveRestitution = Math.max(ASTEROID_RESTITUTION, wallRestitution);
     for (const asteroid of this.asteroids) {
       if (!asteroid.alive) continue;
       asteroid.x += asteroid.vx * dtSec;
@@ -2060,22 +2075,22 @@ export class AstroPartySimulation {
 
       if (asteroid.x < asteroid.size) {
         asteroid.x = asteroid.size;
-        asteroid.vx = Math.abs(asteroid.vx) * wallRestitution;
+        asteroid.vx = Math.abs(asteroid.vx) * effectiveRestitution;
         asteroid.vy *= Math.max(0, 1 - wallFriction);
       }
       if (asteroid.x > ARENA_WIDTH - asteroid.size) {
         asteroid.x = ARENA_WIDTH - asteroid.size;
-        asteroid.vx = -Math.abs(asteroid.vx) * wallRestitution;
+        asteroid.vx = -Math.abs(asteroid.vx) * effectiveRestitution;
         asteroid.vy *= Math.max(0, 1 - wallFriction);
       }
       if (asteroid.y < asteroid.size) {
         asteroid.y = asteroid.size;
-        asteroid.vy = Math.abs(asteroid.vy) * wallRestitution;
+        asteroid.vy = Math.abs(asteroid.vy) * effectiveRestitution;
         asteroid.vx *= Math.max(0, 1 - wallFriction);
       }
       if (asteroid.y > ARENA_HEIGHT - asteroid.size) {
         asteroid.y = ARENA_HEIGHT - asteroid.size;
-        asteroid.vy = -Math.abs(asteroid.vy) * wallRestitution;
+        asteroid.vy = -Math.abs(asteroid.vy) * effectiveRestitution;
         asteroid.vx *= Math.max(0, 1 - wallFriction);
       }
     }
@@ -2123,35 +2138,19 @@ export class AstroPartySimulation {
     isStandard: boolean,
   ): boolean {
     const ship = player.ship;
-    if (this.nowMs - ship.lastShotTime < FIRE_COOLDOWN_MS) return false;
-    if (ship.ammo <= 0) return false;
-
-    ship.lastShotTime = this.nowMs;
-    ship.ammo -= 1;
-
-    if (isStandard) {
-      player.recoilTimerSec = cfg.SHIP_RECOIL_DURATION;
-    } else {
-      const recoilImpulse = cfg.RECOIL_FORCE * RECOIL_TO_IMPULSE;
-      ship.vx -= Math.cos(ship.angle) * recoilImpulse;
-      ship.vy -= Math.sin(ship.angle) * recoilImpulse;
-    }
-
-    if (!ship.isReloading) {
-      ship.reloadStartTime = this.nowMs;
-      ship.isReloading = true;
-    }
-
     const spawnX = ship.x + Math.cos(ship.angle) * 18;
     const spawnY = ship.y + Math.sin(ship.angle) * 18;
     const powerUp = this.playerPowerUps.get(player.id);
 
+    // Joust disables normal shooting entirely
     if (powerUp?.type === "JOUST") {
       return false;
     }
 
+    // --- Special weapons have their own cooldowns and charges ---
+
     if (powerUp?.type === "LASER" && powerUp.charges > 0) {
-      if (this.nowMs - powerUp.lastFireTime <= LASER_COOLDOWN_MS) {
+      if (this.nowMs - powerUp.lastFireTime < LASER_COOLDOWN_MS) {
         return false;
       }
       powerUp.lastFireTime = this.nowMs;
@@ -2175,7 +2174,7 @@ export class AstroPartySimulation {
     }
 
     if (powerUp?.type === "SCATTER" && powerUp.charges > 0) {
-      if (this.nowMs - powerUp.lastFireTime <= SCATTER_COOLDOWN_MS) {
+      if (this.nowMs - powerUp.lastFireTime < SCATTER_COOLDOWN_MS) {
         return false;
       }
       powerUp.lastFireTime = this.nowMs;
@@ -2243,6 +2242,27 @@ export class AstroPartySimulation {
         this.playerPowerUps.delete(player.id);
       }
       return true;
+    }
+
+    // --- Normal projectile: uses ammo, fire cooldown, and recoil ---
+
+    if (this.nowMs - ship.lastShotTime < FIRE_COOLDOWN_MS) return false;
+    if (ship.ammo <= 0) return false;
+
+    ship.lastShotTime = this.nowMs;
+    ship.ammo -= 1;
+
+    if (isStandard) {
+      player.recoilTimerSec = cfg.SHIP_RECOIL_DURATION;
+    } else {
+      const recoilImpulse = cfg.RECOIL_FORCE * RECOIL_TO_IMPULSE;
+      ship.vx -= Math.cos(ship.angle) * recoilImpulse;
+      ship.vy -= Math.sin(ship.angle) * recoilImpulse;
+    }
+
+    if (!ship.isReloading) {
+      ship.reloadStartTime = this.nowMs;
+      ship.isReloading = true;
     }
 
     this.projectiles.push({
@@ -2321,7 +2341,8 @@ export class AstroPartySimulation {
         if (!pilot.alive) continue;
         const dx = pilot.x - proj.x;
         const dy = pilot.y - proj.y;
-        if (dx * dx + dy * dy > PILOT_RADIUS * PILOT_RADIUS) continue;
+        const hitDist = PILOT_RADIUS + PROJECTILE_RADIUS;
+        if (dx * dx + dy * dy > hitDist * hitDist) continue;
         consumed.add(proj.id);
         this.killPilot(pilotPlayerId, proj.ownerId);
         break;
@@ -2332,7 +2353,8 @@ export class AstroPartySimulation {
         if (!asteroid.alive) continue;
         const dx = asteroid.x - proj.x;
         const dy = asteroid.y - proj.y;
-        if (dx * dx + dy * dy > asteroid.size * asteroid.size) continue;
+        const hitDist = asteroid.size + PROJECTILE_RADIUS;
+        if (dx * dx + dy * dy > hitDist * hitDist) continue;
         consumed.add(proj.id);
         this.destroyAsteroid(asteroid);
         break;
@@ -2481,6 +2503,19 @@ export class AstroPartySimulation {
       const dx = player.ship.x - mine.x;
       const dy = player.ship.y - mine.y;
       if (dx * dx + dy * dy > MINE_EXPLOSION_RADIUS * MINE_EXPLOSION_RADIUS) continue;
+      // Shield fully absorbs mine blast but is destroyed in the process
+      const shipPowerUp = this.playerPowerUps.get(playerId);
+      if (shipPowerUp?.type === "SHIELD") {
+        this.playerPowerUps.delete(playerId);
+        // Knockback away from mine center
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const knockback = 350;
+        player.ship.vx += (dx / dist) * knockback;
+        player.ship.vy += (dy / dist) * knockback;
+        this.triggerScreenShake(10, 0.3);
+        continue;
+      }
+      // Mine instantly eliminates (no pilot ejection)
       player.ship.alive = false;
       player.ship.vx = 0;
       player.ship.vy = 0;
@@ -2700,10 +2735,23 @@ export class AstroPartySimulation {
           const dx = other.ship.x - swords.left.centerX;
           const dy = other.ship.y - swords.left.centerY;
           if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + 20) ** 2) {
-            this.playerPowerUps.delete(otherId);
-            this.onShipHit(owner, other);
-            powerUp.leftSwordActive = false;
-            this.triggerScreenShake(8, 0.25);
+            const otherPowerUp = this.playerPowerUps.get(otherId);
+            if (otherPowerUp?.type === "SHIELD") {
+              // Shield absorbs the sword hit; shield fully destroyed, sword consumed
+              this.playerPowerUps.delete(otherId);
+              powerUp.leftSwordActive = false;
+              // Knockback away from sword center
+              const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+              const knockback = 250;
+              other.ship.vx += (dx / dist) * knockback;
+              other.ship.vy += (dy / dist) * knockback;
+              this.triggerScreenShake(8, 0.25);
+            } else {
+              this.playerPowerUps.delete(otherId);
+              this.onShipHit(owner, other);
+              powerUp.leftSwordActive = false;
+              this.triggerScreenShake(8, 0.25);
+            }
             hitShip = true;
           }
         }
@@ -2712,10 +2760,22 @@ export class AstroPartySimulation {
           const dx = other.ship.x - swords.right.centerX;
           const dy = other.ship.y - swords.right.centerY;
           if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + 20) ** 2) {
-            this.playerPowerUps.delete(otherId);
-            this.onShipHit(owner, other);
-            powerUp.rightSwordActive = false;
-            this.triggerScreenShake(8, 0.25);
+            const otherPowerUp = this.playerPowerUps.get(otherId);
+            if (otherPowerUp?.type === "SHIELD") {
+              this.playerPowerUps.delete(otherId);
+              powerUp.rightSwordActive = false;
+              // Knockback away from sword center
+              const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+              const knockback = 250;
+              other.ship.vx += (dx / dist) * knockback;
+              other.ship.vy += (dy / dist) * knockback;
+              this.triggerScreenShake(8, 0.25);
+            } else {
+              this.playerPowerUps.delete(otherId);
+              this.onShipHit(owner, other);
+              powerUp.rightSwordActive = false;
+              this.triggerScreenShake(8, 0.25);
+            }
           }
         }
 
@@ -2807,7 +2867,10 @@ export class AstroPartySimulation {
     if (nearest) {
       const targetAngle = Math.atan2(nearest.ship.y - this.turret.y, nearest.ship.x - this.turret.x);
       const diff = normalizeAngle(targetAngle - this.turret.angle);
-      this.turret.angle = normalizeAngle(this.turret.angle + diff * TURRET_ROTATION_SPEED * dtSec);
+      // Fixed rotation speed toward target, clamped to not overshoot
+      const maxStep = TURRET_ROTATION_SPEED * dtSec;
+      const step = Math.abs(diff) < maxStep ? diff : Math.sign(diff) * maxStep;
+      this.turret.angle = normalizeAngle(this.turret.angle + step);
       this.turret.targetAngle = targetAngle;
       this.turret.isTracking = true;
       const alignedDiff = Math.abs(normalizeAngle(targetAngle - this.turret.angle));
@@ -2847,7 +2910,14 @@ export class AstroPartySimulation {
       if (!bullet.exploded) {
         bullet.x += bullet.vx * dtSec;
         bullet.y += bullet.vy * dtSec;
-        if (this.nowMs - bullet.spawnTime > bullet.lifetimeMs) {
+        // Turret bullets collide with walls (explode on contact)
+        const bulletRadius = 5;
+        const hitWall =
+          bullet.x <= bulletRadius ||
+          bullet.x >= ARENA_WIDTH - bulletRadius ||
+          bullet.y <= bulletRadius ||
+          bullet.y >= ARENA_HEIGHT - bulletRadius;
+        if (hitWall || this.nowMs - bullet.spawnTime > bullet.lifetimeMs) {
           bullet.exploded = true;
           bullet.explosionTime = this.nowMs;
           bullet.vx = 0;
@@ -2880,14 +2950,20 @@ export class AstroPartySimulation {
           const dy = player.ship.y - bullet.y;
           if (dx * dx + dy * dy > bullet.explosionRadius * bullet.explosionRadius) continue;
           const powerUp = this.playerPowerUps.get(playerId);
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const knockback = 300;
           if (powerUp?.type === "SHIELD") {
-            powerUp.shieldHits += 1;
-            this.triggerScreenShake(3, 0.1);
-            if (powerUp.shieldHits >= POWERUP_SHIELD_HITS) {
-              this.playerPowerUps.delete(playerId);
-            }
+            // Turret blast fully destroys shield but does not destroy the ship
+            this.playerPowerUps.delete(playerId);
+            // Knockback away from blast center
+            player.ship.vx += (dx / dist) * knockback;
+            player.ship.vy += (dy / dist) * knockback;
+            this.triggerScreenShake(5, 0.15);
             continue;
           }
+          // Knockback before ship destruction so pilot inherits blast velocity
+          player.ship.vx += (dx / dist) * knockback;
+          player.ship.vy += (dy / dist) * knockback;
           this.playerPowerUps.delete(playerId);
           this.onShipHit(undefined, player);
         }
@@ -3184,7 +3260,8 @@ export class AstroPartySimulation {
       this.splitAsteroid(asteroid);
     }
 
-    if (this.powerUpRng.next() <= ASTEROID_DROP_CHANCE) {
+    // Power-ups only drop from small (non-large) asteroids
+    if (asteroid.size < ASTEROID_LARGE_MIN && this.powerUpRng.next() <= ASTEROID_DROP_CHANCE) {
       const entries = Object.entries(POWERUP_SPAWN_WEIGHTS) as Array<[PowerUpType, number]>;
       const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
       const r = this.powerUpRng.next() * total;
@@ -3263,7 +3340,9 @@ export class AstroPartySimulation {
   }
 
   private randomAsteroidAngularVelocity(): number {
-    return (this.asteroidRng.next() - 0.5) * 0.02;
+    // Prior implementation: (rng - 0.5) * 0.02 in rad/tick (Matter.js units).
+    // Multiply by 60 to convert to rad/sec for position-based integration.
+    return (this.asteroidRng.next() - 0.5) * 0.02 * 60;
   }
 
   private randomInt(min: number, max: number): number {
