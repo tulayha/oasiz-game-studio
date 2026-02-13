@@ -76,6 +76,14 @@ export const elements = {
   modeSane: getElement<HTMLButtonElement>("modeSane"),
   modeCustom: getElement<HTMLButtonElement>("modeCustom"),
 
+  // Map selector
+  mapSelectorSection: getElement<HTMLElement>("mapSelectorSection"),
+  mapBtn0: getElement<HTMLButtonElement>("mapBtn0"),
+  mapBtn1: getElement<HTMLButtonElement>("mapBtn1"),
+  mapBtn2: getElement<HTMLButtonElement>("mapBtn2"),
+  mapBtn3: getElement<HTMLButtonElement>("mapBtn3"),
+  mapBtn4: getElement<HTMLButtonElement>("mapBtn4"),
+
   // Key selection modal
   keySelectModal: getElement<HTMLElement>("keySelectModal"),
   keySelectBackdrop: getElement<HTMLElement>("keySelectBackdrop"),
