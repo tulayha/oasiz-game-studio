@@ -1139,6 +1139,36 @@ export class Game {
     );
   }
 
+  private isPointInCone(
+    px: number,
+    py: number,
+    coneTipX: number,
+    coneTipY: number,
+    coneAngle: number,
+    coneLength: number,
+    coneWidth: number,
+  ): boolean {
+    // Vector from cone tip to point
+    const dx = px - coneTipX;
+    const dy = py - coneTipY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Check if point is within cone length
+    if (dist > coneLength) return false;
+
+    // Check if point is within cone angle
+    const pointAngle = Math.atan2(dy, dx);
+    let angleDiff = pointAngle - coneAngle;
+
+    // Normalize angle difference to -PI to PI
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+    // Check if within cone half-angle (coneWidth is full angle)
+    const halfAngle = coneWidth / 2;
+    return Math.abs(angleDiff) <= halfAngle;
+  }
+
   private spawnHitParticles(
     x: number,
     y: number,
@@ -2313,46 +2343,70 @@ export class Game {
       }
 
       // Check sword-to-yellow-block collisions on Cache map.
-      // Swords chip blocks with a short cooldown so damage feels controlled.
+      // Joust creates a cone of damage in front of the ship
+      // Each yellow block hit destroys one sword (left first, then right)
       if (
         this.getCurrentMap().id === 1 &&
         (powerUp.leftSwordActive || powerUp.rightSwordActive)
       ) {
-        const swordPadding = 10;
+        const coneLength = GAME_CONFIG.POWERUP_JOUST_SIZE + 15;
+        const coneWidth = Math.PI / 3; // 60-degree cone
+        const coneTipX = shipX;
+        const coneTipY = shipY;
+        const coneAngle = shipAngle;
+
         for (let blockIndex = 0; blockIndex < this.yellowBlocks.length; blockIndex++) {
           const blockState = this.yellowBlocks[blockIndex];
           if (!blockState || blockState.hp <= 0 || !blockState.body) continue;
 
-          if (
-            powerUp.leftSwordActive &&
-            this.isPointInsideBlock(
-              leftSwordCenterX,
-              leftSwordCenterY,
-              blockState.block,
-              swordPadding,
-            )
-          ) {
-            this.tryDamageYellowBlockWithSword(
-              blockIndex,
-              leftSwordCenterX,
-              leftSwordCenterY,
-            );
-          }
+          const block = blockState.block;
+          // Check all 4 corners of the block
+          const corners = [
+            { x: block.x, y: block.y },
+            { x: block.x + block.width, y: block.y },
+            { x: block.x + block.width, y: block.y + block.height },
+            { x: block.x, y: block.y + block.height },
+          ];
 
-          if (
-            powerUp.rightSwordActive &&
-            this.isPointInsideBlock(
-              rightSwordCenterX,
-              rightSwordCenterY,
-              blockState.block,
-              swordPadding,
-            )
-          ) {
-            this.tryDamageYellowBlockWithSword(
-              blockIndex,
-              rightSwordCenterX,
-              rightSwordCenterY,
-            );
+          for (const corner of corners) {
+            if (
+              this.isPointInCone(
+                corner.x,
+                corner.y,
+                coneTipX,
+                coneTipY,
+                coneAngle,
+                coneLength,
+                coneWidth,
+              )
+            ) {
+              // Damage the block at the corner point
+              this.tryDamageYellowBlockWithSword(blockIndex, corner.x, corner.y);
+
+              // Destroy swords based on which ones are active (left first, then right)
+              if (powerUp.leftSwordActive) {
+                powerUp.leftSwordActive = false;
+                this.renderer.spawnShipDebris(
+                  leftSwordEndX,
+                  leftSwordEndY,
+                  "#00ff44",
+                );
+              } else if (powerUp.rightSwordActive) {
+                powerUp.rightSwordActive = false;
+                this.renderer.spawnShipDebris(
+                  rightSwordEndX,
+                  rightSwordEndY,
+                  "#00ff44",
+                );
+              }
+
+              // Remove powerUp if both swords are gone
+              if (!powerUp.leftSwordActive && !powerUp.rightSwordActive) {
+                this.playerPowerUps.delete(playerId);
+              }
+
+              break; // Only damage one block per frame
+            }
           }
         }
       }
@@ -2480,33 +2534,43 @@ export class Game {
       }
 
       // Check explosion hits
-      if (bullet.exploded) {
+      if (bullet.exploded && !bullet.hasProcessedExplosion) {
+        bullet.hasProcessedExplosion = true; // Only process explosion once
         const hitShips = bullet.checkExplosionHits(shipPositions);
+        console.log("[TurretBullet] Exploded, hit ships:", hitShips);
         for (const shipPlayerId of hitShips) {
           const ship = this.ships.get(shipPlayerId);
+          console.log("[TurretBullet] Checking ship:", shipPlayerId, "ship exists:", !!ship, "alive:", ship?.alive);
           if (ship && ship.alive) {
-            // Check if ship has shield
+            // Check if ship has shield - turret bullets instantly destroy shields
             const powerUp = this.playerPowerUps.get(shipPlayerId);
+            console.log("[TurretBullet] Ship powerUp:", powerUp);
             if (powerUp?.type === "SHIELD") {
-              powerUp.shieldHits++;
-              this.triggerScreenShake(3, 0.1);
-              if (powerUp.shieldHits >= GAME_CONFIG.POWERUP_SHIELD_HITS) {
-                this.renderer.spawnShieldBreakDebris(
-                  ship.body.position.x,
-                  ship.body.position.y,
-                );
-                this.playerPowerUps.delete(shipPlayerId);
-                SettingsManager.triggerHaptic("medium");
-              }
-            } else {
-              this.flowMgr.destroyShip(
-                shipPlayerId,
-                this.ships,
-                this.pilots,
-                this.playerMgr.players,
+              console.log("[TurretBullet] SHIELD FOUND - destroying shield, ship survives!");
+              // Turret bullet destroys shield in 1 hit
+              this.renderer.spawnShieldBreakDebris(
+                ship.body.position.x,
+                ship.body.position.y,
+              );
+              // Spawn explosion to show bullet was destroyed
+              this.renderer.spawnExplosion(
+                ship.body.position.x,
+                ship.body.position.y,
+                "#3399ff",
               );
               this.playerPowerUps.delete(shipPlayerId);
+              SettingsManager.triggerHaptic("medium");
+              // Shield absorbed the turret bullet - ship survives
+              continue;
             }
+            console.log("[TurretBullet] NO SHIELD - destroying ship!");
+            this.flowMgr.destroyShip(
+              shipPlayerId,
+              this.ships,
+              this.pilots,
+              this.playerMgr.players,
+            );
+            this.playerPowerUps.delete(shipPlayerId);
           }
         }
       }

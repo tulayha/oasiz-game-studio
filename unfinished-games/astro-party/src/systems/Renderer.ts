@@ -249,6 +249,45 @@ export class Renderer {
     ctx.restore();
   }
 
+  // Draw joust sword colliders (dev mode only)
+  drawJoustSword(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    color: string,
+  ): void {
+    if (!this.devModeEnabled) return;
+
+    const { ctx } = this;
+
+    // Draw sword line
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    // Draw sword center point
+    const centerX = (startX + endX) / 2;
+    const centerY = (startY + endY) / 2;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw sword end point
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(endX, endY, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   // ============= TURRET RENDERING =============
 
   drawTurret(state: import("../types").TurretState): void {

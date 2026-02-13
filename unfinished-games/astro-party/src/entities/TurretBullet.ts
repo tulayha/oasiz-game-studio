@@ -8,6 +8,7 @@ export class TurretBullet {
   alive: boolean = true;
   exploded: boolean = false;
   explosionTime: number = 0;
+  hasProcessedExplosion: boolean = false; // Track if explosion damage was already processed
   private physics: Physics;
   private lifetime: number = 3000; // 3 seconds lifetime
   private explosionRadius: number = 100; // Same as mine explosion radius
@@ -41,6 +42,7 @@ export class TurretBullet {
 
     this.exploded = true;
     this.explosionTime = Date.now();
+    this.hasProcessedExplosion = false; // Reset for new explosion
 
     // Stop the bullet
     Matter.Body.setVelocity(this.body, { x: 0, y: 0 });
