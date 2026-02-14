@@ -46,6 +46,7 @@ export class PlayerController {
   private bullets: Bullet[] = [];
   private shootCooldown: number = 0;
   private isShooting: boolean = false; // Track if currently shooting (for hover effect)
+  private recoilHoverFrames: number = 0; // Frames of hover damping remaining after last shot
   
   // Callback for haptic feedback
   private onHaptic: ((type: "light" | "medium" | "heavy" | "success" | "error") => void) | null = null;
@@ -84,6 +85,7 @@ export class PlayerController {
     this.player = this.createPlayer();
     this.bullets = [];
     this.shootCooldown = 0;
+    this.recoilHoverFrames = 0;
     console.log("[PlayerController] Reset player state");
   }
   
@@ -141,7 +143,13 @@ export class PlayerController {
     }
     
     // Track shooting state for hover effect
-    this.isShooting = tapping && !this.player.grounded && this.player.ammo > 0;
+    // Keep hover active during recoil frames even if ammo is 0
+    this.isShooting = (tapping && !this.player.grounded && this.player.ammo > 0) || this.recoilHoverFrames > 0;
+    
+    // Tick down recoil hover
+    if (this.recoilHoverFrames > 0) {
+      this.recoilHoverFrames--;
+    }
     
     // Update shoot cooldown
     if (this.shootCooldown > 0) {
@@ -168,7 +176,8 @@ export class PlayerController {
     }
     
     // Hover effect when shooting - player stays in place
-    if (this.isShooting && this.player.ammo > 0) {
+    // Also hover during recoilHoverFrames so the last bullet doesn't catapult the player
+    if (this.isShooting && (this.player.ammo > 0 || this.recoilHoverFrames > 0)) {
       // Slow down vertical velocity significantly (hover)
       this.player.vy *= 0.3;
       // Cap the fall speed while shooting
@@ -213,6 +222,9 @@ export class PlayerController {
     // Apply upward recoil when shooting
     this.player.vy = CONFIG.PLAYER_RECOIL;
     
+    // Keep hover damping active for a few frames after last shot so recoil doesn't catapult player
+    this.recoilHoverFrames = CONFIG.SHOOT_COOLDOWN;
+    
     // Create single bullet shooting straight down
     this.bullets.push({
       x: this.player.x,
@@ -225,8 +237,6 @@ export class PlayerController {
     
     // Trigger screen shake
     this.triggerScreenShake(3);
-    
-    this.triggerHaptic("light");
     
     // Notify powerup system of shot
     if (this.onShoot) {

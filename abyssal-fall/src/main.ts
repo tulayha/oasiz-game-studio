@@ -61,8 +61,8 @@ class Game {
   private breakableGroundPattern: CanvasPattern | null = null;
   private submarineImg: HTMLImageElement | null = null;
   private weedsImg: HTMLImageElement | null = null;
-  private menuSlimeImg: HTMLImageElement | null = null;
-  private menuSlimeFrame: number = 0;
+  private menuCrabImg: HTMLImageElement | null = null;
+  private menuCrabFrame: number = 0;
   
   // Screen shake
   private screenShakeIntensity: number = 0;
@@ -153,6 +153,17 @@ class Game {
   private animFrameId: number = 0;
   private isVisible: boolean = true;
   
+  // Fixed timestep (cap logic at 60fps)
+  private lastFrameTime: number = 0;
+  private readonly TARGET_FRAME_MS: number = 1000 / 60; // ~16.67ms
+  private accumulator: number = 0;
+  
+  // Audio
+  private audioCtx: AudioContext | null = null;
+  private ambienceAudio: HTMLAudioElement | null = null;
+  private bulletBuffer: AudioBuffer | null = null;
+  private laserBuffer: AudioBuffer | null = null;
+  
   // Menu animation entities
   private menuEnemies: BaseEnemy[] = [];
   private menuWeedsDrawn: boolean = false;
@@ -177,6 +188,7 @@ class Game {
     this.resizeCanvas();
     this.initDitherPattern();
     this.loadTextures();
+    this.loadAudio();
     this.initMenuEntities();
     
     // Ensure DOM is in correct initial state (handles WebView soft reloads)
@@ -621,12 +633,12 @@ class Game {
     };
     this.weedsImg.src = "assets/weeds.png";
     
-    // Load menu slime sprite sheet (6 cols x 4 rows, using first row for idle)
-    this.menuSlimeImg = new Image();
-    this.menuSlimeImg.onload = () => {
-      console.log("[Game] Menu slime sprite loaded");
+    // Load menu crab sprite sheet (4 frames, 96x96 per frame)
+    this.menuCrabImg = new Image();
+    this.menuCrabImg.onload = () => {
+      console.log("[Game] Menu crab sprite loaded");
     };
-    this.menuSlimeImg.src = "assets/Slime1_Idle_full.png";
+    this.menuCrabImg.src = "assets/Water-Monsters-Pixel-Art-Sprite-Sheet-Pack/3/Idle.png";
     
     // Load hurt animation sprite sheets
     // Shark hurt sprite (2 frames, 96x96 per frame) - used for HORIZONTAL enemies
@@ -661,6 +673,93 @@ class Game {
       console.warn("[Game] Failed to load squid hurt sprite");
     };
     this.hurtSpriteSquid.src = "assets/Water-Monsters-Pixel-Art-Sprite-Sheet-Pack/2/Hurt.png";
+  }
+  
+  private loadAudio(): void {
+    // Ambience uses HTMLAudioElement (long looping track)
+    this.ambienceAudio = new Audio("assets/sfx/underwater-ambience.mp3");
+    this.ambienceAudio.loop = true;
+    this.ambienceAudio.volume = 1.0;
+    this.ambienceAudio.preload = "auto";
+    console.log("[Game] Ambience audio loaded");
+    
+    // SFX use Web Audio API for instant, overlapping playback
+    this.decodeAudioFile("assets/sfx/zap-hiphop-b.wav").then((buf) => {
+      this.bulletBuffer = buf;
+      console.log("[Game] Bullet audio decoded");
+    });
+    
+    this.decodeAudioFile("assets/sfx/zap-exile.wav").then((buf) => {
+      this.laserBuffer = buf;
+      console.log("[Game] Laser audio decoded");
+    });
+  }
+  
+  private getAudioCtx(): AudioContext {
+    if (!this.audioCtx) {
+      this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    // Resume if suspended (browser autoplay policy)
+    if (this.audioCtx.state === "suspended") {
+      this.audioCtx.resume().catch(() => {});
+    }
+    return this.audioCtx;
+  }
+  
+  private async decodeAudioFile(url: string): Promise<AudioBuffer | null> {
+    try {
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      const ctx = this.getAudioCtx();
+      return await ctx.decodeAudioData(arrayBuffer);
+    } catch (e) {
+      console.warn("[Game] Failed to decode audio:", url, e);
+      return null;
+    }
+  }
+  
+  private playSfx(buffer: AudioBuffer | null, volume: number): void {
+    if (!buffer) return;
+    
+    const ctx = this.getAudioCtx();
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+  }
+  
+  private playBulletSound(): void {
+    if (!this.settings.fx) return;
+    this.playSfx(this.bulletBuffer, 0.5);
+  }
+  
+  private playLaserSound(): void {
+    if (!this.settings.fx) return;
+    this.playSfx(this.laserBuffer, 1.0);
+  }
+  
+  private startAmbience(): void {
+    if (!this.settings.music || !this.ambienceAudio) return;
+    
+    // Ensure AudioContext is active (needed on mobile after user gesture)
+    this.getAudioCtx();
+    
+    this.ambienceAudio.currentTime = 0;
+    this.ambienceAudio.play().catch(() => {
+      console.log("[Game] Ambience autoplay blocked, will retry on interaction");
+    });
+  }
+  
+  private stopAmbience(): void {
+    if (!this.ambienceAudio) return;
+    
+    this.ambienceAudio.pause();
+    this.ambienceAudio.currentTime = 0;
   }
   
   private initMenuEntities(): void {
@@ -754,6 +853,9 @@ class Game {
       this.lastShotEffects.triggerLightning && this.powerUpManager.hasPowerUp("LIGHTNING")
     );
     
+    // Play bullet sound
+    this.playBulletSound();
+    
     // If laser is active, fire a laser beam immediately
     if (this.lastShotEffects.triggerLaser) {
       const player = this.playerController.getPlayer();
@@ -762,6 +864,9 @@ class Game {
         player.y + player.height / 2,
         this.cameraY + CONFIG.INTERNAL_HEIGHT + 100
       );
+      
+      // Play laser sound
+      this.playLaserSound();
     }
   }
   
@@ -802,6 +907,15 @@ class Game {
     this.updateSettingsUI();
     this.saveSettings();
     this.triggerHaptic("light");
+    
+    // Handle music toggle during gameplay
+    if (key === "music") {
+      if (this.settings.music && this.gameState === "playing") {
+        this.startAmbience();
+      } else {
+        this.stopAmbience();
+      }
+    }
   }
   
   private triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error"): void {
@@ -864,6 +978,9 @@ class Game {
     document.getElementById("ammo-slider")?.classList.remove("hidden");
     document.getElementById("hp-bar")?.classList.remove("hidden");
     
+    // Start ambience music
+    this.startAmbience();
+    
     this.updateHUD();
   }
   
@@ -871,6 +988,9 @@ class Game {
     console.log("[Game] Game over. Final score:", this.score, "Depth:", this.maxDepth);
     
     this.gameState = "gameOver";
+    
+    // Stop ambience music
+    this.stopAmbience();
     
     // Submit score
     if (typeof (window as any).submitScore === "function") {
@@ -998,7 +1118,6 @@ class Game {
             if (platform.hp <= 0) {
               this.destroyPlatform(platform);
             }
-            this.triggerHaptic("light");
           }
           // Destroy bullet on contact with any platform
           this.playerController.removeBullet(i);
@@ -1024,22 +1143,20 @@ class Game {
           
           if (isDead) {
             this.killEnemy(enemy, j);
-          } else {
-            this.triggerHaptic("light");
           }
           
           // Trigger blast explosion if blast powerup shot
           if (this.lastShotEffects.triggerBlast && this.powerUpManager.hasPowerUp("BLAST")) {
             this.powerUpManager.spawnBlastExplosion(hitX, hitY);
             this.addScreenShake(8);
-            this.triggerHaptic("heavy");
+            this.triggerHaptic("medium");
           }
           
           // Trigger lightning chain if lightning powerup shot
           if (this.lastShotEffects.triggerLightning && this.powerUpManager.hasPowerUp("LIGHTNING")) {
             this.triggerLightningChain(hitX, hitY);
             this.addScreenShake(5);
-            this.triggerHaptic("medium");
+            this.triggerHaptic("light");
           }
           
           break;
@@ -1159,7 +1276,7 @@ class Game {
     
     // Award some score for breaking blocks
     this.score += 2;
-    this.triggerHaptic("medium");
+    this.triggerHaptic("light");
   }
   
   private resolveCollisions(): void {
@@ -1229,7 +1346,6 @@ class Game {
         const comboMultiplier = this.playerController.getComboMultiplier();
         this.score += gem.value * comboMultiplier;
         this.gems++;
-        this.triggerHaptic("light");
       }
     }
   }
@@ -1252,12 +1368,12 @@ class Game {
     if (effects.triggerBlast && this.powerUpManager.hasPowerUp("BLAST")) {
       this.powerUpManager.spawnBlastExplosion(hitX, hitY);
       this.addScreenShake(8);
-      this.triggerHaptic("heavy");
+      this.triggerHaptic("medium");
     }
     if (effects.triggerLightning && this.powerUpManager.hasPowerUp("LIGHTNING")) {
       this.triggerLightningChain(hitX, hitY);
       this.addScreenShake(5);
-      this.triggerHaptic("medium");
+      this.triggerHaptic("light");
     }
   }
   
@@ -1666,7 +1782,7 @@ class Game {
     // Small screen shake on enemy death
     this.addScreenShake(3);
     
-    this.triggerHaptic("medium");
+    this.triggerHaptic("light");
   }
   
   private spawnHurtAnimation(x: number, y: number, width: number, height: number, color: string, direction: number, spriteType: "shark" | "crab" | "squid"): void {
@@ -1877,17 +1993,28 @@ class Game {
     );
   }
   
-  /** Draw ocean background tiled across the full screen (for title/game over) */
+  /** Draw ocean background across the full screen (all states, no dark bars) */
   private drawOceanBackgroundFullScreen(): void {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
     
+    // Depth-based color shift during gameplay (water gets darker as player descends)
+    const depth = this.gameState === "playing" ? Math.max(0, this.cameraY) : 0;
+    const depthFactor = Math.min(depth / 10000, 1);
+    
+    const topR = Math.floor(20 - depthFactor * 10);
+    const topG = Math.floor(140 - depthFactor * 60);
+    const topB = Math.floor(200 - depthFactor * 50);
+    const botR = Math.floor(10 - depthFactor * 6);
+    const botG = Math.floor(80 - depthFactor * 40);
+    const botB = Math.floor(150 - depthFactor * 40);
+    
     // Gradient across full screen
     const gradient = ctx.createLinearGradient(0, 0, 0, h);
-    gradient.addColorStop(0, "rgb(20, 140, 200)");
-    gradient.addColorStop(0.5, "rgb(15, 110, 175)");
-    gradient.addColorStop(1, "rgb(10, 80, 150)");
+    gradient.addColorStop(0, `rgb(${topR}, ${topG}, ${topB})`);
+    gradient.addColorStop(0.5, `rgb(${Math.floor((topR + botR) / 2)}, ${Math.floor((topG + botG) / 2)}, ${Math.floor((topB + botB) / 2)})`);
+    gradient.addColorStop(1, `rgb(${botR}, ${botG}, ${botB})`);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, w, h);
     
@@ -1932,75 +2059,6 @@ class Game {
     ctx.restore();
   }
   
-  private drawOceanBackground(): void {
-    const ctx = this.ctx;
-    
-    // Calculate depth-based color shift
-    // As player descends, water gets darker and more blue-green
-    const depth = Math.max(0, this.cameraY);
-    const depthFactor = Math.min(depth / 10000, 1); // Normalize over 10000 units
-    
-    // Surface colors (bright, vibrant teal-blue)
-    const topR = Math.floor(20 - depthFactor * 10);
-    const topG = Math.floor(140 - depthFactor * 60);
-    const topB = Math.floor(200 - depthFactor * 50);
-    
-    // Deep colors (medium blue, still visible)
-    const botR = Math.floor(10 - depthFactor * 6);
-    const botG = Math.floor(80 - depthFactor * 40);
-    const botB = Math.floor(150 - depthFactor * 40);
-    
-    // Draw vertical gradient
-    const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.INTERNAL_HEIGHT);
-    gradient.addColorStop(0, `rgb(${topR}, ${topG}, ${topB})`);
-    gradient.addColorStop(0.5, `rgb(${Math.floor((topR + botR) / 2)}, ${Math.floor((topG + botG) / 2)}, ${Math.floor((topB + botB) / 2)})`);
-    gradient.addColorStop(1, `rgb(${botR}, ${botG}, ${botB})`);
-    
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, CONFIG.INTERNAL_WIDTH, CONFIG.INTERNAL_HEIGHT);
-    
-    // Underwater light rays (caustics)
-    ctx.save();
-    const rayCount = 5;
-    const time = this.frameCount * 0.02;
-    
-    for (let i = 0; i < rayCount; i++) {
-      const baseX = (CONFIG.INTERNAL_WIDTH / (rayCount + 1)) * (i + 1);
-      const sway = Math.sin(time + i * 1.8) * 30;
-      const opacity = 0.05 + Math.sin(time * 0.7 + i * 2.1) * 0.025;
-      
-      ctx.fillStyle = `rgba(130, 220, 255, ${opacity})`;
-      ctx.beginPath();
-      ctx.moveTo(baseX + sway - 20, 0);
-      ctx.lineTo(baseX + sway + 20, 0);
-      ctx.lineTo(baseX + sway * 0.5 + 40, CONFIG.INTERNAL_HEIGHT);
-      ctx.lineTo(baseX + sway * 0.5 - 40, CONFIG.INTERNAL_HEIGHT);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-    
-    // Floating particles (tiny bubbles / sediment)
-    ctx.save();
-    const particleCount = 12;
-    for (let i = 0; i < particleCount; i++) {
-      // Deterministic positions based on frameCount and index (no Math.random in render)
-      const seed = i * 137.5 + 42.3;
-      const px = ((Math.sin(seed) * 0.5 + 0.5) * CONFIG.INTERNAL_WIDTH + 
-                  Math.sin(time * 0.3 + i * 0.7) * 15) % CONFIG.INTERNAL_WIDTH;
-      const py = ((Math.cos(seed * 1.3) * 0.5 + 0.5) * CONFIG.INTERNAL_HEIGHT + 
-                  this.frameCount * (0.2 + (i % 3) * 0.1)) % CONFIG.INTERNAL_HEIGHT;
-      const size = 1 + (i % 3);
-      const alpha = 0.15 + Math.sin(time + i) * 0.05;
-      
-      ctx.fillStyle = `rgba(180, 220, 255, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(px, py, size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
   private draw(): void {
     const ctx = this.ctx;
     
@@ -2011,20 +2069,14 @@ class Game {
     ctx.fillStyle = "#0a2a50";
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     
-    // For title/game over: draw ocean background at full screen size (no bars)
-    if (this.gameState === "start" || this.gameState === "gameOver") {
-      this.drawOceanBackgroundFullScreen();
-    }
+    // Draw ocean background at full screen size (no dark bars)
+    // This runs for ALL states so the ocean fills edge-to-edge
+    this.drawOceanBackgroundFullScreen();
     
     // Apply scale and offset
     ctx.save();
     ctx.translate(this.offsetX, this.offsetY);
     ctx.scale(this.scale, this.scale);
-    
-    // Draw ocean background for gameplay only (within internal res)
-    if (this.gameState === "playing") {
-      this.drawOceanBackground();
-    }
     
     if (this.gameState === "start" || this.gameState === "gameOver") {
       // Animate and draw menu background entities
@@ -2076,14 +2128,14 @@ class Game {
       this.drawLaserBeams();
       
       ctx.restore();
-      
-      // Draw touch zones overlay (mobile only)
-      if (this.isMobile) {
-        this.drawTouchZones();
-      }
     }
     
     ctx.restore();
+    
+    // Draw touch zones overlay OUTSIDE the scale transform so it fills the full screen
+    if (this.gameState === "playing" && this.isMobile) {
+      this.drawTouchZones();
+    }
     
     // Apply dithering effect as post-process
     this.applyDithering();
@@ -2109,33 +2161,33 @@ class Game {
       ctx.restore();
     }
     
-    // Draw animated slime near the start button (bottom right of center)
-    if (this.menuSlimeImg && this.menuSlimeImg.complete) {
-      // Sprite sheet: 6 cols x 4 rows, frame size 64x48
-      const frameW = 64;
-      const frameH = 48;
-      const cols = 6;
+    // Draw animated crab below the start button
+    if (this.menuCrabImg && this.menuCrabImg.complete) {
+      // Sprite sheet: 4 frames, 96x96 per frame
+      const frameW = 96;
+      const frameH = 96;
+      const cols = 4;
       
-      // Animate through first row (6 frames for idle)
-      if (this.frameCount % 8 === 0) {
-        this.menuSlimeFrame = (this.menuSlimeFrame + 1) % cols;
+      // Animate through frames (4 frames for idle)
+      if (this.frameCount % 10 === 0) {
+        this.menuCrabFrame = (this.menuCrabFrame + 1) % cols;
       }
       
-      const sx = this.menuSlimeFrame * frameW;
-      const sy = 0; // First row
+      const sx = this.menuCrabFrame * frameW;
+      const sy = 0;
       
-      // Position: bottom-right of center (where start button is)
-      const slimeX = CONFIG.INTERNAL_WIDTH / 2 + 70;
-      const slimeY = CONFIG.INTERNAL_HEIGHT / 2 + 40;
-      const scale = 1.8;
+      // Position: below the start button, centered
+      const scale = 1.0;
+      const crabX = CONFIG.INTERNAL_WIDTH / 2 - (frameW * scale) / 2;
+      const crabY = CONFIG.INTERNAL_HEIGHT / 2 + 100;
       
       // Slight bob
       const bobY = Math.sin(this.frameCount * 0.05) * 3;
       
       ctx.drawImage(
-        this.menuSlimeImg,
+        this.menuCrabImg,
         sx, sy, frameW, frameH,
-        slimeX, slimeY + bobY, frameW * scale, frameH * scale
+        crabX, crabY + bobY, frameW * scale, frameH * scale
       );
     }
     
@@ -3205,36 +3257,61 @@ class Game {
   
   private drawTouchZones(): void {
     const ctx = this.ctx;
-    const leftZone = CONFIG.INTERNAL_WIDTH * 0.33;
-    const rightZone = CONFIG.INTERNAL_WIDTH * 0.67;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    const leftZone = w * 0.33;
+    const rightZone = w * 0.67;
     
-    // Semi-transparent zone indicators
+    // Semi-transparent zone indicators - full screen
     ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
     
     // Left zone (move left)
-    ctx.fillRect(0, 0, leftZone, CONFIG.INTERNAL_HEIGHT);
+    ctx.fillRect(0, 0, leftZone, h);
     
     // Right zone (move right)
-    ctx.fillRect(rightZone, 0, CONFIG.INTERNAL_WIDTH - rightZone, CONFIG.INTERNAL_HEIGHT);
+    ctx.fillRect(rightZone, 0, w - rightZone, h);
     
     // Center zone (tap action - jump/shoot)
     ctx.fillStyle = "rgba(0, 255, 0, 0.03)";
-    ctx.fillRect(leftZone, 0, rightZone - leftZone, CONFIG.INTERNAL_HEIGHT);
+    ctx.fillRect(leftZone, 0, rightZone - leftZone, h);
     
-    // Zone labels
+    // Zone labels - scale font for DPR
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const fontSize = Math.round(10 * dpr);
     ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
-    ctx.font = "10px 'Press Start 2P'";
+    ctx.font = `${fontSize}px 'Press Start 2P'`;
     ctx.textAlign = "center";
     
-    ctx.fillText("LEFT", CONFIG.INTERNAL_WIDTH * 0.165, CONFIG.INTERNAL_HEIGHT - 20);
-    ctx.fillText("TAP", CONFIG.INTERNAL_WIDTH * 0.5, CONFIG.INTERNAL_HEIGHT - 20);
-    ctx.fillText("RIGHT", CONFIG.INTERNAL_WIDTH * 0.835, CONFIG.INTERNAL_HEIGHT - 20);
+    const labelY = h - Math.round(20 * dpr);
+    ctx.fillText("LEFT", w * 0.165, labelY);
+    ctx.fillText("TAP", w * 0.5, labelY);
+    ctx.fillText("RIGHT", w * 0.835, labelY);
   }
   
-  private gameLoop(): void {
-    this.update();
+  private gameLoop(timestamp: number = 0): void {
+    this.animFrameId = requestAnimationFrame((t) => this.gameLoop(t));
+    
+    if (this.lastFrameTime === 0) {
+      this.lastFrameTime = timestamp;
+      this.draw();
+      return;
+    }
+    
+    let delta = timestamp - this.lastFrameTime;
+    this.lastFrameTime = timestamp;
+    
+    // Clamp delta to avoid spiral of death after tab switch / backgrounding
+    if (delta > 200) delta = this.TARGET_FRAME_MS;
+    
+    this.accumulator += delta;
+    
+    // Run update at fixed 60fps steps
+    while (this.accumulator >= this.TARGET_FRAME_MS) {
+      this.update();
+      this.accumulator -= this.TARGET_FRAME_MS;
+    }
+    
     this.draw();
-    this.animFrameId = requestAnimationFrame(() => this.gameLoop());
   }
   
   /** Restart the game loop if it was stopped (e.g., iOS WebView tab switch) */
@@ -3242,6 +3319,9 @@ class Game {
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
     }
+    // Reset timing so we don't get a huge delta spike on resume
+    this.lastFrameTime = 0;
+    this.accumulator = 0;
     this.gameLoop();
   }
 }
