@@ -10,7 +10,7 @@ The game currently has **two separate implementations** of the same game logic:
 These are **not shared code**. The goals are:
 
 - Extract a **single canonical simulation** usable by both client and server
-- **Replace physics engine** with Rapier (rapier2d) — WASM-based, cross-platform deterministic, built-in snapshot/restore for future prediction
+- **Replace physics engine** with Rapier (using `@dimforge/rapier2d-compat`) — WASM-based, cross-platform deterministic, built-in snapshot/restore for future prediction
 - **Modularize** the server monolith using the client's cleaner structure as a blueprint
 - Enable an **offline local mode** (no server connection) via a UI toggle in the lobby
 - **Colocate** all astro-party code (client + server + shared) under `astro-party/`
@@ -42,7 +42,7 @@ Phase 1 (Restructure & Modularize) has been completed. The 3600-line server mono
 | `endRound()` was missing `sim.roundEndMs = ROUND_RESULTS_DURATION_MS` assignment | Fixed — added the missing line and imported the constant |
 | Implicit `any` types in filter/forEach callbacks under strict mode | Added explicit type annotations to all callback parameters |
 | Original monolith still exists at `unfinished-games/` | Not deleted — kept as reference until Phase 2+ is verified |
-| `PhysicsWorld.ts` not yet created | Deferred to Phase 2 (Rapier integration) — current shared sim uses custom circle physics from the monolith |
+| `PhysicsWorld.ts` was deferred during Phase 1 | Implemented in Phase 2 Milestone 1 under `shared/sim/PhysicsWorld.ts` |
 
 ### Architecture Pattern: SimState Interface
 
@@ -83,6 +83,79 @@ Each system module exports standalone functions that take `sim: SimState` as the
 
 ---
 
+## Phase 2 Status: ENGINEERING COMPLETE / PLAY-TEST VERIFICATION PENDING
+
+Phase 2 migration code is now complete in the shared simulation and legacy host-wrap parity gap is closed. Remaining work is gameplay verification/tuning and runtime play-tests.
+
+### Implemented In Milestones 1-3
+
+1. Added `@dimforge/rapier2d-compat` to both `astro-party/package.json` and `astro-party/server/package.json`
+2. Added `shared/sim/PhysicsWorld.ts` (Rapier wrapper) with:
+   - arena wall creation as static colliders
+   - dynamic body synchronization for ships, asteroids, and pilots
+   - `step(dt)` integration
+   - `takeSnapshot()` / `restoreSnapshot()` wrappers
+3. Added `initializeRapier()` and wired server startup to await initialization in `AstroPartyRoom.onCreate()`
+4. Added `physicsWorld` to `SimState` and integrated it into `AstroPartySimulation` tick flow:
+   - `syncFromSim()` → `step()` → `syncToSim()` each frame in PLAYING phase
+5. Removed major custom/manual physics code paths that Rapier now owns:
+   - ship-ship manual impulse solver (`resolveCircleCollision`) removed
+   - manual wall bounce in ship/asteroid/pilot update loops removed
+6. Added cleanup hooks for removing physics bodies on ship/pilot/asteroid removal and round reset
+7. Validation completed:
+   - `cd astro-party && bun run typecheck && bun run build` pass
+   - `cd astro-party/server && npx tsc --noEmit && npm run build` pass
+8. Extended `PhysicsWorld` dynamic-body sync to include:
+   - projectiles
+   - homing missiles
+   - turret bullets (non-exploded phase)
+9. Moved projectile-class movement to Rapier stepping:
+   - manual `x/y` integration removed from `updateProjectiles()`
+   - manual `x/y` integration removed from `updateHomingMissiles()`
+   - manual `x/y` integration removed from `updateTurretBullets()`
+10. Updated simulation tick ordering so homing missile steering updates velocity before Rapier step:
+    - `updateHomingMissiles()` runs pre-step
+    - `updateProjectiles()` culling/filtering runs post-step
+11. Added shared `TURRET_BULLET_RADIUS` constant for consistent physics/render logic
+12. Migrated key collision checks from manual distance math to Rapier-based collision detection (initially via intersection queries):
+    - ship ↔ asteroid
+    - pilot ↔ asteroid
+    - projectile ↔ ship/pilot/asteroid
+    - homing missile ↔ ship/asteroid
+    - ship ↔ pilot
+13. Removed manual ship↔turret collision pass from the tick and moved turret collision handling into Rapier by adding a static turret collider in `PhysicsWorld`
+14. Added snapshot restore remapping by tagging colliders/bodies with userData and rebuilding body maps in `restoreSnapshot()`
+15. Migrated asteroid geometry + colliders to convex representation end-to-end in shared sim
+16. Added Rapier event-driven collision ingestion (`EventQueue` + `drainCollisionEvents`) and switched core collision systems to pair-event driven processing
+17. Enabled CCD for fast movers (projectiles, homing missiles, turret bullets)
+18. Centralized collision filtering/groups policy in `PhysicsWorld.ts`
+19. Removed legacy asteroid wrap behavior from Matter host path (`src/Game.ts`, `src/systems/Physics.ts`)
+
+### Remaining To Finish Phase 2
+
+1. Run full gameplay verification pass (all mechanics, full rounds, server runtime play-test) and tune material presets
+2. Validate special-case gameplay geometry choices (mine/joust/laser/turret blast rules) under stress and promote to Rapier events only if issues appear
+
+### Phase 2 Gap Register (Implementation Tracker)
+
+| Area | What is done | Gap / Risk | Required fix |
+|------|---------------|------------|--------------|
+| Asteroid arena behavior | Shared Rapier sim and legacy host path now both use wall bounce behavior | None identified in code; gameplay confirmation still pending | Verify via side-by-side play-test |
+| Collider shape fidelity | Shared sim asteroids are generated as convex geometry and use convex Rapier colliders | Ship still uses circular collider (intentional current scope) | Validate in gameplay tuning; keep as-is unless ship parity issues surface |
+| Collision architecture | Rapier event queue is integrated and core collision systems consume pair events | Special mechanics still use explicit gameplay geometry logic by design | Keep geometry rules documented and validate under play-test |
+| Special gameplay collisions | Mine/joust/laser/turret blast logic is explicit gameplay geometry | Potential feel mismatch if physics and gameplay rules diverge | Tune constants and upgrade individual rules to Rapier queries/events only if needed |
+| Fast projectile robustness | CCD enabled for projectile, homing missile, and turret bullet bodies | Needs runtime validation for tunneling edge cases | Run high-speed stress play-tests |
+| Collision filtering policy | Collision group/mask policy is centralized in `PhysicsWorld.ts` | Requires gameplay verification for unintended filtering side effects | Validate mechanics matrix during play-test |
+| Asteroid system integration | Asteroid motion/collision response is handled by Rapier; no manual asteroid-asteroid pass remains | None identified in code | Verify asteroid-asteroid feel in play-test |
+| Documentation accuracy | Package naming is now normalized to `@dimforge/rapier2d-compat` in this plan | Other docs/notes may still reference old package text | Apply the same normalization across any remaining migration docs |
+| Test coverage for migration | Build/typecheck validation exists | No explicit regression checklist for physics parity scenarios | Add repeatable parity test list (wall bounce, projectile edge hits, mine/joust/turret interactions, round lifecycle) |
+
+### Missed Completely (Must Be Implemented, Not Just Tuned)
+
+1. Offline local multiplayer path is still unsupported (`LOCAL_PLAYER_UNSUPPORTED`) even though Phase 4 depends on it.
+
+---
+
 ## Current State
 
 ### Actual Folder Structure
@@ -106,9 +179,9 @@ astro-party/
 ├── server/                 ← Colyseus server (moved from unfinished-games/)
 │   ├── src/
 │   │   ├── index.ts                  ← Express + Colyseus setup (unchanged)
-│   │   ├── rooms/AstroPartyRoom.ts   ← Updated: imports from shared/sim/
+│   │   ├── rooms/AstroPartyRoom.ts   ← Updated: imports from shared/sim/ + Rapier init
 │   │   └── http/roomCodeRegistry.ts  ← Unchanged
-│   ├── package.json        ← Server deps (colyseus, express, cors)
+│   ├── package.json        ← Server deps (colyseus, express, cors, rapier2d-compat)
 │   ├── tsconfig.json       ← rootDir: "..", includes shared/
 │   └── node_modules/       ← Installed via npm (not bun)
 │
@@ -119,16 +192,17 @@ astro-party/
 │       ├── constants.ts              ← All constants + preset maps (~230 lines)
 │       ├── SeededRNG.ts              ← Deterministic xorshift RNG (~35 lines)
 │       ├── utils.ts                  ← clamp, normalizeAngle, config helpers (~35 lines)
-│       ├── ShipSystem.ts             ← Ship movement, firing, collision (~330 lines)
-│       ├── CollisionSystem.ts        ← All collision detection systems (~180 lines)
+│       ├── PhysicsWorld.ts           ← Rapier world wrapper (NEW in Phase 2)
+│       ├── ShipSystem.ts             ← Ship movement + firing (manual circle solver removed)
+│       ├── CollisionSystem.ts        ← Gameplay collision checks via Rapier intersections + projectile lifecycle
 │       ├── AsteroidSystem.ts         ← Spawning, updating, splitting (~220 lines)
 │       ├── PowerUpSystem.ts          ← Pickup, magnetic pull, 7 types (~145 lines)
-│       ├── WeaponSystem.ts           ← Laser, mines, homing, joust, turret (~370 lines)
+│       ├── WeaponSystem.ts           ← Laser, mines, homing, joust, turret (homing/turret motion via Rapier + gameplay rules)
 │       ├── AISystem.ts               ← Bot AI decision-making (~85 lines)
 │       └── GameFlowSystem.ts         ← Phases, pilots, rounds, elimination (~410 lines)
 │
 ├── index.html
-├── package.json            ← Client deps (colyseus.js, matter-js, tone, vite)
+├── package.json            ← Client deps (colyseus.js, matter-js, rapier2d-compat, tone, vite)
 ├── vite.config.js
 ├── tsconfig.json           ← module: ESNext, moduleResolution: bundler
 └── dist/index.html         ← Build output
@@ -143,13 +217,14 @@ astro-party/
 | `constants.ts` | ~230 | Arena dimensions, physics presets, timing, weapon stats, mode configs (STANDARD/SANE/CHAOTIC), preset lookup maps |
 | `SeededRNG.ts` | ~35 | XOR-shift deterministic RNG with next(), nextInt(), nextRange(), nextUint32() |
 | `utils.ts` | ~35 | clamp(), normalizeAngle(), getModeBaseConfig(), resolveConfigValue() |
-| `ShipSystem.ts` | ~330 | updateShips(), tryFire() (all weapon types), resolveCircleCollision(), ship-ship collisions, reload, laser damage |
-| `CollisionSystem.ts` | ~180 | Ship-turret, ship-asteroid, pilot-asteroid, asteroid-asteroid, projectile-all, ship-pilot collisions, projectile movement |
-| `AsteroidSystem.ts` | ~220 | spawnInitialAsteroids(), updateAsteroidSpawning(), updateAsteroids(), destroyAsteroid() with splitting + power-up drops |
+| `PhysicsWorld.ts` | ~560 | Rapier init/wrapper, static walls + turret collider, dynamic body sync (ship/asteroid/pilot/projectile/missile/turret-bullet), event-queue collision pairs, collision filtering policy, snapshot/restore remapping |
+| `ShipSystem.ts` | ~140 | updateShips(), tryFire() (all weapon types), reload logic, laser damage (manual impulse/circle solver removed) |
+| `CollisionSystem.ts` | ~130 | Event-driven core collision resolution (ship/pilot/asteroid/projectile), ship-pilot collisions, projectile lifecycle filtering |
+| `AsteroidSystem.ts` | ~190 | spawnInitialAsteroids(), updateAsteroidSpawning(), updateAsteroids() (angle only), destroyAsteroid() with splitting + power-up drops |
 | `PowerUpSystem.ts` | ~145 | updatePowerUps() (magnetic pull), processPowerUpPickups(), grantPowerUp() (all 7 types), spawnRandomPowerUp() |
-| `WeaponSystem.ts` | ~370 | Laser beams, mines (arming + explosion), homing missiles (tracking), joust swords (geometry + collisions), turret AI + bullets |
+| `WeaponSystem.ts` | ~370 | Laser beams, mines (arming + explosion), homing missiles (tracking + event-driven hits), joust swords (gameplay geometry), turret AI + bullets (motion integrated via Rapier step) |
 | `AISystem.ts` | ~85 | updateBots() with cached decisions, findNearestEnemy(), reaction delay |
-| `GameFlowSystem.ts` | ~410 | Pilot movement/AI/respawn, onShipHit() (ejection), killPilot(), round flow (endRound, beginPlaying, checkEliminationWin), entity cleanup |
+| `GameFlowSystem.ts` | ~390 | Pilot movement/AI/respawn, onShipHit() (ejection), killPilot(), round flow (endRound, beginPlaying, checkEliminationWin), entity cleanup |
 
 ### Import Path Convention
 
@@ -201,7 +276,7 @@ These map 1:1 to `NetworkCallbacks` on the client side — the bridge is natural
 
 ---
 
-## Physics Engine: Rapier (rapier2d)
+## Physics Engine: Rapier (via `@dimforge/rapier2d-compat`)
 
 ### Why Rapier
 
@@ -271,22 +346,33 @@ Physics feel will need tuning after switching. Rapier's solver behavior differs 
 
 ### Phase 2: Replace Physics with Rapier
 
-**Status:** Not started
+**Status:** Engineering complete; gameplay verification/tuning pending
 
 **Goal:** Swap custom circle physics for Rapier. Both client and server use same engine.
 
-1. Add `@dimforge/rapier2d` to both client and server `package.json`
-2. Create `shared/sim/PhysicsWorld.ts` — Rapier world wrapper:
+1. [x] Add `@dimforge/rapier2d-compat` to both client and server `package.json`
+2. [x] Create `shared/sim/PhysicsWorld.ts` — Rapier world wrapper:
    - `createWorld()` — arena walls as static bodies
    - `createShipBody()`, `createAsteroidBody()`, `createProjectileBody()` etc.
    - `step(dt)` — advance physics
    - `takeSnapshot()` / `restoreSnapshot()` — for future prediction
-3. Replace custom physics in each system module with Rapier calls
-4. Update collision detection to use Rapier contact events or proximity queries
-5. **Tune physics parameters** — restitution, friction, density to match/exceed Matter.js feel
-6. Remove custom `resolveCircleCollision()` and manual wall bounce code
+3. [x] Replace custom physics in each system module with Rapier calls
+   - ship/asteroid/pilot/projectile/homing-missile/turret-bullet kinematics now run through Rapier
+4. [x] Update collision detection to use Rapier contact events or proximity queries
+   - core gameplay collision paths now consume Rapier pair events from `EventQueue`
+5. [~] **Tune physics parameters** — restitution, friction, density to match/exceed Matter.js feel (requires side-by-side play-test)
+6. [x] Remove custom `resolveCircleCollision()` and manual wall bounce code (ship/asteroid/pilot paths)
+7. [x] Validate compile/build:
+   - `cd astro-party && bun run typecheck && bun run build`
+   - `cd astro-party/server && npx tsc --noEmit && npm run build`
+8. [x] Move projectile/homing/turret-bullet positional integration into Rapier step
+9. [x] Add snapshot restore remapping via userData-driven body map rebuild
+10. [x] Enable CCD on fast movers (projectile/homing/turret bullet)
+11. [x] Centralize Rapier collision mask/group policy in `PhysicsWorld.ts`
+12. [x] Convert shared-sim asteroids to convex geometry + convex colliders
+13. [x] Remove asteroid wrap behavior from legacy Matter host path
 
-**Verify:** Server sim produces correct gameplay. Compare feel side-by-side with old version.
+**Verify Remaining:** Physics feel and end-to-end gameplay quality through full play-tests.
 
 ### Phase 3: Unify Types
 
@@ -381,6 +467,14 @@ After each phase:
 - [x] **Type safety**: `bun run typecheck` passes with no errors (Phase 1)
 - [x] **Server typecheck**: `cd server && npx tsc --noEmit` passes (Phase 1)
 - [x] **Client build**: `bun run build` produces `dist/index.html` (Phase 1)
+- [x] **Phase 2 compile checks**: client+server builds/typechecks pass with Rapier integrated
+- [x] **Phase 2 movement migration**: ship/asteroid/pilot/projectile/homing/turret-bullet kinematics now flow through Rapier step
+- [x] **Phase 2 collision migration**: core projectile/missile/ship/pilot/asteroid collision checks now consume Rapier `EventQueue` pair events
+- [x] **Phase 2 snapshot remap**: `restoreSnapshot()` rebuilds body maps via collider/body userData tags
+- [x] **Phase 2 CCD hardening**: fast movers (projectile/homing/turret bullets) have CCD enabled
+- [x] **Phase 2 collision policy centralization**: collider groups/masks configured centrally in `PhysicsWorld.ts`
+- [x] **Phase 2 asteroid convexity**: shared-sim asteroid geometry + colliders are convex
+- [x] **Phase 2 wrap parity**: legacy host asteroid wrap code removed
 - [ ] **Online mode**: Create room → 2+ players join → full match → works
 - [ ] **Offline mode**: Start local → add AI bots → full match → no server
 - [ ] **Local multiplayer**: 2+ players same keyboard, offline → all control ships

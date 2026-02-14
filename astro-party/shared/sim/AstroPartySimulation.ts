@@ -53,7 +53,6 @@ import { updateShips } from "./ShipSystem.js";
 import {
   resolveShipAsteroidCollisions,
   resolvePilotAsteroidCollisions,
-  resolveAsteroidAsteroidCollisions,
   processProjectileCollisions,
   processShipPilotCollisions,
   updateProjectiles,
@@ -354,7 +353,7 @@ export class AstroPartySimulation implements SimState {
         payload.settings.asteroidDensity,
         DEFAULT_ADVANCED_SETTINGS.asteroidDensity,
       ),
-      roundsToWin: clamp(Math.floor(payload.settings.roundsToWin ?? 3), 3, 6),
+      roundsToWin: clamp(Math.round(payload.settings.roundsToWin ?? 3), 3, 6),
       startPowerups: Boolean(payload.settings.startPowerups),
       shipSpeed:
         payload.settings.shipSpeed === "SLOW" ||
@@ -529,7 +528,6 @@ export class AstroPartySimulation implements SimState {
     this.physicsWorld.syncFromSim(this);
     this.physicsWorld.step(dtSec);
     this.physicsWorld.syncToSim(this);
-    resolveAsteroidAsteroidCollisions(this);
     resolveShipAsteroidCollisions(this);
     resolvePilotAsteroidCollisions(this);
     updateProjectiles(this, dtSec);

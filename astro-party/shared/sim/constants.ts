@@ -42,7 +42,9 @@ export const ROUND_RESULTS_DURATION_MS = 2500;
 
 export const PILOT_SURVIVAL_MS = 5000;
 export const PILOT_DASH_COOLDOWN_MS = 250;
-export const PILOT_RADIUS = 10;
+export const PILOT_RADIUS = 8;
+export const PILOT_FRICTION_AIR = 0.05;
+export const PILOT_ANGULAR_DAMPING = 0.08;
 
 // ============= ASTEROIDS =============
 

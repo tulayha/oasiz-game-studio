@@ -1,6 +1,11 @@
 import Matter from "matter-js";
 import { GAME_CONFIG } from "../types";
 import { GameConfig } from "../GameConfig";
+import {
+  SHIP_COLLIDER_VERTICES,
+  PILOT_COLLIDER_VERTICES,
+  cloneShapeVertices,
+} from "../../shared/geometry/EntityShapes";
 
 const { Engine, World, Bodies, Body, Events, Composite } = Matter;
 
@@ -73,14 +78,7 @@ export class Physics {
   }
 
   createShip(x: number, y: number, playerId: string): Matter.Body {
-    const size = 15;
-    // Triangle vertices for ship shape
-    const vertices = [
-      { x: size, y: 0 }, // Nose
-      { x: -size * 0.7, y: -size * 0.6 }, // Left wing
-      { x: -size * 0.4, y: 0 }, // Notch
-      { x: -size * 0.7, y: size * 0.6 }, // Right wing
-    ];
+    const vertices = cloneShapeVertices(SHIP_COLLIDER_VERTICES);
 
     const cfg = GameConfig.config;
     const phys = GameConfig.physics;
@@ -118,7 +116,8 @@ export class Physics {
     initialAngle: number,
     initialAngularVelocity: number = 0,
   ): Matter.Body {
-    const body = Bodies.circle(x, y, 8, {
+    const vertices = cloneShapeVertices(PILOT_COLLIDER_VERTICES);
+    const body = Bodies.fromVertices(x, y, [vertices], {
       label: "pilot",
       frictionAir: GAME_CONFIG.PILOT_FRICTION_AIR,
       restitution: 0.5,
@@ -282,34 +281,6 @@ export class Physics {
 
     Composite.add(this.world, body);
     return body;
-  }
-
-  wrapAround(body: Matter.Body): void {
-    const margin = 50;
-    const w = GAME_CONFIG.ARENA_WIDTH;
-    const h = GAME_CONFIG.ARENA_HEIGHT;
-    let wrapped = false;
-
-    if (body.position.x < -margin) {
-      Matter.Body.setPosition(body, { x: w + margin, y: body.position.y });
-      wrapped = true;
-    } else if (body.position.x > w + margin) {
-      Matter.Body.setPosition(body, { x: -margin, y: body.position.y });
-      wrapped = true;
-    }
-
-    if (body.position.y < -margin) {
-      Matter.Body.setPosition(body, { x: body.position.x, y: h + margin });
-      wrapped = true;
-    } else if (body.position.y > h + margin) {
-      Matter.Body.setPosition(body, { x: body.position.x, y: -margin });
-      wrapped = true;
-    }
-
-    if (wrapped) {
-      // Clear velocity to prevent weirdness
-      Matter.Body.setVelocity(body, body.velocity);
-    }
   }
 
   removeBody(body: Matter.Body): void {

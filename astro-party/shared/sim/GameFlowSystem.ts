@@ -60,7 +60,9 @@ export function updatePilots(sim: SimState, dtSec: number): void {
     }
 
     if (rotate) {
+      pilot.angularVelocity = 0;
       pilot.angle += cfg.PILOT_ROTATION_SPEED * dtSec * sim.rotationDirection;
+      pilot.angle = normalizeAngle(pilot.angle);
     }
     if (dash && sim.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
       pilot.lastDashAtMs = sim.nowMs;
@@ -68,9 +70,6 @@ export function updatePilots(sim: SimState, dtSec: number): void {
       pilot.vx += Math.cos(pilot.angle) * dashImpulse;
       pilot.vy += Math.sin(pilot.angle) * dashImpulse;
     }
-
-    pilot.vx *= 0.95;
-    pilot.vy *= 0.95;
 
     if (sim.nowMs - pilot.spawnTime >= PILOT_SURVIVAL_MS) {
       sim.respawnFromPilot(playerId, pilot);
@@ -100,6 +99,7 @@ export function onShipHit(sim: SimState, owner: RuntimePlayer | undefined, targe
     spawnTime: sim.nowMs,
     survivalProgress: 0,
     alive: true,
+    angularVelocity: target.angularVelocity * 0.6,
     lastDashAtMs: sim.nowMs - PILOT_DASH_COOLDOWN_MS - 1,
     controlMode,
     aiThinkAtMs: sim.nowMs + 300,

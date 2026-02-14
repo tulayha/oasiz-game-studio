@@ -1,4 +1,4 @@
-import type { SimState, RuntimeProjectile } from "./types.js";
+import type { SimState, RuntimeAsteroid, RuntimeProjectile } from "./types.js";
 import {
   PROJECTILE_RADIUS,
   ARENA_WIDTH,
@@ -8,59 +8,68 @@ import {
 } from "./constants.js";
 
 export function resolveShipAsteroidCollisions(sim: SimState): void {
-  for (const playerId of sim.playerOrder) {
+  if (!ASTEROID_DAMAGE_SHIPS) return;
+  const handledShips = new Set<string>();
+  const asteroidById = buildAliveAsteroidMap(sim);
+  const pairs = sim.physicsWorld.getActivePairIds("ship", "asteroid");
+
+  for (const { firstId: playerId, secondId: asteroidId } of pairs) {
+    if (handledShips.has(playerId)) continue;
     const player = sim.players.get(playerId);
     if (!player || !player.ship.alive) continue;
+    if (player.ship.invulnerableUntil > sim.nowMs) continue;
 
-    for (const asteroid of sim.asteroids) {
-      if (!asteroid.alive) continue;
-      const collided = sim.physicsWorld.intersectsShipAsteroid(playerId, asteroid.id);
+    const asteroid = asteroidById.get(asteroidId);
+    if (!asteroid) continue;
 
-      if (
-        collided &&
-        ASTEROID_DAMAGE_SHIPS &&
-        player.ship.invulnerableUntil <= sim.nowMs
-      ) {
-        sim.destroyAsteroid(asteroid);
-        sim.onShipHit(undefined, player);
-        sim.playerPowerUps.delete(playerId);
-        break;
-      }
-    }
+    sim.destroyAsteroid(asteroid);
+    sim.onShipHit(undefined, player);
+    sim.playerPowerUps.delete(playerId);
+    handledShips.add(playerId);
   }
 }
 
 export function resolvePilotAsteroidCollisions(sim: SimState): void {
-  for (const [pilotPlayerId, pilot] of sim.pilots) {
-    if (!pilot.alive) continue;
+  if (!ASTEROID_DAMAGE_SHIPS) return;
+  const asteroidById = buildAliveAsteroidMap(sim);
+  const handledPilots = new Set<string>();
+  const pairs = sim.physicsWorld.getActivePairIds("pilot", "asteroid");
 
-    for (const asteroid of sim.asteroids) {
-      if (!asteroid.alive) continue;
-      const collided = sim.physicsWorld.intersectsPilotAsteroid(pilotPlayerId, asteroid.id);
-      if (collided && ASTEROID_DAMAGE_SHIPS) {
-        sim.destroyAsteroid(asteroid);
-        sim.killPilot(pilotPlayerId, "asteroid");
-        break;
-      }
-    }
+  for (const { firstId: pilotPlayerId, secondId: asteroidId } of pairs) {
+    if (handledPilots.has(pilotPlayerId)) continue;
+    const pilot = sim.pilots.get(pilotPlayerId);
+    if (!pilot || !pilot.alive) continue;
+    const asteroid = asteroidById.get(asteroidId);
+    if (!asteroid) continue;
+    sim.destroyAsteroid(asteroid);
+    sim.killPilot(pilotPlayerId, "asteroid");
+    handledPilots.add(pilotPlayerId);
   }
 }
 
-export function resolveAsteroidAsteroidCollisions(sim: SimState): void {
-  void sim;
-}
-
 export function processProjectileCollisions(sim: SimState): void {
+  const projectileShipHits = buildHitMap(
+    sim.physicsWorld.getStartedPairIds("projectile", "ship"),
+  );
+  const projectilePilotHits = buildHitMap(
+    sim.physicsWorld.getStartedPairIds("projectile", "pilot"),
+  );
+  const projectileAsteroidHits = buildHitMap(
+    sim.physicsWorld.getStartedPairIds("projectile", "asteroid"),
+  );
+  const asteroidById = buildAliveAsteroidMap(sim);
   const consumed = new Set<string>();
+
   for (const proj of sim.projectiles) {
     if (consumed.has(proj.id)) continue;
     const owner = sim.players.get(proj.ownerId);
-    for (const playerId of sim.playerOrder) {
+    const shipHitIds = projectileShipHits.get(proj.id) ?? [];
+
+    for (const playerId of shipHitIds) {
       if (playerId === proj.ownerId) continue;
       const target = sim.players.get(playerId);
       if (!target || !target.ship.alive) continue;
       if (target.ship.invulnerableUntil > sim.nowMs) continue;
-      if (!sim.physicsWorld.intersectsProjectileShip(proj.id, playerId)) continue;
       const shield = sim.playerPowerUps.get(playerId);
       if (shield?.type === "SHIELD") {
         shield.shieldHits += 1;
@@ -78,18 +87,21 @@ export function processProjectileCollisions(sim: SimState): void {
     }
 
     if (consumed.has(proj.id)) continue;
-    for (const [pilotPlayerId, pilot] of sim.pilots) {
+    const pilotHitIds = projectilePilotHits.get(proj.id) ?? [];
+    for (const pilotPlayerId of pilotHitIds) {
+      const pilot = sim.pilots.get(pilotPlayerId);
+      if (!pilot) continue;
       if (!pilot.alive) continue;
-      if (!sim.physicsWorld.intersectsProjectilePilot(proj.id, pilotPlayerId)) continue;
       consumed.add(proj.id);
       sim.killPilot(pilotPlayerId, proj.ownerId);
       break;
     }
 
     if (consumed.has(proj.id)) continue;
-    for (const asteroid of sim.asteroids) {
-      if (!asteroid.alive) continue;
-      if (!sim.physicsWorld.intersectsProjectileAsteroid(proj.id, asteroid.id)) continue;
+    const asteroidHitIds = projectileAsteroidHits.get(proj.id) ?? [];
+    for (const asteroidId of asteroidHitIds) {
+      const asteroid = asteroidById.get(asteroidId);
+      if (!asteroid) continue;
       consumed.add(proj.id);
       sim.destroyAsteroid(asteroid);
       break;
@@ -104,15 +116,14 @@ export function processProjectileCollisions(sim: SimState): void {
 }
 
 export function processShipPilotCollisions(sim: SimState): void {
-  for (const playerId of sim.playerOrder) {
+  const pairs = sim.physicsWorld.getActivePairIds("ship", "pilot");
+  for (const { firstId: playerId, secondId: pilotPlayerId } of pairs) {
     const shipOwner = sim.players.get(playerId);
     if (!shipOwner || !shipOwner.ship.alive) continue;
-    for (const [pilotPlayerId, pilot] of sim.pilots) {
-      if (!pilot.alive) continue;
-      if (pilotPlayerId === playerId) continue;
-      if (!sim.physicsWorld.intersectsShipPilot(playerId, pilotPlayerId)) continue;
-      sim.killPilot(pilotPlayerId, playerId);
-    }
+    if (pilotPlayerId === playerId) continue;
+    const pilot = sim.pilots.get(pilotPlayerId);
+    if (!pilot || !pilot.alive) continue;
+    sim.killPilot(pilotPlayerId, playerId);
   }
 }
 
@@ -130,4 +141,28 @@ export function updateProjectiles(sim: SimState, _dtSec: number): void {
     kept.push(proj);
   }
   sim.projectiles = kept;
+}
+
+function buildHitMap(
+  pairs: Array<{ firstId: string; secondId: string }>,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const pair of pairs) {
+    const list = out.get(pair.firstId);
+    if (list) {
+      list.push(pair.secondId);
+    } else {
+      out.set(pair.firstId, [pair.secondId]);
+    }
+  }
+  return out;
+}
+
+function buildAliveAsteroidMap(sim: SimState): Map<string, RuntimeAsteroid> {
+  const out = new Map<string, RuntimeAsteroid>();
+  for (const asteroid of sim.asteroids) {
+    if (!asteroid.alive) continue;
+    out.set(asteroid.id, asteroid);
+  }
+  return out;
 }

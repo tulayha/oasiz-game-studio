@@ -1,7 +1,6 @@
 import type { SimState, RuntimePlayer, ActiveConfig } from "./types.js";
 import {
   SHIP_HIT_RADIUS,
-  PILOT_RADIUS,
   FIRE_COOLDOWN_MS,
   FIRE_HOLD_REPEAT_DELAY_MS,
   RELOAD_MS,
@@ -20,18 +19,16 @@ import {
   SCATTER_PROJECTILE_LIFETIME_MS,
   HOMING_MISSILE_SPEED_PX_PER_SEC,
   POWERUP_SHIELD_HITS,
-  SHIP_FRICTION_AIR_BY_PRESET,
-  SHIP_ANGULAR_DAMPING_BY_PRESET,
 } from "./constants.js";
 import { normalizeAngle, clamp } from "./utils.js";
+import {
+  PILOT_COLLIDER_VERTICES,
+  transformLocalVertices,
+} from "../geometry/EntityShapes.js";
 
 export function updateShips(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
   const isStandard = sim.baseMode === "STANDARD";
-  const shipFrictionAir =
-    SHIP_FRICTION_AIR_BY_PRESET[sim.settings.shipFrictionAirPreset] ?? 0;
-  const shipAngularDamping =
-    SHIP_ANGULAR_DAMPING_BY_PRESET[sim.settings.angularDampingPreset] ?? 0;
 
   for (const playerId of sim.playerOrder) {
     const player = sim.players.get(playerId);
@@ -39,12 +36,14 @@ export function updateShips(sim: SimState, dtSec: number): void {
     const ship = player.ship;
     if (!ship.alive) continue;
 
+    if (isStandard) {
+      player.angularVelocity = 0;
+    }
+
     if (player.input.buttonA) {
       player.angularVelocity = 0;
       ship.angle += cfg.ROTATION_SPEED * dtSec * sim.rotationDirection;
       ship.angle = normalizeAngle(ship.angle);
-    } else if (player.angularVelocity !== 0) {
-      ship.angle = normalizeAngle(ship.angle + player.angularVelocity * dtSec);
     }
 
     if (player.dashQueued) {
@@ -72,14 +71,6 @@ export function updateShips(sim: SimState, dtSec: number): void {
     if (player.recoilTimerSec > 0) {
       player.recoilTimerSec = Math.max(0, player.recoilTimerSec - dtSec);
     }
-    if (shipAngularDamping > 0 && player.angularVelocity !== 0) {
-      const damping = Math.max(0, 1 - shipAngularDamping * 60 * dtSec);
-      player.angularVelocity *= damping;
-      if (Math.abs(player.angularVelocity) < 1e-4) {
-        player.angularVelocity = 0;
-      }
-    }
-
     if (isStandard) {
       const dashBoost = player.dashTimerSec > 0 ? cfg.SHIP_DASH_BOOST : 0;
       const recoilSlowdown =
@@ -99,12 +90,6 @@ export function updateShips(sim: SimState, dtSec: number): void {
       const accel = cfg.BASE_THRUST * FORCE_TO_ACCEL;
       ship.vx += Math.cos(ship.angle) * accel * dtSec;
       ship.vy += Math.sin(ship.angle) * accel * dtSec;
-    }
-
-    if (shipFrictionAir > 0) {
-      const damping = Math.max(0, 1 - shipFrictionAir * 60 * dtSec);
-      ship.vx *= damping;
-      ship.vy *= damping;
     }
 
     if (player.fireRequested) {
@@ -323,10 +308,9 @@ function applyLaserDamage(
   for (const [pilotPlayerId, pilot] of sim.pilots) {
     if (!pilot.alive) continue;
     if (
-      checkLineCircleCollision(
+      checkLinePilotCollision(
         startX, startY, endX, endY,
-        pilot.x, pilot.y,
-        PILOT_RADIUS,
+        pilot.x, pilot.y, pilot.angle,
       )
     ) {
       sim.killPilot(pilotPlayerId, ownerId);
@@ -336,15 +320,152 @@ function applyLaserDamage(
   for (const asteroid of sim.asteroids) {
     if (!asteroid.alive) continue;
     if (
-      checkLineCircleCollision(
+      checkLineAsteroidCollision(
         startX, startY, endX, endY,
-        asteroid.x, asteroid.y,
-        asteroid.size,
+        asteroid,
       )
     ) {
       sim.destroyAsteroid(asteroid);
     }
   }
+}
+
+function checkLineAsteroidCollision(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  asteroid: {
+    x: number;
+    y: number;
+    angle: number;
+    vertices: Array<{ x: number; y: number }>;
+  },
+): boolean {
+  const vertices = getAsteroidWorldVertices(asteroid);
+  if (vertices.length < 3) return false;
+
+  if (pointInPolygon(x1, y1, vertices) || pointInPolygon(x2, y2, vertices)) {
+    return true;
+  }
+
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    if (segmentsIntersect(x1, y1, x2, y2, a.x, a.y, b.x, b.y)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function checkLinePilotCollision(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  pilotX: number,
+  pilotY: number,
+  pilotAngle: number,
+): boolean {
+  const vertices = transformLocalVertices(PILOT_COLLIDER_VERTICES, pilotX, pilotY, pilotAngle);
+  if (vertices.length < 3) return false;
+
+  if (pointInPolygon(x1, y1, vertices) || pointInPolygon(x2, y2, vertices)) {
+    return true;
+  }
+
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    if (segmentsIntersect(x1, y1, x2, y2, a.x, a.y, b.x, b.y)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getAsteroidWorldVertices(asteroid: {
+  x: number;
+  y: number;
+  angle: number;
+  vertices: Array<{ x: number; y: number }>;
+}): Array<{ x: number; y: number }> {
+  return transformLocalVertices(
+    asteroid.vertices,
+    asteroid.x,
+    asteroid.y,
+    asteroid.angle,
+  );
+}
+
+function pointInPolygon(
+  x: number,
+  y: number,
+  vertices: Array<{ x: number; y: number }>,
+): boolean {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x;
+    const yi = vertices[i].y;
+    const xj = vertices[j].x;
+    const yj = vertices[j].y;
+    const intersects =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function segmentsIntersect(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  dx: number,
+  dy: number,
+): boolean {
+  const orient = (
+    px: number,
+    py: number,
+    qx: number,
+    qy: number,
+    rx: number,
+    ry: number,
+  ): number => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+
+  const onSegment = (
+    px: number,
+    py: number,
+    qx: number,
+    qy: number,
+    rx: number,
+    ry: number,
+  ): boolean =>
+    Math.min(px, qx) <= rx &&
+    rx <= Math.max(px, qx) &&
+    Math.min(py, qy) <= ry &&
+    ry <= Math.max(py, qy);
+
+  const o1 = orient(ax, ay, bx, by, cx, cy);
+  const o2 = orient(ax, ay, bx, by, dx, dy);
+  const o3 = orient(cx, cy, dx, dy, ax, ay);
+  const o4 = orient(cx, cy, dx, dy, bx, by);
+
+  if ((o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0)) return true;
+
+  const eps = 1e-9;
+  if (Math.abs(o1) <= eps && onSegment(ax, ay, bx, by, cx, cy)) return true;
+  if (Math.abs(o2) <= eps && onSegment(ax, ay, bx, by, dx, dy)) return true;
+  if (Math.abs(o3) <= eps && onSegment(cx, cy, dx, dy, ax, ay)) return true;
+  if (Math.abs(o4) <= eps && onSegment(cx, cy, dx, dy, bx, by)) return true;
+
+  return false;
 }
 
 export function checkLineCircleCollision(

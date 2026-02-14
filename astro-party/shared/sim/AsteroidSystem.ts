@@ -27,6 +27,11 @@ import {
 import type { PowerUpType } from "./types.js";
 import { clamp } from "./utils.js";
 
+interface Point2D {
+  x: number;
+  y: number;
+}
+
 export function spawnInitialAsteroids(sim: SimState): void {
   if (sim.settings.asteroidDensity === "NONE") return;
   const { min, max } = getInitialAsteroidRange(sim);
@@ -214,14 +219,111 @@ function spawnSingleAsteroidFromBorder(sim: SimState): void {
 }
 
 export function generateAsteroidVertices(sim: SimState, size: number): { x: number; y: number }[] {
-  const count =
+  const targetCount =
     ASTEROID_VERTICES_MIN +
     Math.floor(sim.asteroidRng.next() * (ASTEROID_VERTICES_MAX - ASTEROID_VERTICES_MIN + 1));
-  const vertices: { x: number; y: number }[] = [];
-  for (let i = 0; i < count; i++) {
-    const angle = (Math.PI * 2 * i) / count;
-    const radius = size * (0.7 + sim.asteroidRng.next() * 0.6);
-    vertices.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+  const sampleCount = Math.max(targetCount * 2, targetCount + 3);
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const samples: Point2D[] = [];
+    for (let i = 0; i < sampleCount; i++) {
+      const sector = (Math.PI * 2) / sampleCount;
+      const angleJitter = sector * 0.45;
+      const angle =
+        (i / sampleCount) * Math.PI * 2 +
+        (sim.asteroidRng.next() * 2 - 1) * angleJitter;
+      const radius = size * (0.72 + sim.asteroidRng.next() * 0.56);
+      samples.push({
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius,
+      });
+    }
+
+    const hull = computeConvexHull(samples);
+    if (hull.length < 3) continue;
+    const reduced = downsampleConvexVertices(hull, targetCount);
+    if (reduced.length >= 3) {
+      return ensureCounterClockwise(reduced);
+    }
+  }
+
+  return createRegularConvexFallback(size, Math.max(5, targetCount));
+}
+
+function computeConvexHull(points: Point2D[]): Point2D[] {
+  if (points.length <= 3) return points.slice();
+
+  const sorted = [...points].sort((a, b) =>
+    a.x === b.x ? a.y - b.y : a.x - b.x,
+  );
+
+  const unique: Point2D[] = [];
+  for (const p of sorted) {
+    const prev = unique[unique.length - 1];
+    if (!prev || prev.x !== p.x || prev.y !== p.y) {
+      unique.push(p);
+    }
+  }
+  if (unique.length <= 3) return unique;
+
+  const cross = (o: Point2D, a: Point2D, b: Point2D): number =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower: Point2D[] = [];
+  for (const p of unique) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper: Point2D[] = [];
+  for (let i = unique.length - 1; i >= 0; i--) {
+    const p = unique[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  lower.pop();
+  upper.pop();
+  const hull = lower.concat(upper);
+  return hull.length >= 3 ? hull : unique.slice(0, 3);
+}
+
+function downsampleConvexVertices(vertices: Point2D[], targetCount: number): Point2D[] {
+  if (vertices.length <= targetCount) return vertices.slice();
+  const out: Point2D[] = [];
+  for (let i = 0; i < targetCount; i++) {
+    const idx = Math.floor((i * vertices.length) / targetCount);
+    out.push(vertices[idx]);
+  }
+  return out;
+}
+
+function ensureCounterClockwise(vertices: Point2D[]): Point2D[] {
+  if (vertices.length < 3) return vertices.slice();
+  let area2 = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    area2 += a.x * b.y - b.x * a.y;
+  }
+  if (area2 > 0) return vertices.slice();
+  return [...vertices].reverse();
+}
+
+function createRegularConvexFallback(size: number, count: number): Point2D[] {
+  const n = Math.max(3, count);
+  const radius = Math.max(4, size);
+  const vertices: Point2D[] = [];
+  for (let i = 0; i < n; i++) {
+    const angle = (Math.PI * 2 * i) / n;
+    vertices.push({
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+    });
   }
   return vertices;
 }

@@ -1,4 +1,4 @@
-import { Client, Room } from "colyseus.js";
+import { Client, Room, getStateCallbacks } from "colyseus.js";
 import {
   AdvancedSettingsSync,
   GamePhase,
@@ -105,6 +105,8 @@ export class ColyseusTransport implements NetworkTransport {
   private playerListRevision = 0;
   private lastAdvancedSettingsSignature: string | null = null;
   private lastDevModeEnabled: boolean | null = null;
+  private stateUnsubscribers: Array<() => void> = [];
+  private schemaRosterCallbacksActive = false;
 
   private readonly wsUrl: string;
   private readonly httpUrl: string;
@@ -436,12 +438,7 @@ export class ColyseusTransport implements NetworkTransport {
   }
 
   private bindRoomListeners(room: Room): void {
-    room.onStateChange((state) => {
-      this.handleRoomState(state as unknown as RoomStateView);
-    });
-    if (room.state) {
-      this.handleRoomState(room.state as unknown as RoomStateView);
-    }
+    this.bindStateListeners(room);
 
     room.onLeave(() => {
       this.connected = false;
@@ -515,6 +512,170 @@ export class ColyseusTransport implements NetworkTransport {
     });
   }
 
+  private bindStateListeners(room: Room): void {
+    this.teardownStateBindings();
+    this.schemaRosterCallbacksActive = false;
+    if (this.bindSchemaStateListeners(room)) {
+      this.schemaRosterCallbacksActive = true;
+      return;
+    }
+
+    const detach = room.onStateChange((state) => {
+      this.handleRoomState(state as unknown as RoomStateView);
+    });
+    if (typeof detach === "function") {
+      this.stateUnsubscribers.push(detach);
+    }
+    if (room.state) {
+      this.handleRoomState(room.state as unknown as RoomStateView);
+    }
+  }
+
+  private bindSchemaStateListeners(room: Room): boolean {
+    if (!room.state) return false;
+
+    const getCallbacks = getStateCallbacks<RoomStateView>(
+      room as unknown as Room<RoomStateView>,
+    );
+    if (!getCallbacks) return false;
+
+    const state = room.state as unknown as RoomStateView;
+    const $ = getCallbacks as unknown as (instance: unknown) => {
+      listen?: (
+        prop: string,
+        callback: (value: unknown, previousValue: unknown) => void,
+        immediate?: boolean,
+      ) => (() => void) | void;
+      onChange?: (callback: () => void) => (() => void) | void;
+      playerOrder?: {
+        onAdd?: (callback: (item: unknown, index: unknown) => void) => (() => void) | void;
+        onRemove?: (callback: (item: unknown, index: unknown) => void) => (() => void) | void;
+        onChange?: (callback: (item: unknown, index: unknown) => void) => (() => void) | void;
+      };
+      players?: {
+        onAdd?: (callback: (item: unknown, key: unknown) => void) => (() => void) | void;
+        onRemove?: (callback: (item: unknown, key: unknown) => void) => (() => void) | void;
+        onChange?: (callback: (item: unknown, key: unknown) => void) => (() => void) | void;
+      };
+    };
+    const root = $(state);
+    if (!root) return false;
+
+    const playerMetaDetachById = new Map<string, () => void>();
+    const triggerStateRefresh = (): void => {
+      this.handleRoomState(state);
+    };
+    const trackUnsubscriber = (unbind: unknown): void => {
+      if (typeof unbind === "function") {
+        this.stateUnsubscribers.push(unbind as () => void);
+      }
+    };
+
+    const attachPlayerMetaListener = (entry: unknown, key: unknown): void => {
+      const playerId = String(key);
+      const existing = playerMetaDetachById.get(playerId);
+      if (existing) {
+        existing();
+        playerMetaDetachById.delete(playerId);
+      }
+      const entryProxy = $(entry);
+      if (entryProxy && typeof entryProxy.onChange === "function") {
+        const unbind = entryProxy.onChange(() => {
+          triggerStateRefresh();
+        });
+        if (typeof unbind === "function") {
+          playerMetaDetachById.set(playerId, unbind);
+        }
+      }
+    };
+
+    if (typeof root.listen === "function") {
+      trackUnsubscriber(root.listen("leaderPlayerId", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("hostId", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("mode", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("baseMode", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("settingsJson", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("devModeEnabled", () => triggerStateRefresh()));
+    }
+
+    if (root.playerOrder) {
+      trackUnsubscriber(
+        root.playerOrder.onAdd?.((item, index) => {
+          const playerId = typeof item === "string" ? item : "";
+          triggerStateRefresh();
+          if (!playerId) return;
+          const joinedIndex = Number.isFinite(index as number)
+            ? (index as number)
+            : this.playerOrder.indexOf(playerId);
+          this.callbacks?.onPlayerJoined(playerId, joinedIndex);
+        }),
+      );
+      trackUnsubscriber(root.playerOrder.onChange?.(() => triggerStateRefresh()));
+      trackUnsubscriber(
+        root.playerOrder.onRemove?.((item) => {
+          const playerId = typeof item === "string" ? item : "";
+          triggerStateRefresh();
+          if (!playerId) return;
+          this.callbacks?.onPlayerLeft(playerId);
+        }),
+      );
+    }
+
+    if (root.players) {
+      trackUnsubscriber(
+        root.players.onAdd?.((entry, key) => {
+          attachPlayerMetaListener(entry, key);
+          triggerStateRefresh();
+        }),
+      );
+      trackUnsubscriber(
+        root.players.onChange?.((entry, key) => {
+          attachPlayerMetaListener(entry, key);
+          triggerStateRefresh();
+        }),
+      );
+      trackUnsubscriber(
+        root.players.onRemove?.((_entry, key) => {
+          const playerId = String(key);
+          const existing = playerMetaDetachById.get(playerId);
+          if (existing) {
+            existing();
+            playerMetaDetachById.delete(playerId);
+          }
+          triggerStateRefresh();
+        }),
+      );
+    }
+
+    const playersState = state.players as {
+      forEach?: (cb: (value: unknown, key: string) => void) => void;
+    };
+    if (typeof playersState?.forEach === "function") {
+      playersState.forEach((entry, key) => {
+        attachPlayerMetaListener(entry, key);
+      });
+    }
+
+    this.stateUnsubscribers.push(() => {
+      playerMetaDetachById.forEach((detach) => detach());
+      playerMetaDetachById.clear();
+    });
+
+    triggerStateRefresh();
+    return true;
+  }
+
+  private teardownStateBindings(): void {
+    for (const detach of this.stateUnsubscribers) {
+      try {
+        detach();
+      } catch {
+        // no-op
+      }
+    }
+    this.stateUnsubscribers = [];
+  }
+
   private handleRoomState(state: RoomStateView): void {
     const leaderFromState = this.normalizeStateString(state.leaderPlayerId);
     const hostFromState = this.normalizeStateString(state.hostId);
@@ -540,7 +701,7 @@ export class ColyseusTransport implements NetworkTransport {
       hostId: this.hostId,
       revision: ++this.playerListRevision,
     };
-    this.handlePlayerList(payload);
+    this.handlePlayerList(payload, !this.schemaRosterCallbacksActive);
   }
 
   private applyAdvancedSettingsFromState(state: RoomStateView): void {
@@ -670,7 +831,10 @@ export class ColyseusTransport implements NetworkTransport {
     return normalized.length > 0 ? normalized : null;
   }
 
-  private handlePlayerList(payload: PlayerListPayload): void {
+  private handlePlayerList(
+    payload: PlayerListPayload,
+    emitJoinLeaveEvents: boolean,
+  ): void {
     const previousOrder = [...this.playerOrder];
     const previousSet = new Set(previousOrder);
     const nextSet = new Set(payload.order);
@@ -691,21 +855,26 @@ export class ColyseusTransport implements NetworkTransport {
     for (const previousId of previousSet) {
       if (!nextSet.has(previousId)) {
         this.playerRefs.delete(previousId);
-        this.callbacks?.onPlayerLeft(previousId);
+        if (emitJoinLeaveEvents) {
+          this.callbacks?.onPlayerLeft(previousId);
+        }
       }
     }
 
-    payload.order.forEach((playerId, index) => {
-      if (!previousSet.has(playerId)) {
-        this.callbacks?.onPlayerJoined(playerId, index);
-      }
-    });
+    if (emitJoinLeaveEvents) {
+      payload.order.forEach((playerId, index) => {
+        if (!previousSet.has(playerId)) {
+          this.callbacks?.onPlayerJoined(playerId, index);
+        }
+      });
+    }
 
     this.hostId = payload.hostId ?? this.hostId;
     this.callbacks?.onPlayerListReceived(this.playerOrder, this.playerMetaById);
   }
 
   private async cleanupConnection(): Promise<void> {
+    this.teardownStateBindings();
     try {
       if (this.room) {
         await this.room.leave(true);

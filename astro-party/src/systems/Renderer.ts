@@ -13,6 +13,7 @@ import {
   GAME_CONFIG,
 } from "../types";
 import { SeededRNG } from "./SeededRNG";
+import { SHIP_COLLIDER_VERTICES } from "../../shared/geometry/EntityShapes";
 
 export class Renderer {
   private canvas: HTMLCanvasElement;
@@ -773,10 +774,11 @@ export class Renderer {
     ctx.lineWidth = 2;
 
     ctx.beginPath();
-    ctx.moveTo(size, 0); // Nose
-    ctx.lineTo(-size * 0.7, -size * 0.6); // Top wing
-    ctx.lineTo(-size * 0.4, 0); // Notch
-    ctx.lineTo(-size * 0.7, size * 0.6); // Bottom wing
+    ctx.moveTo(SHIP_COLLIDER_VERTICES[0].x, SHIP_COLLIDER_VERTICES[0].y);
+    for (let i = 1; i < SHIP_COLLIDER_VERTICES.length; i++) {
+      const vertex = SHIP_COLLIDER_VERTICES[i];
+      ctx.lineTo(vertex.x, vertex.y);
+    }
     ctx.closePath();
     ctx.fill();
     ctx.stroke();

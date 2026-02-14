@@ -847,7 +847,8 @@ export class Game {
     const syncNow = performance.now();
     this.collisionMgr.setSimTimeMs(nowMs);
 
-    // Check dev keys for testing powerups (only for local player on host)
+    // Check dev keys for testing powerups.
+    // In server-authoritative mode, always send requests and let server validate.
     const devKeys = this.input.consumeDevKeys();
     const myPlayerId = this.network.getMyPlayerId();
     if (myPlayerId) {
@@ -867,13 +868,22 @@ export class Game {
         }
       };
 
-      if (myShip && myShip.alive && !existingPowerUp) {
-        grantDevPowerUp(devKeys.laser, "LASER", "LASER");
-        grantDevPowerUp(devKeys.shield, "SHIELD", "SHIELD");
-        grantDevPowerUp(devKeys.scatter, "SCATTER", "SCATTER");
-        grantDevPowerUp(devKeys.mine, "MINE", "MINE");
-        grantDevPowerUp(devKeys.joust, "JOUST", "JOUST");
-        grantDevPowerUp(devKeys.homing, "HOMING_MISSILE", "HOMING_MISSILE");
+      if (this.network.isSimulationAuthority()) {
+        if (myShip && myShip.alive && !existingPowerUp) {
+          grantDevPowerUp(devKeys.laser, "LASER", "LASER");
+          grantDevPowerUp(devKeys.shield, "SHIELD", "SHIELD");
+          grantDevPowerUp(devKeys.scatter, "SCATTER", "SCATTER");
+          grantDevPowerUp(devKeys.mine, "MINE", "MINE");
+          grantDevPowerUp(devKeys.joust, "JOUST", "JOUST");
+          grantDevPowerUp(devKeys.homing, "HOMING_MISSILE", "HOMING_MISSILE");
+        }
+      } else {
+        if (devKeys.laser) this.network.requestDevPowerUp("LASER");
+        if (devKeys.shield) this.network.requestDevPowerUp("SHIELD");
+        if (devKeys.scatter) this.network.requestDevPowerUp("SCATTER");
+        if (devKeys.mine) this.network.requestDevPowerUp("MINE");
+        if (devKeys.joust) this.network.requestDevPowerUp("JOUST");
+        if (devKeys.homing) this.network.requestDevPowerUp("HOMING_MISSILE");
       }
 
       // Reverse can be triggered even with existing power-up since it's global
@@ -979,11 +989,6 @@ export class Game {
         (projectile) => projectile.isExpired(nowMs),
         (projectile) => projectile.destroy(),
       );
-
-      // Wrap asteroids around the arena
-      this.asteroidMgr.getAsteroids().forEach((asteroid) => {
-        this.physics.wrapAround(asteroid.body);
-      });
 
       // Update power-ups (magnetic effect)
       const shipPositionsForPowerUps = new Map<

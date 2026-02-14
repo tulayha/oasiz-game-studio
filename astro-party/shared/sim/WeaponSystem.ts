@@ -1,4 +1,4 @@
-import type { SimState, RuntimeMine, ShipState } from "./types.js";
+import type { SimState, RuntimeMine, RuntimeAsteroid, ShipState } from "./types.js";
 import {
   SHIP_RADIUS,
   PILOT_RADIUS,
@@ -176,14 +176,26 @@ export function updateHomingMissiles(sim: SimState, dtSec: number): void {
 }
 
 export function checkHomingMissileCollisions(sim: SimState): void {
+  const missileShipHits = buildPairHitMap(
+    sim.physicsWorld.getStartedPairIds("homingMissile", "ship"),
+  );
+  const missileAsteroidHits = buildPairHitMap(
+    sim.physicsWorld.getStartedPairIds("homingMissile", "asteroid"),
+  );
+  const asteroidById = new Map<string, RuntimeAsteroid>();
+  for (const asteroid of sim.asteroids) {
+    if (!asteroid.alive) continue;
+    asteroidById.set(asteroid.id, asteroid);
+  }
+
   for (const missile of sim.homingMissiles) {
     if (!missile.alive) continue;
 
-    for (const playerId of sim.playerOrder) {
+    const shipHitIds = missileShipHits.get(missile.id) ?? [];
+    for (const playerId of shipHitIds) {
       if (playerId === missile.ownerId) continue;
       const player = sim.players.get(playerId);
       if (!player || !player.ship.alive) continue;
-      if (!sim.physicsWorld.intersectsHomingMissileShip(missile.id, playerId)) continue;
       const dx = player.ship.x - missile.x;
       const dy = player.ship.y - missile.y;
 
@@ -241,9 +253,10 @@ export function checkHomingMissileCollisions(sim: SimState): void {
 
     if (!missile.alive) continue;
 
-    for (const asteroid of sim.asteroids) {
-      if (!asteroid.alive) continue;
-      if (!sim.physicsWorld.intersectsHomingMissileAsteroid(missile.id, asteroid.id)) continue;
+    const asteroidHitIds = missileAsteroidHits.get(missile.id) ?? [];
+    for (const asteroidId of asteroidHitIds) {
+      const asteroid = asteroidById.get(asteroidId);
+      if (!asteroid) continue;
       sim.destroyAsteroid(asteroid);
       missile.alive = false;
       break;
@@ -253,6 +266,21 @@ export function checkHomingMissileCollisions(sim: SimState): void {
       sim.physicsWorld.removeHomingMissile(missile.id);
     }
   }
+}
+
+function buildPairHitMap(
+  pairs: Array<{ firstId: string; secondId: string }>,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const pair of pairs) {
+    const list = out.get(pair.firstId);
+    if (list) {
+      list.push(pair.secondId);
+    } else {
+      out.set(pair.firstId, [pair.secondId]);
+    }
+  }
+  return out;
 }
 
 export function updateJoustCollisions(sim: SimState): void {
@@ -358,16 +386,26 @@ export function updateJoustCollisions(sim: SimState): void {
       if (!asteroid.alive) continue;
       let destroyed = false;
       if (powerUp.leftSwordActive) {
-        const dx = asteroid.x - swords.left.centerX;
-        const dy = asteroid.y - swords.left.centerY;
-        if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + asteroid.size) ** 2) {
+        if (
+          checkCircleAsteroidCollision(
+            swords.left.centerX,
+            swords.left.centerY,
+            JOUST_COLLISION_RADIUS,
+            asteroid,
+          )
+        ) {
           destroyed = true;
         }
       }
       if (!destroyed && powerUp.rightSwordActive) {
-        const dx = asteroid.x - swords.right.centerX;
-        const dy = asteroid.y - swords.right.centerY;
-        if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + asteroid.size) ** 2) {
+        if (
+          checkCircleAsteroidCollision(
+            swords.right.centerX,
+            swords.right.centerY,
+            JOUST_COLLISION_RADIUS,
+            asteroid,
+          )
+        ) {
           destroyed = true;
         }
       }
@@ -384,6 +422,91 @@ export function updateJoustCollisions(sim: SimState): void {
     }
     sim.projectiles = sim.projectiles.filter((p: { id: string }) => !consumedProjectiles.has(p.id));
   }
+}
+
+function checkCircleAsteroidCollision(
+  cx: number,
+  cy: number,
+  radius: number,
+  asteroid: RuntimeAsteroid,
+): boolean {
+  const vertices = getAsteroidWorldVertices(asteroid);
+  if (vertices.length < 3) return false;
+
+  if (pointInPolygon(cx, cy, vertices)) {
+    return true;
+  }
+
+  const radiusSq = radius * radius;
+  for (const vertex of vertices) {
+    const dx = vertex.x - cx;
+    const dy = vertex.y - cy;
+    if (dx * dx + dy * dy <= radiusSq) {
+      return true;
+    }
+  }
+
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    if (distanceSqPointToSegment(cx, cy, a.x, a.y, b.x, b.y) <= radiusSq) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getAsteroidWorldVertices(asteroid: RuntimeAsteroid): Array<{ x: number; y: number }> {
+  const cos = Math.cos(asteroid.angle);
+  const sin = Math.sin(asteroid.angle);
+  return asteroid.vertices.map((vertex) => ({
+    x: asteroid.x + vertex.x * cos - vertex.y * sin,
+    y: asteroid.y + vertex.x * sin + vertex.y * cos,
+  }));
+}
+
+function pointInPolygon(
+  x: number,
+  y: number,
+  vertices: Array<{ x: number; y: number }>,
+): boolean {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x;
+    const yi = vertices[i].y;
+    const xj = vertices[j].x;
+    const yj = vertices[j].y;
+    const intersects =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function distanceSqPointToSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq <= 1e-9) {
+    const vx = px - ax;
+    const vy = py - ay;
+    return vx * vx + vy * vy;
+  }
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  const vx = px - cx;
+  const vy = py - cy;
+  return vx * vx + vy * vy;
 }
 
 export function getJoustSwordGeometry(ship: ShipState): {

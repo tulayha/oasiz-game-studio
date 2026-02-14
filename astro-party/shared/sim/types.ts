@@ -309,6 +309,7 @@ export interface RuntimePlayer {
 }
 
 export interface RuntimePilot extends PilotState {
+  angularVelocity: number;
   lastDashAtMs: number;
   controlMode: "player" | "ai";
   aiThinkAtMs: number;

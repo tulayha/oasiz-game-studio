@@ -222,8 +222,29 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
   }
 
   private applyPlayerListState(payload: PlayerListPayload): void {
-    this.state.playerOrder.splice(0, this.state.playerOrder.length, ...payload.order);
-    this.state.hostId = payload.hostId ?? "";
+    const nextHostId = payload.hostId ?? "";
+    if (this.state.hostId !== nextHostId) {
+      this.state.hostId = nextHostId;
+    }
+
+    const orderChanged =
+      this.state.playerOrder.length !== payload.order.length ||
+      payload.order.some((playerId, index) => this.state.playerOrder[index] !== playerId);
+    if (orderChanged) {
+      while (this.state.playerOrder.length > payload.order.length) {
+        this.state.playerOrder.pop();
+      }
+      for (let i = 0; i < payload.order.length; i += 1) {
+        const nextPlayerId = payload.order[i];
+        if (i < this.state.playerOrder.length) {
+          if (this.state.playerOrder[i] !== nextPlayerId) {
+            this.state.playerOrder[i] = nextPlayerId;
+          }
+        } else {
+          this.state.playerOrder.push(nextPlayerId);
+        }
+      }
+    }
 
     const seen = new Set<string>();
     for (const meta of payload.meta) {
@@ -233,16 +254,21 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
         target = new RoomPlayerMetaState();
         this.state.players.set(meta.id, target);
       }
-      target.id = meta.id;
-      target.customName = meta.customName;
-      target.profileName = meta.profileName ?? "";
-      target.botType = meta.botType ?? "";
-      target.colorIndex = meta.colorIndex;
-      target.keySlot = Number.isFinite(meta.keySlot) ? (meta.keySlot as number) : -1;
-      target.kills = meta.kills;
-      target.roundWins = meta.roundWins;
-      target.playerState = meta.playerState;
-      target.isBot = Boolean(meta.isBot);
+      const nextProfileName = meta.profileName ?? "";
+      const nextBotType = meta.botType ?? "";
+      const nextKeySlot = Number.isFinite(meta.keySlot) ? (meta.keySlot as number) : -1;
+      const nextIsBot = Boolean(meta.isBot);
+
+      if (target.id !== meta.id) target.id = meta.id;
+      if (target.customName !== meta.customName) target.customName = meta.customName;
+      if (target.profileName !== nextProfileName) target.profileName = nextProfileName;
+      if (target.botType !== nextBotType) target.botType = nextBotType;
+      if (target.colorIndex !== meta.colorIndex) target.colorIndex = meta.colorIndex;
+      if (target.keySlot !== nextKeySlot) target.keySlot = nextKeySlot;
+      if (target.kills !== meta.kills) target.kills = meta.kills;
+      if (target.roundWins !== meta.roundWins) target.roundWins = meta.roundWins;
+      if (target.playerState !== meta.playerState) target.playerState = meta.playerState;
+      if (target.isBot !== nextIsBot) target.isBot = nextIsBot;
     }
 
     const staleIds: string[] = [];
