@@ -7,18 +7,10 @@ import {
   TURRET_RADIUS,
   ARENA_WIDTH,
   ARENA_HEIGHT,
-  ASTEROID_RESTITUTION,
-  ASTEROID_FRICTION,
   ASTEROID_DAMAGE_SHIPS,
-  ASTEROID_SMALL_MIN,
   POWERUP_SHIELD_HITS,
-  SHIP_RESTITUTION_BY_PRESET,
-  SHIP_FRICTION_BY_PRESET,
-  WALL_RESTITUTION_BY_PRESET,
-  WALL_FRICTION_BY_PRESET,
 } from "./constants.js";
 import { clamp } from "./utils.js";
-import { resolveCircleCollision, applyShipSpinFromTangential } from "./ShipSystem.js";
 
 export function resolveShipTurretCollisions(sim: SimState, shipRestitution: number): void {
   if (!sim.turret || !sim.turret.alive) return;
@@ -51,32 +43,20 @@ export function resolveShipTurretCollisions(sim: SimState, shipRestitution: numb
   }
 }
 
-export function resolveShipAsteroidCollisions(sim: SimState, shipRestitution: number): void {
-  const shipFriction =
-    SHIP_FRICTION_BY_PRESET[sim.settings.shipFrictionPreset] ?? 0;
-
+export function resolveShipAsteroidCollisions(sim: SimState): void {
   for (const playerId of sim.playerOrder) {
     const player = sim.players.get(playerId);
     if (!player || !player.ship.alive) continue;
 
     for (const asteroid of sim.asteroids) {
       if (!asteroid.alive) continue;
-
-      const result = resolveCircleCollision(
-        player.ship,
-        asteroid,
-        SHIP_RADIUS + asteroid.size,
-        (shipRestitution + ASTEROID_RESTITUTION) * 0.5,
-        (shipFriction + ASTEROID_FRICTION) * 0.5,
-        1,
-        Math.max(1, asteroid.size / ASTEROID_SMALL_MIN),
-      );
-      if (result.collided) {
-        applyShipSpinFromTangential(player, -result.relativeTangentSpeed);
-      }
+      const dx = player.ship.x - asteroid.x;
+      const dy = player.ship.y - asteroid.y;
+      const hitDistance = SHIP_RADIUS + asteroid.size;
+      const collided = dx * dx + dy * dy <= hitDistance * hitDistance;
 
       if (
-        result.collided &&
+        collided &&
         ASTEROID_DAMAGE_SHIPS &&
         player.ship.invulnerableUntil <= sim.nowMs
       ) {
@@ -95,18 +75,11 @@ export function resolvePilotAsteroidCollisions(sim: SimState): void {
 
     for (const asteroid of sim.asteroids) {
       if (!asteroid.alive) continue;
-
-      const result = resolveCircleCollision(
-        pilot,
-        asteroid,
-        PILOT_RADIUS + asteroid.size,
-        (0.5 + ASTEROID_RESTITUTION) * 0.5,
-        ASTEROID_FRICTION,
-        0.35,
-        Math.max(1, asteroid.size / ASTEROID_SMALL_MIN),
-      );
-
-      if (result.collided && ASTEROID_DAMAGE_SHIPS) {
+      const dx = pilot.x - asteroid.x;
+      const dy = pilot.y - asteroid.y;
+      const hitDistance = PILOT_RADIUS + asteroid.size;
+      const collided = dx * dx + dy * dy <= hitDistance * hitDistance;
+      if (collided && ASTEROID_DAMAGE_SHIPS) {
         sim.destroyAsteroid(asteroid);
         sim.killPilot(pilotPlayerId, "asteroid");
         break;
@@ -116,23 +89,7 @@ export function resolvePilotAsteroidCollisions(sim: SimState): void {
 }
 
 export function resolveAsteroidAsteroidCollisions(sim: SimState): void {
-  for (let i = 0; i < sim.asteroids.length; i++) {
-    const a = sim.asteroids[i];
-    if (!a.alive) continue;
-    for (let j = i + 1; j < sim.asteroids.length; j++) {
-      const b = sim.asteroids[j];
-      if (!b.alive) continue;
-      resolveCircleCollision(
-        a,
-        b,
-        a.size + b.size,
-        ASTEROID_RESTITUTION,
-        ASTEROID_FRICTION,
-        Math.max(1, a.size / ASTEROID_SMALL_MIN),
-        Math.max(1, b.size / ASTEROID_SMALL_MIN),
-      );
-    }
-  }
+  void sim;
 }
 
 export function processProjectileCollisions(sim: SimState): void {
@@ -210,11 +167,7 @@ export function processShipPilotCollisions(sim: SimState): void {
   }
 }
 
-export function updateProjectiles(sim: SimState, dtSec: number): void {
-  for (const proj of sim.projectiles) {
-    proj.x += proj.vx * dtSec;
-    proj.y += proj.vy * dtSec;
-  }
+export function updateProjectiles(sim: SimState, _dtSec: number): void {
   sim.projectiles = sim.projectiles.filter((proj: RuntimeProjectile) => {
     if (sim.nowMs - proj.spawnTime > proj.lifetimeMs) return false;
     if (proj.x <= PROJECTILE_RADIUS || proj.x >= ARENA_WIDTH - PROJECTILE_RADIUS) return false;

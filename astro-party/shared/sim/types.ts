@@ -408,6 +408,7 @@ export interface SimState {
   roomCode: string;
   leaderPlayerId: string | null;
   roundEndMs: number;
+  physicsWorld: import("./PhysicsWorld.js").PhysicsWorld;
 
   // Hooks
   hooks: Hooks;

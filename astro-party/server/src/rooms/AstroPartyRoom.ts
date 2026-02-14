@@ -2,6 +2,7 @@ import { Client, Room } from "colyseus";
 import {
   AstroPartySimulation,
 } from "../../../shared/sim/AstroPartySimulation.js";
+import { initializeRapier } from "../../../shared/sim/PhysicsWorld.js";
 import type {
   AdvancedSettingsSync,
   GamePhase,
@@ -56,6 +57,8 @@ export class AstroPartyRoom extends Room {
   private latestSnapshot: SnapshotPayload | null = null;
 
   async onCreate(options: CreateOptions): Promise<void> {
+    await initializeRapier();
+
     const roomCode = options.roomCode ?? "----";
     const maxPlayers = options.maxPlayers ?? 4;
     const simTickHz = options.simTickHz ?? 60;

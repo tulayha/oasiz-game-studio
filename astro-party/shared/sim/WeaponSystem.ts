@@ -19,6 +19,7 @@ import {
   TURRET_IDLE_ROTATION_SPEED,
   TURRET_BULLET_SPEED_PX_PER_SEC,
   TURRET_BULLET_LIFETIME_MS,
+  TURRET_BULLET_RADIUS,
   TURRET_BULLET_IMPACT_RADIUS,
   TURRET_BULLET_EXPLOSION_RADIUS,
   TURRET_BULLET_EXPLOSION_DURATION_MS,
@@ -162,8 +163,6 @@ export function updateHomingMissiles(sim: SimState, dtSec: number): void {
 
     missile.vx = Math.cos(missile.angle) * HOMING_MISSILE_SPEED_PX_PER_SEC;
     missile.vy = Math.sin(missile.angle) * HOMING_MISSILE_SPEED_PX_PER_SEC;
-    missile.x += missile.vx * dtSec;
-    missile.y += missile.vy * dtSec;
 
     const margin = 100;
     if (
@@ -493,18 +492,16 @@ export function updateTurret(sim: SimState, dtSec: number): void {
 }
 
 export function updateTurretBullets(sim: SimState, dtSec: number): void {
+  void dtSec;
   for (const bullet of sim.turretBullets) {
     if (!bullet.alive) continue;
 
     if (!bullet.exploded) {
-      bullet.x += bullet.vx * dtSec;
-      bullet.y += bullet.vy * dtSec;
-      const bulletRadius = 5;
       const hitWall =
-        bullet.x <= bulletRadius ||
-        bullet.x >= ARENA_WIDTH - bulletRadius ||
-        bullet.y <= bulletRadius ||
-        bullet.y >= ARENA_HEIGHT - bulletRadius;
+        bullet.x <= TURRET_BULLET_RADIUS ||
+        bullet.x >= ARENA_WIDTH - TURRET_BULLET_RADIUS ||
+        bullet.y <= TURRET_BULLET_RADIUS ||
+        bullet.y >= ARENA_HEIGHT - TURRET_BULLET_RADIUS;
       if (hitWall || sim.nowMs - bullet.spawnTime > bullet.lifetimeMs) {
         bullet.exploded = true;
         bullet.explosionTime = sim.nowMs;

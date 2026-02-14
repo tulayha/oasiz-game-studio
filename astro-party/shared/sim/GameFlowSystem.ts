@@ -6,13 +6,10 @@ import {
   MAX_AMMO,
   PILOT_DASH_COOLDOWN_MS,
   PILOT_SURVIVAL_MS,
-  PILOT_RADIUS,
   TURRET_DETECTION_RADIUS,
   TURRET_ORBIT_RADIUS,
   TURRET_FIRE_COOLDOWN_MS,
   TURRET_FIRE_ANGLE_THRESHOLD,
-  WALL_RESTITUTION_BY_PRESET,
-  WALL_FRICTION_BY_PRESET,
   FORCE_TO_IMPULSE,
   POWERUP_DESPAWN_MS,
   HOMING_MISSILE_LIFETIME_MS,
@@ -25,12 +22,6 @@ import { grantStartingPowerups } from "./PowerUpSystem.js";
 
 export function updatePilots(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
-  const wallRestitution = Math.max(
-    0.5,
-    WALL_RESTITUTION_BY_PRESET[sim.settings.wallRestitutionPreset] ?? 0,
-  );
-  const wallFriction =
-    WALL_FRICTION_BY_PRESET[sim.settings.wallFrictionPreset] ?? 0;
   for (const [playerId, pilot] of sim.pilots) {
     if (!pilot.alive) continue;
     const player = sim.players.get(playerId);
@@ -80,29 +71,6 @@ export function updatePilots(sim: SimState, dtSec: number): void {
 
     pilot.vx *= 0.95;
     pilot.vy *= 0.95;
-    pilot.x += pilot.vx * dtSec;
-    pilot.y += pilot.vy * dtSec;
-
-    if (pilot.x < PILOT_RADIUS) {
-      pilot.x = PILOT_RADIUS;
-      pilot.vx = Math.abs(pilot.vx) * wallRestitution;
-      pilot.vy *= Math.max(0, 1 - wallFriction);
-    }
-    if (pilot.x > ARENA_WIDTH - PILOT_RADIUS) {
-      pilot.x = ARENA_WIDTH - PILOT_RADIUS;
-      pilot.vx = -Math.abs(pilot.vx) * wallRestitution;
-      pilot.vy *= Math.max(0, 1 - wallFriction);
-    }
-    if (pilot.y < PILOT_RADIUS) {
-      pilot.y = PILOT_RADIUS;
-      pilot.vy = Math.abs(pilot.vy) * wallRestitution;
-      pilot.vx *= Math.max(0, 1 - wallFriction);
-    }
-    if (pilot.y > ARENA_HEIGHT - PILOT_RADIUS) {
-      pilot.y = ARENA_HEIGHT - PILOT_RADIUS;
-      pilot.vy = -Math.abs(pilot.vy) * wallRestitution;
-      pilot.vx *= Math.max(0, 1 - wallFriction);
-    }
 
     if (sim.nowMs - pilot.spawnTime >= PILOT_SURVIVAL_MS) {
       sim.respawnFromPilot(playerId, pilot);
@@ -300,6 +268,7 @@ export function beginPlaying(sim: SimState): void {
 }
 
 export function clearRoundEntities(sim: SimState): void {
+  sim.physicsWorld.clearDynamicBodies();
   sim.pilots.clear();
   sim.projectiles = [];
   sim.asteroids = [];

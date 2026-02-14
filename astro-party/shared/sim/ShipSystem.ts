@@ -1,6 +1,5 @@
 import type { SimState, RuntimePlayer, ActiveConfig } from "./types.js";
 import {
-  SHIP_RADIUS,
   SHIP_HIT_RADIUS,
   PILOT_RADIUS,
   FIRE_COOLDOWN_MS,
@@ -10,8 +9,6 @@ import {
   FORCE_TO_ACCEL,
   FORCE_TO_IMPULSE,
   RECOIL_TO_IMPULSE,
-  ARENA_WIDTH,
-  ARENA_HEIGHT,
   PLAYER_COLORS,
   JOUST_SPEED_MULTIPLIER,
   LASER_COOLDOWN_MS,
@@ -23,26 +20,14 @@ import {
   SCATTER_PROJECTILE_LIFETIME_MS,
   HOMING_MISSILE_SPEED_PX_PER_SEC,
   POWERUP_SHIELD_HITS,
-  SHIP_RESTITUTION_BY_PRESET,
-  SHIP_FRICTION_BY_PRESET,
   SHIP_FRICTION_AIR_BY_PRESET,
   SHIP_ANGULAR_DAMPING_BY_PRESET,
-  WALL_RESTITUTION_BY_PRESET,
-  WALL_FRICTION_BY_PRESET,
 } from "./constants.js";
 import { normalizeAngle, clamp } from "./utils.js";
 
 export function updateShips(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
   const isStandard = sim.baseMode === "STANDARD";
-  const wallRestitution =
-    WALL_RESTITUTION_BY_PRESET[sim.settings.wallRestitutionPreset] ?? 0;
-  const wallFriction =
-    WALL_FRICTION_BY_PRESET[sim.settings.wallFrictionPreset] ?? 0;
-  const shipRestitution =
-    SHIP_RESTITUTION_BY_PRESET[sim.settings.shipRestitutionPreset] ?? 0;
-  const shipFriction =
-    SHIP_FRICTION_BY_PRESET[sim.settings.shipFrictionPreset] ?? 0;
   const shipFrictionAir =
     SHIP_FRICTION_AIR_BY_PRESET[sim.settings.shipFrictionAirPreset] ?? 0;
   const shipAngularDamping =
@@ -137,136 +122,7 @@ export function updateShips(sim: SimState, dtSec: number): void {
     }
 
     updateReload(sim, ship);
-    ship.x += ship.vx * dtSec;
-    ship.y += ship.vy * dtSec;
-
-    const shipWallRestitution = Math.max(shipRestitution, wallRestitution);
-    if (ship.x < SHIP_RADIUS) {
-      ship.x = SHIP_RADIUS;
-      ship.vx = Math.abs(ship.vx) * shipWallRestitution;
-      ship.vy *= Math.max(0, 1 - wallFriction);
-    }
-    if (ship.x > ARENA_WIDTH - SHIP_RADIUS) {
-      ship.x = ARENA_WIDTH - SHIP_RADIUS;
-      ship.vx = -Math.abs(ship.vx) * shipWallRestitution;
-      ship.vy *= Math.max(0, 1 - wallFriction);
-    }
-    if (ship.y < SHIP_RADIUS) {
-      ship.y = SHIP_RADIUS;
-      ship.vy = Math.abs(ship.vy) * shipWallRestitution;
-      ship.vx *= Math.max(0, 1 - wallFriction);
-    }
-    if (ship.y > ARENA_HEIGHT - SHIP_RADIUS) {
-      ship.y = ARENA_HEIGHT - SHIP_RADIUS;
-      ship.vy = -Math.abs(ship.vy) * shipWallRestitution;
-      ship.vx *= Math.max(0, 1 - wallFriction);
-    }
   }
-
-  resolveShipShipCollisions(sim, shipRestitution, shipFriction);
-}
-
-function resolveShipShipCollisions(sim: SimState, restitution: number, friction: number): void {
-  for (let i = 0; i < sim.playerOrder.length; i++) {
-    const a = sim.players.get(sim.playerOrder[i]);
-    if (!a || !a.ship.alive) continue;
-    for (let j = i + 1; j < sim.playerOrder.length; j++) {
-      const b = sim.players.get(sim.playerOrder[j]);
-      if (!b || !b.ship.alive) continue;
-      const result = resolveCircleCollision(
-        a.ship,
-        b.ship,
-        SHIP_RADIUS + SHIP_RADIUS,
-        restitution,
-        friction,
-        1,
-        1,
-      );
-      if (result.collided) {
-        applyShipSpinFromTangential(a, -result.relativeTangentSpeed);
-        applyShipSpinFromTangential(b, result.relativeTangentSpeed);
-      }
-    }
-  }
-}
-
-export function applyShipSpinFromTangential(
-  player: RuntimePlayer,
-  tangentSpeed: number,
-): void {
-  const spinDelta = clamp(tangentSpeed * 0.0012, -2.5, 2.5);
-  player.angularVelocity = clamp(player.angularVelocity + spinDelta, -7, 7);
-}
-
-export function resolveCircleCollision(
-  a: { x: number; y: number; vx: number; vy: number },
-  b: { x: number; y: number; vx: number; vy: number },
-  minDistance: number,
-  restitution: number,
-  friction: number,
-  massA: number,
-  massB: number,
-): { collided: boolean; relativeTangentSpeed: number } {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const distSq = dx * dx + dy * dy;
-  const minDistSq = minDistance * minDistance;
-  if (distSq > minDistSq) {
-    return { collided: false, relativeTangentSpeed: 0 };
-  }
-
-  const distance = Math.sqrt(Math.max(distSq, 1e-6));
-  const nx = dx / distance;
-  const ny = dy / distance;
-  const overlap = minDistance - distance;
-
-  if (overlap > 0) {
-    const totalMass = massA + massB;
-    const moveA = (overlap * (massB / totalMass)) + 0.01;
-    const moveB = (overlap * (massA / totalMass)) + 0.01;
-    a.x -= nx * moveA;
-    a.y -= ny * moveA;
-    b.x += nx * moveB;
-    b.y += ny * moveB;
-  }
-
-  const rvx = b.vx - a.vx;
-  const rvy = b.vy - a.vy;
-  const velAlongNormal = rvx * nx + rvy * ny;
-  const tangentX = -ny;
-  const tangentY = nx;
-  const relTan = rvx * tangentX + rvy * tangentY;
-
-  if (velAlongNormal > 0) {
-    return { collided: true, relativeTangentSpeed: relTan };
-  }
-
-  const e = clamp(restitution, 0, 1);
-  const invMassA = 1 / Math.max(1e-6, massA);
-  const invMassB = 1 / Math.max(1e-6, massB);
-  const j = (-(1 + e) * velAlongNormal) / (invMassA + invMassB);
-  const impulseX = j * nx;
-  const impulseY = j * ny;
-
-  a.vx -= impulseX * invMassA;
-  a.vy -= impulseY * invMassA;
-  b.vx += impulseX * invMassB;
-  b.vy += impulseY * invMassB;
-
-  const mu = clamp(friction, 0, 1);
-  if (mu > 0) {
-    const jtUnclamped = -relTan / (invMassA + invMassB);
-    const maxJt = Math.abs(j) * mu;
-    const jt = clamp(jtUnclamped, -maxJt, maxJt);
-    const frictionX = jt * tangentX;
-    const frictionY = jt * tangentY;
-    a.vx -= frictionX * invMassA;
-    a.vy -= frictionY * invMassA;
-    b.vx += frictionX * invMassB;
-    b.vy += frictionY * invMassB;
-  }
-
-  return { collided: true, relativeTangentSpeed: relTan };
 }
 
 export function tryFire(

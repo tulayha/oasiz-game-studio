@@ -29,6 +29,7 @@ import type {
 } from "./types.js";
 import { SeededRNG } from "./SeededRNG.js";
 import { clamp, getModeBaseConfig, resolveConfigValue } from "./utils.js";
+import { PhysicsWorld } from "./PhysicsWorld.js";
 import {
   ARENA_WIDTH,
   ARENA_HEIGHT,
@@ -114,6 +115,7 @@ export class AstroPartySimulation implements SimState {
   nextAsteroidSpawnAtMs: number | null = null;
   leaderPlayerId: string | null = null;
   roundEndMs = 0;
+  physicsWorld: PhysicsWorld;
 
   // ---- Counters ----
   private revision = 0;
@@ -137,6 +139,7 @@ export class AstroPartySimulation implements SimState {
     public readonly tickDurationMs: number,
     public readonly hooks: Hooks,
   ) {
+    this.physicsWorld = new PhysicsWorld();
     this.reseed(Math.floor(Date.now()) >>> 0);
   }
 
@@ -505,25 +508,25 @@ export class AstroPartySimulation implements SimState {
 
     updateBots(this);
     updateShips(this, dtSec);
+    updatePilots(this, dtSec);
+    updateAsteroidSpawning(this);
+    updateAsteroids(this, dtSec);
+    updateHomingMissiles(this, dtSec);
+    this.physicsWorld.syncFromSim(this);
+    this.physicsWorld.step(dtSec);
+    this.physicsWorld.syncToSim(this);
     resolveShipTurretCollisions(
       this,
       SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset] ?? 0,
     );
-    updatePilots(this, dtSec);
-    updateProjectiles(this, dtSec);
-    updateAsteroidSpawning(this);
-    updateAsteroids(this, dtSec);
     resolveAsteroidAsteroidCollisions(this);
-    resolveShipAsteroidCollisions(
-      this,
-      SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset] ?? 0,
-    );
+    resolveShipAsteroidCollisions(this);
     resolvePilotAsteroidCollisions(this);
+    updateProjectiles(this, dtSec);
     updatePowerUps(this, dtSec);
     processProjectileCollisions(this);
     updateLaserBeams(this);
     checkMineCollisions(this);
-    updateHomingMissiles(this, dtSec);
     checkHomingMissileCollisions(this);
     updateJoustCollisions(this);
     updateTurret(this, dtSec);
@@ -619,18 +622,24 @@ export class AstroPartySimulation implements SimState {
 
   onShipHit(owner: RuntimePlayer | undefined, target: RuntimePlayer): void {
     flowOnShipHit(this, owner, target);
+    this.physicsWorld.removeShip(target.id);
   }
 
   killPilot(pilotPlayerId: string, killerId: string): void {
     flowKillPilot(this, pilotPlayerId, killerId);
+    this.physicsWorld.removePilot(pilotPlayerId);
   }
 
   respawnFromPilot(playerId: string, pilot: RuntimePilot): void {
     flowRespawnFromPilot(this, playerId, pilot);
+    this.physicsWorld.removePilot(playerId);
   }
 
   destroyAsteroid(asteroid: RuntimeAsteroid): void {
     asteroidDestroyAsteroid(this, asteroid);
+    if (!asteroid.alive) {
+      this.physicsWorld.removeAsteroid(asteroid.id);
+    }
   }
 
   explodeMine(mine: RuntimeMine): void {
@@ -676,6 +685,8 @@ export class AstroPartySimulation implements SimState {
     this.pilots.delete(playerId);
     this.playerPowerUps.delete(playerId);
     this.projectiles = this.projectiles.filter((proj) => proj.ownerId !== playerId);
+    this.physicsWorld.removeShip(playerId);
+    this.physicsWorld.removePilot(playerId);
 
     if (this.leaderPlayerId === playerId) {
       this.reassignLeader();

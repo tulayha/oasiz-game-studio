@@ -20,8 +20,6 @@ import {
   ASTEROID_SPAWN_INTERVAL_MAX_MS,
   ASTEROID_SPAWN_BATCH_MIN,
   ASTEROID_SPAWN_BATCH_MAX,
-  WALL_RESTITUTION_BY_PRESET,
-  WALL_FRICTION_BY_PRESET,
   POWERUP_SPAWN_WEIGHTS,
   POWERUP_MAGNETIC_RADIUS,
   POWERUP_MAGNETIC_SPEED,
@@ -105,37 +103,9 @@ export function updateAsteroidSpawning(sim: SimState): void {
 }
 
 export function updateAsteroids(sim: SimState, dtSec: number): void {
-  const wallRestitution =
-    WALL_RESTITUTION_BY_PRESET[sim.settings.wallRestitutionPreset] ?? 0;
-  const wallFriction =
-    WALL_FRICTION_BY_PRESET[sim.settings.wallFrictionPreset] ?? 0;
-  const effectiveRestitution = Math.max(ASTEROID_RESTITUTION, wallRestitution);
   for (const asteroid of sim.asteroids) {
     if (!asteroid.alive) continue;
-    asteroid.x += asteroid.vx * dtSec;
-    asteroid.y += asteroid.vy * dtSec;
     asteroid.angle += asteroid.angularVelocity * dtSec;
-
-    if (asteroid.x < asteroid.size) {
-      asteroid.x = asteroid.size;
-      asteroid.vx = Math.abs(asteroid.vx) * effectiveRestitution;
-      asteroid.vy *= Math.max(0, 1 - wallFriction);
-    }
-    if (asteroid.x > ARENA_WIDTH - asteroid.size) {
-      asteroid.x = ARENA_WIDTH - asteroid.size;
-      asteroid.vx = -Math.abs(asteroid.vx) * effectiveRestitution;
-      asteroid.vy *= Math.max(0, 1 - wallFriction);
-    }
-    if (asteroid.y < asteroid.size) {
-      asteroid.y = asteroid.size;
-      asteroid.vy = Math.abs(asteroid.vy) * effectiveRestitution;
-      asteroid.vx *= Math.max(0, 1 - wallFriction);
-    }
-    if (asteroid.y > ARENA_HEIGHT - asteroid.size) {
-      asteroid.y = ARENA_HEIGHT - asteroid.size;
-      asteroid.vy = -Math.abs(asteroid.vy) * effectiveRestitution;
-      asteroid.vx *= Math.max(0, 1 - wallFriction);
-    }
   }
 }
 
