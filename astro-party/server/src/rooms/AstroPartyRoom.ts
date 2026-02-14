@@ -12,6 +12,10 @@ import type {
   SnapshotPayload,
 } from "../../../shared/sim/types.js";
 import { unregisterRoomCodeByRoomId } from "../http/roomCodeRegistry.js";
+import {
+  AstroPartyRoomState,
+  RoomPlayerMetaState,
+} from "./AstroPartyRoomState.js";
 
 interface CreateOptions {
   roomCode?: string;
@@ -51,7 +55,7 @@ interface DevGrantPowerUpMessage {
     | "SPAWN_RANDOM";
 }
 
-export class AstroPartyRoom extends Room {
+export class AstroPartyRoom extends Room<AstroPartyRoomState> {
   maxClients = 4;
   private simulation!: AstroPartySimulation;
   private latestSnapshot: SnapshotPayload | null = null;
@@ -66,6 +70,8 @@ export class AstroPartyRoom extends Room {
     const tickDurationMs = 1000 / simTickHz;
 
     this.maxClients = maxPlayers;
+    this.setState(new AstroPartyRoomState());
+    this.state.roomCode = roomCode;
 
     this.simulation = new AstroPartySimulation(
       roomCode,
@@ -73,19 +79,14 @@ export class AstroPartyRoom extends Room {
       tickDurationMs,
       {
         onPlayers: (payload: PlayerListPayload) => {
-          this.broadcast("evt:players", payload);
+          this.applyPlayerListState(payload);
         },
         onRoomMeta: (payload: RoomMetaPayload) => {
           this.setMetadata({
             roomCode: payload.roomCode,
             leaderPlayerId: payload.leaderPlayerId,
           });
-          this.broadcast("evt:room_meta", payload);
-          this.broadcast("evt:advanced_settings", {
-            mode: payload.mode,
-            baseMode: payload.baseMode,
-            settings: payload.settings,
-          } satisfies AdvancedSettingsSync);
+          this.applyRoomMetaState(payload);
         },
         onPhase: (phase: GamePhase, winnerId?: string, winnerName?: string) => {
           this.broadcast("evt:phase", { phase, winnerId, winnerName });
@@ -115,7 +116,7 @@ export class AstroPartyRoom extends Room {
           this.broadcast("evt:dash_particles", payload);
         },
         onDevMode: (enabled: boolean) => {
-          this.broadcast("evt:dev_mode", { enabled });
+          this.state.devModeEnabled = enabled;
         },
         onError: (sessionId: string, code: string, message: string) => {
           const target = this.clients.find((client) => client.sessionId === sessionId);
@@ -207,12 +208,6 @@ export class AstroPartyRoom extends Room {
 
   onJoin(client: Client, options?: { playerName?: string }): void {
     this.simulation.addHuman(client.sessionId, options?.playerName);
-    client.send("evt:self", {
-      playerId: this.simulation.getPlayerIdForSession(client.sessionId),
-    });
-    client.send("evt:dev_mode", {
-      enabled: this.simulation.getDevModeEnabled(),
-    });
     if (this.latestSnapshot) {
       client.send("evt:snapshot", this.latestSnapshot);
     }
@@ -224,5 +219,48 @@ export class AstroPartyRoom extends Room {
 
   onDispose(): void {
     unregisterRoomCodeByRoomId(this.roomId);
+  }
+
+  private applyPlayerListState(payload: PlayerListPayload): void {
+    this.state.playerOrder.splice(0, this.state.playerOrder.length, ...payload.order);
+    this.state.hostId = payload.hostId ?? "";
+
+    const seen = new Set<string>();
+    for (const meta of payload.meta) {
+      seen.add(meta.id);
+      let target = this.state.players.get(meta.id);
+      if (!target) {
+        target = new RoomPlayerMetaState();
+        this.state.players.set(meta.id, target);
+      }
+      target.id = meta.id;
+      target.customName = meta.customName;
+      target.profileName = meta.profileName ?? "";
+      target.botType = meta.botType ?? "";
+      target.colorIndex = meta.colorIndex;
+      target.keySlot = Number.isFinite(meta.keySlot) ? (meta.keySlot as number) : -1;
+      target.kills = meta.kills;
+      target.roundWins = meta.roundWins;
+      target.playerState = meta.playerState;
+      target.isBot = Boolean(meta.isBot);
+    }
+
+    const staleIds: string[] = [];
+    this.state.players.forEach((_value, playerId) => {
+      if (!seen.has(playerId)) staleIds.push(playerId);
+    });
+    for (const staleId of staleIds) {
+      this.state.players.delete(staleId);
+    }
+  }
+
+  private applyRoomMetaState(payload: RoomMetaPayload): void {
+    this.state.roomCode = payload.roomCode;
+    this.state.leaderPlayerId = payload.leaderPlayerId ?? "";
+    this.state.hostId = payload.leaderPlayerId ?? "";
+    this.state.phase = payload.phase;
+    this.state.mode = payload.mode;
+    this.state.baseMode = payload.baseMode;
+    this.state.settingsJson = JSON.stringify(payload.settings);
   }
 }

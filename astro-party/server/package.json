@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "start": "node dist/server/src/index.js"
   },
   "dependencies": {
-    "@dimforge/rapier2d": "^0.19.3",
+    "@colyseus/schema": "^3.0.69",
+    "@dimforge/rapier2d-compat": "^0.19.3",
     "@colyseus/ws-transport": "^0.16.5",
     "colyseus": "^0.16.5",
     "cors": "^2.8.5",

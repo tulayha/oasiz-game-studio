@@ -25,13 +25,30 @@ interface MatchCreateResponse {
 
 interface MatchJoinResponse extends MatchCreateResponse {}
 
-interface RoomMetaPayload {
-  roomCode: string;
-  leaderPlayerId: string | null;
-  phase: GamePhase;
-  mode: string;
-  baseMode: string;
-  settings: AdvancedSettingsSync["settings"];
+interface RoomStatePlayerMeta {
+  id?: string;
+  customName?: string;
+  profileName?: string;
+  botType?: "ai" | "local" | "";
+  colorIndex?: number;
+  keySlot?: number;
+  kills?: number;
+  roundWins?: number;
+  playerState?: "ACTIVE" | "EJECTED" | "SPECTATING";
+  isBot?: boolean;
+}
+
+interface RoomStateView {
+  playerOrder?: unknown;
+  players?: unknown;
+  roomCode?: string;
+  leaderPlayerId?: string;
+  hostId?: string;
+  phase?: GamePhase;
+  mode?: string;
+  baseMode?: string;
+  settingsJson?: string;
+  devModeEnabled?: boolean;
 }
 
 interface PlayerListPayload {
@@ -85,6 +102,9 @@ export class ColyseusTransport implements NetworkTransport {
   private playerOrder: string[] = [];
   private playerMetaById: PlayerMetaMap = new Map();
   private playerRefs = new Map<string, ColyseusPlayerState>();
+  private playerListRevision = 0;
+  private lastAdvancedSettingsSignature: string | null = null;
+  private lastDevModeEnabled: boolean | null = null;
 
   private readonly wsUrl: string;
   private readonly httpUrl: string;
@@ -409,32 +429,24 @@ export class ColyseusTransport implements NetworkTransport {
     this.room = await this.client.consumeSeatReservation(
       seatReservation as Parameters<Client["consumeSeatReservation"]>[0],
     );
+    this.myPlayerId = this.room.sessionId;
     this.connected = true;
     this.roomCode = roomCode;
     this.bindRoomListeners(this.room);
   }
 
   private bindRoomListeners(room: Room): void {
+    room.onStateChange((state) => {
+      this.handleRoomState(state as unknown as RoomStateView);
+    });
+    if (room.state) {
+      this.handleRoomState(room.state as unknown as RoomStateView);
+    }
+
     room.onLeave(() => {
       this.connected = false;
       this.stopSync();
       this.callbacks?.onDisconnected();
-    });
-
-    room.onMessage("evt:self", (payload: { playerId?: string }) => {
-      this.myPlayerId = payload.playerId ?? null;
-    });
-
-    room.onMessage("evt:room_meta", (payload: RoomMetaPayload) => {
-      const previousHost = this.hostId;
-      this.hostId = payload.leaderPlayerId ?? null;
-      if (previousHost && previousHost !== this.hostId && this.callbacks) {
-        this.callbacks.onHostChanged();
-      }
-    });
-
-    room.onMessage("evt:players", (payload: PlayerListPayload) => {
-      this.handlePlayerList(payload);
     });
 
     room.onMessage(
@@ -483,14 +495,6 @@ export class ColyseusTransport implements NetworkTransport {
       },
     );
 
-    room.onMessage("evt:advanced_settings", (payload: AdvancedSettingsSync) => {
-      this.callbacks?.onAdvancedSettingsReceived(payload);
-    });
-
-    room.onMessage("evt:dev_mode", (payload: { enabled?: boolean }) => {
-      this.callbacks?.onDevModeReceived(Boolean(payload?.enabled));
-    });
-
     room.onMessage("evt:round_result", (payload: RoundResultPayload) => {
       this.callbacks?.onRoundResultReceived(payload);
     });
@@ -509,6 +513,161 @@ export class ColyseusTransport implements NetworkTransport {
       console.log("[ColyseusTransport]", code, message);
       this.callbacks?.onTransportError?.(code, message);
     });
+  }
+
+  private handleRoomState(state: RoomStateView): void {
+    const leaderFromState = this.normalizeStateString(state.leaderPlayerId);
+    const hostFromState = this.normalizeStateString(state.hostId);
+    const nextHost = leaderFromState ?? hostFromState;
+    const previousHost = this.hostId;
+    this.hostId = nextHost;
+    if (previousHost && previousHost !== this.hostId && this.callbacks) {
+      this.callbacks.onHostChanged();
+    }
+
+    this.applyAdvancedSettingsFromState(state);
+    this.applyDevModeFromState(state);
+
+    const order = this.toStringArray(state.playerOrder);
+    const meta = this.extractPlayerMetaList(state.players);
+    if (order.length === 0 && meta.length > 0) {
+      for (const entry of meta) order.push(entry.id);
+    }
+
+    const payload: PlayerListPayload = {
+      order,
+      meta,
+      hostId: this.hostId,
+      revision: ++this.playerListRevision,
+    };
+    this.handlePlayerList(payload);
+  }
+
+  private applyAdvancedSettingsFromState(state: RoomStateView): void {
+    const mode = this.normalizeStateString(state.mode);
+    const baseMode = this.normalizeStateString(state.baseMode);
+    const settingsJson = this.normalizeStateString(state.settingsJson);
+    if (!mode || !baseMode || !settingsJson) return;
+
+    const signature = mode + "|" + baseMode + "|" + settingsJson;
+    if (this.lastAdvancedSettingsSignature === signature) return;
+
+    let settings: AdvancedSettingsSync["settings"];
+    try {
+      settings = JSON.parse(settingsJson) as AdvancedSettingsSync["settings"];
+    } catch {
+      return;
+    }
+
+    const payload: AdvancedSettingsSync = {
+      mode: mode as AdvancedSettingsSync["mode"],
+      baseMode: baseMode as AdvancedSettingsSync["baseMode"],
+      settings,
+    };
+    this.lastAdvancedSettingsSignature = signature;
+    this.callbacks?.onAdvancedSettingsReceived(payload);
+  }
+
+  private applyDevModeFromState(state: RoomStateView): void {
+    if (typeof state.devModeEnabled !== "boolean") return;
+    if (this.lastDevModeEnabled === state.devModeEnabled) return;
+    this.lastDevModeEnabled = state.devModeEnabled;
+    this.callbacks?.onDevModeReceived(state.devModeEnabled);
+  }
+
+  private extractPlayerMetaList(playersState: unknown): PlayerMeta[] {
+    const out: PlayerMeta[] = [];
+    if (!playersState) return out;
+
+    const collection = playersState as {
+      forEach?: (cb: (value: unknown, key: string) => void) => void;
+    };
+    if (typeof collection.forEach === "function") {
+      collection.forEach((value, key) => {
+        out.push(this.normalizePlayerMeta(key, value as RoomStatePlayerMeta));
+      });
+      return out;
+    }
+
+    if (playersState instanceof Map) {
+      playersState.forEach((value, key) => {
+        out.push(this.normalizePlayerMeta(String(key), value as RoomStatePlayerMeta));
+      });
+      return out;
+    }
+
+    if (typeof playersState === "object") {
+      for (const [key, value] of Object.entries(
+        playersState as Record<string, unknown>,
+      )) {
+        out.push(this.normalizePlayerMeta(key, value as RoomStatePlayerMeta));
+      }
+    }
+    return out;
+  }
+
+  private normalizePlayerMeta(id: string, value: RoomStatePlayerMeta): PlayerMeta {
+    const playerId = this.normalizeStateString(value?.id) ?? id;
+    const keySlotValue = value?.keySlot;
+    const keySlot = Number.isFinite(keySlotValue) && (keySlotValue as number) >= 0
+      ? (keySlotValue as number)
+      : undefined;
+
+    return {
+      id: playerId,
+      customName: this.normalizeStateString(value?.customName) ?? "Player",
+      profileName: this.normalizeStateString(value?.profileName) ?? undefined,
+      botType:
+        value?.botType === "ai" || value?.botType === "local"
+          ? value.botType
+          : undefined,
+      colorIndex: Number.isFinite(value?.colorIndex) ? (value.colorIndex as number) : 0,
+      keySlot,
+      kills: Number.isFinite(value?.kills) ? (value.kills as number) : 0,
+      roundWins: Number.isFinite(value?.roundWins) ? (value.roundWins as number) : 0,
+      playerState:
+        value?.playerState === "ACTIVE" ||
+        value?.playerState === "EJECTED" ||
+        value?.playerState === "SPECTATING"
+          ? value.playerState
+          : "ACTIVE",
+      isBot: Boolean(value?.isBot),
+    };
+  }
+
+  private toStringArray(value: unknown): string[] {
+    const out: string[] = [];
+    if (!value) return out;
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (typeof entry === "string" && entry.length > 0) out.push(entry);
+      }
+      return out;
+    }
+
+    const collection = value as {
+      forEach?: (cb: (entry: unknown) => void) => void;
+      [Symbol.iterator]?: () => Iterator<unknown>;
+    };
+    if (typeof collection.forEach === "function") {
+      collection.forEach((entry) => {
+        if (typeof entry === "string" && entry.length > 0) out.push(entry);
+      });
+      return out;
+    }
+
+    if (typeof collection[Symbol.iterator] === "function") {
+      for (const entry of collection as Iterable<unknown>) {
+        if (typeof entry === "string" && entry.length > 0) out.push(entry);
+      }
+    }
+    return out;
+  }
+
+  private normalizeStateString(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
   }
 
   private handlePlayerList(payload: PlayerListPayload): void {
@@ -560,6 +719,9 @@ export class ColyseusTransport implements NetworkTransport {
     this.roomCode = "";
     this.hostId = null;
     this.myPlayerId = null;
+    this.playerListRevision = 0;
+    this.lastAdvancedSettingsSignature = null;
+    this.lastDevModeEnabled = null;
     this.playerOrder = [];
     this.playerMetaById.clear();
     this.playerRefs.clear();

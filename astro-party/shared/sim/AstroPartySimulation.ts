@@ -30,6 +30,7 @@ import type {
 import { SeededRNG } from "./SeededRNG.js";
 import { clamp, getModeBaseConfig, resolveConfigValue } from "./utils.js";
 import { PhysicsWorld } from "./PhysicsWorld.js";
+import { PlayerIdentityAllocator } from "./PlayerIdentityAllocator.js";
 import {
   ARENA_WIDTH,
   ARENA_HEIGHT,
@@ -50,7 +51,6 @@ import {
 import { updateBots } from "./AISystem.js";
 import { updateShips } from "./ShipSystem.js";
 import {
-  resolveShipTurretCollisions,
   resolveShipAsteroidCollisions,
   resolvePilotAsteroidCollisions,
   resolveAsteroidAsteroidCollisions,
@@ -119,12 +119,12 @@ export class AstroPartySimulation implements SimState {
 
   // ---- Counters ----
   private revision = 0;
-  private playerCounter = 0;
   private botCounter = 0;
   private countdownMs = 0;
   private countdownValue = COUNTDOWN_SECONDS;
   private winnerId: string | null = null;
   private winnerName: string | null = null;
+  private identityAllocator = new PlayerIdentityAllocator(PLAYER_COLORS.length);
 
   // ---- RNG ----
   private baseSeed = 0;
@@ -151,10 +151,17 @@ export class AstroPartySimulation implements SimState {
       return;
     }
 
-    const id = "player_" + (++this.playerCounter).toString();
-    const index = this.playerOrder.length % PLAYER_COLORS.length;
-    const name = this.sanitizeName(requestedName) ?? "Player " + (this.playerOrder.length + 1);
-    const player = this.createPlayer(id, sessionId, name, false, null, index);
+    const id = sessionId;
+    const customName = this.sanitizeName(requestedName);
+    const allocation = this.identityAllocator.allocateHuman(id, customName);
+    const player = this.createPlayer(
+      id,
+      sessionId,
+      allocation.displayName,
+      false,
+      null,
+      allocation.colorIndex,
+    );
     this.players.set(id, player);
     this.playerOrder.push(id);
     this.humanBySession.set(sessionId, id);
@@ -386,8 +393,15 @@ export class AstroPartySimulation implements SimState {
     }
 
     const id = "bot_" + (++this.botCounter).toString();
-    const index = this.playerOrder.length % PLAYER_COLORS.length;
-    const player = this.createPlayer(id, null, "Bot " + this.botCounter.toString(), true, "ai", index);
+    const allocation = this.identityAllocator.allocateBot(id, "ai");
+    const player = this.createPlayer(
+      id,
+      null,
+      allocation.displayName,
+      true,
+      "ai",
+      allocation.colorIndex,
+    );
     this.players.set(id, player);
     this.playerOrder.push(id);
     this.syncPlayers();
@@ -515,10 +529,6 @@ export class AstroPartySimulation implements SimState {
     this.physicsWorld.syncFromSim(this);
     this.physicsWorld.step(dtSec);
     this.physicsWorld.syncToSim(this);
-    resolveShipTurretCollisions(
-      this,
-      SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset] ?? 0,
-    );
     resolveAsteroidAsteroidCollisions(this);
     resolveShipAsteroidCollisions(this);
     resolvePilotAsteroidCollisions(this);
@@ -543,10 +553,6 @@ export class AstroPartySimulation implements SimState {
   }
 
   // ============= GETTERS =============
-
-  getPlayerIdForSession(sessionId: string): string | null {
-    return this.humanBySession.get(sessionId) ?? null;
-  }
 
   getAdvancedSettingsSync(): AdvancedSettingsSync {
     return {
@@ -680,6 +686,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   private removePlayerById(playerId: string): void {
+    this.identityAllocator.releasePlayer(playerId);
     this.players.delete(playerId);
     this.playerOrder = this.playerOrder.filter((id) => id !== playerId);
     this.pilots.delete(playerId);

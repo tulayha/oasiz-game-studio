@@ -1,9 +1,10 @@
-import RAPIER from "@dimforge/rapier2d";
+import RAPIER from "@dimforge/rapier2d-compat";
 import {
   ARENA_PADDING,
   ARENA_WIDTH,
   ARENA_HEIGHT,
   SHIP_RADIUS,
+  TURRET_RADIUS,
   ASTEROID_RESTITUTION,
   ASTEROID_FRICTION,
   PILOT_RADIUS,
@@ -22,6 +23,16 @@ interface BodyRef {
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
 }
+
+type BodyKind =
+  | "ship"
+  | "turret"
+  | "asteroid"
+  | "pilot"
+  | "projectile"
+  | "homingMissile"
+  | "turretBullet"
+  | "wall";
 
 let rapierInitPromise: Promise<void> | null = null;
 let rapierReady = false;
@@ -51,6 +62,7 @@ export class PhysicsWorld {
   private projectileBodies = new Map<string, BodyRef>();
   private homingMissileBodies = new Map<string, BodyRef>();
   private turretBulletBodies = new Map<string, BodyRef>();
+  private turretBody: BodyRef | null = null;
   private wallColliders: RAPIER.Collider[] = [];
 
   constructor() {
@@ -80,6 +92,7 @@ export class PhysicsWorld {
       aliveShips.add(playerId);
       this.syncCircleBody(
         this.shipBodies,
+        "ship",
         playerId,
         player.ship.x,
         player.ship.y,
@@ -92,6 +105,12 @@ export class PhysicsWorld {
       );
     }
     this.removeMissingBodies(this.shipBodies, aliveShips);
+    this.syncTurretBody(
+      sim.turret && sim.turret.alive ? sim.turret.x : null,
+      sim.turret && sim.turret.alive ? sim.turret.y : null,
+      shipRestitution,
+      shipFriction,
+    );
 
     const aliveAsteroids = new Set<string>();
     for (const asteroid of sim.asteroids) {
@@ -99,6 +118,7 @@ export class PhysicsWorld {
       aliveAsteroids.add(asteroid.id);
       this.syncCircleBody(
         this.asteroidBodies,
+        "asteroid",
         asteroid.id,
         asteroid.x,
         asteroid.y,
@@ -118,6 +138,7 @@ export class PhysicsWorld {
       alivePilots.add(playerId);
       this.syncCircleBody(
         this.pilotBodies,
+        "pilot",
         playerId,
         pilot.x,
         pilot.y,
@@ -136,6 +157,7 @@ export class PhysicsWorld {
       aliveProjectiles.add(projectile.id);
       this.syncCircleBody(
         this.projectileBodies,
+        "projectile",
         projectile.id,
         projectile.x,
         projectile.y,
@@ -156,6 +178,7 @@ export class PhysicsWorld {
       aliveHomingMissiles.add(missile.id);
       this.syncCircleBody(
         this.homingMissileBodies,
+        "homingMissile",
         missile.id,
         missile.x,
         missile.y,
@@ -176,6 +199,7 @@ export class PhysicsWorld {
       aliveTurretBullets.add(bullet.id);
       this.syncCircleBody(
         this.turretBulletBodies,
+        "turretBullet",
         bullet.id,
         bullet.x,
         bullet.y,
@@ -270,6 +294,38 @@ export class PhysicsWorld {
     }
   }
 
+  intersectsShipAsteroid(playerId: string, asteroidId: string): boolean {
+    return this.intersectsById(this.shipBodies, playerId, this.asteroidBodies, asteroidId);
+  }
+
+  intersectsPilotAsteroid(playerId: string, asteroidId: string): boolean {
+    return this.intersectsById(this.pilotBodies, playerId, this.asteroidBodies, asteroidId);
+  }
+
+  intersectsProjectileShip(projectileId: string, playerId: string): boolean {
+    return this.intersectsById(this.projectileBodies, projectileId, this.shipBodies, playerId);
+  }
+
+  intersectsProjectilePilot(projectileId: string, playerId: string): boolean {
+    return this.intersectsById(this.projectileBodies, projectileId, this.pilotBodies, playerId);
+  }
+
+  intersectsProjectileAsteroid(projectileId: string, asteroidId: string): boolean {
+    return this.intersectsById(this.projectileBodies, projectileId, this.asteroidBodies, asteroidId);
+  }
+
+  intersectsShipPilot(shipPlayerId: string, pilotPlayerId: string): boolean {
+    return this.intersectsById(this.shipBodies, shipPlayerId, this.pilotBodies, pilotPlayerId);
+  }
+
+  intersectsHomingMissileShip(missileId: string, playerId: string): boolean {
+    return this.intersectsById(this.homingMissileBodies, missileId, this.shipBodies, playerId);
+  }
+
+  intersectsHomingMissileAsteroid(missileId: string, asteroidId: string): boolean {
+    return this.intersectsById(this.homingMissileBodies, missileId, this.asteroidBodies, asteroidId);
+  }
+
   removeShip(playerId: string): void {
     this.removeBody(this.shipBodies, playerId);
   }
@@ -313,6 +369,10 @@ export class PhysicsWorld {
     for (const [id] of this.turretBulletBodies) {
       this.removeBody(this.turretBulletBodies, id);
     }
+    if (this.turretBody) {
+      this.world.removeRigidBody(this.turretBody.body);
+      this.turretBody = null;
+    }
   }
 
   takeSnapshot(): Uint8Array {
@@ -321,12 +381,7 @@ export class PhysicsWorld {
 
   restoreSnapshot(snapshot: Uint8Array): void {
     this.world = RAPIER.World.restoreSnapshot(snapshot);
-    this.shipBodies.clear();
-    this.asteroidBodies.clear();
-    this.pilotBodies.clear();
-    this.projectileBodies.clear();
-    this.homingMissileBodies.clear();
-    this.turretBulletBodies.clear();
+    this.rebuildBodyMapsFromWorld();
   }
 
   private createArenaWalls(): void {
@@ -336,6 +391,7 @@ export class PhysicsWorld {
     const halfHeight = ARENA_HEIGHT * 0.5 + thickness;
 
     const wallBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    this.setBodyRefUserData({ body: wallBody, collider: null }, "wall", "arena");
     this.wallColliders = [
       this.world.createCollider(
         RAPIER.ColliderDesc.cuboid(halfThickness, halfHeight).setTranslation(
@@ -366,6 +422,12 @@ export class PhysicsWorld {
         wallBody,
       ),
     ];
+    const wallIds = ["left", "right", "top", "bottom"];
+    for (let i = 0; i < this.wallColliders.length; i++) {
+      const collider = this.wallColliders[i];
+      const wallId = wallIds[i] ?? "segment";
+      this.setColliderUserData(collider, "wall", wallId);
+    }
   }
 
   private updateWallMaterials(restitution: number, friction: number): void {
@@ -375,8 +437,44 @@ export class PhysicsWorld {
     }
   }
 
+  private syncTurretBody(
+    x: number | null,
+    y: number | null,
+    restitution: number,
+    friction: number,
+  ): void {
+    if (x === null || y === null) {
+      if (this.turretBody) {
+        this.world.removeRigidBody(this.turretBody.body);
+        this.turretBody = null;
+      }
+      return;
+    }
+
+    if (this.turretBody) {
+      this.turretBody.body.setTranslation({ x, y }, true);
+      this.turretBody.collider.setRestitution(Math.max(0, restitution));
+      this.turretBody.collider.setFriction(Math.max(0, friction));
+      this.setBodyRefUserData(this.turretBody, "turret", "center");
+      return;
+    }
+
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(x, y),
+    );
+    const collider = this.world.createCollider(
+      RAPIER.ColliderDesc.ball(TURRET_RADIUS)
+        .setRestitution(Math.max(0, restitution))
+        .setFriction(Math.max(0, friction)),
+      body,
+    );
+    this.turretBody = { body, collider };
+    this.setBodyRefUserData(this.turretBody, "turret", "center");
+  }
+
   private syncCircleBody(
     map: Map<string, BodyRef>,
+    kind: BodyKind,
     id: string,
     x: number,
     y: number,
@@ -396,6 +494,7 @@ export class PhysicsWorld {
       existing.collider.setRestitution(Math.max(0, restitution));
       existing.collider.setFriction(Math.max(0, friction));
       existing.collider.setSensor(isSensor);
+      this.setBodyRefUserData(existing, kind, id);
       return;
     }
 
@@ -412,7 +511,99 @@ export class PhysicsWorld {
         .setSensor(isSensor),
       body,
     );
-    map.set(id, { body, collider });
+    const ref = { body, collider };
+    this.setBodyRefUserData(ref, kind, id);
+    map.set(id, ref);
+  }
+
+  private intersectsById(
+    a: Map<string, BodyRef>,
+    aId: string,
+    b: Map<string, BodyRef>,
+    bId: string,
+  ): boolean {
+    const left = a.get(aId);
+    const right = b.get(bId);
+    if (!left || !right) return false;
+    return this.world.intersectionPair(left.collider, right.collider);
+  }
+
+  private setBodyRefUserData(ref: { body: RAPIER.RigidBody; collider: RAPIER.Collider | null }, kind: BodyKind, id: string): void {
+    const token = this.makeUserDataToken(kind, id);
+    (ref.body as unknown as { userData?: unknown }).userData = token;
+    if (ref.collider) {
+      this.setColliderUserData(ref.collider, kind, id);
+    }
+  }
+
+  private setColliderUserData(collider: RAPIER.Collider, kind: BodyKind, id: string): void {
+    const token = this.makeUserDataToken(kind, id);
+    (collider as unknown as { userData?: unknown }).userData = token;
+  }
+
+  private makeUserDataToken(kind: BodyKind, id: string): string {
+    return kind + ":" + id;
+  }
+
+  private parseUserDataToken(value: unknown): { kind: BodyKind; id: string } | null {
+    if (typeof value !== "string") return null;
+    const index = value.indexOf(":");
+    if (index <= 0 || index >= value.length - 1) return null;
+    const kind = value.slice(0, index) as BodyKind;
+    const id = value.slice(index + 1);
+    if (
+      kind !== "ship" &&
+      kind !== "turret" &&
+      kind !== "asteroid" &&
+      kind !== "pilot" &&
+      kind !== "projectile" &&
+      kind !== "homingMissile" &&
+      kind !== "turretBullet" &&
+      kind !== "wall"
+    ) {
+      return null;
+    }
+    return { kind, id };
+  }
+
+  private rebuildBodyMapsFromWorld(): void {
+    this.shipBodies.clear();
+    this.asteroidBodies.clear();
+    this.pilotBodies.clear();
+    this.projectileBodies.clear();
+    this.homingMissileBodies.clear();
+    this.turretBulletBodies.clear();
+    this.turretBody = null;
+    this.wallColliders = [];
+
+    this.world.forEachCollider((collider: RAPIER.Collider) => {
+      const parsed = this.parseUserDataToken(
+        (collider as unknown as { userData?: unknown }).userData,
+      );
+      if (!parsed) return;
+      if (parsed.kind === "wall") {
+        this.wallColliders.push(collider);
+        return;
+      }
+      const body = collider.parent();
+      if (!body) return;
+      const ref = { body, collider };
+      if (parsed.kind === "ship") {
+        this.shipBodies.set(parsed.id, ref);
+      } else if (parsed.kind === "turret") {
+        this.turretBody = ref;
+      } else if (parsed.kind === "asteroid") {
+        this.asteroidBodies.set(parsed.id, ref);
+      } else if (parsed.kind === "pilot") {
+        this.pilotBodies.set(parsed.id, ref);
+      } else if (parsed.kind === "projectile") {
+        this.projectileBodies.set(parsed.id, ref);
+      } else if (parsed.kind === "homingMissile") {
+        this.homingMissileBodies.set(parsed.id, ref);
+      } else if (parsed.kind === "turretBullet") {
+        this.turretBulletBodies.set(parsed.id, ref);
+      }
+    });
   }
 
   private removeMissingBodies(map: Map<string, BodyRef>, aliveIds: Set<string>): void {

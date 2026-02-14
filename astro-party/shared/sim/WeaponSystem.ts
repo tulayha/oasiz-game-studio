@@ -1,6 +1,5 @@
 import type { SimState, RuntimeMine, ShipState } from "./types.js";
 import {
-  SHIP_HIT_RADIUS,
   SHIP_RADIUS,
   PILOT_RADIUS,
   MINE_EXPLOSION_RADIUS,
@@ -11,7 +10,6 @@ import {
   HOMING_MISSILE_DETECTION_RADIUS,
   HOMING_MISSILE_ACCURACY,
   HOMING_MISSILE_LIFETIME_MS,
-  HOMING_MISSILE_RADIUS,
   JOUST_SWORD_LENGTH,
   JOUST_COLLISION_RADIUS,
   POWERUP_SHIELD_HITS,
@@ -172,6 +170,7 @@ export function updateHomingMissiles(sim: SimState, dtSec: number): void {
       missile.y > ARENA_HEIGHT + margin
     ) {
       missile.alive = false;
+      sim.physicsWorld.removeHomingMissile(missile.id);
     }
   }
 }
@@ -184,9 +183,9 @@ export function checkHomingMissileCollisions(sim: SimState): void {
       if (playerId === missile.ownerId) continue;
       const player = sim.players.get(playerId);
       if (!player || !player.ship.alive) continue;
+      if (!sim.physicsWorld.intersectsHomingMissileShip(missile.id, playerId)) continue;
       const dx = player.ship.x - missile.x;
       const dy = player.ship.y - missile.y;
-      if (dx * dx + dy * dy > (SHIP_HIT_RADIUS + HOMING_MISSILE_RADIUS) ** 2) continue;
 
       const powerUp = sim.playerPowerUps.get(playerId);
       if (powerUp?.type === "SHIELD") {
@@ -244,12 +243,14 @@ export function checkHomingMissileCollisions(sim: SimState): void {
 
     for (const asteroid of sim.asteroids) {
       if (!asteroid.alive) continue;
-      const dx = asteroid.x - missile.x;
-      const dy = asteroid.y - missile.y;
-      if (dx * dx + dy * dy > (asteroid.size + HOMING_MISSILE_RADIUS) ** 2) continue;
+      if (!sim.physicsWorld.intersectsHomingMissileAsteroid(missile.id, asteroid.id)) continue;
       sim.destroyAsteroid(asteroid);
       missile.alive = false;
       break;
+    }
+
+    if (!missile.alive) {
+      sim.physicsWorld.removeHomingMissile(missile.id);
     }
   }
 }
@@ -378,6 +379,9 @@ export function updateJoustCollisions(sim: SimState): void {
   }
 
   if (consumedProjectiles.size > 0) {
+    for (const projId of consumedProjectiles) {
+      sim.physicsWorld.removeProjectile(projId);
+    }
     sim.projectiles = sim.projectiles.filter((p: { id: string }) => !consumedProjectiles.has(p.id));
   }
 }
@@ -507,6 +511,7 @@ export function updateTurretBullets(sim: SimState, dtSec: number): void {
         bullet.explosionTime = sim.nowMs;
         bullet.vx = 0;
         bullet.vy = 0;
+        sim.physicsWorld.removeTurretBullet(bullet.id);
       } else {
         for (const playerId of sim.playerOrder) {
           const player = sim.players.get(playerId);
@@ -520,6 +525,7 @@ export function updateTurretBullets(sim: SimState, dtSec: number): void {
           bullet.explosionTime = sim.nowMs;
           bullet.vx = 0;
           bullet.vy = 0;
+          sim.physicsWorld.removeTurretBullet(bullet.id);
           sim.triggerScreenShake(8, 0.2);
           break;
         }

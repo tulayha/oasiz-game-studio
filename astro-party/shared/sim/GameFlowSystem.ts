@@ -369,8 +369,18 @@ export function cleanupExpiredEntities(sim: SimState): void {
     if (!mine.exploded) return true;
     return sim.nowMs - mine.explosionTime <= MINE_POST_EXPIRY_MS;
   });
-  sim.homingMissiles = sim.homingMissiles.filter(
-    (missile: RuntimeHomingMissile) => missile.alive && sim.nowMs - missile.spawnTime <= HOMING_MISSILE_LIFETIME_MS,
-  );
-  sim.turretBullets = sim.turretBullets.filter((bullet: RuntimeTurretBullet) => bullet.alive);
+  sim.homingMissiles = sim.homingMissiles.filter((missile: RuntimeHomingMissile) => {
+    const keep = missile.alive && sim.nowMs - missile.spawnTime <= HOMING_MISSILE_LIFETIME_MS;
+    if (!keep) {
+      sim.physicsWorld.removeHomingMissile(missile.id);
+    }
+    return keep;
+  });
+  sim.turretBullets = sim.turretBullets.filter((bullet: RuntimeTurretBullet) => {
+    if (!bullet.alive) {
+      sim.physicsWorld.removeTurretBullet(bullet.id);
+      return false;
+    }
+    return true;
+  });
 }
