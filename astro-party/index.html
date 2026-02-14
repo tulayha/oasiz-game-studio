@@ -432,6 +432,64 @@
       cursor: not-allowed;
     }
 
+    .map-selector-section {
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      align-items: center;
+    }
+
+    .map-selector-section.hidden {
+      display: none;
+    }
+
+    .map-selector-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.62rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .map-selector {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0.35rem;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .map-btn {
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(255, 255, 255, 0.65);
+      padding: 0.45rem 0.3rem;
+      border-radius: 10px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .map-btn:hover {
+      border-color: rgba(255, 255, 255, 0.35);
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .map-btn.active {
+      border-color: var(--cyan);
+      color: #001218;
+      background: color-mix(in srgb, var(--cyan) 80%, white 20%);
+      box-shadow: 0 0 14px rgba(0, 240, 255, 0.28);
+    }
+
+    .map-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     .icon-btn {
       display: flex;
       align-items: center;
@@ -1844,6 +1902,17 @@
                   <button class="mode-option" id="modeSane" data-mode="SANE">SANE</button>
                   <button class="mode-option" id="modeChaotic" data-mode="CHAOTIC">CHAOTIC</button>
                   <button class="mode-option" id="modeCustom" data-mode="CUSTOM" disabled>CUSTOM</button>
+                </div>
+              </div>
+
+              <div id="mapSelectorSection" class="map-selector-section hidden">
+                <div class="map-selector-title">Choose Map</div>
+                <div class="map-selector">
+                  <button id="mapBtn0" class="map-btn active" data-map="0" title="Classic">Classic</button>
+                  <button id="mapBtn1" class="map-btn" data-map="1" title="The Cache">Cache</button>
+                  <button id="mapBtn2" class="map-btn" data-map="2" title="The Vortex">Vortex</button>
+                  <button id="mapBtn3" class="map-btn" data-map="3" title="Repulse">Repulse</button>
+                  <button id="mapBtn4" class="map-btn" data-map="4" title="Bunkers">Bunkers</button>
                 </div>
               </div>
 

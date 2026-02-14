@@ -30,7 +30,7 @@ export const RELOAD_MS = 1200;
 // ============= PROJECTILE =============
 
 export const PROJECTILE_LIFETIME_MS = 2500;
-export const PROJECTILE_SPEED_PX_PER_SEC = 14 * 60;
+export const PROJECTILE_SPEED = 14;
 export const PROJECTILE_RADIUS = 4;
 
 // ============= GAME FLOW =============
@@ -55,8 +55,8 @@ export const ASTEROID_LARGE_MAX = 38;
 export const ASTEROID_SMALL_MIN = 16;
 export const ASTEROID_SMALL_MAX = 22;
 export const ASTEROID_SPLIT_COUNT = 2;
-export const ASTEROID_DRIFT_MIN = 25;
-export const ASTEROID_DRIFT_MAX = 65;
+export const ASTEROID_DRIFT_MIN = 0.6;
+export const ASTEROID_DRIFT_MAX = 1.6;
 export const ASTEROID_RESTITUTION = 0.6;
 export const ASTEROID_FRICTION = 0.02;
 export const ASTEROID_DAMAGE_SHIPS = false;
@@ -67,6 +67,8 @@ export const ASTEROID_SPAWN_INTERVAL_MIN_MS = 2000;
 export const ASTEROID_SPAWN_INTERVAL_MAX_MS = 5000;
 export const ASTEROID_SPAWN_BATCH_MIN = 1;
 export const ASTEROID_SPAWN_BATCH_MAX = 3;
+export const GREY_ASTEROID_MIN = 12;
+export const GREY_ASTEROID_MAX = 18;
 
 // ============= POWER-UPS =============
 
@@ -105,7 +107,7 @@ export const LASER_BEAM_LENGTH = 800;
 export const SCATTER_CHARGES = 3;
 export const SCATTER_COOLDOWN_MS = 180;
 export const SCATTER_ANGLE_DEG = 15;
-export const SCATTER_PROJECTILE_SPEED_PX_PER_SEC = 10 * 60;
+export const SCATTER_PROJECTILE_SPEED = 10;
 export const SCATTER_PROJECTILE_LIFETIME_MS = 600;
 
 // ============= MINE =============
@@ -125,7 +127,7 @@ export const JOUST_SPEED_MULTIPLIER = 1.4;
 
 // ============= HOMING MISSILE =============
 
-export const HOMING_MISSILE_SPEED_PX_PER_SEC = 9 * 60;
+export const HOMING_MISSILE_SPEED = 9;
 export const HOMING_MISSILE_TURN_RATE = 2.5;
 export const HOMING_MISSILE_LIFETIME_MS = 4000;
 export const HOMING_MISSILE_ACCURACY = 0.85;
@@ -144,18 +146,12 @@ export const TURRET_IDLE_ROTATION_SPEED = 0.5;
 
 // ============= TURRET BULLET =============
 
-export const TURRET_BULLET_SPEED_PX_PER_SEC = 12 * 60;
+export const TURRET_BULLET_SPEED = 12;
 export const TURRET_BULLET_LIFETIME_MS = 3000;
 export const TURRET_BULLET_RADIUS = 5;
 export const TURRET_BULLET_IMPACT_RADIUS = 25;
 export const TURRET_BULLET_EXPLOSION_RADIUS = 100;
 export const TURRET_BULLET_EXPLOSION_DURATION_MS = 500;
-
-// ============= PHYSICS CONVERSION FACTORS =============
-
-export const FORCE_TO_ACCEL = 1_466_666;
-export const FORCE_TO_IMPULSE = 38_333;
-export const RECOIL_TO_IMPULSE = 233_333;
 
 // ============= AI =============
 
@@ -187,7 +183,7 @@ export const STANDARD_CONFIG: ActiveConfig = {
   SHIP_DASH_DURATION: 0.18,
   SHIP_RECOIL_SLOWDOWN: 0.7,
   SHIP_RECOIL_DURATION: 0.08,
-  PROJECTILE_SPEED: PROJECTILE_SPEED_PX_PER_SEC,
+  PROJECTILE_SPEED,
   PILOT_ROTATION_SPEED: 3.8,
   PILOT_DASH_FORCE: 0.006,
 };

@@ -6,6 +6,7 @@ import { SettingsManager } from "../SettingsManager";
 import {
   GAME_CONFIG,
   GameStateSync,
+  MapId,
   PlayerInput,
   PlayerPowerUp,
   ShipState,
@@ -47,6 +48,8 @@ export interface BroadcastStateInput {
   screenShakeDuration: number;
   hostTick: number;
   tickDurationMs: number;
+  mapId?: MapId;
+  yellowBlockHp?: number[];
 }
 
 export interface RenderNetworkState {
@@ -60,6 +63,8 @@ export interface RenderNetworkState {
   networkHomingMissiles: HomingMissileState[];
   networkTurret: TurretState | null;
   networkTurretBullets: TurretBulletState[];
+  networkMapId: MapId;
+  networkYellowBlockHp: number[];
   shipSmoother: DisplaySmoother;
   projectileSmoother: DisplaySmoother;
   asteroidSmoother: DisplaySmoother;
@@ -111,6 +116,8 @@ export class NetworkSyncSystem {
   private networkHomingMissiles: HomingMissileState[] = [];
   private networkTurret: TurretState | null = null;
   private networkTurretBullets: TurretBulletState[] = [];
+  private networkMapId: MapId = 0;
+  private networkYellowBlockHp: number[] = [];
 
   hostSimTimeMs = 0;
 
@@ -160,6 +167,8 @@ export class NetworkSyncSystem {
       networkHomingMissiles: this.networkHomingMissiles,
       networkTurret: this.networkTurret,
       networkTurretBullets: this.networkTurretBullets,
+      networkMapId: this.networkMapId,
+      networkYellowBlockHp: this.networkYellowBlockHp,
       shipSmoother: this.shipSmoother,
       projectileSmoother: this.projectileSmoother,
       asteroidSmoother: this.asteroidSmoother,
@@ -204,6 +213,8 @@ export class NetworkSyncSystem {
       screenShakeDuration: input.screenShakeDuration,
       hostTick: input.hostTick,
       tickDurationMs: input.tickDurationMs,
+      mapId: input.mapId ?? 0,
+      yellowBlockHp: input.yellowBlockHp ?? [],
     };
 
     this.network.broadcastGameState(state);
@@ -338,6 +349,8 @@ export class NetworkSyncSystem {
     this.networkHomingMissiles = state.homingMissiles || [];
     this.networkTurret = state.turret ?? null;
     this.networkTurretBullets = state.turretBullets || [];
+    this.networkMapId = (state.mapId ?? 0) as MapId;
+    this.networkYellowBlockHp = state.yellowBlockHp || [];
 
     if (state.playerPowerUps) {
       const activePowerUpIds = new Set(Object.keys(state.playerPowerUps));
@@ -378,6 +391,8 @@ export class NetworkSyncSystem {
     this.networkHomingMissiles = [];
     this.networkTurret = null;
     this.networkTurretBullets = [];
+    this.networkMapId = 0;
+    this.networkYellowBlockHp = [];
 
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
@@ -419,6 +434,8 @@ export class NetworkSyncSystem {
     this.networkHomingMissiles = [];
     this.networkTurret = null;
     this.networkTurretBullets = [];
+    this.networkMapId = 0;
+    this.networkYellowBlockHp = [];
 
     this.shipSmoother.clear();
     this.projectileSmoother.clear();

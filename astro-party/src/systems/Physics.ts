@@ -8,6 +8,7 @@ import {
 } from "../../shared/geometry/EntityShapes";
 
 const { Engine, World, Bodies, Body, Events, Composite } = Matter;
+const FIXED_STEP_MS = 1000 / 60;
 
 export class Physics {
   engine: Matter.Engine;
@@ -289,7 +290,7 @@ export class Physics {
 
   update(dt: number): void {
     // Cap delta time to prevent physics explosions
-    Engine.update(this.engine, Math.min(dt, 16.667));
+    Engine.update(this.engine, Math.min(dt, FIXED_STEP_MS));
   }
 
   updateFixed(dtMs: number = 1000 / 60): void {

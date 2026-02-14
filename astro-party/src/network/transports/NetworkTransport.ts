@@ -58,6 +58,7 @@ export interface NetworkCallbacks {
   onRoundResultReceived: (payload: RoundResultPayload) => void;
   onDevModeReceived: (enabled: boolean) => void;
   onAdvancedSettingsReceived: (payload: AdvancedSettingsSync) => void;
+  onMapIdReceived: (mapId: number) => void;
   onScreenShakeReceived: (intensity: number, duration: number) => void;
   onTransportError?: (code: string, message: string) => void;
   onDashParticlesReceived?: (payload: {
@@ -83,6 +84,7 @@ export interface NetworkTransport {
   startGame(): void;
   restartGame(): void;
   setMode(mode: GameMode): void;
+  setMap(mapId: number): void;
   setAdvancedSettings(payload: AdvancedSettingsSync): void;
 
   sendDashRequest(): void;

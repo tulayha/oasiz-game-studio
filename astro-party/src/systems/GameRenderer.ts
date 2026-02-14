@@ -13,6 +13,7 @@ import { TurretBullet } from "../entities/TurretBullet";
 import {
   GAME_CONFIG,
   GamePhase,
+  MapId,
   PlayerData,
   PlayerPowerUp,
   ShipState,
@@ -26,6 +27,7 @@ import {
   TurretState,
   TurretBulletState,
 } from "../types";
+import { getMapDefinition, type YellowBlock } from "../../shared/sim/maps";
 
 export interface RenderContext {
   dt: number;
@@ -62,6 +64,8 @@ export interface RenderContext {
   pilotSmoother: DisplaySmoother;
   missileSmoother: DisplaySmoother;
   useBufferedInterpolation: boolean;
+  mapId: MapId;
+  yellowBlockHp: number[];
 }
 
 export class GameRenderer {
@@ -75,7 +79,19 @@ export class GameRenderer {
     this.renderer.setGameTimeMs(useSimTime ? ctx.nowMs : null);
 
     this.renderer.drawStars();
-    this.renderer.drawArenaBorder();
+    const map = getMapDefinition(ctx.mapId);
+    const mapTheme = this.getMapTheme(ctx.mapId);
+    const mapTimeSec = ctx.nowMs / 1000;
+    this.renderer.drawArenaBorder(mapTheme.border);
+    for (const block of this.getYellowBlocksForRender(map.yellowBlocks, ctx.yellowBlockHp)) {
+      this.renderer.drawYellowBlock(block);
+    }
+    for (const hole of map.centerHoles) {
+      this.renderer.drawCenterHole(hole, mapTimeSec, 1, mapTheme.centerHole);
+    }
+    for (const zone of map.repulsionZones) {
+      this.renderer.drawRepulsionZone(zone, mapTimeSec, mapTheme.repulsion);
+    }
 
     if (ctx.phase === "PLAYING" || ctx.phase === "GAME_END") {
       let renderShips: ShipState[];
@@ -416,6 +432,10 @@ export class GameRenderer {
         }
       }
 
+      for (const box of map.overlayBoxes) {
+        this.renderer.drawOverlayBox(box, mapTheme.overlay);
+      }
+
       this.renderer.drawParticles();
     }
 
@@ -480,5 +500,80 @@ export class GameRenderer {
       joustRightActive,
       homingMissileCharges,
     };
+  }
+
+  private getYellowBlocksForRender(
+    yellowBlocks: YellowBlock[],
+    networkYellowBlockHp: number[],
+  ): YellowBlock[] {
+    if (networkYellowBlockHp.length <= 0) return [];
+    if (networkYellowBlockHp.length !== yellowBlocks.length) return [];
+    return yellowBlocks.filter((_, index) => (networkYellowBlockHp[index] ?? 1) > 0);
+  }
+
+  private getMapTheme(mapId: MapId): {
+    border: string;
+    centerHole?: {
+      ring: string;
+      innerRing: string;
+      arrow: string;
+      glow: string;
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+    };
+    repulsion?: {
+      gradientInner: string;
+      gradientMid: string;
+      gradientOuter: string;
+      core: string;
+      ring: string;
+      arrow: string;
+      glow: string;
+    };
+    overlay?: { fill: string; stroke: string; hole: string };
+  } {
+    switch (mapId) {
+      case 1:
+        return { border: "#ffee00" };
+      case 2:
+        return {
+          border: "#ff5a2b",
+          centerHole: {
+            ring: "#ff5a2b",
+            innerRing: "#ffb36b",
+            arrow: "#ff8844",
+            glow: "#ff5a2b",
+            gradientInner: "rgba(0, 0, 0, 0.95)",
+            gradientMid: "rgba(40, 12, 0, 0.9)",
+            gradientOuter: "rgba(90, 35, 10, 0.65)",
+          },
+        };
+      case 3:
+        return {
+          border: "#ff5a2b",
+          repulsion: {
+            gradientInner: "rgba(255, 90, 40, 0.45)",
+            gradientMid: "rgba(255, 140, 60, 0.2)",
+            gradientOuter: "rgba(255, 120, 50, 0)",
+            core: "rgba(230, 50, 30, 0.65)",
+            ring: "#ff5a2b",
+            arrow: "rgba(255, 140, 80, 0.75)",
+            glow: "#ff5a2b",
+          },
+        };
+      case 4:
+        return {
+          border: "#00ff88",
+          overlay: {
+            fill: "#0bb866",
+            stroke: "#7cffb8",
+            hole: "transparent",
+          },
+        };
+      case 0:
+      default:
+        return { border: "#00f0ff" };
+    }
   }
 }

@@ -10,7 +10,6 @@ import {
   TURRET_ORBIT_RADIUS,
   TURRET_FIRE_COOLDOWN_MS,
   TURRET_FIRE_ANGLE_THRESHOLD,
-  FORCE_TO_IMPULSE,
   POWERUP_DESPAWN_MS,
   HOMING_MISSILE_LIFETIME_MS,
   MINE_POST_EXPIRY_MS,
@@ -19,6 +18,7 @@ import {
 import { normalizeAngle } from "./utils.js";
 import { spawnInitialAsteroids, scheduleAsteroidSpawn } from "./AsteroidSystem.js";
 import { grantStartingPowerups } from "./PowerUpSystem.js";
+import { getMapDefinition } from "./maps.js";
 
 export function updatePilots(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
@@ -61,14 +61,18 @@ export function updatePilots(sim: SimState, dtSec: number): void {
 
     if (rotate) {
       pilot.angularVelocity = 0;
+      sim.setPilotAngularVelocity(playerId, 0);
       pilot.angle += cfg.PILOT_ROTATION_SPEED * dtSec * sim.rotationDirection;
       pilot.angle = normalizeAngle(pilot.angle);
+      sim.setPilotAngle(playerId, pilot.angle);
     }
     if (dash && sim.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
       pilot.lastDashAtMs = sim.nowMs;
-      const dashImpulse = cfg.PILOT_DASH_FORCE * FORCE_TO_IMPULSE * 1.8;
-      pilot.vx += Math.cos(pilot.angle) * dashImpulse;
-      pilot.vy += Math.sin(pilot.angle) * dashImpulse;
+      sim.applyPilotForce(
+        playerId,
+        Math.cos(pilot.angle) * cfg.PILOT_DASH_FORCE,
+        Math.sin(pilot.angle) * cfg.PILOT_DASH_FORCE,
+      );
     }
 
     if (sim.nowMs - pilot.spawnTime >= PILOT_SURVIVAL_MS) {
@@ -258,6 +262,7 @@ export function beginPlaying(sim: SimState): void {
   sim.phase = "PLAYING";
   clearRoundEntities(sim);
   spawnAllShips(sim);
+  sim.spawnMapFeatures();
   grantStartingPowerups(sim);
   spawnInitialAsteroids(sim);
   scheduleAsteroidSpawn(sim);
@@ -268,7 +273,7 @@ export function beginPlaying(sim: SimState): void {
 }
 
 export function clearRoundEntities(sim: SimState): void {
-  sim.physicsWorld.clearDynamicBodies();
+  sim.clearPhysicsBodies();
   sim.pilots.clear();
   sim.projectiles = [];
   sim.asteroids = [];
@@ -316,6 +321,11 @@ export function spawnAllShips(sim: SimState): void {
 }
 
 export function spawnTurret(sim: SimState): void {
+  const map = getMapDefinition(sim.mapId);
+  if (!map.hasTurret) {
+    sim.turret = null;
+    return;
+  }
   sim.turret = {
     id: sim.nextEntityId("turret"),
     x: ARENA_WIDTH * 0.5,
@@ -353,6 +363,7 @@ export function syncRoomMeta(sim: SimState): void {
     mode: sim.mode,
     baseMode: sim.baseMode,
     settings: { ...sim.settings },
+    mapId: sim.mapId,
   });
 }
 
@@ -372,13 +383,13 @@ export function cleanupExpiredEntities(sim: SimState): void {
   sim.homingMissiles = sim.homingMissiles.filter((missile: RuntimeHomingMissile) => {
     const keep = missile.alive && sim.nowMs - missile.spawnTime <= HOMING_MISSILE_LIFETIME_MS;
     if (!keep) {
-      sim.physicsWorld.removeHomingMissile(missile.id);
+      sim.removeHomingMissileBody(missile.id);
     }
     return keep;
   });
   sim.turretBullets = sim.turretBullets.filter((bullet: RuntimeTurretBullet) => {
     if (!bullet.alive) {
-      sim.physicsWorld.removeTurretBullet(bullet.id);
+      sim.removeTurretBulletBody(bullet.id);
       return false;
     }
     return true;

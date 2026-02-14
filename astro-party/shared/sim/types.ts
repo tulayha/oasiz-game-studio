@@ -19,6 +19,7 @@ export type PowerUpType =
   | "REVERSE"
   | "JOUST"
   | "HOMING_MISSILE";
+export type MapId = 0 | 1 | 2 | 3 | 4;
 
 // ============= SETTINGS =============
 
@@ -112,6 +113,9 @@ export interface AsteroidState {
   size: number;
   alive: boolean;
   vertices: { x: number; y: number }[];
+  variant: "ORANGE" | "GREY";
+  hp: number;
+  maxHp: number;
 }
 
 export interface PowerUpState {
@@ -234,6 +238,7 @@ export interface RoomMetaPayload {
   mode: GameMode;
   baseMode: BaseGameMode;
   settings: AdvancedSettings;
+  mapId: MapId;
 }
 
 export interface SnapshotPayload {
@@ -253,6 +258,8 @@ export interface SnapshotPayload {
   screenShakeDuration: number;
   hostTick: number;
   tickDurationMs: number;
+  mapId: MapId;
+  yellowBlockHp: number[];
 }
 
 // ============= HOOKS (simulation → host) =============
@@ -398,6 +405,7 @@ export interface SimState {
   settings: AdvancedSettings;
   baseMode: BaseGameMode;
   mode: GameMode;
+  mapId: MapId;
   rotationDirection: number;
   devModeEnabled: boolean;
   currentRound: number;
@@ -409,7 +417,6 @@ export interface SimState {
   roomCode: string;
   leaderPlayerId: string | null;
   roundEndMs: number;
-  physicsWorld: import("./PhysicsWorld.js").PhysicsWorld;
 
   // Hooks
   hooks: Hooks;
@@ -427,9 +434,27 @@ export interface SimState {
   syncPlayers(): void;
   grantPowerUp(playerId: string, type: PowerUpType): void;
   setFireButtonState(player: RuntimePlayer, pressed: boolean): void;
+  spawnMapFeatures(): void;
+  updateMapFeatures(dtSec: number): void;
+  clearMapFeatures(): void;
   onShipHit(owner: RuntimePlayer | undefined, target: RuntimePlayer): void;
   killPilot(pilotPlayerId: string, killerId: string): void;
   respawnFromPilot(playerId: string, pilot: RuntimePilot): void;
   destroyAsteroid(asteroid: RuntimeAsteroid): void;
   explodeMine(mine: RuntimeMine): void;
+  removeShipBody(playerId: string): void;
+  removeAsteroidBody(asteroidId: string): void;
+  removePilotBody(playerId: string): void;
+  removeProjectileBody(projectileId: string): void;
+  removeHomingMissileBody(missileId: string): void;
+  removeTurretBulletBody(bulletId: string): void;
+  applyShipForce(playerId: string, x: number, y: number): void;
+  applyPilotForce(playerId: string, x: number, y: number): void;
+  setShipAngle(playerId: string, angle: number): void;
+  setShipVelocity(playerId: string, vx: number, vy: number): void;
+  setShipAngularVelocity(playerId: string, angularVelocity: number): void;
+  setPilotAngle(playerId: string, angle: number): void;
+  setPilotAngularVelocity(playerId: string, angularVelocity: number): void;
+  setAsteroidPosition(asteroidId: string, x: number, y: number): void;
+  clearPhysicsBodies(): void;
 }

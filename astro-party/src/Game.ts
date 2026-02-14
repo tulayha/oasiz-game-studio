@@ -31,6 +31,7 @@ import {
   GamePhase,
   GameMode,
   BaseGameMode,
+  MapId,
   PlayerData,
   PowerUpType,
   PlayerPowerUp,
@@ -102,6 +103,7 @@ export class Game {
   };
   private currentMode: GameMode = "STANDARD";
   private baseMode: BaseGameMode = "STANDARD";
+  private selectedMapId: MapId = 0;
 
   static SHOW_PING = true;
 
@@ -367,6 +369,7 @@ export class Game {
     onRoundResult?: (payload: RoundResultPayload) => void;
     onAdvancedSettingsChange?: (settings: AdvancedSettings) => void;
     onSystemMessage?: (message: string, durationMs?: number) => void;
+    onMapChange?: (mapId: MapId) => void;
   }): void {
     this.flowMgr.onPhaseChange = (phase) => {
       if (phase === "PLAYING" && !this.network.isSimulationAuthority()) {
@@ -381,6 +384,7 @@ export class Game {
     this._onRoundResult = callbacks.onRoundResult ?? null;
     this._onAdvancedSettingsChange = callbacks.onAdvancedSettingsChange ?? null;
     this._onSystemMessage = callbacks.onSystemMessage ?? null;
+    this._onMapChange = callbacks.onMapChange ?? null;
   }
 
   private _onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
@@ -392,6 +396,7 @@ export class Game {
   private _onSystemMessage:
     | ((message: string, durationMs?: number) => void)
     | null = null;
+  private _onMapChange: ((mapId: MapId) => void) | null = null;
 
   private emitPlayersUpdate(): void {
     this._onPlayersUpdate?.(this.getPlayers());
@@ -580,6 +585,13 @@ export class Game {
         this.applyModeStateFromNetwork(payload);
       },
 
+      onMapIdReceived: (mapId) => {
+        const nextMapId = mapId as MapId;
+        if (nextMapId === this.selectedMapId) return;
+        this.selectedMapId = nextMapId;
+        this._onMapChange?.(nextMapId);
+      },
+
       onScreenShakeReceived: (intensity, duration) => {
         if (this.network.isSimulationAuthority()) return;
         this.triggerScreenShake(intensity, duration);
@@ -663,6 +675,7 @@ export class Game {
     this._originalHostLeft = false;
     this.finalScoreSubmittedForMatch = false;
     this.resetAdvancedSettings();
+    this.selectedMapId = 0;
     this.flowMgr.setPhase("START");
   }
 
@@ -1143,6 +1156,13 @@ export class Game {
     const frameRenderState =
       renderState ??
       this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
+    if (
+      !this.network.isSimulationAuthority() &&
+      this.selectedMapId !== frameRenderState.networkMapId
+    ) {
+      this.selectedMapId = frameRenderState.networkMapId;
+      this._onMapChange?.(this.selectedMapId);
+    }
     this.gameRenderer.render({
       dt,
       nowMs: this.network.isSimulationAuthority()
@@ -1180,6 +1200,8 @@ export class Game {
       pilotSmoother: frameRenderState.pilotSmoother,
       missileSmoother: frameRenderState.missileSmoother,
       useBufferedInterpolation: frameRenderState.useBufferedInterpolation,
+      mapId: this.selectedMapId,
+      yellowBlockHp: frameRenderState.networkYellowBlockHp,
     });
   }
 
@@ -1352,6 +1374,21 @@ export class Game {
     return this.currentMode;
   }
 
+  setMap(mapId: MapId, source: "local" | "remote" = "local"): void {
+    if (source === "local" && !this.isLeader()) return;
+    if (this.flowMgr.phase !== "LOBBY") return;
+    if (this.selectedMapId === mapId) return;
+    this.selectedMapId = mapId;
+    if (source === "local" && this.isLeader()) {
+      this.network.setMap(mapId);
+    }
+    this._onMapChange?.(mapId);
+  }
+
+  getMapId(): MapId {
+    return this.selectedMapId;
+  }
+
   startGame(): void {
     if (!this.isLeader()) {
       console.log("[Game] Non-leader cannot start game");
@@ -1359,6 +1396,7 @@ export class Game {
     }
     // Push mode/settings before requesting match start on the server.
     this.broadcastModeState();
+    this.network.setMap(this.selectedMapId);
     this.roundResult = null;
     this.finalScoreSubmittedForMatch = false;
     this.network.startGame();

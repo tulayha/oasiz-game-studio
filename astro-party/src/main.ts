@@ -1,5 +1,5 @@
 import { Game } from "./Game";
-import { GamePhase, GameMode, PlayerData } from "./types";
+import { GamePhase, GameMode, MapId, PlayerData } from "./types";
 import { AudioManager } from "./AudioManager";
 import { triggerHaptic } from "./ui/haptics";
 import { createViewportController, tryLockOrientation } from "./ui/viewport";
@@ -58,6 +58,7 @@ async function init(): Promise<void> {
         case "LOBBY":
           screenController.showScreen("lobby");
           lobbyUI.updateRoomCode(game.getRoomCode());
+          lobbyUI.updateMapSelector();
           screenController.resetEndScreenButtons();
           break;
         case "COUNTDOWN":
@@ -119,6 +120,10 @@ async function init(): Promise<void> {
     },
     onSystemMessage: (message, durationMs) => {
       screenController.showSystemMessage(message, durationMs);
+    },
+    onMapChange: (mapId: MapId) => {
+      lobbyUI.setMapUI(mapId, "remote");
+      lobbyUI.updateMapSelector();
     },
   });
 

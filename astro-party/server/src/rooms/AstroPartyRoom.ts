@@ -2,7 +2,6 @@ import { Client, Room } from "colyseus";
 import {
   AstroPartySimulation,
 } from "../../../shared/sim/AstroPartySimulation.js";
-import { initializeRapier } from "../../../shared/sim/PhysicsWorld.js";
 import type {
   AdvancedSettingsSync,
   GamePhase,
@@ -38,6 +37,9 @@ interface DashMessage {
 interface SetModeMessage {
   mode: "STANDARD" | "SANE" | "CHAOTIC" | "CUSTOM";
 }
+interface SetMapMessage {
+  mapId: number;
+}
 
 interface SetAdvancedSettingsMessage extends AdvancedSettingsSync {}
 interface SetDevModeMessage {
@@ -59,10 +61,9 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
   maxClients = 4;
   private simulation!: AstroPartySimulation;
   private latestSnapshot: SnapshotPayload | null = null;
+  private simAccumulatorMs = 0;
 
   async onCreate(options: CreateOptions): Promise<void> {
-    await initializeRapier();
-
     const roomCode = options.roomCode ?? "----";
     const maxPlayers = options.maxPlayers ?? 4;
     const simTickHz = options.simTickHz ?? 60;
@@ -128,7 +129,22 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     );
 
     this.setSimulationInterval((deltaMs) => {
-      this.simulation.update(deltaMs);
+      // Fixed-step simulation with catch-up to keep real-time speed stable.
+      const clampedDeltaMs = Math.min(Math.max(deltaMs, 0), 250);
+      this.simAccumulatorMs += clampedDeltaMs;
+
+      let substeps = 0;
+      const maxSubsteps = 8;
+      while (this.simAccumulatorMs >= tickDurationMs && substeps < maxSubsteps) {
+        this.simulation.update(tickDurationMs);
+        this.simAccumulatorMs -= tickDurationMs;
+        substeps += 1;
+      }
+
+      // Prevent runaway backlog after long stalls.
+      if (substeps >= maxSubsteps) {
+        this.simAccumulatorMs = 0;
+      }
     }, tickDurationMs);
 
     this.clock.setInterval(() => {
@@ -158,6 +174,10 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
 
     this.onMessage("cmd:set_mode", (client, payload: SetModeMessage) => {
       this.simulation.setMode(client.sessionId, payload.mode);
+    });
+
+    this.onMessage("cmd:set_map", (client, payload: SetMapMessage) => {
+      this.simulation.setMap(client.sessionId, payload.mapId);
     });
 
     this.onMessage(
@@ -287,6 +307,7 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     this.state.phase = payload.phase;
     this.state.mode = payload.mode;
     this.state.baseMode = payload.baseMode;
+    this.state.mapId = payload.mapId;
     this.state.settingsJson = JSON.stringify(payload.settings);
   }
 }

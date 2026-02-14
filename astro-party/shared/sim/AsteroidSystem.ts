@@ -3,8 +3,6 @@ import {
   ARENA_WIDTH,
   ARENA_HEIGHT,
   ARENA_PADDING,
-  ASTEROID_INITIAL_MIN,
-  ASTEROID_INITIAL_MAX,
   ASTEROID_LARGE_MIN,
   ASTEROID_LARGE_MAX,
   ASTEROID_SMALL_MIN,
@@ -20,22 +18,24 @@ import {
   ASTEROID_SPAWN_INTERVAL_MAX_MS,
   ASTEROID_SPAWN_BATCH_MIN,
   ASTEROID_SPAWN_BATCH_MAX,
+  GREY_ASTEROID_MIN,
+  GREY_ASTEROID_MAX,
   POWERUP_SPAWN_WEIGHTS,
   POWERUP_MAGNETIC_RADIUS,
   POWERUP_MAGNETIC_SPEED,
 } from "./constants.js";
 import type { PowerUpType } from "./types.js";
 import { clamp } from "./utils.js";
-
-interface Point2D {
-  x: number;
-  y: number;
-}
+import { getMapDefinition } from "./maps.js";
 
 export function spawnInitialAsteroids(sim: SimState): void {
+  const map = getMapDefinition(sim.mapId);
+  if (!map.asteroidConfig.enabled) return;
   if (sim.settings.asteroidDensity === "NONE") return;
-  const { min, max } = getInitialAsteroidRange(sim);
-  const count = sim.asteroidRng.nextInt(min, max);
+  const count = sim.asteroidRng.nextInt(
+    map.asteroidConfig.minCount,
+    map.asteroidConfig.maxCount,
+  );
 
   const centerX = ARENA_WIDTH * 0.5;
   const centerY = ARENA_HEIGHT * 0.5;
@@ -44,8 +44,11 @@ export function spawnInitialAsteroids(sim: SimState): void {
   const maxAttempts = 20;
 
   for (let i = 0; i < count; i++) {
+    const isGrey = sim.asteroidRng.next() < map.asteroidConfig.greyRatio;
     const tier = i === 0 ? "LARGE" : rollAsteroidTier(sim);
-    const size = randomAsteroidSize(sim, tier);
+    const size = isGrey
+      ? sim.asteroidRng.nextRange(GREY_ASTEROID_MIN, GREY_ASTEROID_MAX)
+      : randomAsteroidSize(sim, tier);
     let x = centerX;
     let y = centerY;
 
@@ -62,18 +65,17 @@ export function spawnInitialAsteroids(sim: SimState): void {
     const angle = sim.asteroidRng.next() * Math.PI * 2;
     const speed = sim.asteroidRng.nextRange(ASTEROID_DRIFT_MIN, ASTEROID_DRIFT_MAX);
     const velocityScale = 0.75;
-    sim.asteroids.push({
-      id: sim.nextEntityId("ast"),
-      x,
-      y,
-      vx: Math.cos(angle) * speed * velocityScale,
-      vy: Math.sin(angle) * speed * velocityScale,
-      angle: 0,
-      angularVelocity: randomAsteroidAngularVelocity(sim),
-      size,
-      alive: true,
-      vertices: generateAsteroidVertices(sim, size),
-    });
+    sim.asteroids.push(
+      createAsteroidState(
+        sim,
+        x,
+        y,
+        Math.cos(angle) * speed * velocityScale,
+        Math.sin(angle) * speed * velocityScale,
+        size,
+        isGrey ? "GREY" : "ORANGE",
+      ),
+    );
   }
 }
 
@@ -93,6 +95,8 @@ export function scheduleAsteroidSpawn(sim: SimState): void {
 }
 
 export function updateAsteroidSpawning(sim: SimState): void {
+  const map = getMapDefinition(sim.mapId);
+  if (!map.asteroidConfig.enabled) return;
   if (sim.settings.asteroidDensity !== "SPAWN") return;
   if (sim.nextAsteroidSpawnAtMs === null) {
     scheduleAsteroidSpawn(sim);
@@ -114,16 +118,56 @@ export function updateAsteroids(sim: SimState, dtSec: number): void {
   }
 }
 
+export function wrapAsteroids(sim: SimState): void {
+  const margin = 50;
+  for (const asteroid of sim.asteroids) {
+    if (!asteroid.alive) continue;
+    let wrapped = false;
+    if (asteroid.x < -margin) {
+      asteroid.x = ARENA_WIDTH + margin;
+      wrapped = true;
+    } else if (asteroid.x > ARENA_WIDTH + margin) {
+      asteroid.x = -margin;
+      wrapped = true;
+    }
+    if (asteroid.y < -margin) {
+      asteroid.y = ARENA_HEIGHT + margin;
+      wrapped = true;
+    } else if (asteroid.y > ARENA_HEIGHT + margin) {
+      asteroid.y = -margin;
+      wrapped = true;
+    }
+    if (wrapped) {
+      sim.setAsteroidPosition(asteroid.id, asteroid.x, asteroid.y);
+    }
+  }
+}
+
+export function hitAsteroid(sim: SimState, asteroid: RuntimeAsteroid): boolean {
+  if (!asteroid.alive) return false;
+  asteroid.hp -= 1;
+  if (asteroid.hp > 0) {
+    sim.triggerScreenShake(3, 0.1);
+    return false;
+  }
+  destroyAsteroid(sim, asteroid);
+  return true;
+}
+
 export function destroyAsteroid(sim: SimState, asteroid: RuntimeAsteroid): void {
   if (!asteroid.alive) return;
   asteroid.alive = false;
   sim.triggerScreenShake(8, 0.2);
 
-  if (asteroid.size >= ASTEROID_LARGE_MIN) {
+  if (asteroid.variant === "ORANGE" && asteroid.size >= ASTEROID_LARGE_MIN) {
     splitAsteroid(sim, asteroid);
   }
 
-  if (asteroid.size < ASTEROID_LARGE_MIN && sim.powerUpRng.next() <= ASTEROID_DROP_CHANCE) {
+  if (
+    asteroid.variant === "ORANGE" &&
+    asteroid.size < ASTEROID_LARGE_MIN &&
+    sim.powerUpRng.next() <= ASTEROID_DROP_CHANCE
+  ) {
     const entries = Object.entries(POWERUP_SPAWN_WEIGHTS) as Array<[PowerUpType, number]>;
     const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
     const r = sim.powerUpRng.next() * total;
@@ -161,22 +205,22 @@ function splitAsteroid(sim: SimState, asteroid: RuntimeAsteroid): void {
     const speed = sim.asteroidRng.nextRange(ASTEROID_DRIFT_MIN, ASTEROID_DRIFT_MAX);
     const offset = 10 + sim.asteroidRng.next() * 6;
     const size = randomAsteroidSize(sim, "SMALL");
-    sim.asteroids.push({
-      id: sim.nextEntityId("ast"),
-      x: asteroid.x + Math.cos(angle) * offset,
-      y: asteroid.y + Math.sin(angle) * offset,
-      vx: baseVx + Math.cos(angle) * speed,
-      vy: baseVy + Math.sin(angle) * speed,
-      angle: 0,
-      angularVelocity: randomAsteroidAngularVelocity(sim),
-      size,
-      alive: true,
-      vertices: generateAsteroidVertices(sim, size),
-    });
+    sim.asteroids.push(
+      createAsteroidState(
+        sim,
+        asteroid.x + Math.cos(angle) * offset,
+        asteroid.y + Math.sin(angle) * offset,
+        baseVx + Math.cos(angle) * speed,
+        baseVy + Math.sin(angle) * speed,
+        size,
+        "ORANGE",
+      ),
+    );
   }
 }
 
 function spawnSingleAsteroidFromBorder(sim: SimState): void {
+  const map = getMapDefinition(sim.mapId);
   const inset = ARENA_PADDING + 6;
   const side = Math.floor(sim.asteroidRng.next() * 4);
 
@@ -202,85 +246,78 @@ function spawnSingleAsteroidFromBorder(sim: SimState): void {
   const finalAngle = baseAngle + (sim.asteroidRng.next() - 0.5) * (Math.PI / 3);
   const speed = sim.asteroidRng.nextRange(ASTEROID_DRIFT_MIN, ASTEROID_DRIFT_MAX);
   const tier = rollAsteroidTier(sim);
-  const size = randomAsteroidSize(sim, tier);
+  const isGrey = sim.asteroidRng.next() < map.asteroidConfig.greyRatio;
+  const size = isGrey
+    ? sim.asteroidRng.nextRange(GREY_ASTEROID_MIN, GREY_ASTEROID_MAX)
+    : randomAsteroidSize(sim, tier);
 
-  sim.asteroids.push({
-    id: sim.nextEntityId("ast"),
-    x,
-    y,
-    vx: Math.cos(finalAngle) * speed,
-    vy: Math.sin(finalAngle) * speed,
-    angle: 0,
-    angularVelocity: randomAsteroidAngularVelocity(sim),
-    size,
-    alive: true,
-    vertices: generateAsteroidVertices(sim, size),
-  });
+  sim.asteroids.push(
+    createAsteroidState(
+      sim,
+      x,
+      y,
+      Math.cos(finalAngle) * speed,
+      Math.sin(finalAngle) * speed,
+      size,
+      isGrey ? "GREY" : "ORANGE",
+    ),
+  );
 }
 
 export function generateAsteroidVertices(sim: SimState, size: number): { x: number; y: number }[] {
-  const targetCount =
+  const vertices: { x: number; y: number }[] = [];
+  const count =
     ASTEROID_VERTICES_MIN +
-    Math.floor(sim.asteroidRng.next() * (ASTEROID_VERTICES_MAX - ASTEROID_VERTICES_MIN + 1));
-  const sampleCount = Math.max(targetCount * 2, targetCount + 3);
+    Math.floor(
+      sim.asteroidRng.next() * (ASTEROID_VERTICES_MAX - ASTEROID_VERTICES_MIN + 1),
+    );
 
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const samples: Point2D[] = [];
-    for (let i = 0; i < sampleCount; i++) {
-      const sector = (Math.PI * 2) / sampleCount;
-      const angleJitter = sector * 0.45;
-      const angle =
-        (i / sampleCount) * Math.PI * 2 +
-        (sim.asteroidRng.next() * 2 - 1) * angleJitter;
-      const radius = size * (0.72 + sim.asteroidRng.next() * 0.56);
-      samples.push({
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
-      });
-    }
-
-    const hull = computeConvexHull(samples);
-    if (hull.length < 3) continue;
-    const reduced = downsampleConvexVertices(hull, targetCount);
-    if (reduced.length >= 3) {
-      return ensureCounterClockwise(reduced);
-    }
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    const radiusVariation = 0.7 + sim.asteroidRng.next() * 0.6;
+    vertices.push({
+      x: Math.cos(angle) * size * radiusVariation,
+      y: Math.sin(angle) * size * radiusVariation,
+    });
   }
 
-  return createRegularConvexFallback(size, Math.max(5, targetCount));
+  const hull = computeConvexHull(vertices);
+  return hull.length >= 3 ? hull : vertices;
 }
 
-function computeConvexHull(points: Point2D[]): Point2D[] {
+function computeConvexHull(
+  points: Array<{ x: number; y: number }>,
+): Array<{ x: number; y: number }> {
   if (points.length <= 3) return points.slice();
 
-  const sorted = [...points].sort((a, b) =>
-    a.x === b.x ? a.y - b.y : a.x - b.x,
-  );
+  const sorted = points
+    .slice()
+    .sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
 
-  const unique: Point2D[] = [];
+  const cross = (
+    o: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+  ): number => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower: Array<{ x: number; y: number }> = [];
   for (const p of sorted) {
-    const prev = unique[unique.length - 1];
-    if (!prev || prev.x !== p.x || prev.y !== p.y) {
-      unique.push(p);
-    }
-  }
-  if (unique.length <= 3) return unique;
-
-  const cross = (o: Point2D, a: Point2D, b: Point2D): number =>
-    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-
-  const lower: Point2D[] = [];
-  for (const p of unique) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+    while (
+      lower.length >= 2 &&
+      cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0
+    ) {
       lower.pop();
     }
     lower.push(p);
   }
 
-  const upper: Point2D[] = [];
-  for (let i = unique.length - 1; i >= 0; i--) {
-    const p = unique[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+  const upper: Array<{ x: number; y: number }> = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (
+      upper.length >= 2 &&
+      cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0
+    ) {
       upper.pop();
     }
     upper.push(p);
@@ -288,57 +325,7 @@ function computeConvexHull(points: Point2D[]): Point2D[] {
 
   lower.pop();
   upper.pop();
-  const hull = lower.concat(upper);
-  return hull.length >= 3 ? hull : unique.slice(0, 3);
-}
-
-function downsampleConvexVertices(vertices: Point2D[], targetCount: number): Point2D[] {
-  if (vertices.length <= targetCount) return vertices.slice();
-  const out: Point2D[] = [];
-  for (let i = 0; i < targetCount; i++) {
-    const idx = Math.floor((i * vertices.length) / targetCount);
-    out.push(vertices[idx]);
-  }
-  return out;
-}
-
-function ensureCounterClockwise(vertices: Point2D[]): Point2D[] {
-  if (vertices.length < 3) return vertices.slice();
-  let area2 = 0;
-  for (let i = 0; i < vertices.length; i++) {
-    const a = vertices[i];
-    const b = vertices[(i + 1) % vertices.length];
-    area2 += a.x * b.y - b.x * a.y;
-  }
-  if (area2 > 0) return vertices.slice();
-  return [...vertices].reverse();
-}
-
-function createRegularConvexFallback(size: number, count: number): Point2D[] {
-  const n = Math.max(3, count);
-  const radius = Math.max(4, size);
-  const vertices: Point2D[] = [];
-  for (let i = 0; i < n; i++) {
-    const angle = (Math.PI * 2 * i) / n;
-    vertices.push({
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
-    });
-  }
-  return vertices;
-}
-
-function getInitialAsteroidRange(sim: SimState): { min: number; max: number } {
-  if (sim.settings.asteroidDensity === "NONE") {
-    return { min: 0, max: 0 };
-  }
-  if (
-    sim.settings.asteroidDensity === "MANY" ||
-    sim.settings.asteroidDensity === "SPAWN"
-  ) {
-    return { min: 8, max: 11 };
-  }
-  return { min: ASTEROID_INITIAL_MIN, max: ASTEROID_INITIAL_MAX };
+  return lower.concat(upper);
 }
 
 function isAsteroidSpawnClear(sim: SimState, x: number, y: number, size: number): boolean {
@@ -367,5 +354,43 @@ function randomAsteroidSize(sim: SimState, tier: "LARGE" | "SMALL"): number {
 }
 
 function randomAsteroidAngularVelocity(sim: SimState): number {
-  return (sim.asteroidRng.next() - 0.5) * 0.02 * 60;
+  return (sim.asteroidRng.next() - 0.5) * 0.02;
+}
+
+type AsteroidVariant = "ORANGE" | "GREY";
+
+function createAsteroidState(
+  sim: SimState,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  size: number,
+  variant: AsteroidVariant,
+): RuntimeAsteroid {
+  const hp =
+    variant === "GREY"
+      ? 2 + Math.floor(sim.asteroidRng.next() * 2)
+      : 1;
+
+  const clampedSize =
+    variant === "GREY"
+      ? clamp(size, GREY_ASTEROID_MIN, GREY_ASTEROID_MAX)
+      : size;
+
+  return {
+    id: sim.nextEntityId("ast"),
+    x,
+    y,
+    vx,
+    vy,
+    angle: 0,
+    angularVelocity: randomAsteroidAngularVelocity(sim),
+    size: clampedSize,
+    alive: true,
+    vertices: generateAsteroidVertices(sim, clampedSize),
+    variant,
+    hp,
+    maxHp: hp,
+  };
 }

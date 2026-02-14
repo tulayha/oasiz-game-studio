@@ -1,8 +1,6 @@
 import type { SimState, PowerUpType } from "./types.js";
 import {
   POWERUP_DESPAWN_MS,
-  POWERUP_PICKUP_RADIUS,
-  POWERUP_SHIELD_HITS,
   POWERUP_MAGNETIC_RADIUS,
   POWERUP_MAGNETIC_SPEED,
   POWERUP_SPAWN_WEIGHTS,
@@ -48,25 +46,6 @@ export function updatePowerUps(sim: SimState, dtSec: number): void {
     const angle = Math.atan2(best.y - powerUp.y, best.x - powerUp.x);
     powerUp.x += Math.cos(angle) * powerUp.magneticSpeed * dtSec;
     powerUp.y += Math.sin(angle) * powerUp.magneticSpeed * dtSec;
-  }
-}
-
-export function processPowerUpPickups(sim: SimState): void {
-  for (const powerUp of sim.powerUps) {
-    if (!powerUp.alive) continue;
-    for (const playerId of sim.playerOrder) {
-      const player = sim.players.get(playerId);
-      if (!player || !player.ship.alive) continue;
-      if (sim.playerPowerUps.get(playerId)) continue;
-      const dx = player.ship.x - powerUp.x;
-      const dy = player.ship.y - powerUp.y;
-      if (dx * dx + dy * dy > POWERUP_PICKUP_RADIUS * POWERUP_PICKUP_RADIUS) {
-        continue;
-      }
-      sim.grantPowerUp(playerId, powerUp.type);
-      powerUp.alive = false;
-      break;
-    }
   }
 }
 

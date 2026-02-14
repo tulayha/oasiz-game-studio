@@ -47,6 +47,7 @@ interface RoomStateView {
   phase?: GamePhase;
   mode?: string;
   baseMode?: string;
+  mapId?: number;
   settingsJson?: string;
   devModeEnabled?: boolean;
 }
@@ -105,6 +106,7 @@ export class ColyseusTransport implements NetworkTransport {
   private playerListRevision = 0;
   private lastAdvancedSettingsSignature: string | null = null;
   private lastDevModeEnabled: boolean | null = null;
+  private lastMapId: number | null = null;
   private stateUnsubscribers: Array<() => void> = [];
   private schemaRosterCallbacksActive = false;
 
@@ -209,6 +211,11 @@ export class ColyseusTransport implements NetworkTransport {
   setMode(mode: GameMode): void {
     if (!this.room || mode === "CUSTOM") return;
     this.room.send("cmd:set_mode", { mode });
+  }
+
+  setMap(mapId: number): void {
+    if (!this.room) return;
+    this.room.send("cmd:set_map", { mapId });
   }
 
   setAdvancedSettings(payload: AdvancedSettingsSync): void {
@@ -594,6 +601,7 @@ export class ColyseusTransport implements NetworkTransport {
       trackUnsubscriber(root.listen("hostId", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("mode", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("baseMode", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("mapId", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("settingsJson", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("devModeEnabled", () => triggerStateRefresh()));
     }
@@ -687,6 +695,7 @@ export class ColyseusTransport implements NetworkTransport {
     }
 
     this.applyAdvancedSettingsFromState(state);
+    this.applyMapFromState(state);
     this.applyDevModeFromState(state);
 
     const order = this.toStringArray(state.playerOrder);
@@ -734,6 +743,14 @@ export class ColyseusTransport implements NetworkTransport {
     if (this.lastDevModeEnabled === state.devModeEnabled) return;
     this.lastDevModeEnabled = state.devModeEnabled;
     this.callbacks?.onDevModeReceived(state.devModeEnabled);
+  }
+
+  private applyMapFromState(state: RoomStateView): void {
+    if (!Number.isInteger(state.mapId)) return;
+    const mapId = state.mapId as number;
+    if (this.lastMapId === mapId) return;
+    this.lastMapId = mapId;
+    this.callbacks?.onMapIdReceived(mapId);
   }
 
   private extractPlayerMetaList(playersState: unknown): PlayerMeta[] {
@@ -891,6 +908,7 @@ export class ColyseusTransport implements NetworkTransport {
     this.playerListRevision = 0;
     this.lastAdvancedSettingsSignature = null;
     this.lastDevModeEnabled = null;
+    this.lastMapId = null;
     this.playerOrder = [];
     this.playerMetaById.clear();
     this.playerRefs.clear();

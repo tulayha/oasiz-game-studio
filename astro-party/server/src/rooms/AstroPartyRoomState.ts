@@ -24,6 +24,7 @@ export class AstroPartyRoomState extends Schema {
   @type("string") phase = "LOBBY";
   @type("string") mode = "STANDARD";
   @type("string") baseMode = "STANDARD";
+  @type("number") mapId = 0;
   @type("string") settingsJson = "";
   @type("boolean") devModeEnabled = false;
 }

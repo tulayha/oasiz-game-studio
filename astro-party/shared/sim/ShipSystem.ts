@@ -5,9 +5,6 @@ import {
   FIRE_HOLD_REPEAT_DELAY_MS,
   RELOAD_MS,
   PROJECTILE_LIFETIME_MS,
-  FORCE_TO_ACCEL,
-  FORCE_TO_IMPULSE,
-  RECOIL_TO_IMPULSE,
   PLAYER_COLORS,
   JOUST_SPEED_MULTIPLIER,
   LASER_COOLDOWN_MS,
@@ -15,9 +12,9 @@ import {
   LASER_BEAM_LENGTH,
   SCATTER_COOLDOWN_MS,
   SCATTER_ANGLE_DEG,
-  SCATTER_PROJECTILE_SPEED_PX_PER_SEC,
+  SCATTER_PROJECTILE_SPEED,
   SCATTER_PROJECTILE_LIFETIME_MS,
-  HOMING_MISSILE_SPEED_PX_PER_SEC,
+  HOMING_MISSILE_SPEED,
   POWERUP_SHIELD_HITS,
 } from "./constants.js";
 import { normalizeAngle, clamp } from "./utils.js";
@@ -38,12 +35,15 @@ export function updateShips(sim: SimState, dtSec: number): void {
 
     if (isStandard) {
       player.angularVelocity = 0;
+      sim.setShipAngularVelocity(player.id, 0);
     }
 
     if (player.input.buttonA) {
       player.angularVelocity = 0;
+      sim.setShipAngularVelocity(player.id, 0);
       ship.angle += cfg.ROTATION_SPEED * dtSec * sim.rotationDirection;
       ship.angle = normalizeAngle(ship.angle);
+      sim.setShipAngle(player.id, ship.angle);
     }
 
     if (player.dashQueued) {
@@ -51,9 +51,11 @@ export function updateShips(sim: SimState, dtSec: number): void {
       if (isStandard) {
         player.dashTimerSec = cfg.SHIP_DASH_DURATION;
       } else {
-        const dashImpulse = cfg.DASH_FORCE * FORCE_TO_IMPULSE;
-        ship.vx += Math.cos(ship.angle) * dashImpulse;
-        ship.vy += Math.sin(ship.angle) * dashImpulse;
+        sim.applyShipForce(
+          player.id,
+          Math.cos(ship.angle) * cfg.DASH_FORCE,
+          Math.sin(ship.angle) * cfg.DASH_FORCE,
+        );
       }
       sim.hooks.onSound("dash", player.id);
       sim.hooks.onDashParticles({
@@ -77,19 +79,22 @@ export function updateShips(sim: SimState, dtSec: number): void {
         player.recoilTimerSec > 0 ? cfg.SHIP_RECOIL_SLOWDOWN : 0;
       const joustPowerUp = sim.playerPowerUps.get(playerId);
       const speedMultiplier = joustPowerUp?.type === "JOUST" ? JOUST_SPEED_MULTIPLIER : 1;
-      const targetSpeedPxSec = Math.max(
+      const targetSpeed = Math.max(
         0,
-        (cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown) * speedMultiplier * 60,
+        (cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown) * speedMultiplier,
       );
-      const desiredVx = Math.cos(ship.angle) * targetSpeedPxSec;
-      const desiredVy = Math.sin(ship.angle) * targetSpeedPxSec;
+      const desiredVx = Math.cos(ship.angle) * targetSpeed;
+      const desiredVy = Math.sin(ship.angle) * targetSpeed;
       const t = 1 - Math.exp(-cfg.SHIP_SPEED_RESPONSE * dtSec);
       ship.vx += (desiredVx - ship.vx) * t;
       ship.vy += (desiredVy - ship.vy) * t;
+      sim.setShipVelocity(player.id, ship.vx, ship.vy);
     } else {
-      const accel = cfg.BASE_THRUST * FORCE_TO_ACCEL;
-      ship.vx += Math.cos(ship.angle) * accel * dtSec;
-      ship.vy += Math.sin(ship.angle) * accel * dtSec;
+      sim.applyShipForce(
+        player.id,
+        Math.cos(ship.angle) * cfg.BASE_THRUST,
+        Math.sin(ship.angle) * cfg.BASE_THRUST,
+      );
     }
 
     if (player.fireRequested) {
@@ -163,8 +168,8 @@ export function tryFire(
         ownerId: player.id,
         x: spawnX,
         y: spawnY,
-        vx: Math.cos(angle) * SCATTER_PROJECTILE_SPEED_PX_PER_SEC,
-        vy: Math.sin(angle) * SCATTER_PROJECTILE_SPEED_PX_PER_SEC,
+        vx: Math.cos(angle) * SCATTER_PROJECTILE_SPEED,
+        vy: Math.sin(angle) * SCATTER_PROJECTILE_SPEED,
         spawnTime: sim.nowMs,
         lifetimeMs: SCATTER_PROJECTILE_LIFETIME_MS,
       });
@@ -205,8 +210,8 @@ export function tryFire(
       ownerId: player.id,
       x: spawnX,
       y: spawnY,
-      vx: Math.cos(ship.angle) * HOMING_MISSILE_SPEED_PX_PER_SEC,
-      vy: Math.sin(ship.angle) * HOMING_MISSILE_SPEED_PX_PER_SEC,
+      vx: Math.cos(ship.angle) * HOMING_MISSILE_SPEED,
+      vy: Math.sin(ship.angle) * HOMING_MISSILE_SPEED,
       angle: ship.angle,
       spawnTime: sim.nowMs,
       alive: true,
@@ -229,9 +234,11 @@ export function tryFire(
   if (isStandard) {
     player.recoilTimerSec = cfg.SHIP_RECOIL_DURATION;
   } else {
-    const recoilImpulse = cfg.RECOIL_FORCE * RECOIL_TO_IMPULSE;
-    ship.vx -= Math.cos(ship.angle) * recoilImpulse;
-    ship.vy -= Math.sin(ship.angle) * recoilImpulse;
+    sim.applyShipForce(
+      player.id,
+      -Math.cos(ship.angle) * cfg.RECOIL_FORCE,
+      -Math.sin(ship.angle) * cfg.RECOIL_FORCE,
+    );
   }
 
   if (!ship.isReloading) {

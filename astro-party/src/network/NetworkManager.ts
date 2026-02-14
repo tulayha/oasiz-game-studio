@@ -71,6 +71,10 @@ export class NetworkManager {
     this.transport.setMode(mode);
   }
 
+  setMap(mapId: number): void {
+    this.transport.setMap(mapId);
+  }
+
   setAdvancedSettings(payload: AdvancedSettingsSync): void {
     this.transport.setAdvancedSettings(payload);
   }

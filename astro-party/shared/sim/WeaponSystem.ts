@@ -5,9 +5,10 @@ import {
   MINE_EXPLOSION_RADIUS,
   MINE_ARMING_DELAY_MS,
   MINE_DETECTION_RADIUS,
-  HOMING_MISSILE_SPEED_PX_PER_SEC,
+  HOMING_MISSILE_SPEED,
   HOMING_MISSILE_TURN_RATE,
   HOMING_MISSILE_DETECTION_RADIUS,
+  HOMING_MISSILE_RADIUS,
   HOMING_MISSILE_ACCURACY,
   HOMING_MISSILE_LIFETIME_MS,
   JOUST_SWORD_LENGTH,
@@ -15,7 +16,7 @@ import {
   POWERUP_SHIELD_HITS,
   TURRET_ROTATION_SPEED,
   TURRET_IDLE_ROTATION_SPEED,
-  TURRET_BULLET_SPEED_PX_PER_SEC,
+  TURRET_BULLET_SPEED,
   TURRET_BULLET_LIFETIME_MS,
   TURRET_BULLET_RADIUS,
   TURRET_BULLET_IMPACT_RADIUS,
@@ -60,7 +61,7 @@ export function checkMineCollisions(sim: SimState): void {
       mine.arming = true;
       mine.armingStartTime = sim.nowMs;
       mine.triggeringPlayerId = playerId;
-      sim.triggerScreenShake(5, 0.15);
+      sim.triggerScreenShake(2, 0.1);
       break;
     }
   }
@@ -79,16 +80,20 @@ export function explodeMine(sim: SimState, mine: RuntimeMine): void {
     const dx = player.ship.x - mine.x;
     const dy = player.ship.y - mine.y;
     if (dx * dx + dy * dy > MINE_EXPLOSION_RADIUS * MINE_EXPLOSION_RADIUS) continue;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const knockback = 2.8;
+    const nx = dx / dist;
+    const ny = dy / dist;
+
     const shipPowerUp = sim.playerPowerUps.get(playerId);
     if (shipPowerUp?.type === "SHIELD") {
+      // Mine strips shield completely (ignores shield hit count), ship survives and is pushed.
       sim.playerPowerUps.delete(playerId);
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const knockback = 350;
-      player.ship.vx += (dx / dist) * knockback;
-      player.ship.vy += (dy / dist) * knockback;
+      applyShipKnockback(sim, playerId, player.ship, nx, ny, knockback);
       sim.triggerScreenShake(10, 0.3);
       continue;
     }
+
     player.ship.alive = false;
     player.ship.vx = 0;
     player.ship.vy = 0;
@@ -159,8 +164,10 @@ export function updateHomingMissiles(sim: SimState, dtSec: number): void {
       }
     }
 
-    missile.vx = Math.cos(missile.angle) * HOMING_MISSILE_SPEED_PX_PER_SEC;
-    missile.vy = Math.sin(missile.angle) * HOMING_MISSILE_SPEED_PX_PER_SEC;
+    missile.vx = Math.cos(missile.angle) * HOMING_MISSILE_SPEED;
+    missile.vy = Math.sin(missile.angle) * HOMING_MISSILE_SPEED;
+    missile.x += missile.vx * dtSec * 60;
+    missile.y += missile.vy * dtSec * 60;
 
     const margin = 100;
     if (
@@ -170,34 +177,23 @@ export function updateHomingMissiles(sim: SimState, dtSec: number): void {
       missile.y > ARENA_HEIGHT + margin
     ) {
       missile.alive = false;
-      sim.physicsWorld.removeHomingMissile(missile.id);
+      sim.removeHomingMissileBody(missile.id);
     }
   }
 }
 
 export function checkHomingMissileCollisions(sim: SimState): void {
-  const missileShipHits = buildPairHitMap(
-    sim.physicsWorld.getStartedPairIds("homingMissile", "ship"),
-  );
-  const missileAsteroidHits = buildPairHitMap(
-    sim.physicsWorld.getStartedPairIds("homingMissile", "asteroid"),
-  );
-  const asteroidById = new Map<string, RuntimeAsteroid>();
-  for (const asteroid of sim.asteroids) {
-    if (!asteroid.alive) continue;
-    asteroidById.set(asteroid.id, asteroid);
-  }
-
   for (const missile of sim.homingMissiles) {
     if (!missile.alive) continue;
 
-    const shipHitIds = missileShipHits.get(missile.id) ?? [];
-    for (const playerId of shipHitIds) {
+    for (const playerId of sim.playerOrder) {
       if (playerId === missile.ownerId) continue;
       const player = sim.players.get(playerId);
       if (!player || !player.ship.alive) continue;
       const dx = player.ship.x - missile.x;
       const dy = player.ship.y - missile.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > SHIP_RADIUS + HOMING_MISSILE_RADIUS + 7) continue;
 
       const powerUp = sim.playerPowerUps.get(playerId);
       if (powerUp?.type === "SHIELD") {
@@ -253,34 +249,21 @@ export function checkHomingMissileCollisions(sim: SimState): void {
 
     if (!missile.alive) continue;
 
-    const asteroidHitIds = missileAsteroidHits.get(missile.id) ?? [];
-    for (const asteroidId of asteroidHitIds) {
-      const asteroid = asteroidById.get(asteroidId);
-      if (!asteroid) continue;
+    for (const asteroid of sim.asteroids) {
+      if (!asteroid.alive) continue;
+      const dx = asteroid.x - missile.x;
+      const dy = asteroid.y - missile.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > asteroid.size + HOMING_MISSILE_RADIUS) continue;
       sim.destroyAsteroid(asteroid);
       missile.alive = false;
       break;
     }
 
     if (!missile.alive) {
-      sim.physicsWorld.removeHomingMissile(missile.id);
+      sim.removeHomingMissileBody(missile.id);
     }
   }
-}
-
-function buildPairHitMap(
-  pairs: Array<{ firstId: string; secondId: string }>,
-): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const pair of pairs) {
-    const list = out.get(pair.firstId);
-    if (list) {
-      list.push(pair.secondId);
-    } else {
-      out.set(pair.firstId, [pair.secondId]);
-    }
-  }
-  return out;
 }
 
 export function updateJoustCollisions(sim: SimState): void {
@@ -307,9 +290,8 @@ export function updateJoustCollisions(sim: SimState): void {
             sim.playerPowerUps.delete(otherId);
             powerUp.leftSwordActive = false;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const knockback = 250;
-            other.ship.vx += (dx / dist) * knockback;
-            other.ship.vy += (dy / dist) * knockback;
+            const knockback = 2.5;
+            applyShipKnockback(sim, otherId, other.ship, dx / dist, dy / dist, knockback);
             sim.triggerScreenShake(8, 0.25);
           } else {
             sim.playerPowerUps.delete(otherId);
@@ -330,9 +312,8 @@ export function updateJoustCollisions(sim: SimState): void {
             sim.playerPowerUps.delete(otherId);
             powerUp.rightSwordActive = false;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const knockback = 250;
-            other.ship.vx += (dx / dist) * knockback;
-            other.ship.vy += (dy / dist) * knockback;
+            const knockback = 2.5;
+            applyShipKnockback(sim, otherId, other.ship, dx / dist, dy / dist, knockback);
             sim.triggerScreenShake(8, 0.25);
           } else {
             sim.playerPowerUps.delete(otherId);
@@ -418,7 +399,7 @@ export function updateJoustCollisions(sim: SimState): void {
 
   if (consumedProjectiles.size > 0) {
     for (const projId of consumedProjectiles) {
-      sim.physicsWorld.removeProjectile(projId);
+      sim.removeProjectileBody(projId);
     }
     sim.projectiles = sim.projectiles.filter((p: { id: string }) => !consumedProjectiles.has(p.id));
   }
@@ -565,7 +546,7 @@ export function getJoustSwordGeometry(ship: ShipState): {
 
 export function updateTurret(sim: SimState, dtSec: number): void {
   if (!sim.turret || !sim.turret.alive) return;
-  let nearest: { ship: ShipState } | null = null;
+  let nearest: { id: string; ship: ShipState; distance: number } | null = null;
   let nearestDistSq = Infinity;
   for (const playerId of sim.playerOrder) {
     const player = sim.players.get(playerId);
@@ -575,31 +556,32 @@ export function updateTurret(sim: SimState, dtSec: number): void {
     const distSq = dx * dx + dy * dy;
     if (distSq > sim.turret.detectionRadius * sim.turret.detectionRadius) continue;
     if (distSq < nearestDistSq) {
-      nearest = player;
+      nearest = {
+        id: playerId,
+        ship: player.ship,
+        distance: Math.sqrt(distSq),
+      };
       nearestDistSq = distSq;
     }
   }
 
   if (nearest) {
-    const targetAngle = Math.atan2(nearest.ship.y - sim.turret.y, nearest.ship.x - sim.turret.x);
+    const targetAngle = Math.atan2(
+      nearest.ship.y - sim.turret.y,
+      nearest.ship.x - sim.turret.x,
+    );
     const diff = normalizeAngle(targetAngle - sim.turret.angle);
-    const maxStep = TURRET_ROTATION_SPEED * dtSec;
-    const step = Math.abs(diff) < maxStep ? diff : Math.sign(diff) * maxStep;
-    sim.turret.angle = normalizeAngle(sim.turret.angle + step);
+    sim.turret.angle = normalizeAngle(sim.turret.angle + diff * 3.0 * dtSec);
     sim.turret.targetAngle = targetAngle;
     sim.turret.isTracking = true;
-    const alignedDiff = Math.abs(normalizeAngle(targetAngle - sim.turret.angle));
-    if (
-      alignedDiff <= sim.turret.fireAngleThreshold &&
-      sim.nowMs - sim.turret.lastFireTimeMs >= sim.turret.fireCooldownMs
-    ) {
+    if (sim.nowMs - sim.turret.lastFireTimeMs >= sim.turret.fireCooldownMs) {
       sim.turret.lastFireTimeMs = sim.nowMs;
       sim.turretBullets.push({
         id: sim.nextEntityId("turret_bullet"),
         x: sim.turret.x + Math.cos(sim.turret.angle) * 40,
         y: sim.turret.y + Math.sin(sim.turret.angle) * 40,
-        vx: Math.cos(sim.turret.angle) * TURRET_BULLET_SPEED_PX_PER_SEC,
-        vy: Math.sin(sim.turret.angle) * TURRET_BULLET_SPEED_PX_PER_SEC,
+        vx: Math.cos(sim.turret.angle) * TURRET_BULLET_SPEED,
+        vy: Math.sin(sim.turret.angle) * TURRET_BULLET_SPEED,
         angle: sim.turret.angle,
         spawnTime: sim.nowMs,
         alive: true,
@@ -615,26 +597,40 @@ export function updateTurret(sim: SimState, dtSec: number): void {
   }
 
   sim.turret.isTracking = false;
-  sim.turret.angle = normalizeAngle(sim.turret.angle + TURRET_IDLE_ROTATION_SPEED * dtSec);
+  sim.turret.angle = normalizeAngle(
+    sim.turret.angle + TURRET_IDLE_ROTATION_SPEED * dtSec,
+  );
 }
 
 export function updateTurretBullets(sim: SimState, dtSec: number): void {
   void dtSec;
+  const outOfBoundsMargin = 60;
   for (const bullet of sim.turretBullets) {
     if (!bullet.alive) continue;
 
+    if (
+      !bullet.exploded &&
+      (bullet.x < -outOfBoundsMargin ||
+        bullet.x > ARENA_WIDTH + outOfBoundsMargin ||
+        bullet.y < -outOfBoundsMargin ||
+        bullet.y > ARENA_HEIGHT + outOfBoundsMargin)
+    ) {
+      bullet.alive = false;
+      sim.removeTurretBulletBody(bullet.id);
+      continue;
+    }
+
+    const stillActive =
+      !bullet.exploded ||
+      sim.nowMs - bullet.explosionTime < TURRET_BULLET_EXPLOSION_DURATION_MS;
+
     if (!bullet.exploded) {
-      const hitWall =
-        bullet.x <= TURRET_BULLET_RADIUS ||
-        bullet.x >= ARENA_WIDTH - TURRET_BULLET_RADIUS ||
-        bullet.y <= TURRET_BULLET_RADIUS ||
-        bullet.y >= ARENA_HEIGHT - TURRET_BULLET_RADIUS;
-      if (hitWall || sim.nowMs - bullet.spawnTime > bullet.lifetimeMs) {
+      if (sim.nowMs - bullet.spawnTime > bullet.lifetimeMs) {
         bullet.exploded = true;
         bullet.explosionTime = sim.nowMs;
         bullet.vx = 0;
         bullet.vy = 0;
-        sim.physicsWorld.removeTurretBullet(bullet.id);
+        sim.removeTurretBulletBody(bullet.id);
       } else {
         for (const playerId of sim.playerOrder) {
           const player = sim.players.get(playerId);
@@ -648,7 +644,7 @@ export function updateTurretBullets(sim: SimState, dtSec: number): void {
           bullet.explosionTime = sim.nowMs;
           bullet.vx = 0;
           bullet.vy = 0;
-          sim.physicsWorld.removeTurretBullet(bullet.id);
+          sim.removeTurretBulletBody(bullet.id);
           sim.triggerScreenShake(8, 0.2);
           break;
         }
@@ -663,28 +659,52 @@ export function updateTurretBullets(sim: SimState, dtSec: number): void {
         const dx = player.ship.x - bullet.x;
         const dy = player.ship.y - bullet.y;
         if (dx * dx + dy * dy > bullet.explosionRadius * bullet.explosionRadius) continue;
-        const powerUp = sim.playerPowerUps.get(playerId);
+
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const knockback = 300;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const knockback = 2.2;
+
+        const powerUp = sim.playerPowerUps.get(playerId);
         if (powerUp?.type === "SHIELD") {
+          // Turret blast strips shield completely, keeps ship alive, and applies recoil knockback.
           sim.playerPowerUps.delete(playerId);
-          player.ship.vx += (dx / dist) * knockback;
-          player.ship.vy += (dy / dist) * knockback;
+          applyShipKnockback(sim, playerId, player.ship, nx, ny, knockback);
           sim.triggerScreenShake(5, 0.15);
           continue;
         }
-        player.ship.vx += (dx / dist) * knockback;
-        player.ship.vy += (dy / dist) * knockback;
+
+        // Blast recoil before destruction so ejected pilot inherits outward momentum.
+        applyShipKnockback(sim, playerId, player.ship, nx, ny, knockback);
         sim.playerPowerUps.delete(playerId);
         sim.onShipHit(undefined, player);
       }
     }
 
-    if (
-      bullet.exploded &&
-      sim.nowMs - bullet.explosionTime > TURRET_BULLET_EXPLOSION_DURATION_MS
-    ) {
+    if (sim.nowMs - bullet.spawnTime > bullet.lifetimeMs || !stillActive) {
       bullet.alive = false;
     }
   }
+}
+
+function applyShipKnockback(
+  sim: SimState,
+  playerId: string,
+  ship: { vx: number; vy: number },
+  nx: number,
+  ny: number,
+  amount: number,
+): void {
+  ship.vx += nx * amount;
+  ship.vy += ny * amount;
+
+  // Keep blast recoil noticeable but bounded to avoid tunneling/off-screen launches.
+  const maxSpeed = 10;
+  const speed = Math.sqrt(ship.vx * ship.vx + ship.vy * ship.vy);
+  if (speed > maxSpeed && speed > 1e-6) {
+    const scale = maxSpeed / speed;
+    ship.vx *= scale;
+    ship.vy *= scale;
+  }
+  sim.setShipVelocity(playerId, ship.vx, ship.vy);
 }
