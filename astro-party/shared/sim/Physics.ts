@@ -1,12 +1,24 @@
 import Matter from "matter-js";
 import {
+  PILOT_COLLIDER_VERTICES,
   SHIP_COLLIDER_VERTICES,
   cloneShapeVertices,
+  type ShapePoint,
 } from "../geometry/EntityShapes.js";
 import { CollisionCategory } from "./CollisionCategories.js";
 
 const { Engine, Bodies, Body, Events, Composite } = Matter;
 const FIXED_STEP_MS = 1000 / 60;
+
+function createBodyFromLocalVertices(
+  x: number,
+  y: number,
+  vertices: ReadonlyArray<ShapePoint>,
+  options: Matter.IBodyDefinition,
+): Matter.Body {
+  const localVertices = cloneShapeVertices(vertices);
+  return Bodies.fromVertices(x, y, [localVertices], options);
+}
 
 export class Physics {
   engine: Matter.Engine;
@@ -86,9 +98,7 @@ export class Physics {
       angularDamping: number;
     },
   ): Matter.Body {
-    const vertices = cloneShapeVertices(SHIP_COLLIDER_VERTICES);
-
-    const body = Bodies.fromVertices(x, y, [vertices], {
+    const body = createBodyFromLocalVertices(x, y, SHIP_COLLIDER_VERTICES, {
       label: "ship",
       frictionAir: options.frictionAir,
       restitution: options.restitution,
@@ -131,7 +141,7 @@ export class Physics {
       vy: number;
     },
   ): Matter.Body {
-    const body = Bodies.circle(x, y, 8, {
+    const body = createBodyFromLocalVertices(x, y, PILOT_COLLIDER_VERTICES, {
       label: "pilot",
       frictionAir: options.frictionAir,
       restitution: 0.5,
@@ -201,7 +211,7 @@ export class Physics {
     restitution: number,
     friction: number,
   ): Matter.Body {
-    const body = Matter.Bodies.fromVertices(x, y, [vertices], {
+    const body = createBodyFromLocalVertices(x, y, vertices, {
       label: "asteroid",
       frictionAir: 0,
       restitution,
