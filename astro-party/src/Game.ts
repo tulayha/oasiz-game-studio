@@ -1,23 +1,10 @@
-import { Physics } from "./systems/Physics";
 import { Renderer } from "./systems/Renderer";
 import { InputManager } from "./systems/Input";
 import { MultiInputManager } from "./systems/MultiInputManager";
 import { NetworkManager } from "./network/NetworkManager";
-import { Ship } from "./entities/Ship";
-import { AstroBot } from "./entities/AstroBot";
-import { Pilot } from "./entities/Pilot";
-import { Projectile } from "./entities/Projectile";
-import { PowerUp } from "./entities/PowerUp";
-import { LaserBeam } from "./entities/LaserBeam";
-import { Mine } from "./entities/Mine";
-import { HomingMissile } from "./entities/HomingMissile";
 import { PlayerManager } from "./managers/PlayerManager";
 import { GameFlowManager } from "./managers/GameFlowManager";
 import { BotManager } from "./managers/BotManager";
-import { AsteroidManager } from "./managers/AsteroidManager";
-import { CollisionManager } from "./managers/CollisionManager";
-import { FireSystem } from "./managers/FireSystem";
-import { TurretManager } from "./managers/TurretManager";
 import { GameRenderer } from "./systems/GameRenderer";
 import { NetworkSyncSystem } from "./network/NetworkSyncSystem";
 import type {
@@ -26,16 +13,14 @@ import type {
 } from "./network/NetworkSyncSystem";
 import { PlayerInputResolver } from "./systems/PlayerInputResolver";
 import { DeterministicRNGManager } from "./systems/DeterministicRNGManager";
-import { TickSystem } from "./systems/TickSystem";
+import { AudioManager } from "./AudioManager";
 import {
   GamePhase,
   GameMode,
   BaseGameMode,
   MapId,
   PlayerData,
-  PowerUpType,
   PlayerPowerUp,
-  GAME_CONFIG,
   RoundResultPayload,
   AdvancedSettings,
   AdvancedSettingsSync,
@@ -50,7 +35,6 @@ import {
 } from "./advancedSettings";
 
 export class Game {
-  private physics: Physics;
   private renderer: Renderer;
   private input: InputManager;
   private network: NetworkManager;
@@ -58,42 +42,20 @@ export class Game {
   private rngManager: DeterministicRNGManager;
   private rngSeed: number | null = null;
   private pendingRngSeed: number | null = null;
-  private tickSystem: TickSystem;
-  private simTimeMs: number = 0;
 
-  // Managers
   private playerMgr: PlayerManager;
   private flowMgr: GameFlowManager;
   private botMgr: BotManager;
-  private asteroidMgr: AsteroidManager;
-  private collisionMgr!: CollisionManager;
-  private fireSystem: FireSystem;
-  private turretMgr: TurretManager;
   private gameRenderer: GameRenderer;
   private networkSync: NetworkSyncSystem;
   private inputResolver: PlayerInputResolver;
 
-  // Entity state (shared with managers via reference)
-  private ships: Map<string, Ship> = new Map();
-  private pilots: Map<string, Pilot> = new Map();
-  private projectiles: Projectile[] = [];
-  private powerUps: PowerUp[] = [];
-  private laserBeams: LaserBeam[] = [];
-  private mines: Mine[] = [];
-  private homingMissiles: HomingMissile[] = [];
   private playerPowerUps: Map<string, PlayerPowerUp | null> = new Map();
-
   private nitroColorIndex: number = 0;
 
-  // Global rotation direction (1 = normal/cw, -1 = reversed/ccw)
-  private rotationDirection: number = 1;
-
-  // Timing
   private lastTime: number = 0;
   private latencyMs: number = 0;
-  private lastBroadcastTime: number = 0;
 
-  // Host migration tracking (proper migration not supported)
   private _originalHostLeft = false;
 
   private roundResult: RoundResultPayload | null = null;
@@ -108,77 +70,17 @@ export class Game {
   static SHOW_PING = true;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.physics = new Physics();
     this.renderer = new Renderer(canvas);
     this.input = new InputManager();
     this.network = new NetworkManager();
     this.multiInput = new MultiInputManager();
     this.rngManager = new DeterministicRNGManager();
-    AstroBot.setRng(this.rngManager.getAIRng());
     this.renderer.setVisualRng(this.rngManager.getVisualRng());
-    this.tickSystem = new TickSystem();
 
-    // Create managers
     this.playerMgr = new PlayerManager(this.network);
-    this.flowMgr = new GameFlowManager(
-      this.network,
-      this.physics,
-      this.renderer,
-      this.input,
-      this.multiInput,
-      () => this.rngManager.getAIRng(),
-    );
+    this.flowMgr = new GameFlowManager(this.network);
     this.botMgr = new BotManager(this.network, this.multiInput);
-    this.asteroidMgr = new AsteroidManager(
-      this.physics,
-      this.network,
-      this.flowMgr,
-      this.powerUps,
-      this.rngManager,
-      () => this.advancedSettings,
-    );
-    this.collisionMgr = new CollisionManager({
-      network: this.network,
-      renderer: this.renderer,
-      flowMgr: this.flowMgr,
-      playerMgr: this.playerMgr,
-      asteroidMgr: this.asteroidMgr,
-      ships: this.ships,
-      pilots: this.pilots,
-      projectiles: this.projectiles,
-      powerUps: this.powerUps,
-      mines: this.mines,
-      homingMissiles: this.homingMissiles,
-      playerPowerUps: this.playerPowerUps,
-      onGrantPowerUp: (playerId, type) => this.grantPowerUp(playerId, type),
-      onTriggerScreenShake: (intensity, duration) => this.triggerScreenShake(intensity, duration),
-      onEmitPlayersUpdate: () => this.emitPlayersUpdate(),
-      isDevModeEnabled: () => this.isDevModeEnabled(),
-    });
-    this.fireSystem = new FireSystem(
-      this.physics,
-      this.network,
-      this.collisionMgr,
-      this.projectiles,
-      this.laserBeams,
-      this.mines,
-      this.homingMissiles,
-      this.playerPowerUps,
-      this.rngManager.getIdRng(),
-      (intensity, duration) => this.triggerScreenShake(intensity, duration),
-    );
-    this.turretMgr = new TurretManager(
-      this.physics,
-      this.renderer,
-      this.network,
-      this.flowMgr,
-      this.playerMgr,
-      this.ships,
-      this.pilots,
-      this.playerPowerUps,
-      this.fireSystem,
-      (intensity, duration) => this.triggerScreenShake(intensity, duration),
-    );
+
     this.gameRenderer = new GameRenderer(this.renderer);
     this.networkSync = new NetworkSyncSystem(
       this.network,
@@ -191,22 +93,13 @@ export class Game {
       this.network,
       this.input,
       this.multiInput,
-      this.botMgr,
     );
 
-    // Wire flow manager callbacks
     this.flowMgr.onPlayersUpdate = () => this.emitPlayersUpdate();
     this.flowMgr.onBeginMatch = () => {
       if (this.network.isSimulationAuthority()) {
         this.seedRngForRound();
       }
-      this.tickSystem.reset(0);
-      this.simTimeMs = 0;
-      this.flowMgr.beginMatch(this.playerMgr.players, this.ships, this.simTimeMs);
-      this.asteroidMgr.spawnInitialAsteroids();
-      this.asteroidMgr.scheduleAsteroidSpawnsIfNeeded(this.simTimeMs);
-      this.grantStartingPowerups();
-      this.turretMgr.spawn();
     };
     this.flowMgr.onRoundResult = (payload) => {
       this.applyRoundResult(payload);
@@ -215,151 +108,15 @@ export class Game {
       this.resetForNextRound();
     };
 
-    this.collisionMgr.registerCollisions(this.physics);
-
     this.input.setup();
 
-    // Set up dev mode toggle callback
     this.input.setDevModeCallback((enabled) => {
       this.renderer.setDevMode(enabled);
-      // Sync dev mode state across multiplayer
       if (this.isLeader()) {
         this.network.broadcastDevMode(enabled);
       }
     });
   }
-
-  // ============= ASTEROID & POWERUP LOGIC =============
-
-  private grantStartingPowerups(): void {
-    if (!this.network.isSimulationAuthority()) return;
-    if (!this.advancedSettings.startPowerups) return;
-
-    const options: PowerUpType[] = ["LASER", "SHIELD", "SCATTER", "MINE"];
-    const rng = this.rngManager.getPowerUpRng();
-
-    this.playerMgr.players.forEach((player) => {
-      const ship = this.ships.get(player.id);
-      if (!ship || !ship.alive) return;
-      if (this.playerPowerUps.get(player.id)) return;
-      const type = options[Math.floor(rng.next() * options.length)];
-      this.grantPowerUp(player.id, type);
-    });
-  }
-
-  private grantPowerUp(playerId: string, type: PowerUpType): void {
-    const nowMs = this.simTimeMs;
-    if (type === "LASER") {
-      this.playerPowerUps.set(playerId, {
-        type: "LASER",
-        charges: GAME_CONFIG.POWERUP_LASER_CHARGES,
-        maxCharges: GAME_CONFIG.POWERUP_LASER_CHARGES,
-        lastFireTime: nowMs - GAME_CONFIG.POWERUP_LASER_COOLDOWN - 1,
-        shieldHits: 0,
-      });
-    } else if (type === "SHIELD") {
-      this.playerPowerUps.set(playerId, {
-        type: "SHIELD",
-        charges: 0,
-        maxCharges: 0,
-        lastFireTime: nowMs,
-        shieldHits: 0,
-      });
-    } else if (type === "SCATTER") {
-      this.playerPowerUps.set(playerId, {
-        type: "SCATTER",
-        charges: GAME_CONFIG.POWERUP_SCATTER_CHARGES,
-        maxCharges: GAME_CONFIG.POWERUP_SCATTER_CHARGES,
-        lastFireTime: nowMs - GAME_CONFIG.POWERUP_SCATTER_COOLDOWN - 1,
-        shieldHits: 0,
-      });
-    } else if (type === "MINE") {
-      this.playerPowerUps.set(playerId, {
-        type: "MINE",
-        charges: 1,
-        maxCharges: 1,
-        lastFireTime: nowMs,
-        shieldHits: 0,
-      });
-    } else if (type === "REVERSE") {
-      // Toggle global rotation direction for all ships
-      this.rotationDirection *= -1;
-      console.log(
-        `[Game] Rotation direction changed to: ${this.rotationDirection === 1 ? "clockwise" : "counter-clockwise"}`,
-      );
-      // Don't add to playerPowerUps since it's a global effect
-    } else if (type === "JOUST") {
-      this.playerPowerUps.set(playerId, {
-        type: "JOUST",
-        charges: 0,
-        maxCharges: 0,
-        lastFireTime: nowMs,
-        shieldHits: 0,
-        leftSwordActive: true,
-        rightSwordActive: true,
-      });
-    } else if (type === "HOMING_MISSILE") {
-      this.playerPowerUps.set(playerId, {
-        type: "HOMING_MISSILE",
-        charges: 1,
-        maxCharges: 1,
-        lastFireTime: nowMs,
-        shieldHits: 0,
-      });
-    }
-  }
-
-  private spawnDashParticles(playerId: string, ship: Ship): void {
-    if (!ship.alive) return;
-
-    const pos = ship.body.position;
-    const angle = ship.body.angle;
-    const color = ship.color.primary;
-
-    this.renderer.spawnDashParticles(pos.x, pos.y, angle, color);
-    this.network.broadcastDashParticles(playerId, pos.x, pos.y, angle, color);
-  }
-
-  private spawnRandomPowerUp(nowMs: number): void {
-    if (!this.network.isSimulationAuthority()) return;
-
-    const weights = GAME_CONFIG.POWERUP_SPAWN_WEIGHTS;
-    const entries = Object.entries(weights) as [PowerUpType, number][];
-    const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
-    const rng = this.rngManager.getPowerUpRng();
-    const rand = rng.next() * totalWeight;
-
-    let cumulative = 0;
-    let type: PowerUpType = entries[0][0];
-    for (const [t, w] of entries) {
-      cumulative += w;
-      if (rand < cumulative) {
-        type = t;
-        break;
-      }
-    }
-
-    const padding = 100;
-    const x =
-      padding + rng.next() * (GAME_CONFIG.ARENA_WIDTH - padding * 2);
-    const y =
-      padding + rng.next() * (GAME_CONFIG.ARENA_HEIGHT - padding * 2);
-
-    const powerUp = new PowerUp(this.physics, x, y, type, nowMs);
-    this.powerUps.push(powerUp);
-
-    console.log(
-      "[Game] Spawned random " +
-        type +
-        " power-up at (" +
-        x.toFixed(0) +
-        ", " +
-        y.toFixed(0) +
-        ")",
-    );
-  }
-
-  // ============= UI CALLBACKS =============
 
   setUICallbacks(callbacks: {
     onPhaseChange: (phase: GamePhase) => void;
@@ -371,13 +128,7 @@ export class Game {
     onSystemMessage?: (message: string, durationMs?: number) => void;
     onMapChange?: (mapId: MapId) => void;
   }): void {
-    this.flowMgr.onPhaseChange = (phase) => {
-      if (phase === "PLAYING" && !this.network.isSimulationAuthority()) {
-        this.tickSystem.reset(0);
-        this.simTimeMs = 0;
-      }
-      callbacks.onPhaseChange(phase);
-    };
+    this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
     this._onPlayersUpdate = callbacks.onPlayersUpdate;
     this._onGameModeChange = callbacks.onGameModeChange ?? null;
@@ -401,8 +152,6 @@ export class Game {
   private emitPlayersUpdate(): void {
     this._onPlayersUpdate?.(this.getPlayers());
   }
-
-  // ============= NETWORK =============
 
   async createRoom(): Promise<string> {
     this.registerNetworkCallbacks();
@@ -436,51 +185,34 @@ export class Game {
       },
 
       onPlayerLeft: (playerId) => {
-        const ship = this.ships.get(playerId);
-        if (ship) {
-          ship.destroy();
-          this.ships.delete(playerId);
-        }
-        const pilot = this.pilots.get(playerId);
-        if (pilot) {
-          pilot.destroy();
-          this.pilots.delete(playerId);
-        }
         this.playerPowerUps.delete(playerId);
-
         this.playerMgr.removePlayer(playerId, () => this.emitPlayersUpdate());
 
-        if (this.network.isSimulationAuthority()) {
-          if (this.flowMgr.phase === "PLAYING") {
-            this.flowMgr.checkEliminationWin(this.playerMgr.players);
-          } else if (this.flowMgr.phase === "COUNTDOWN") {
-            if (this.playerMgr.players.size < 2) {
-              console.log(
-                "[Game] Not enough players during countdown, returning to lobby",
-              );
-              if (this.flowMgr.countdownInterval) {
-                clearInterval(this.flowMgr.countdownInterval);
-                this.flowMgr.countdownInterval = null;
-              }
-              this.flowMgr.setPhase("LOBBY");
-            }
+        if (
+          this.network.isSimulationAuthority() &&
+          this.flowMgr.phase === "COUNTDOWN" &&
+          this.playerMgr.players.size < 2
+        ) {
+          console.log("[Game] Not enough players during countdown, returning to lobby");
+          if (this.flowMgr.countdownInterval) {
+            clearInterval(this.flowMgr.countdownInterval);
+            this.flowMgr.countdownInterval = null;
           }
+          this.flowMgr.setPhase("LOBBY");
         }
       },
 
       onGameStateReceived: (state) => {
         if (!this.network.isSimulationAuthority()) {
           if (this.flowMgr.phase !== "PLAYING") {
-            return; // Only process snapshots during PLAYING
+            return;
           }
           this.networkSync.applyNetworkState(state);
         }
       },
 
-      onInputReceived: (playerId, input) => {
-        if (this.network.isSimulationAuthority()) {
-          this.inputResolver.setPendingInput(playerId, input);
-        }
+      onInputReceived: () => {
+        // No client-side gameplay simulation in this runtime path.
       },
 
       onRNGSeedReceived: (baseSeed) => {
@@ -523,7 +255,6 @@ export class Game {
             this.clearAllGameState();
           }
 
-          // Clear old round state when new round starts
           if (phase === "COUNTDOWN" && (oldPhase === "ROUND_END" || oldPhase === "LOBBY")) {
             console.log("[Game] Non-host: new round starting, clearing old state");
             this.finalScoreSubmittedForMatch = false;
@@ -543,21 +274,19 @@ export class Game {
         }
       },
 
-      onGameSoundReceived: (type, _playerId) => {
-        this.fireSystem.playGameSoundLocal(type);
+      onGameSoundReceived: (type) => {
+        this.playGameSoundLocal(type);
       },
 
-      onDashRequested: (playerId) => {
-        if (this.network.isSimulationAuthority()) {
-          this.inputResolver.queueDash(playerId);
-        }
+      onDashRequested: () => {
+        // No client-side gameplay simulation in this runtime path.
       },
 
       onPingReceived: (latencyMs) => {
         this.latencyMs = latencyMs;
       },
 
-      onPlayerListReceived: (playerOrder, _meta) => {
+      onPlayerListReceived: (playerOrder) => {
         if (!this.network.isSimulationAuthority()) {
           this.playerMgr.rebuildPlayersFromOrder(playerOrder, () =>
             this.emitPlayersUpdate(),
@@ -654,10 +383,6 @@ export class Game {
 
   private handleLocalDash(): void {
     if (this.network.isSimulationAuthority()) {
-      const myId = this.network.getMyPlayerId();
-      if (myId) {
-        this.inputResolver.queueDash(myId);
-      }
       return;
     }
 
@@ -685,45 +410,15 @@ export class Game {
     this.flowMgr.setPhase("START");
   }
 
-  /** Shared cleanup for both full reset and between-round reset */
-  private clearEntities(resetScores: boolean): void {
-    this.flowMgr.clearGameState(
-      this.ships,
-      this.pilots,
-      this.projectiles,
-      this.inputResolver.getPendingInputs(),
-      this.inputResolver.getPendingDashes(),
-      this.playerMgr.players,
-      resetScores,
-    );
-
+  private clearEntities(): void {
     this.renderer.clearEffects();
-    this.asteroidMgr.cleanup();
-
-    this.powerUps.forEach((powerUp) => powerUp.destroy());
-    this.powerUps.length = 0;
-
-    this.laserBeams.forEach((beam) => beam.destroy());
-    this.laserBeams.length = 0;
-
-    this.mines.forEach((mine) => mine.destroy());
-    this.mines.length = 0;
-
-    this.homingMissiles.forEach((missile) => missile.destroy());
-    this.homingMissiles.length = 0;
-
-    this.turretMgr.clear();
-
     this.playerPowerUps.clear();
-    this.rotationDirection = 1;
     this.roundResult = null;
   }
 
-  /** Clear all entity/game state including network caches and throttles */
   private clearAllGameState(): void {
-    this.clearEntities(true);
+    this.clearEntities();
     this.networkSync.clear();
-    this.fireSystem.clearThrottles();
   }
 
   private seedRngForRound(): void {
@@ -784,11 +479,9 @@ export class Game {
   }
 
   private resetForNextRound(): void {
-    this.clearEntities(false);
+    this.clearEntities();
     this.networkSync.clearClientTracking();
   }
-
-  // ============= GAME LOOP =============
 
   start(): void {
     this.renderer.resize();
@@ -810,35 +503,21 @@ export class Game {
     const frameDt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
     this.lastTime = timestamp;
 
-    // Capture local input every frame (local-only timing)
     const now = performance.now();
     this.inputResolver.captureLocalInput(
       now,
       this.botMgr.useTouchForHost,
     );
     this.inputResolver.sendLocalInputIfNeeded(now);
-    if (this.network.isSimulationAuthority()) {
-      this.network.pollHostInputs();
-    }
 
-    const runTicks =
-      this.flowMgr.phase === "PLAYING" ||
-      (this.network.isSimulationAuthority() &&
-        (this.flowMgr.phase === "COUNTDOWN" ||
-          this.flowMgr.phase === "ROUND_END"));
-    let frameRenderState: RenderNetworkState | null = null;
-    if (!this.network.isSimulationAuthority() && this.flowMgr.phase === "PLAYING") {
-      frameRenderState = this.networkSync.getRenderState(
-        this.network.getMyPlayerId(),
-        this.latencyMs,
-      );
-    }
+    const frameRenderState = this.networkSync.getRenderState(
+      this.network.getMyPlayerId(),
+      this.latencyMs,
+    );
 
-    if (runTicks) {
-      this.tickSystem.update((tick) => this.simulateTick(tick));
-      if (this.flowMgr.phase === "PLAYING") {
-        this.updateVisualEffects(frameRenderState);
-      }
+    if (this.flowMgr.phase === "PLAYING") {
+      this.processDevPowerUpRequests();
+      this.updateVisualEffects(frameRenderState);
     }
 
     this.renderer.updateParticles(frameDt);
@@ -848,259 +527,45 @@ export class Game {
     requestAnimationFrame((t) => this.loop(t));
   }
 
-  private simulateTick(tick: number): void {
-    const dtMs = this.tickSystem.getTickDurationMs();
-    if (this.network.isSimulationAuthority()) {
-      const phaseBefore = this.flowMgr.phase;
-      this.flowMgr.updateTimers(dtMs);
-      if (phaseBefore !== "PLAYING") {
-        return;
-      }
-    }
-
-    if (this.flowMgr.phase !== "PLAYING") return;
-
-    const dt = dtMs / 1000;
-    this.simTimeMs = tick * dtMs;
-    const nowMs = this.simTimeMs;
-    const syncNow = performance.now();
-    this.collisionMgr.setSimTimeMs(nowMs);
-
-    // Check dev keys for testing powerups.
-    // In server-authoritative mode, always send requests and let server validate.
+  private processDevPowerUpRequests(): void {
     const devKeys = this.input.consumeDevKeys();
     const myPlayerId = this.network.getMyPlayerId();
-    if (myPlayerId) {
-      const myShip = this.ships.get(myPlayerId);
-      const existingPowerUp = this.playerPowerUps.get(myPlayerId);
-      const grantDevPowerUp = (
-        flag: boolean,
-        type: PowerUpType,
-        label: string,
-      ): void => {
-        if (!flag) return;
-        console.log("[Dev] Granting " + label + " powerup");
-        if (this.network.isSimulationAuthority()) {
-          this.grantPowerUp(myPlayerId, type);
-        } else {
-          this.network.requestDevPowerUp(type);
-        }
-      };
+    if (!myPlayerId) return;
 
-      if (this.network.isSimulationAuthority()) {
-        if (myShip && myShip.alive && !existingPowerUp) {
-          grantDevPowerUp(devKeys.laser, "LASER", "LASER");
-          grantDevPowerUp(devKeys.shield, "SHIELD", "SHIELD");
-          grantDevPowerUp(devKeys.scatter, "SCATTER", "SCATTER");
-          grantDevPowerUp(devKeys.mine, "MINE", "MINE");
-          grantDevPowerUp(devKeys.joust, "JOUST", "JOUST");
-          grantDevPowerUp(devKeys.homing, "HOMING_MISSILE", "HOMING_MISSILE");
-        }
-      } else {
-        if (devKeys.laser) this.network.requestDevPowerUp("LASER");
-        if (devKeys.shield) this.network.requestDevPowerUp("SHIELD");
-        if (devKeys.scatter) this.network.requestDevPowerUp("SCATTER");
-        if (devKeys.mine) this.network.requestDevPowerUp("MINE");
-        if (devKeys.joust) this.network.requestDevPowerUp("JOUST");
-        if (devKeys.homing) this.network.requestDevPowerUp("HOMING_MISSILE");
-      }
-
-      // Reverse can be triggered even with existing power-up since it's global
-      if (devKeys.reverse) {
-        console.log("[Dev] Toggling REVERSE rotation");
-        if (this.network.isSimulationAuthority()) {
-          this.grantPowerUp(myPlayerId, "REVERSE");
-        } else {
-          this.network.requestDevPowerUp("REVERSE");
-        }
-      }
-
-      if (devKeys.spawnPowerUp) {
-        console.log("[Dev] Spawning random power-up");
-        if (this.network.isSimulationAuthority()) {
-          this.spawnRandomPowerUp(nowMs);
-        } else {
-          this.network.requestDevPowerUp("SPAWN_RANDOM");
-        }
-      }
-    }
-
-    // Simulation authority: process all inputs and update physics
-    if (this.network.isSimulationAuthority()) {
-      this.asteroidMgr.updateSpawning(nowMs);
-      this.ships.forEach((ship, playerId) => {
-        const { input, shouldDash } = this.inputResolver.resolveHostInput(
-          playerId,
-          this.ships,
-          this.pilots,
-          this.projectiles,
-          nowMs,
-        );
-
-        // Check if player has joust for speed boost
-        const playerPowerUp = this.playerPowerUps.get(playerId);
-        const hasJoust = playerPowerUp?.type === "JOUST";
-        const speedMultiplier = hasJoust ? 1.4 : 1;
-
-        const fireResult = ship.applyInput(
-          input,
-          shouldDash,
-          dt,
-          nowMs,
-          this.rotationDirection,
-          speedMultiplier,
-        );
-        this.fireSystem.processFire(
-          playerId,
-          ship,
-          fireResult,
-          shouldDash,
-          nowMs,
-        );
-        if (shouldDash) {
-          this.spawnDashParticles(playerId, ship);
-        }
-      });
-
-      // Update pilots
-      const threats: { x: number; y: number }[] = [];
-      this.ships.forEach((ship) => {
-        if (ship.alive) {
-          threats.push({ x: ship.body.position.x, y: ship.body.position.y });
-        }
-      });
-
-      this.projectiles.forEach((proj) => {
-        threats.push({ x: proj.body.position.x, y: proj.body.position.y });
-      });
-
-      this.pilots.forEach((pilot, playerId) => {
-        const input =
-          pilot.controlMode === "player"
-            ? this.inputResolver.getPilotInputForPlayer(playerId)
-            : undefined;
-        pilot.update(dt, nowMs, threats, input, this.rotationDirection);
-
-        if (pilot.hasSurvived(nowMs)) {
-          const pilotPosition = {
-            x: pilot.body.position.x,
-            y: pilot.body.position.y,
-          };
-          const pilotAngle = pilot.body.angle;
-          pilot.destroy();
-          this.pilots.delete(playerId);
-          this.flowMgr.respawnPlayer(
-            playerId,
-            pilotPosition,
-            this.ships,
-            this.playerMgr.players,
-            pilotAngle,
-            nowMs,
-          );
-        }
-      });
-
-      this.physics.updateFixed(this.tickSystem.getTickDurationMs());
-
-      // Clean up expired projectiles
-      this.cleanupExpired(
-        this.projectiles,
-        (projectile) => projectile.isExpired(nowMs),
-        (projectile) => projectile.destroy(),
-      );
-
-      // Update power-ups (magnetic effect)
-      const shipPositionsForPowerUps = new Map<
-        string,
-        { x: number; y: number; alive: boolean; hasPowerUp: boolean }
-      >();
-      this.ships.forEach((ship, playerId) => {
-        shipPositionsForPowerUps.set(playerId, {
-          x: ship.body.position.x,
-          y: ship.body.position.y,
-          alive: ship.alive,
-          hasPowerUp: this.playerPowerUps.has(playerId),
-        });
-      });
-
-      this.powerUps.forEach((powerUp) => {
-        powerUp.update(shipPositionsForPowerUps, dt, nowMs);
-      });
-
-      // Clean up expired power-ups
-      this.cleanupExpired(
-        this.powerUps,
-        (powerUp) => powerUp.isExpired(nowMs),
-        (powerUp) => powerUp.destroy(),
-      );
-
-      // Clean up expired laser beams
-      this.cleanupExpired(
-        this.laserBeams,
-        (beam) => beam.isExpired(nowMs),
-        (beam) => beam.destroy(),
-      );
-
-      // Check mine collisions and clean up expired mines
-      this.collisionMgr.checkMineCollisions();
-      this.cleanupExpired(
-        this.mines,
-        (mine) => mine.isExpired(nowMs),
-        (mine) => mine.destroy(),
-      );
-
-      // Update homing missiles and check collisions
-      this.collisionMgr.updateHomingMissiles(dt);
-      this.collisionMgr.checkHomingMissileCollisions();
-      this.cleanupExpired(
-        this.homingMissiles,
-        (missile) => missile.isExpired(nowMs) || !missile.alive,
-        (missile) => missile.destroy(),
-      );
-
-      // Check Joust collisions (sword-to-ship and sword-to-projectile)
-      this.collisionMgr.checkJoustCollisions();
-
-      // Update turret and bullets
-      this.turretMgr.update(dt, nowMs);
-      this.collisionMgr.update(nowMs);
-
-      // Broadcast state (throttled to sync rate)
-      if (syncNow - this.lastBroadcastTime >= GAME_CONFIG.SYNC_INTERVAL) {
-        this.networkSync.broadcastState({
-          ships: this.ships,
-          pilots: this.pilots,
-          projectiles: this.projectiles,
-          asteroids: this.asteroidMgr.getAsteroids(),
-          powerUps: this.powerUps,
-          laserBeams: this.laserBeams,
-          mines: this.mines,
-          homingMissiles: this.homingMissiles,
-          turret: this.turretMgr.getTurret(),
-          turretBullets: this.turretMgr.getTurretBullets(),
-          playerPowerUps: this.playerPowerUps,
-          rotationDirection: this.rotationDirection,
-          screenShakeIntensity: this.renderer.getScreenShakeIntensity(),
-          screenShakeDuration: this.renderer.getScreenShakeDuration(),
-          hostTick: tick,
-          tickDurationMs: this.tickSystem.getTickDurationMs(),
-        }, nowMs);
-        this.lastBroadcastTime = syncNow;
-      }
-    }
+    if (devKeys.laser) this.network.requestDevPowerUp("LASER");
+    if (devKeys.shield) this.network.requestDevPowerUp("SHIELD");
+    if (devKeys.scatter) this.network.requestDevPowerUp("SCATTER");
+    if (devKeys.mine) this.network.requestDevPowerUp("MINE");
+    if (devKeys.joust) this.network.requestDevPowerUp("JOUST");
+    if (devKeys.homing) this.network.requestDevPowerUp("HOMING_MISSILE");
+    if (devKeys.reverse) this.network.requestDevPowerUp("REVERSE");
+    if (devKeys.spawnPowerUp) this.network.requestDevPowerUp("SPAWN_RANDOM");
   }
 
-  private cleanupExpired<T>(
-    items: T[],
-    isExpired: (item: T) => boolean,
-    onDestroy: (item: T) => void,
-  ): void {
-    for (let i = items.length - 1; i >= 0; i--) {
-      const item = items[i];
-      if (isExpired(item)) {
-        onDestroy(item);
-        items.splice(i, 1);
-      }
+  private playGameSoundLocal(type: string): void {
+    switch (type) {
+      case "fire":
+        AudioManager.playFire();
+        break;
+      case "dash":
+        AudioManager.playDash();
+        break;
+      case "explosion":
+        AudioManager.playExplosion();
+        AudioManager.playPilotEject();
+        break;
+      case "kill":
+        AudioManager.playKill();
+        AudioManager.playPilotDeath();
+        break;
+      case "respawn":
+        AudioManager.playRespawn();
+        break;
+      case "win":
+        AudioManager.playWin();
+        break;
+      default:
+        break;
     }
   }
 
@@ -1116,97 +581,57 @@ export class Game {
     this._onRoundResult?.(payload);
   }
 
-  private updateVisualEffects(renderState: RenderNetworkState | null = null): void {
-    // Spawn nitro particles for joust power-up (runs for all clients)
-    // For simulation authority: use local physics bodies
-    if (this.network.isSimulationAuthority()) {
-      this.ships.forEach((ship, playerId) => {
-        const joustPowerUp = this.playerPowerUps.get(playerId);
-        if (joustPowerUp?.type === "JOUST") {
-          const shipAngle = ship.body.angle;
-          const tailX = ship.body.position.x - Math.cos(shipAngle) * 18;
-          const tailY = ship.body.position.y - Math.sin(shipAngle) * 18;
-
-          // Spawn nitro particles (orange/yellow fire) - deterministic 60/40 color cycle
-          const color = this.nitroColorIndex++ % 5 < 3 ? "#ff6600" : "#ffee00";
-          this.renderer.spawnNitroParticle(tailX, tailY, color);
-        }
-      });
-    } else {
-      // For non-authority clients: use latest authoritative network ship positions.
-      const networkRenderState =
-        renderState ??
-        this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
-      networkRenderState.networkShips.forEach((shipState) => {
-        const joustPowerUp = this.playerPowerUps.get(shipState.playerId);
-        if (joustPowerUp?.type === "JOUST") {
-          const shipAngle = shipState.angle;
-          const tailX = shipState.x - Math.cos(shipAngle) * 18;
-          const tailY = shipState.y - Math.sin(shipAngle) * 18;
-
-          // Spawn nitro particles (orange/yellow fire) - deterministic 60/40 color cycle
-          const color = this.nitroColorIndex++ % 5 < 3 ? "#ff6600" : "#ffee00";
-          this.renderer.spawnNitroParticle(tailX, tailY, color);
-        }
-      });
-    }
+  private updateVisualEffects(renderState: RenderNetworkState): void {
+    renderState.networkShips.forEach((shipState) => {
+      const joustPowerUp = this.playerPowerUps.get(shipState.playerId);
+      if (joustPowerUp?.type === "JOUST") {
+        const shipAngle = shipState.angle;
+        const tailX = shipState.x - Math.cos(shipAngle) * 18;
+        const tailY = shipState.y - Math.sin(shipAngle) * 18;
+        const color = this.nitroColorIndex++ % 5 < 3 ? "#ff6600" : "#ffee00";
+        this.renderer.spawnNitroParticle(tailX, tailY, color);
+      }
+    });
   }
 
-  private render(dt: number, renderState: RenderNetworkState | null = null): void {
-    const frameRenderState =
-      renderState ??
-      this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
+  private render(dt: number, renderState: RenderNetworkState): void {
     if (
       !this.network.isSimulationAuthority() &&
       this.flowMgr.phase === "PLAYING" &&
-      this.selectedMapId !== frameRenderState.networkMapId
+      this.selectedMapId !== renderState.networkMapId
     ) {
       console.log(
         "[Game] Syncing map from gameplay snapshot. prev=" +
           this.selectedMapId.toString() +
           ", snapshot=" +
-          frameRenderState.networkMapId.toString(),
+          renderState.networkMapId.toString(),
       );
-      this.selectedMapId = frameRenderState.networkMapId;
+      this.selectedMapId = renderState.networkMapId;
       this._onMapChange?.(this.selectedMapId);
     }
+
     this.gameRenderer.render({
       dt,
-      nowMs: this.network.isSimulationAuthority()
-        ? this.simTimeMs
-        : this.networkSync.hostSimTimeMs,
+      nowMs: this.networkSync.hostSimTimeMs,
       phase: this.flowMgr.phase,
       countdown: this.flowMgr.countdown,
-      isHost: this.network.isSimulationAuthority(),
       isDevModeEnabled: this.isDevModeEnabled(),
-      ships: this.ships,
-      pilots: this.pilots,
-      projectiles: this.projectiles,
-      asteroids: this.asteroidMgr.getAsteroids(),
-      powerUps: this.powerUps,
-      laserBeams: this.laserBeams,
-      mines: this.mines,
-      homingMissiles: this.homingMissiles,
-      turret: this.turretMgr.getTurret(),
-      turretBullets: this.turretMgr.getTurretBullets(),
       playerPowerUps: this.playerPowerUps,
       players: this.playerMgr.players,
-      networkShips: frameRenderState.networkShips,
-      networkPilots: frameRenderState.networkPilots,
-      networkProjectiles: frameRenderState.networkProjectiles,
-      networkAsteroids: frameRenderState.networkAsteroids,
-      networkPowerUps: frameRenderState.networkPowerUps,
-      networkLaserBeams: frameRenderState.networkLaserBeams,
-      networkMines: frameRenderState.networkMines,
-      networkHomingMissiles: frameRenderState.networkHomingMissiles,
-      networkTurret: frameRenderState.networkTurret,
-      networkTurretBullets: frameRenderState.networkTurretBullets,
+      networkShips: renderState.networkShips,
+      networkPilots: renderState.networkPilots,
+      networkProjectiles: renderState.networkProjectiles,
+      networkAsteroids: renderState.networkAsteroids,
+      networkPowerUps: renderState.networkPowerUps,
+      networkLaserBeams: renderState.networkLaserBeams,
+      networkMines: renderState.networkMines,
+      networkHomingMissiles: renderState.networkHomingMissiles,
+      networkTurret: renderState.networkTurret,
+      networkTurretBullets: renderState.networkTurretBullets,
       mapId: this.selectedMapId,
-      yellowBlockHp: frameRenderState.networkYellowBlockHp,
+      yellowBlockHp: renderState.networkYellowBlockHp,
     });
   }
-
-  // ============= PUBLIC API =============
 
   getPhase(): GamePhase {
     return this.flowMgr.phase;
@@ -1418,7 +843,6 @@ export class Game {
       console.log("[Game] Non-leader cannot start game");
       return;
     }
-    // Push mode/settings before requesting match start on the server.
     this.broadcastModeState();
     this.network.setMap(this.selectedMapId);
     this.roundResult = null;
@@ -1455,8 +879,6 @@ export class Game {
   setPlayerName(name: string): void {
     this.network.setCustomName(name);
   }
-
-  // ============= BOT DELEGATION =============
 
   isPlayerBot(playerId: string): boolean {
     return this.botMgr.isPlayerBot(playerId);
@@ -1555,12 +977,10 @@ export class Game {
     this.input.setDevKeysEnabled(enabled);
   }
 
-  // Toggle dev mode visualization
   toggleDevMode(): boolean {
     const newState = this.input.toggleDevMode();
     this.renderer.setDevMode(newState);
 
-    // Sync dev mode state across multiplayer
     if (this.isLeader()) {
       this.network.broadcastDevMode(newState);
     }
@@ -1568,12 +988,10 @@ export class Game {
     return newState;
   }
 
-  // Get current dev mode state
   isDevModeEnabled(): boolean {
     return this.input.isDevModeEnabled();
   }
 
-  // Called by network when receiving dev mode state from host
   setDevModeFromNetwork(enabled: boolean): void {
     this.renderer.setDevMode(enabled);
     console.log("[Game] Dev mode synced from network:", enabled ? "ON" : "OFF");
@@ -1605,8 +1023,6 @@ export class Game {
       this.finalScoreSubmittedForMatch = true;
     }
   }
-
-  // ============= TOUCH LAYOUT DELEGATION =============
 
   updateTouchLayout(): void {
     this.botMgr.updateTouchLayout(this.getPlayers());

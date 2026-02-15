@@ -1,10 +1,6 @@
 import { MultiInputManager } from "../systems/MultiInputManager";
 import { NetworkManager } from "../network/NetworkManager";
-import { Ship } from "../entities/Ship";
-import { Pilot } from "../entities/Pilot";
-import { Projectile } from "../entities/Projectile";
-import { BotVisibleData } from "../entities/AstroBot";
-import { GamePhase, PlayerData, GAME_CONFIG } from "../types";
+import { GamePhase, PlayerData } from "../types";
 
 export class BotManager {
   readonly localPlayerSlots: Map<string, number> = new Map();
@@ -152,7 +148,7 @@ export class BotManager {
   getKeyHintForSlot(slot: number): string {
     switch (slot) {
       case 1:
-        return "← rotate | → fire";
+        return "<- rotate | -> fire";
       case 2:
         return "J rotate | L fire";
       case 3:
@@ -244,86 +240,5 @@ export class BotManager {
   clearTouchLayout(): void {
     this.useTouchForHost = false;
     this.multiInput?.destroyTouchZones();
-  }
-
-  // ============= AI DATA =============
-
-  getBotVisibleData(
-    botPlayerId: string,
-    ships: Map<string, Ship>,
-    pilots: Map<string, Pilot>,
-    projectiles: Projectile[],
-    nowMs: number,
-  ): BotVisibleData {
-    const myShip = ships.get(botPlayerId);
-    const myPilot = pilots.get(botPlayerId);
-
-    const enemyShips: BotVisibleData["enemyShips"] = [];
-    ships.forEach((ship, playerId) => {
-      if (playerId !== botPlayerId && ship.alive) {
-        enemyShips.push({
-          x: ship.body.position.x,
-          y: ship.body.position.y,
-          angle: ship.body.angle,
-          vx: ship.body.velocity.x,
-          vy: ship.body.velocity.y,
-          playerId,
-        });
-      }
-    });
-
-    const enemyPilots: BotVisibleData["enemyPilots"] = [];
-    pilots.forEach((pilot, playerId) => {
-      if (playerId !== botPlayerId && pilot.alive) {
-        enemyPilots.push({
-          x: pilot.body.position.x,
-          y: pilot.body.position.y,
-          vx: pilot.body.velocity.x,
-          vy: pilot.body.velocity.y,
-          playerId,
-        });
-      }
-    });
-
-    const projData: BotVisibleData["projectiles"] = [];
-    projectiles.forEach((proj) => {
-      if (proj.ownerId !== botPlayerId) {
-        projData.push({
-          x: proj.body.position.x,
-          y: proj.body.position.y,
-          vx: proj.body.velocity.x,
-          vy: proj.body.velocity.y,
-          ownerId: proj.ownerId,
-        });
-      }
-    });
-
-    return {
-      nowMs,
-      myShip: myShip
-        ? {
-            x: myShip.body.position.x,
-            y: myShip.body.position.y,
-            angle: myShip.body.angle,
-            vx: myShip.body.velocity.x,
-            vy: myShip.body.velocity.y,
-            alive: myShip.alive,
-          }
-        : null,
-      myPilot: myPilot
-        ? {
-            x: myPilot.body.position.x,
-            y: myPilot.body.position.y,
-            vx: myPilot.body.velocity.x,
-            vy: myPilot.body.velocity.y,
-            alive: myPilot.alive,
-          }
-        : null,
-      enemyShips,
-      enemyPilots,
-      projectiles: projData,
-      arenaWidth: GAME_CONFIG.ARENA_WIDTH,
-      arenaHeight: GAME_CONFIG.ARENA_HEIGHT,
-    };
   }
 }

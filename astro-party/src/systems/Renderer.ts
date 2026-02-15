@@ -1967,7 +1967,7 @@ export class Renderer {
 
   // ============= MINE RENDERING =============
 
-  drawMine(mine: import("../entities/Mine").Mine): void {
+  drawMine(mine: { x: number; y: number; exploded: boolean; explosionTime: number }): void {
     const { ctx } = this;
     const { x, y, exploded, explosionTime } = mine;
     const nowMs = this.getNowMs();

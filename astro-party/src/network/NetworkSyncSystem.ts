@@ -18,37 +18,6 @@ import {
   TurretState,
   TurretBulletState,
 } from "../types";
-import { Ship } from "../entities/Ship";
-import { Pilot } from "../entities/Pilot";
-import { Projectile } from "../entities/Projectile";
-import { Asteroid } from "../entities/Asteroid";
-import { PowerUp } from "../entities/PowerUp";
-import { LaserBeam } from "../entities/LaserBeam";
-import { Mine } from "../entities/Mine";
-import { HomingMissile } from "../entities/HomingMissile";
-import { Turret } from "../entities/Turret";
-import { TurretBullet } from "../entities/TurretBullet";
-
-export interface BroadcastStateInput {
-  ships: Map<string, Ship>;
-  pilots: Map<string, Pilot>;
-  projectiles: Projectile[];
-  asteroids: Asteroid[];
-  powerUps: PowerUp[];
-  laserBeams: LaserBeam[];
-  mines: Mine[];
-  homingMissiles: HomingMissile[];
-  turret: Turret | null;
-  turretBullets: TurretBullet[];
-  playerPowerUps: Map<string, PlayerPowerUp | null>;
-  rotationDirection: number;
-  screenShakeIntensity: number;
-  screenShakeDuration: number;
-  hostTick: number;
-  tickDurationMs: number;
-  mapId?: MapId;
-  yellowBlockHp?: number[];
-}
 
 export interface RenderNetworkState {
   networkShips: ShipState[];
@@ -156,36 +125,6 @@ export class NetworkSyncSystem {
       snapshotAgeMs: this.lastSnapshotAgeMs,
       snapshotIntervalMs: this.snapshotIntervalMs,
     };
-  }
-
-  broadcastState(input: BroadcastStateInput, nowMs: number): void {
-    const playerPowerUpsRecord: Record<string, PlayerPowerUp | null> = {};
-    input.playerPowerUps.forEach((powerUp, playerId) => {
-      playerPowerUpsRecord[playerId] = powerUp;
-    });
-
-    const state: GameStateSync = {
-      ships: [...input.ships.values()].map((ship) => ship.getState()),
-      pilots: [...input.pilots.values()].map((pilot) => pilot.getState(nowMs)),
-      projectiles: input.projectiles.map((projectile) => projectile.getState()),
-      asteroids: input.asteroids.map((asteroid) => asteroid.getState()),
-      powerUps: input.powerUps.map((powerUp) => powerUp.getState(nowMs)),
-      laserBeams: input.laserBeams.map((beam) => beam.getState()),
-      mines: input.mines.map((mine) => mine.getState()),
-      homingMissiles: input.homingMissiles.map((missile) => missile.getState()),
-      turret: input.turret?.getState(),
-      turretBullets: input.turretBullets.map((bullet) => bullet.getState()),
-      playerPowerUps: playerPowerUpsRecord,
-      rotationDirection: input.rotationDirection,
-      screenShakeIntensity: input.screenShakeIntensity,
-      screenShakeDuration: input.screenShakeDuration,
-      hostTick: input.hostTick,
-      tickDurationMs: input.tickDurationMs,
-      mapId: input.mapId ?? 0,
-      yellowBlockHp: input.yellowBlockHp ?? [],
-    };
-
-    this.network.broadcastGameState(state);
   }
 
   applyNetworkState(state: GameStateSync): void {
