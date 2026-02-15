@@ -124,6 +124,7 @@ export class ColyseusTransport implements NetworkTransport {
   private lastAdvancedSettingsSignature: string | null = null;
   private lastDevModeEnabled: boolean | null = null;
   private lastMapId: number | null = null;
+  private lastMeasuredRttMs = 0;
   private stateUnsubscribers: Array<() => void> = [];
   private schemaRosterCallbacksActive = false;
 
@@ -225,6 +226,8 @@ export class ColyseusTransport implements NetworkTransport {
       buttonA: input.buttonA,
       buttonB: input.buttonB,
       clientTimeMs: input.clientTimeMs,
+      inputSequence: input.inputSequence,
+      rttMs: this.lastMeasuredRttMs,
     });
   }
 
@@ -545,6 +548,7 @@ export class ColyseusTransport implements NetworkTransport {
       "evt:pong",
       (payload: { sentAt: number; serverAt: number }) => {
         const rtt = Math.max(0, performance.now() - payload.sentAt);
+        this.lastMeasuredRttMs = rtt;
         this.callbacks?.onPingReceived(rtt);
       },
     );
@@ -947,6 +951,7 @@ export class ColyseusTransport implements NetworkTransport {
     this.lastAdvancedSettingsSignature = null;
     this.lastDevModeEnabled = null;
     this.lastMapId = null;
+    this.lastMeasuredRttMs = 0;
     this.playerOrder = [];
     this.playerMetaById.clear();
     this.playerRefs.clear();

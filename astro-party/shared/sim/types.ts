@@ -58,6 +58,8 @@ export interface PlayerInput {
   buttonB: boolean;
   timestamp: number;
   clientTimeMs: number;
+  inputSequence: number;
+  rttMs?: number;
 }
 
 // ============= ENTITY STATES (snapshot-serializable) =============
@@ -258,6 +260,8 @@ export interface SnapshotPayload {
   screenShakeDuration: number;
   hostTick: number;
   tickDurationMs: number;
+  serverNowMs: number;
+  lastProcessedInputSequenceByPlayer: Record<string, number>;
   mapId: MapId;
   yellowBlockHp: number[];
 }
@@ -298,6 +302,9 @@ export interface RuntimePlayer {
   roundWins: number;
   state: PlayerState;
   input: PlayerInput;
+  latestInputSequence: number;
+  lastProcessedInputSequence: number;
+  reportedRttMs: number;
   dashQueued: boolean;
   botThinkAtMs: number;
   botLastDecisionMs: number;
@@ -460,5 +467,10 @@ export interface SimState {
   setPilotAngle(playerId: string, angle: number): void;
   setPilotAngularVelocity(playerId: string, angularVelocity: number): void;
   setAsteroidPosition(asteroidId: string, x: number, y: number): void;
+  getLagCompensatedShipPose(
+    playerId: string,
+    rewindMs: number,
+  ): { x: number; y: number; angle: number } | null;
+  getLagCompensationRewindMs(playerId: string): number;
   clearPhysicsBodies(): void;
 }

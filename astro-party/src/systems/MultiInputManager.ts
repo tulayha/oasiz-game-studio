@@ -100,6 +100,7 @@ export class MultiInputManager {
         buttonB: false,
         timestamp: 0,
         clientTimeMs: 0,
+        inputSequence: 0,
       };
     }
 
@@ -111,6 +112,7 @@ export class MultiInputManager {
       buttonB: state.buttonB,
       timestamp: performance.now(),
       clientTimeMs: performance.now(),
+      inputSequence: 0,
     };
   }
 

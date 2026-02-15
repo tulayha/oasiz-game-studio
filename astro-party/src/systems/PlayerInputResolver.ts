@@ -9,8 +9,10 @@ export class PlayerInputResolver {
     buttonB: false,
     timestamp: 0,
     clientTimeMs: 0,
+    inputSequence: 0,
   };
   private lastInputSendTime: number = 0;
+  private nextInputSequence = 1;
 
   constructor(
     private network: NetworkManager,
@@ -27,22 +29,32 @@ export class PlayerInputResolver {
       ...capturedInput,
       timestamp: now,
       clientTimeMs: now,
+      inputSequence: this.localInputState.inputSequence,
     };
 
     return this.localInputState;
   }
 
-  sendLocalInputIfNeeded(now: number): void {
-    if (this.network.isSimulationAuthority()) return;
-    if (now - this.lastInputSendTime < GAME_CONFIG.SYNC_INTERVAL) return;
+  sendLocalInputIfNeeded(now: number): PlayerInput | null {
+    if (this.network.isSimulationAuthority()) return null;
+    if (now - this.lastInputSendTime < GAME_CONFIG.SYNC_INTERVAL) return null;
+
+    const inputSequence = this.nextInputSequence++;
 
     const sendInput: PlayerInput = {
       ...this.localInputState,
       timestamp: now,
       clientTimeMs: now,
+      inputSequence,
     };
     this.network.sendInput(sendInput);
+    this.localInputState.inputSequence = inputSequence;
     this.lastInputSendTime = now;
+    return sendInput;
+  }
+
+  getCurrentInputState(): PlayerInput {
+    return this.localInputState;
   }
 
   private emptyInput(): PlayerInput {
@@ -51,6 +63,7 @@ export class PlayerInputResolver {
       buttonB: false,
       timestamp: 0,
       clientTimeMs: 0,
+      inputSequence: 0,
     };
   }
 }

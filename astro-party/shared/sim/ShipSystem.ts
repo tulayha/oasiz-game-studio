@@ -163,7 +163,8 @@ export function tryFire(
       alive: true,
       durationMs: LASER_BEAM_DURATION_MS,
     });
-    applyLaserDamage(sim, player.id, spawnX, spawnY, ship.angle);
+    const rewindMs = sim.getLagCompensationRewindMs(player.id);
+    applyLaserDamage(sim, player.id, spawnX, spawnY, ship.angle, rewindMs);
     sim.hooks.onSound("fire", player.id);
     if (powerUp.charges <= 0) {
       sim.playerPowerUps.delete(player.id);
@@ -298,6 +299,7 @@ function applyLaserDamage(
   startX: number,
   startY: number,
   angle: number,
+  rewindMs: number,
 ): void {
   const endX = startX + Math.cos(angle) * LASER_BEAM_LENGTH;
   const endY = startY + Math.sin(angle) * LASER_BEAM_LENGTH;
@@ -307,10 +309,13 @@ function applyLaserDamage(
     const shipOwner = sim.players.get(playerId);
     if (!shipOwner || !shipOwner.ship.alive) continue;
     if (shipOwner.ship.invulnerableUntil > sim.nowMs) continue;
+    const lagCompPose = sim.getLagCompensatedShipPose(playerId, rewindMs);
+    const targetX = lagCompPose?.x ?? shipOwner.ship.x;
+    const targetY = lagCompPose?.y ?? shipOwner.ship.y;
     if (
       !checkLineCircleCollision(
         startX, startY, endX, endY,
-        shipOwner.ship.x, shipOwner.ship.y,
+        targetX, targetY,
         SHIP_HIT_RADIUS,
       )
     ) {

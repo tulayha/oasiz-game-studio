@@ -172,6 +172,8 @@ export class LocalSharedSimTransport implements NetworkTransport {
       buttonA: input.buttonA,
       buttonB: input.buttonB,
       clientTimeMs: input.clientTimeMs,
+      inputSequence: input.inputSequence,
+      rttMs: 0,
     });
   }
 

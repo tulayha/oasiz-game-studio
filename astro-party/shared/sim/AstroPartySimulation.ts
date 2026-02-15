@@ -115,6 +115,15 @@ const MODE_PRESETS = ["STANDARD", "SANE", "CHAOTIC"] as const;
 const SPEED_PRESETS = ["SLOW", "NORMAL", "FAST"] as const;
 const DASH_PRESETS = ["LOW", "NORMAL", "HIGH"] as const;
 const ASTEROID_DENSITIES = ["NONE", "SOME", "MANY", "SPAWN"] as const;
+const LAG_COMP_HISTORY_MS = 500;
+const LAG_COMP_MAX_REWIND_MS = 200;
+
+interface ShipTransformHistoryEntry {
+  atMs: number;
+  x: number;
+  y: number;
+  angle: number;
+}
 
 function isInList<T extends string>(value: string, values: readonly T[]): value is T {
   return (values as readonly string[]).includes(value);
@@ -293,6 +302,7 @@ export class AstroPartySimulation implements SimState {
   private centerHoleBodies: Matter.Body[] = [];
   private mapPowerUpsSpawned = false;
   private mapTimeSec = 0;
+  private shipTransformHistory = new Map<string, ShipTransformHistoryEntry[]>();
 
   // ---- Counters ----
   private revision = 0;
@@ -430,6 +440,8 @@ export class AstroPartySimulation implements SimState {
       buttonA: boolean;
       buttonB: boolean;
       clientTimeMs?: number;
+      inputSequence?: number;
+      rttMs?: number;
     },
   ): void {
     const player = this.resolveControlledPlayer(
@@ -442,6 +454,18 @@ export class AstroPartySimulation implements SimState {
     this.setFireButtonState(player, Boolean(payload.buttonB));
     player.input.timestamp = this.nowMs;
     player.input.clientTimeMs = payload.clientTimeMs ?? this.nowMs;
+    const nextInputSequence =
+      Number.isFinite(payload.inputSequence) && (payload.inputSequence as number) >= 0
+        ? Math.floor(payload.inputSequence as number)
+        : player.input.inputSequence;
+    player.input.inputSequence = nextInputSequence;
+    if (nextInputSequence > player.latestInputSequence) {
+      player.latestInputSequence = nextInputSequence;
+    }
+
+    if (Number.isFinite(payload.rttMs) && (payload.rttMs as number) >= 0) {
+      player.reportedRttMs = clamp(payload.rttMs as number, 0, 1000);
+    }
   }
 
   queueDash(sessionId: string, payload: { controlledPlayerId?: string }): void {
@@ -652,6 +676,11 @@ export class AstroPartySimulation implements SimState {
   update(deltaMs: number): void {
     this.nowMs += deltaMs;
     this.hostTick += 1;
+    for (const player of this.players.values()) {
+      if (player.lastProcessedInputSequence < player.latestInputSequence) {
+        player.lastProcessedInputSequence = player.latestInputSequence;
+      }
+    }
     if (this.screenShakeDuration > 0) {
       this.screenShakeDuration = Math.max(0, this.screenShakeDuration - deltaMs / 1000);
       if (this.screenShakeDuration <= 0) {
@@ -694,6 +723,7 @@ export class AstroPartySimulation implements SimState {
     }
 
     if (this.phase !== "PLAYING") {
+      this.recordShipTransformHistory();
       this.hooks.onSnapshot(this.buildSnapshot());
       return;
     }
@@ -727,6 +757,7 @@ export class AstroPartySimulation implements SimState {
       checkEliminationWin(this);
     }
 
+    this.recordShipTransformHistory();
     this.hooks.onSnapshot(this.buildSnapshot());
   }
 
@@ -830,6 +861,68 @@ export class AstroPartySimulation implements SimState {
     const body = this.asteroidBodies.get(asteroidId);
     if (!body) return;
     Body.setPosition(body, { x, y });
+  }
+
+  getLagCompensationRewindMs(playerId: string): number {
+    const player = this.players.get(playerId);
+    if (!player) return 0;
+    const estimatedOneWayMs = player.reportedRttMs * 0.5;
+    return clamp(estimatedOneWayMs, 0, LAG_COMP_MAX_REWIND_MS);
+  }
+
+  getLagCompensatedShipPose(
+    playerId: string,
+    rewindMs: number,
+  ): { x: number; y: number; angle: number } | null {
+    const player = this.players.get(playerId);
+    if (!player || !player.ship.alive) return null;
+
+    const normalizedRewind = clamp(rewindMs, 0, LAG_COMP_MAX_REWIND_MS);
+    if (normalizedRewind <= 0) {
+      return {
+        x: player.ship.x,
+        y: player.ship.y,
+        angle: player.ship.angle,
+      };
+    }
+
+    const history = this.shipTransformHistory.get(playerId);
+    if (!history || history.length <= 0) {
+      return {
+        x: player.ship.x,
+        y: player.ship.y,
+        angle: player.ship.angle,
+      };
+    }
+
+    const targetTimeMs = this.nowMs - normalizedRewind;
+    let prev: ShipTransformHistoryEntry | null = null;
+    let next: ShipTransformHistoryEntry | null = null;
+
+    for (const entry of history) {
+      if (entry.atMs <= targetTimeMs) {
+        prev = entry;
+        continue;
+      }
+      next = entry;
+      break;
+    }
+
+    if (!prev) {
+      const first = history[0];
+      return { x: first.x, y: first.y, angle: first.angle };
+    }
+    if (!next) {
+      return { x: prev.x, y: prev.y, angle: prev.angle };
+    }
+
+    const span = Math.max(1, next.atMs - prev.atMs);
+    const t = clamp((targetTimeMs - prev.atMs) / span, 0, 1);
+    return {
+      x: prev.x + (next.x - prev.x) * t,
+      y: prev.y + (next.y - prev.y) * t,
+      angle: prev.angle + normalizeAngle(next.angle - prev.angle) * t,
+    };
   }
 
   syncPlayers(): void {
@@ -1128,6 +1221,45 @@ export class AstroPartySimulation implements SimState {
   }
 
   // ============= PRIVATE HELPERS =============
+
+  private recordShipTransformHistory(): void {
+    const minTimeMs = this.nowMs - LAG_COMP_HISTORY_MS;
+
+    for (const playerId of this.playerOrder) {
+      const player = this.players.get(playerId);
+      if (!player || !player.ship.alive) continue;
+
+      let history = this.shipTransformHistory.get(playerId);
+      if (!history) {
+        history = [];
+        this.shipTransformHistory.set(playerId, history);
+      }
+
+      history.push({
+        atMs: this.nowMs,
+        x: player.ship.x,
+        y: player.ship.y,
+        angle: player.ship.angle,
+      });
+
+      while (history.length > 0 && history[0].atMs < minTimeMs) {
+        history.shift();
+      }
+    }
+
+    for (const [playerId, history] of this.shipTransformHistory) {
+      if (!this.players.has(playerId)) {
+        this.shipTransformHistory.delete(playerId);
+        continue;
+      }
+      while (history.length > 0 && history[0].atMs < minTimeMs) {
+        history.shift();
+      }
+      if (history.length <= 0) {
+        this.shipTransformHistory.delete(playerId);
+      }
+    }
+  }
 
   private syncPhysicsFromSim(): void {
     const shipRestitution =
@@ -1804,6 +1936,7 @@ export class AstroPartySimulation implements SimState {
 
   private removePlayerById(playerId: string): void {
     this.identityAllocator.releasePlayer(playerId);
+    this.shipTransformHistory.delete(playerId);
     this.players.delete(playerId);
     this.playerOrder = this.playerOrder.filter((id) => id !== playerId);
     this.pilots.delete(playerId);
@@ -1861,7 +1994,9 @@ export class AstroPartySimulation implements SimState {
         buttonB: false,
         timestamp: this.nowMs,
         clientTimeMs: this.nowMs,
+        inputSequence: player.latestInputSequence,
       };
+      player.lastProcessedInputSequence = player.latestInputSequence;
       player.dashQueued = false;
       player.lastShipDashAtMs = this.nowMs - 1000;
       player.dashTimerSec = 0;
@@ -1919,7 +2054,11 @@ export class AstroPartySimulation implements SimState {
         buttonB: false,
         timestamp: 0,
         clientTimeMs: 0,
+        inputSequence: 0,
       },
+      latestInputSequence: 0,
+      lastProcessedInputSequence: 0,
+      reportedRttMs: 0,
       dashQueued: false,
       botThinkAtMs: 0,
       botLastDecisionMs: 0,
@@ -2009,6 +2148,11 @@ export class AstroPartySimulation implements SimState {
     this.playerPowerUps.forEach((value, key) => {
       playerPowerUps[key] = value;
     });
+
+    const lastProcessedInputSequenceByPlayer: Record<string, number> = {};
+    for (const [playerId, player] of this.players) {
+      lastProcessedInputSequenceByPlayer[playerId] = player.lastProcessedInputSequence;
+    }
 
     return {
       ships,
@@ -2124,6 +2268,8 @@ export class AstroPartySimulation implements SimState {
       screenShakeDuration: this.screenShakeDuration,
       hostTick: this.hostTick,
       tickDurationMs: this.tickDurationMs,
+      serverNowMs: Date.now(),
+      lastProcessedInputSequenceByPlayer,
       mapId: this.mapId,
       yellowBlockHp: this.yellowBlocks.map((block) => block.hp),
     };

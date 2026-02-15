@@ -14,6 +14,8 @@ import type {
 import { PlayerInputResolver } from "./systems/PlayerInputResolver";
 import { DeterministicRNGManager } from "./systems/DeterministicRNGManager";
 import { AudioManager } from "./AudioManager";
+import { SettingsManager } from "./SettingsManager";
+import { NETWORK_GAME_FEEL_TUNING } from "./network/gameFeel/NetworkGameFeelTuning";
 import {
   GamePhase,
   GameMode,
@@ -56,6 +58,9 @@ export class Game {
 
   private lastTime: number = 0;
   private latencyMs: number = 0;
+  private wasLocalFireHeld = false;
+  private lastPredictedFireAtMs = 0;
+  private lastPredictedDashAtMs = 0;
 
   private _originalHostLeft = false;
 
@@ -280,7 +285,10 @@ export class Game {
         }
       },
 
-      onGameSoundReceived: (type) => {
+      onGameSoundReceived: (type, playerId) => {
+        if (this.shouldSuppressAuthoritativeSound(type, playerId)) {
+          return;
+        }
         this.playGameSoundLocal(type);
       },
 
@@ -401,6 +409,9 @@ export class Game {
     this.input.setDashCallback(() => {
       this.handleLocalDash();
     });
+    this.wasLocalFireHeld = false;
+    this.lastPredictedFireAtMs = 0;
+    this.lastPredictedDashAtMs = 0;
 
     this.flowMgr.setPhase("LOBBY");
   }
@@ -410,6 +421,18 @@ export class Game {
       return;
     }
 
+    if (this.network.getTransportMode() !== "online") {
+      this.network.sendDashRequest();
+      return;
+    }
+
+    const myPlayerId = this.network.getMyPlayerId();
+    if (myPlayerId) {
+      this.networkSync.triggerLocalDashPrediction(myPlayerId);
+      AudioManager.playDash();
+      SettingsManager.triggerHaptic("medium");
+      this.lastPredictedDashAtMs = performance.now();
+    }
     this.network.sendDashRequest();
   }
 
@@ -443,6 +466,9 @@ export class Game {
   private clearAllGameState(): void {
     this.clearEntities();
     this.networkSync.clear();
+    this.wasLocalFireHeld = false;
+    this.lastPredictedFireAtMs = 0;
+    this.lastPredictedDashAtMs = 0;
   }
 
   private seedRngForRound(): void {
@@ -505,6 +531,9 @@ export class Game {
   private resetForNextRound(): void {
     this.clearEntities();
     this.networkSync.clearClientTracking();
+    this.wasLocalFireHeld = false;
+    this.lastPredictedFireAtMs = 0;
+    this.lastPredictedDashAtMs = 0;
   }
 
   start(): void {
@@ -528,11 +557,16 @@ export class Game {
     this.lastTime = timestamp;
 
     const now = performance.now();
-    this.inputResolver.captureLocalInput(
+    const localInput = this.inputResolver.captureLocalInput(
       now,
       this.botMgr.useTouchForHost,
     );
-    this.inputResolver.sendLocalInputIfNeeded(now);
+    this.networkSync.captureLocalInput(localInput);
+    const sentInput = this.inputResolver.sendLocalInputIfNeeded(now);
+    if (sentInput) {
+      this.networkSync.recordSentInput(sentInput);
+    }
+    this.maybeRunPredictedLocalFire(localInput, now);
     this.sendLocalControlledInputs(now);
 
     const frameRenderState = this.networkSync.getRenderState(
@@ -585,6 +619,7 @@ export class Game {
           buttonB: false,
           timestamp: nowMs,
           clientTimeMs: nowMs,
+          inputSequence: 0,
         };
 
       this.network.sendInput(
@@ -592,6 +627,7 @@ export class Game {
           ...input,
           timestamp: nowMs,
           clientTimeMs: nowMs,
+          inputSequence: input.inputSequence ?? 0,
         },
         playerId,
       );
@@ -600,6 +636,50 @@ export class Game {
         this.network.sendDashRequest(playerId);
       }
     }
+  }
+
+  private maybeRunPredictedLocalFire(input: PlayerInput, nowMs: number): void {
+    if (this.network.isSimulationAuthority()) {
+      this.wasLocalFireHeld = input.buttonB;
+      return;
+    }
+    if (this.network.getTransportMode() !== "online") {
+      this.wasLocalFireHeld = input.buttonB;
+      return;
+    }
+    if (this.flowMgr.phase !== "PLAYING") {
+      this.wasLocalFireHeld = input.buttonB;
+      return;
+    }
+
+    const firePressed = input.buttonB && !this.wasLocalFireHeld;
+    this.wasLocalFireHeld = input.buttonB;
+    if (!firePressed) return;
+
+    const myPlayerId = this.network.getMyPlayerId();
+    if (!myPlayerId) return;
+
+    this.networkSync.triggerLocalFirePrediction(myPlayerId);
+    AudioManager.playFire();
+    SettingsManager.triggerHaptic("light");
+    this.lastPredictedFireAtMs = nowMs;
+  }
+
+  private shouldSuppressAuthoritativeSound(type: string, playerId: string): boolean {
+    if (this.network.isSimulationAuthority()) return false;
+    if (this.network.getTransportMode() !== "online") return false;
+    const myPlayerId = this.network.getMyPlayerId();
+    if (!myPlayerId || playerId !== myPlayerId) return false;
+
+    const nowMs = performance.now();
+    const suppression = NETWORK_GAME_FEEL_TUNING.localAuthoritativeSoundSuppressionMs;
+    if (type === "fire" && nowMs - this.lastPredictedFireAtMs <= suppression.fire) {
+      return true;
+    }
+    if (type === "dash" && nowMs - this.lastPredictedDashAtMs <= suppression.dash) {
+      return true;
+    }
+    return false;
   }
 
   private playGameSoundLocal(type: string): void {

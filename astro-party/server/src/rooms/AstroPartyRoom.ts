@@ -28,6 +28,8 @@ interface PlayerInputMessage {
   buttonA: boolean;
   buttonB: boolean;
   clientTimeMs?: number;
+  inputSequence?: number;
+  rttMs?: number;
 }
 
 interface DashMessage {
