@@ -6,6 +6,7 @@ import {
   PILOT_COLLIDER_VERTICES,
   cloneShapeVertices,
 } from "../../shared/geometry/EntityShapes";
+import { CollisionCategory } from "../../shared/sim/CollisionCategories";
 
 const { Engine, World, Bodies, Body, Events, Composite } = Matter;
 const FIXED_STEP_MS = 1000 / 60;
@@ -36,8 +37,11 @@ export class Physics {
       restitution: phys.WALL_RESTITUTION,
       friction: phys.WALL_FRICTION,
       collisionFilter: {
-        category: 0x0008, // Wall category
-        mask: 0x0001 | 0x0002 | 0x0004, // Collide with ships (1), projectiles (2), and asteroids (4)
+        category: CollisionCategory.Wall,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid,
       },
     };
     this.walls = [
@@ -90,8 +94,14 @@ export class Physics {
       friction: phys.SHIP_FRICTION,
       density: 0.001,
       collisionFilter: {
-        category: 0x0001, // Ship category
-        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0020, // Collide with ships (1), projectiles (2), asteroids (4), walls (8), powerups (16), and turret (32)
+        category: CollisionCategory.Ship,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid |
+          CollisionCategory.Wall |
+          CollisionCategory.PowerUp |
+          CollisionCategory.Turret,
       },
     });
 
@@ -163,8 +173,11 @@ export class Physics {
       density: 0.0001,
       isSensor: false,
       collisionFilter: {
-        category: 0x0002, // Projectile category
-        mask: 0x0001 | 0x0004 | 0x0008, // Collide with ships (1), asteroids (4), and walls (8)
+        category: CollisionCategory.Projectile,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Asteroid |
+          CollisionCategory.Wall,
       },
     });
 
@@ -194,8 +207,13 @@ export class Physics {
       friction: GAME_CONFIG.ASTEROID_FRICTION,
       density: 0.001,
       collisionFilter: {
-        category: 0x0004, // Asteroid category
-        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008, // Collide with ships (1), projectiles (2), asteroids (4), and walls (8)
+        category: CollisionCategory.Asteroid,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid |
+          CollisionCategory.Wall |
+          CollisionCategory.Turret,
       },
     });
 
@@ -222,8 +240,8 @@ export class Physics {
       restitution: 0,
       friction: 0,
       collisionFilter: {
-        category: 0x0010, // Power-up category (16)
-        mask: 0x0001, // Only collide with ships (1)
+        category: CollisionCategory.PowerUp,
+        mask: CollisionCategory.Ship,
       },
     });
 
@@ -245,8 +263,8 @@ export class Physics {
       restitution: 0,
       friction: 0,
       collisionFilter: {
-        category: 0x0020, // Turret category (32)
-        mask: 0x0001, // Collide with ships
+        category: CollisionCategory.Turret,
+        mask: CollisionCategory.Ship | CollisionCategory.Asteroid,
       },
     });
 
@@ -270,8 +288,8 @@ export class Physics {
       friction: 0,
       density: 0.0001,
       collisionFilter: {
-        category: 0x0040, // Turret bullet category (64)
-        mask: 0x0001 | 0x0008, // Collide with ships (1) and walls (8)
+        category: CollisionCategory.TurretBullet,
+        mask: CollisionCategory.Ship | CollisionCategory.Wall,
       },
     });
 

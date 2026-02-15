@@ -10,6 +10,9 @@ export class Asteroid {
   alive: boolean = true;
   size: number;
   tier: AsteroidTier;
+  variant: AsteroidState["variant"];
+  hp: number;
+  maxHp: number;
   private physics: Physics;
   private vertices: { x: number; y: number }[];
   private rng: SeededRNG;
@@ -23,6 +26,8 @@ export class Asteroid {
     tier: AsteroidTier = "LARGE",
     size?: number,
     rng?: SeededRNG,
+    variant: AsteroidState["variant"] = "ORANGE",
+    maxHp?: number,
   ) {
     this.physics = physics;
     this.tier = tier;
@@ -36,6 +41,9 @@ export class Asteroid {
         ? GAME_CONFIG.ASTEROID_LARGE_MAX
         : GAME_CONFIG.ASTEROID_SMALL_MAX;
     this.size = size ?? minSize + this.rng.next() * (maxSize - minSize);
+    this.variant = variant;
+    this.maxHp = maxHp ?? (tier === "LARGE" ? 2 : 1);
+    this.hp = this.maxHp;
 
     // Generate random jagged vertices for the asteroid
     this.vertices = this.generateVertices();
@@ -87,6 +95,9 @@ export class Asteroid {
       size: this.size,
       alive: this.alive,
       vertices: this.vertices,
+      variant: this.variant,
+      hp: this.hp,
+      maxHp: this.maxHp,
     };
   }
 }

@@ -3,6 +3,7 @@ import {
   SHIP_COLLIDER_VERTICES,
   cloneShapeVertices,
 } from "../geometry/EntityShapes.js";
+import { CollisionCategory } from "./CollisionCategories.js";
 
 const { Engine, Bodies, Body, Events, Composite } = Matter;
 const FIXED_STEP_MS = 1000 / 60;
@@ -37,8 +38,11 @@ export class Physics {
       restitution: wallRestitution,
       friction: wallFriction,
       collisionFilter: {
-        category: 0x0008,
-        mask: 0x0001 | 0x0002 | 0x0004,
+        category: CollisionCategory.Wall,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid,
       },
     };
 
@@ -91,8 +95,14 @@ export class Physics {
       friction: options.friction,
       density: 0.001,
       collisionFilter: {
-        category: 0x0001,
-        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010,
+        category: CollisionCategory.Ship,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid |
+          CollisionCategory.Wall |
+          CollisionCategory.PowerUp |
+          CollisionCategory.Turret,
       },
     });
 
@@ -161,8 +171,11 @@ export class Physics {
       density: 0.0001,
       isSensor: false,
       collisionFilter: {
-        category: 0x0002,
-        mask: 0x0001 | 0x0004 | 0x0008,
+        category: CollisionCategory.Projectile,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Asteroid |
+          CollisionCategory.Wall,
       },
     });
 
@@ -195,8 +208,13 @@ export class Physics {
       friction,
       density: 0.001,
       collisionFilter: {
-        category: 0x0004,
-        mask: 0x0001 | 0x0002 | 0x0004 | 0x0008,
+        category: CollisionCategory.Asteroid,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid |
+          CollisionCategory.Wall |
+          CollisionCategory.Turret,
       },
     });
 
@@ -227,8 +245,8 @@ export class Physics {
       restitution: 0,
       friction: 0,
       collisionFilter: {
-        category: 0x0010,
-        mask: 0x0001,
+        category: CollisionCategory.PowerUp,
+        mask: CollisionCategory.Ship,
       },
     });
 
@@ -254,8 +272,12 @@ export class Physics {
       friction: 0,
       restitution: 0.9,
       collisionFilter: {
-        category: 0x0008,
-        mask: 0x0001 | 0x0002 | 0x0004 | 0x0040,
+        category: CollisionCategory.Wall,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid |
+          CollisionCategory.TurretBullet,
       },
     });
 
@@ -274,8 +296,12 @@ export class Physics {
       friction: 0,
       restitution: 0.9,
       collisionFilter: {
-        category: 0x0008,
-        mask: 0x0001 | 0x0002 | 0x0004 | 0x0040,
+        category: CollisionCategory.Wall,
+        mask:
+          CollisionCategory.Ship |
+          CollisionCategory.Projectile |
+          CollisionCategory.Asteroid |
+          CollisionCategory.TurretBullet,
       },
     });
 
@@ -290,13 +316,14 @@ export class Physics {
     const body = Bodies.circle(x, y, 20, {
       label: "turret",
       isStatic: true,
-      isSensor: true,
+      isSensor: false,
       frictionAir: 0,
       restitution: 0,
       friction: 0,
       collisionFilter: {
-        category: 0x0020,
-        mask: 0x0000,
+        category: CollisionCategory.Turret,
+        // Pilot bodies use Matter's default category, which matches CollisionCategory.Ship.
+        mask: CollisionCategory.Ship | CollisionCategory.Asteroid,
       },
     });
 
@@ -321,8 +348,8 @@ export class Physics {
       friction: 0,
       density: 0.0001,
       collisionFilter: {
-        category: 0x0040,
-        mask: 0x0001 | 0x0008,
+        category: CollisionCategory.TurretBullet,
+        mask: CollisionCategory.Ship | CollisionCategory.Wall,
       },
     });
 

@@ -2,9 +2,7 @@ import { ColyseusTransport } from "./ColyseusTransport";
 import type { NetworkTransport } from "./NetworkTransport";
 
 export function createTransport(): NetworkTransport {
-  // Build-safe default: only Colyseus is active in v1.
-  // Playroom legacy implementation remains archived under:
-  // src/network/transports/playroom-legacy/*
+  // Current runtime is Colyseus-only. Local mode will plug in a shared-sim transport.
   return new ColyseusTransport();
 }
 

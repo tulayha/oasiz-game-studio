@@ -1133,17 +1133,11 @@ export class Game {
         }
       });
     } else {
-      // For non-authority clients: use smoothed ship positions.
+      // For non-authority clients: use latest authoritative network ship positions.
       const networkRenderState =
         renderState ??
         this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
-      const smoothedShips = networkRenderState.useBufferedInterpolation
-        ? networkRenderState.networkShips
-        : networkRenderState.shipSmoother.smooth(
-            networkRenderState.networkShips,
-            (s) => s.playerId,
-          );
-      smoothedShips.forEach((shipState) => {
+      networkRenderState.networkShips.forEach((shipState) => {
         const joustPowerUp = this.playerPowerUps.get(shipState.playerId);
         if (joustPowerUp?.type === "JOUST") {
           const shipAngle = shipState.angle;
@@ -1207,12 +1201,6 @@ export class Game {
       networkHomingMissiles: frameRenderState.networkHomingMissiles,
       networkTurret: frameRenderState.networkTurret,
       networkTurretBullets: frameRenderState.networkTurretBullets,
-      shipSmoother: frameRenderState.shipSmoother,
-      projectileSmoother: frameRenderState.projectileSmoother,
-      asteroidSmoother: frameRenderState.asteroidSmoother,
-      pilotSmoother: frameRenderState.pilotSmoother,
-      missileSmoother: frameRenderState.missileSmoother,
-      useBufferedInterpolation: frameRenderState.useBufferedInterpolation,
       mapId: this.selectedMapId,
       yellowBlockHp: frameRenderState.networkYellowBlockHp,
     });

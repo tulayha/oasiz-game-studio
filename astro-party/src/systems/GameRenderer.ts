@@ -1,5 +1,4 @@
 import { Renderer } from "./Renderer";
-import { DisplaySmoother } from "../network/DisplaySmoother";
 import { Ship } from "../entities/Ship";
 import { Pilot } from "../entities/Pilot";
 import { Projectile } from "../entities/Projectile";
@@ -58,12 +57,6 @@ export interface RenderContext {
   networkHomingMissiles: HomingMissileState[];
   networkTurret: TurretState | null;
   networkTurretBullets: TurretBulletState[];
-  shipSmoother: DisplaySmoother;
-  projectileSmoother: DisplaySmoother;
-  asteroidSmoother: DisplaySmoother;
-  pilotSmoother: DisplaySmoother;
-  missileSmoother: DisplaySmoother;
-  useBufferedInterpolation: boolean;
   mapId: MapId;
   yellowBlockHp: number[];
 }
@@ -101,41 +94,11 @@ export class GameRenderer {
       let renderHomingMissiles: HomingMissileState[];
 
       if (!ctx.isHost) {
-        if (ctx.useBufferedInterpolation) {
-          renderShips = ctx.networkShips;
-          renderPilots = ctx.networkPilots;
-          renderProjectiles = ctx.networkProjectiles;
-          renderAsteroids = ctx.networkAsteroids;
-          renderHomingMissiles = ctx.networkHomingMissiles;
-        } else {
-          const dtMs = ctx.dt * 1000;
-          ctx.shipSmoother.update(dtMs);
-          ctx.projectileSmoother.update(dtMs);
-          ctx.asteroidSmoother.update(dtMs);
-          ctx.pilotSmoother.update(dtMs);
-          ctx.missileSmoother.update(dtMs);
-
-          renderShips = ctx.shipSmoother.smooth(
-            ctx.networkShips,
-            (s) => s.playerId,
-          );
-          renderPilots = ctx.pilotSmoother.smooth(
-            ctx.networkPilots,
-            (p) => p.playerId,
-          );
-          renderProjectiles = ctx.projectileSmoother.smooth(
-            ctx.networkProjectiles,
-            (p) => p.id,
-          );
-          renderAsteroids = ctx.asteroidSmoother.smooth(
-            ctx.networkAsteroids,
-            (a) => a.id,
-          );
-          renderHomingMissiles = ctx.missileSmoother.smooth(
-            ctx.networkHomingMissiles,
-            (m) => m.id,
-          );
-        }
+        renderShips = ctx.networkShips;
+        renderPilots = ctx.networkPilots;
+        renderProjectiles = ctx.networkProjectiles;
+        renderAsteroids = ctx.networkAsteroids;
+        renderHomingMissiles = ctx.networkHomingMissiles;
       } else {
         renderShips = ctx.networkShips;
         renderPilots = ctx.networkPilots;

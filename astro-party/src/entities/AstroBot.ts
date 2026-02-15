@@ -1,8 +1,6 @@
 // ============= ASTRO BOT =============
-// AI-controlled player using PlayroomKit's Bot API
-
-import { Bot } from "playroomkit";
-import { PlayerInput, GAME_CONFIG } from "../types";
+// Legacy client-side bot logic kept only for potential local simulation tooling.
+import { GAME_CONFIG } from "../types";
 import { SeededRNG } from "../systems/SeededRNG";
 
 // Data provided to bot for decision making
@@ -82,7 +80,7 @@ const AI_CONFIG = {
   ROTATION_OVERSHOOT: 0.2, // Chance to overshoot rotation
 } as const;
 
-export class AstroBot extends Bot {
+export class AstroBot {
   private static rng: SeededRNG | null = null;
   private static fallbackRng = new SeededRNG(Date.now() >>> 0);
 
@@ -100,7 +98,6 @@ export class AstroBot extends Bot {
   };
 
   constructor(botParams?: BotParams) {
-    super(botParams || {});
     this.botType = botParams?.botType || "ai";
     this.keySlot = botParams?.keySlot ?? -1;
   }

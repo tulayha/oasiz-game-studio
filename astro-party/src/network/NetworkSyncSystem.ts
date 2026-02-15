@@ -1,4 +1,3 @@
-import { DisplaySmoother } from "./DisplaySmoother";
 import { Renderer } from "../systems/Renderer";
 import { NetworkManager } from "./NetworkManager";
 import { PlayerManager } from "../managers/PlayerManager";
@@ -7,7 +6,6 @@ import {
   GAME_CONFIG,
   GameStateSync,
   MapId,
-  PlayerInput,
   PlayerPowerUp,
   ShipState,
   PilotState,
@@ -65,12 +63,6 @@ export interface RenderNetworkState {
   networkTurretBullets: TurretBulletState[];
   networkMapId: MapId;
   networkYellowBlockHp: number[];
-  shipSmoother: DisplaySmoother;
-  projectileSmoother: DisplaySmoother;
-  asteroidSmoother: DisplaySmoother;
-  pilotSmoother: DisplaySmoother;
-  missileSmoother: DisplaySmoother;
-  useBufferedInterpolation: boolean;
 }
 
 export interface NetworkPredictionDebugTelemetry {
@@ -93,12 +85,6 @@ export interface NetworkPredictionDebugTelemetry {
 
 export class NetworkSyncSystem {
   private static readonly DEFAULT_TICK_MS = 1000 / 60;
-
-  private shipSmoother = new DisplaySmoother(0.25, 100);
-  private projectileSmoother = new DisplaySmoother(0.4, 150);
-  private asteroidSmoother = new DisplaySmoother(0.15, 80);
-  private pilotSmoother = new DisplaySmoother(0.2, 80);
-  private missileSmoother = new DisplaySmoother(0.35, 120);
 
   private snapshotJitterMs = 0;
   private snapshotIntervalMs = 0;
@@ -140,18 +126,6 @@ export class NetworkSyncSystem {
     private onPlayersUpdate: () => void,
   ) {}
 
-  setLocalInput(_input: PlayerInput): void {
-    // Intentionally no-op: non-host sends raw input to host via PlayerInputResolver.
-  }
-
-  queueLocalDashPrediction(): void {
-    // Intentionally no-op: dash is handled as host-authoritative RPC.
-  }
-
-  resetPredictionState(): void {
-    // Intentionally no-op: local prediction/reconciliation removed.
-  }
-
   getRenderState(
     _myPlayerId: string | null = null,
     _latencyMs: number = 0,
@@ -169,12 +143,6 @@ export class NetworkSyncSystem {
       networkTurretBullets: this.networkTurretBullets,
       networkMapId: this.networkMapId,
       networkYellowBlockHp: this.networkYellowBlockHp,
-      shipSmoother: this.shipSmoother,
-      projectileSmoother: this.projectileSmoother,
-      asteroidSmoother: this.asteroidSmoother,
-      pilotSmoother: this.pilotSmoother,
-      missileSmoother: this.missileSmoother,
-      useBufferedInterpolation: true,
     };
   }
 
@@ -364,20 +332,6 @@ export class NetworkSyncSystem {
       });
     }
 
-    this.shipSmoother.applySnapshot(this.networkShips, (ship) => ship.playerId);
-    this.projectileSmoother.applySnapshot(
-      this.networkProjectiles,
-      (projectile) => projectile.id,
-    );
-    this.asteroidSmoother.applySnapshot(
-      this.networkAsteroids,
-      (asteroid) => asteroid.id,
-    );
-    this.pilotSmoother.applySnapshot(this.networkPilots, (pilot) => pilot.playerId);
-    this.missileSmoother.applySnapshot(
-      this.networkHomingMissiles,
-      (missile) => missile.id,
-    );
   }
 
   clear(): void {
@@ -399,12 +353,6 @@ export class NetworkSyncSystem {
     this.clientShipPositions.clear();
     this.clientAsteroidStates.clear();
     this.clientPilotPositions.clear();
-
-    this.shipSmoother.clear();
-    this.projectileSmoother.clear();
-    this.asteroidSmoother.clear();
-    this.pilotSmoother.clear();
-    this.missileSmoother.clear();
 
     this.snapshotJitterMs = 0;
     this.snapshotIntervalMs = 0;
@@ -436,12 +384,6 @@ export class NetworkSyncSystem {
     this.networkTurretBullets = [];
     this.networkMapId = 0;
     this.networkYellowBlockHp = [];
-
-    this.shipSmoother.clear();
-    this.projectileSmoother.clear();
-    this.asteroidSmoother.clear();
-    this.pilotSmoother.clear();
-    this.missileSmoother.clear();
 
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();

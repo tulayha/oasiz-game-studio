@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "colyseus.js": "^0.16.18",
-    "playroomkit": "^0.0.95",
     "matter-js": "^0.20.0",
     "tone": "^15.1.22"
   },
