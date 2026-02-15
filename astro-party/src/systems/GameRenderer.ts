@@ -23,6 +23,7 @@ export interface RenderContext {
   nowMs: number;
   phase: GamePhase;
   countdown: number;
+  showMapElements: boolean;
   isDevModeEnabled: boolean;
   playerPowerUps: Map<string, PlayerPowerUp | null>;
   players: Map<string, PlayerData>;
@@ -54,15 +55,17 @@ export class GameRenderer {
     const map = getMapDefinition(ctx.mapId);
     const mapTheme = this.getMapTheme(ctx.mapId);
     const mapTimeSec = ctx.nowMs / 1000;
-    this.renderer.drawArenaBorder(mapTheme.border);
-    for (const block of this.getYellowBlocksForRender(map.yellowBlocks, ctx.yellowBlockHp)) {
-      this.renderer.drawYellowBlock(block);
-    }
-    for (const hole of map.centerHoles) {
-      this.renderer.drawCenterHole(hole, mapTimeSec, 1, mapTheme.centerHole);
-    }
-    for (const zone of map.repulsionZones) {
-      this.renderer.drawRepulsionZone(zone, mapTimeSec, mapTheme.repulsion);
+    if (ctx.showMapElements) {
+      this.renderer.drawArenaBorder(mapTheme.border);
+      for (const block of this.getYellowBlocksForRender(map.yellowBlocks, ctx.yellowBlockHp)) {
+        this.renderer.drawYellowBlock(block);
+      }
+      for (const hole of map.centerHoles) {
+        this.renderer.drawCenterHole(hole, mapTimeSec, 1, mapTheme.centerHole);
+      }
+      for (const zone of map.repulsionZones) {
+        this.renderer.drawRepulsionZone(zone, mapTimeSec, mapTheme.repulsion);
+      }
     }
 
     if (ctx.phase === "PLAYING" || ctx.phase === "GAME_END") {

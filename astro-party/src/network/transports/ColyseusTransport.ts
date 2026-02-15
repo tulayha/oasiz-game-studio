@@ -23,7 +23,24 @@ interface MatchCreateResponse {
   seatReservation: unknown;
 }
 
-interface MatchJoinResponse extends MatchCreateResponse {}
+interface MatchJoinErrorResponse {
+  ok: false;
+  error: string;
+  message: string;
+}
+
+type MatchJoinResponse = MatchCreateResponse | MatchJoinErrorResponse;
+
+class HttpRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "HttpRequestError";
+  }
+}
 
 interface RoomStatePlayerMeta {
   id?: string;
@@ -150,11 +167,32 @@ export class ColyseusTransport implements NetworkTransport {
           body: JSON.stringify({ roomCode, playerName }),
         },
       );
+      if (this.isMatchJoinErrorResponse(response)) {
+        this.callbacks?.onTransportError?.(
+          response.error,
+          response.message,
+        );
+        console.log(
+          "[ColyseusTransport] Join rejected",
+          response.error,
+          response.message,
+        );
+        return false;
+      }
       await this.connectSeat(response.seatReservation, response.roomCode);
       this.shareRoomCode(response.roomCode);
       return true;
     } catch (error) {
-      console.error("[ColyseusTransport] Failed to join room", error);
+      const normalizedError = this.normalizeJoinError(error);
+      this.callbacks?.onTransportError?.(
+        normalizedError.code,
+        normalizedError.message,
+      );
+      console.log(
+        "[ColyseusTransport] Join failed",
+        normalizedError.code,
+        normalizedError.message,
+      );
       return false;
     }
   }
@@ -180,10 +218,10 @@ export class ColyseusTransport implements NetworkTransport {
     }
   }
 
-  sendInput(input: PlayerInput): void {
+  sendInput(input: PlayerInput, controlledPlayerId?: string): void {
     if (!this.room) return;
     this.room.send("cmd:input", {
-      controlledPlayerId: this.myPlayerId ?? undefined,
+      controlledPlayerId: controlledPlayerId ?? this.myPlayerId ?? undefined,
       buttonA: input.buttonA,
       buttonB: input.buttonB,
       clientTimeMs: input.clientTimeMs,
@@ -223,10 +261,10 @@ export class ColyseusTransport implements NetworkTransport {
     this.room.send("cmd:set_advanced_settings", payload);
   }
 
-  sendDashRequest(): void {
+  sendDashRequest(controlledPlayerId?: string): void {
     if (!this.room) return;
     this.room.send("cmd:dash", {
-      controlledPlayerId: this.myPlayerId ?? undefined,
+      controlledPlayerId: controlledPlayerId ?? this.myPlayerId ?? undefined,
     });
   }
 
@@ -938,13 +976,70 @@ export class ColyseusTransport implements NetworkTransport {
     return proto + window.location.hostname + ":2567";
   }
 
+  private isMatchJoinErrorResponse(
+    payload: MatchJoinResponse,
+  ): payload is MatchJoinErrorResponse {
+    return (
+      typeof payload === "object" &&
+      payload !== null &&
+      "ok" in payload &&
+      (payload as { ok?: unknown }).ok === false &&
+      typeof (payload as { error?: unknown }).error === "string"
+    );
+  }
+
+  private normalizeJoinError(error: unknown): { code: string; message: string } {
+    if (error instanceof HttpRequestError) {
+      return {
+        code: error.code,
+        message: error.message || "Could not join room",
+      };
+    }
+    if (error instanceof Error) {
+      return {
+        code: "JOIN_FAILED",
+        message: error.message || "Could not join room",
+      };
+    }
+    return {
+      code: "JOIN_FAILED",
+      message: "Could not join room",
+    };
+  }
+
   private async fetchJson<T>(url: string, init: RequestInit): Promise<T> {
     const response = await fetch(url, init);
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error("HTTP " + response.status.toString() + ": " + text);
+    const bodyText = await response.text();
+    let parsedBody: unknown = null;
+    if (bodyText.length > 0) {
+      try {
+        parsedBody = JSON.parse(bodyText) as unknown;
+      } catch {
+        parsedBody = null;
+      }
     }
-    return (await response.json()) as T;
+
+    if (!response.ok) {
+      const payload =
+        typeof parsedBody === "object" && parsedBody !== null
+          ? (parsedBody as Record<string, unknown>)
+          : null;
+      const code =
+        typeof payload?.error === "string"
+          ? payload.error
+          : "HTTP_" + response.status.toString();
+      const message =
+        typeof payload?.message === "string"
+          ? payload.message
+          : response.statusText || "Request failed";
+      throw new HttpRequestError(response.status, code, message);
+    }
+
+    if (parsedBody === null) {
+      throw new Error("Invalid JSON response");
+    }
+
+    return parsedBody as T;
   }
 
   private readInjectedPlayerName(): string | null {

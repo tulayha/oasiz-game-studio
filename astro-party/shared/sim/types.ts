@@ -309,7 +309,10 @@ export interface RuntimePlayer {
   fireButtonHeld: boolean;
   fireRequested: boolean;
   firePressStartMs: number;
+  lastShipDashAtMs: number;
   dashTimerSec: number;
+  dashVectorX: number;
+  dashVectorY: number;
   recoilTimerSec: number;
   angularVelocity: number;
   ship: ShipState;
@@ -318,6 +321,7 @@ export interface RuntimePlayer {
 export interface RuntimePilot extends PilotState {
   angularVelocity: number;
   lastDashAtMs: number;
+  dashInputHeld: boolean;
   controlMode: "player" | "ai";
   aiThinkAtMs: number;
   aiTargetAngle: number;

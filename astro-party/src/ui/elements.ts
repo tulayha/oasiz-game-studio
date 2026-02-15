@@ -13,6 +13,7 @@ export const elements = {
   joinSection: getElement<HTMLElement>("joinSection"),
   createRoomBtn: getElement<HTMLButtonElement>("createRoomBtn"),
   joinRoomBtn: getElement<HTMLButtonElement>("joinRoomBtn"),
+  localMatchBtn: getElement<HTMLButtonElement>("localMatchBtn"),
   roomCodeInput: getElement<HTMLInputElement>("roomCodeInput"),
   joinError: getElement<HTMLElement>("joinError"),
   submitJoinBtn: getElement<HTMLButtonElement>("submitJoinBtn"),

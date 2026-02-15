@@ -16,7 +16,21 @@ export interface LobbyUI {
 export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   let addingBot = false;
 
+  function updateRoomCodeVisibility(): void {
+    const roomContainer = elements.roomCodeDisplay.closest(
+      ".lobby-room",
+    ) as HTMLElement | null;
+    if (!roomContainer) return;
+    const isLocal = game.getSessionMode() === "local";
+    roomContainer.style.display = isLocal ? "none" : "flex";
+  }
+
   function updateRoomCode(code: string): void {
+    updateRoomCodeVisibility();
+    if (game.getSessionMode() === "local") {
+      elements.roomCodeDisplay.textContent = "----";
+      return;
+    }
     elements.roomCodeDisplay.textContent = code;
   }
 
@@ -172,6 +186,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     }
 
     elements.playersList.innerHTML = rows.join("");
+    updateRoomCodeVisibility();
 
     const canStart = game.canStartGame();
 
@@ -277,6 +292,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   }
 
   elements.copyCodeBtn.addEventListener("click", () => {
+    if (game.getSessionMode() === "local") return;
     const code = game.getRoomCode();
     navigator.clipboard.writeText(code).then(() => {
       triggerHaptic("light");

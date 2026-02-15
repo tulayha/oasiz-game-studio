@@ -113,7 +113,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
       { label: "Start Powerups", value: settings.startPowerups ? "On" : "Off" },
       { label: "Rounds", value: String(settings.roundsToWin) },
       { label: "Ship Speed", value: labelSpeed(settings.shipSpeed) },
-      { label: "Dash Power", value: labelDash(settings.dashPower) },
+      { label: "Dodge Power", value: labelDash(settings.dashPower) },
       {
         label: "Rotation",
         value: labelPreset("rotation", settings.rotationPreset),

@@ -66,7 +66,9 @@ export function updatePilots(sim: SimState, dtSec: number): void {
       pilot.angle = normalizeAngle(pilot.angle);
       sim.setPilotAngle(playerId, pilot.angle);
     }
-    if (dash && sim.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
+    const dashPressedNow = dash && !pilot.dashInputHeld;
+    pilot.dashInputHeld = dash;
+    if (dashPressedNow && sim.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
       pilot.lastDashAtMs = sim.nowMs;
       sim.applyPilotForce(
         playerId,
@@ -105,6 +107,7 @@ export function onShipHit(sim: SimState, owner: RuntimePlayer | undefined, targe
     alive: true,
     angularVelocity: target.angularVelocity * 0.6,
     lastDashAtMs: sim.nowMs - PILOT_DASH_COOLDOWN_MS - 1,
+    dashInputHeld: false,
     controlMode,
     aiThinkAtMs: sim.nowMs + 300,
     aiTargetAngle: prevAngle,
@@ -299,7 +302,10 @@ export function spawnAllShips(sim: SimState): void {
     const spawn = points[index] ?? points[0];
     player.state = "ACTIVE";
     player.dashQueued = false;
+    player.lastShipDashAtMs = sim.nowMs - 1000;
     player.dashTimerSec = 0;
+    player.dashVectorX = 0;
+    player.dashVectorY = 0;
     player.recoilTimerSec = 0;
     player.angularVelocity = 0;
     player.ship = {

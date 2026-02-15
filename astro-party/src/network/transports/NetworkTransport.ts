@@ -78,7 +78,7 @@ export interface NetworkTransport {
 
   startSync(): void;
   stopSync(): void;
-  sendInput(input: PlayerInput): void;
+  sendInput(input: PlayerInput, controlledPlayerId?: string): void;
   pollHostInputs(): void;
   broadcastGameState(state: GameStateSync): void;
   startGame(): void;
@@ -87,7 +87,7 @@ export interface NetworkTransport {
   setMap(mapId: number): void;
   setAdvancedSettings(payload: AdvancedSettingsSync): void;
 
-  sendDashRequest(): void;
+  sendDashRequest(controlledPlayerId?: string): void;
   broadcastDashParticles(
     playerId: string,
     x: number,

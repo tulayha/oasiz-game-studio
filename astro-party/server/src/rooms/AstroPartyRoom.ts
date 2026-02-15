@@ -205,8 +205,8 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
 
     this.onMessage(
       "cmd:add_local_player",
-      (client, _payload: { keySlot?: number } = {}) => {
-        this.simulation.addLocalPlayer(client.sessionId);
+      (client, payload: { keySlot?: number } = {}) => {
+        this.simulation.addLocalPlayer(client.sessionId, payload.keySlot);
       },
     );
 

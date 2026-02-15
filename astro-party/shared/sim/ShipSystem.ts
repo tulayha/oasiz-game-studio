@@ -16,6 +16,8 @@ import {
   SCATTER_PROJECTILE_LIFETIME_MS,
   HOMING_MISSILE_SPEED,
   POWERUP_SHIELD_HITS,
+  SHIP_DODGE_COOLDOWN_MS,
+  SHIP_DODGE_ANGLE_DEG,
 } from "./constants.js";
 import { normalizeAngle, clamp } from "./utils.js";
 import {
@@ -48,43 +50,58 @@ export function updateShips(sim: SimState, dtSec: number): void {
 
     if (player.dashQueued) {
       player.dashQueued = false;
-      if (isStandard) {
+      if (sim.nowMs - player.lastShipDashAtMs >= SHIP_DODGE_COOLDOWN_MS) {
+        player.lastShipDashAtMs = sim.nowMs;
+        const dodgeAngle =
+          ship.angle +
+          ((SHIP_DODGE_ANGLE_DEG * Math.PI) / 180) * sim.rotationDirection;
+        player.dashVectorX = Math.cos(dodgeAngle);
+        player.dashVectorY = Math.sin(dodgeAngle);
         player.dashTimerSec = cfg.SHIP_DASH_DURATION;
-      } else {
-        sim.applyShipForce(
-          player.id,
-          Math.cos(ship.angle) * cfg.DASH_FORCE,
-          Math.sin(ship.angle) * cfg.DASH_FORCE,
-        );
+
+        if (!isStandard) {
+          sim.applyShipForce(
+            player.id,
+            player.dashVectorX * cfg.DASH_FORCE,
+            player.dashVectorY * cfg.DASH_FORCE,
+          );
+        }
+
+        sim.hooks.onSound("dash", player.id);
+        sim.hooks.onDashParticles({
+          playerId: player.id,
+          x: ship.x,
+          y: ship.y,
+          angle: dodgeAngle,
+          color: PLAYER_COLORS[player.colorIndex].primary,
+        });
       }
-      sim.hooks.onSound("dash", player.id);
-      sim.hooks.onDashParticles({
-        playerId: player.id,
-        x: ship.x,
-        y: ship.y,
-        angle: ship.angle,
-        color: PLAYER_COLORS[player.colorIndex].primary,
-      });
     }
 
     if (player.dashTimerSec > 0) {
       player.dashTimerSec = Math.max(0, player.dashTimerSec - dtSec);
+      if (player.dashTimerSec <= 0) {
+        player.dashVectorX = 0;
+        player.dashVectorY = 0;
+      }
     }
     if (player.recoilTimerSec > 0) {
       player.recoilTimerSec = Math.max(0, player.recoilTimerSec - dtSec);
     }
     if (isStandard) {
-      const dashBoost = player.dashTimerSec > 0 ? cfg.SHIP_DASH_BOOST : 0;
+      const dodgeBoost = player.dashTimerSec > 0 ? cfg.SHIP_DASH_BOOST : 0;
       const recoilSlowdown =
         player.recoilTimerSec > 0 ? cfg.SHIP_RECOIL_SLOWDOWN : 0;
       const joustPowerUp = sim.playerPowerUps.get(playerId);
       const speedMultiplier = joustPowerUp?.type === "JOUST" ? JOUST_SPEED_MULTIPLIER : 1;
-      const targetSpeed = Math.max(
+      const forwardSpeed = Math.max(
         0,
-        (cfg.SHIP_TARGET_SPEED + dashBoost - recoilSlowdown) * speedMultiplier,
+        (cfg.SHIP_TARGET_SPEED - recoilSlowdown) * speedMultiplier,
       );
-      const desiredVx = Math.cos(ship.angle) * targetSpeed;
-      const desiredVy = Math.sin(ship.angle) * targetSpeed;
+      const desiredVx =
+        Math.cos(ship.angle) * forwardSpeed + player.dashVectorX * dodgeBoost;
+      const desiredVy =
+        Math.sin(ship.angle) * forwardSpeed + player.dashVectorY * dodgeBoost;
       const t = 1 - Math.exp(-cfg.SHIP_SPEED_RESPONSE * dtSec);
       ship.vx += (desiredVx - ship.vx) * t;
       ship.vy += (desiredVy - ship.vy) * t;

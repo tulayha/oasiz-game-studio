@@ -24,12 +24,15 @@ export function createStartScreenUI(game: Game): StartScreenUI {
   function resetStartButtons(): void {
     elements.createRoomBtn.disabled = false;
     elements.createRoomBtn.textContent = "Create Room";
+    elements.localMatchBtn.disabled = false;
+    elements.localMatchBtn.textContent = "Local Match";
     hideJoinSection();
   }
 
   elements.createRoomBtn.addEventListener("click", async () => {
     triggerHaptic("light");
     AudioManager.playUIClick();
+    game.setSessionMode("online");
     elements.createRoomBtn.disabled = true;
     elements.createRoomBtn.textContent = "Creating...";
 
@@ -48,7 +51,28 @@ export function createStartScreenUI(game: Game): StartScreenUI {
 
   elements.joinRoomBtn.addEventListener("click", () => {
     triggerHaptic("light");
+    game.setSessionMode("online");
     showJoinSection();
+  });
+
+  elements.localMatchBtn.addEventListener("click", async () => {
+    triggerHaptic("light");
+    AudioManager.playUIClick();
+    game.setSessionMode("local");
+    elements.localMatchBtn.disabled = true;
+    elements.localMatchBtn.textContent = "Starting...";
+
+    try {
+      const code = await game.createRoom();
+      console.log("[Main] Local room created:", code);
+      if (window.__PLAYER_NAME__) {
+        game.setPlayerName(window.__PLAYER_NAME__);
+      }
+    } catch (e) {
+      console.error("[Main] Failed to start local match:", e);
+      elements.localMatchBtn.disabled = false;
+      elements.localMatchBtn.textContent = "Local Match";
+    }
   });
 
   elements.backToStartBtn.addEventListener("click", () => {
@@ -70,6 +94,7 @@ export function createStartScreenUI(game: Game): StartScreenUI {
   });
 
   elements.submitJoinBtn.addEventListener("click", async () => {
+    game.setSessionMode("online");
     const code = elements.roomCodeInput.value.trim().toUpperCase();
 
     if (code.length < 4) {
@@ -91,7 +116,8 @@ export function createStartScreenUI(game: Game): StartScreenUI {
           game.setPlayerName(window.__PLAYER_NAME__);
         }
       } else {
-        elements.joinError.textContent = "Could not join room";
+        elements.joinError.textContent =
+          game.consumeLastTransportErrorMessage() ?? "Could not join room";
         elements.joinError.classList.add("active");
         triggerHaptic("error");
       }

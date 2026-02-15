@@ -15,6 +15,7 @@ import type {
   NetworkTransport,
   PlayerMetaMap,
 } from "./transports/NetworkTransport";
+import type { TransportMode } from "./transports/createTransport";
 
 export type { PlayerMetaMap } from "./transports/NetworkTransport";
 
@@ -22,9 +23,25 @@ export type PlayroomPlayerState = NetworkPlayerState;
 
 export class NetworkManager {
   private transport: NetworkTransport;
+  private transportMode: TransportMode = "online";
+  private callbacks: NetworkCallbacks | null = null;
 
   constructor() {
-    this.transport = createTransport();
+    this.transport = createTransport(this.transportMode);
+  }
+
+  setTransportMode(mode: TransportMode): void {
+    if (this.transportMode === mode) return;
+    this.transportMode = mode;
+    const nextTransport = createTransport(this.transportMode);
+    if (this.callbacks) {
+      nextTransport.setCallbacks(this.callbacks);
+    }
+    this.transport = nextTransport;
+  }
+
+  getTransportMode(): TransportMode {
+    return this.transportMode;
   }
 
   async createRoom(): Promise<string> {
@@ -36,6 +53,7 @@ export class NetworkManager {
   }
 
   setCallbacks(callbacks: NetworkCallbacks): void {
+    this.callbacks = callbacks;
     this.transport.setCallbacks(callbacks);
   }
 
@@ -47,8 +65,8 @@ export class NetworkManager {
     this.transport.stopSync();
   }
 
-  sendInput(input: PlayerInput): void {
-    this.transport.sendInput(input);
+  sendInput(input: PlayerInput, controlledPlayerId?: string): void {
+    this.transport.sendInput(input, controlledPlayerId);
   }
 
   pollHostInputs(): void {
@@ -103,8 +121,8 @@ export class NetworkManager {
     this.transport.broadcastScreenShake(intensity, duration);
   }
 
-  sendDashRequest(): void {
-    this.transport.sendDashRequest();
+  sendDashRequest(controlledPlayerId?: string): void {
+    this.transport.sendDashRequest(controlledPlayerId);
   }
 
   broadcastDashParticles(

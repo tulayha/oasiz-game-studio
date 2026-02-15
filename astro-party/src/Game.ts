@@ -20,6 +20,7 @@ import {
   BaseGameMode,
   MapId,
   PlayerData,
+  PlayerInput,
   PlayerPowerUp,
   RoundResultPayload,
   AdvancedSettings,
@@ -66,6 +67,7 @@ export class Game {
   private currentMode: GameMode = "STANDARD";
   private baseMode: BaseGameMode = "STANDARD";
   private selectedMapId: MapId = 0;
+  private showMapElements = false;
 
   static SHOW_PING = true;
 
@@ -148,6 +150,8 @@ export class Game {
     | ((message: string, durationMs?: number) => void)
     | null = null;
   private _onMapChange: ((mapId: MapId) => void) | null = null;
+  private lastTransportErrorCode: string | null = null;
+  private lastTransportErrorMessage: string | null = null;
 
   private emitPlayersUpdate(): void {
     this._onPlayersUpdate?.(this.getPlayers());
@@ -162,6 +166,8 @@ export class Game {
 
   async joinRoom(code: string): Promise<boolean> {
     this.registerNetworkCallbacks();
+    this.lastTransportErrorCode = null;
+    this.lastTransportErrorMessage = null;
     const success = await this.network.joinRoom(code);
     if (success) {
       this.initializeNetworkSession();
@@ -343,8 +349,26 @@ export class Game {
       },
 
       onTransportError: (code, message) => {
+        this.lastTransportErrorCode = code;
+        this.lastTransportErrorMessage = message;
         if (code === "LOCAL_PLAYER_UNSUPPORTED") {
           this._onSystemMessage?.("Local players are deferred in this version", 3500);
+          return;
+        }
+        if (code === "LOCAL_JOIN_UNSUPPORTED") {
+          this._onSystemMessage?.("Join is only available for online rooms", 3000);
+          return;
+        }
+        if (code === "INVALID_CODE") {
+          this._onSystemMessage?.("Enter a valid room code", 3000);
+          return;
+        }
+        if (code === "NOT_FOUND") {
+          this._onSystemMessage?.("Room not found", 3000);
+          return;
+        }
+        if (code === "ROOM_FULL") {
+          this._onSystemMessage?.("Room is full", 3000);
           return;
         }
         if (code === "LEADER_ONLY") {
@@ -509,6 +533,7 @@ export class Game {
       this.botMgr.useTouchForHost,
     );
     this.inputResolver.sendLocalInputIfNeeded(now);
+    this.sendLocalControlledInputs(now);
 
     const frameRenderState = this.networkSync.getRenderState(
       this.network.getMyPlayerId(),
@@ -540,6 +565,41 @@ export class Game {
     if (devKeys.homing) this.network.requestDevPowerUp("HOMING_MISSILE");
     if (devKeys.reverse) this.network.requestDevPowerUp("REVERSE");
     if (devKeys.spawnPowerUp) this.network.requestDevPowerUp("SPAWN_RANDOM");
+  }
+
+  private sendLocalControlledInputs(nowMs: number): void {
+    if (!this.supportsLocalPlayers()) return;
+    const myPlayerId = this.network.getMyPlayerId();
+    if (!myPlayerId) return;
+
+    for (const [playerId] of this.playerMgr.players) {
+      if (playerId === myPlayerId) continue;
+      if (this.network.getPlayerBotType(playerId) !== "local") continue;
+
+      const keySlot = this.network.getPlayerKeySlot(playerId);
+      if (keySlot < 0) continue;
+
+      const input: PlayerInput =
+        this.multiInput?.capture(keySlot) ?? {
+          buttonA: false,
+          buttonB: false,
+          timestamp: nowMs,
+          clientTimeMs: nowMs,
+        };
+
+      this.network.sendInput(
+        {
+          ...input,
+          timestamp: nowMs,
+          clientTimeMs: nowMs,
+        },
+        playerId,
+      );
+
+      if (this.multiInput?.consumeDash(keySlot)) {
+        this.network.sendDashRequest(playerId);
+      }
+    }
   }
 
   private playGameSoundLocal(type: string): void {
@@ -615,6 +675,7 @@ export class Game {
       nowMs: this.networkSync.hostSimTimeMs,
       phase: this.flowMgr.phase,
       countdown: this.flowMgr.countdown,
+      showMapElements: this.showMapElements,
       isDevModeEnabled: this.isDevModeEnabled(),
       playerPowerUps: this.playerPowerUps,
       players: this.playerMgr.players,
@@ -880,6 +941,18 @@ export class Game {
     this.network.setCustomName(name);
   }
 
+  setMapElementsVisible(visible: boolean): void {
+    this.showMapElements = visible;
+  }
+
+  setSessionMode(mode: "online" | "local"): void {
+    this.network.setTransportMode(mode);
+  }
+
+  getSessionMode(): "online" | "local" {
+    return this.network.getTransportMode();
+  }
+
   isPlayerBot(playerId: string): boolean {
     return this.botMgr.isPlayerBot(playerId);
   }
@@ -1030,5 +1103,12 @@ export class Game {
 
   clearTouchLayout(): void {
     this.botMgr.clearTouchLayout();
+  }
+
+  consumeLastTransportErrorMessage(): string | null {
+    const message = this.lastTransportErrorMessage;
+    this.lastTransportErrorCode = null;
+    this.lastTransportErrorMessage = null;
+    return message;
   }
 }

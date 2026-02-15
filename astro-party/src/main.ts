@@ -138,6 +138,7 @@ async function init(): Promise<void> {
   if (window.__ROOM_CODE__) {
     console.log("[Main] Platform injected room code:", window.__ROOM_CODE__);
     try {
+      game.setSessionMode("online");
       const success = await game.joinRoom(window.__ROOM_CODE__);
       if (success) {
         if (window.__PLAYER_NAME__) {

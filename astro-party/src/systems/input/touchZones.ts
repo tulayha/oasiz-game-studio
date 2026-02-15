@@ -100,7 +100,7 @@ export class TouchZoneManager {
       slot,
       button: "A",
       label: "ROTATE",
-      sublabel: "double-tap: dash",
+      sublabel: "double-tap: dodge",
       color,
       style: {
         left: "20px",
@@ -164,7 +164,7 @@ export class TouchZoneManager {
       slot: leftSlot,
       button: "A",
       label: "ROT",
-      sublabel: "2x: dash",
+      sublabel: "2x: dodge",
       color: leftColor,
       style: {
         left: `${inset}px`,
@@ -208,7 +208,7 @@ export class TouchZoneManager {
       slot: rightSlot,
       button: "A",
       label: "ROT",
-      sublabel: "2x: dash",
+      sublabel: "2x: dodge",
       color: rightColor,
       style: {
         right: `${inset}px`,

@@ -46,6 +46,7 @@ export function createScreenController(
 
   function showScreen(screen: Screen): void {
     activeScreen = screen;
+    game.setMapElementsVisible(screen === "lobby" || screen === "game");
     elements.startScreen.classList.toggle("hidden", screen !== "start");
     elements.lobbyScreen.classList.toggle("hidden", screen !== "lobby");
     elements.gameEndScreen.classList.toggle("hidden", screen !== "end");

@@ -19,6 +19,8 @@ export const PLAYER_COLORS = [
 
 export const SHIP_RADIUS = 18;
 export const SHIP_HIT_RADIUS = 25;
+export const SHIP_DODGE_COOLDOWN_MS = 320;
+export const SHIP_DODGE_ANGLE_DEG = 80;
 
 // ============= FIRE / AMMO =============
 
@@ -194,7 +196,7 @@ export const SANE_CONFIG: ActiveConfig = {
   ROTATION_SPEED: 3.0,
   ROTATION_THRUST_BONUS: 0.00004,
   RECOIL_FORCE: 0.00015,
-  DASH_FORCE: 0.006,
+  DASH_FORCE: 0.012,
   SHIP_FRICTION_AIR: 0.003,
   SHIP_RESTITUTION: 0.5,
 };

@@ -399,6 +399,15 @@ export class AstroPartySimulation implements SimState {
   }
 
   removeSession(sessionId: string): void {
+    const localPlayerIds = [...this.players.values()]
+      .filter(
+        (player) => player.botType === "local" && player.sessionId === sessionId,
+      )
+      .map((player) => player.id);
+    for (const localPlayerId of localPlayerIds) {
+      this.removePlayerById(localPlayerId);
+    }
+
     const playerId = this.humanBySession.get(sessionId);
     if (!playerId) return;
     this.humanBySession.delete(sessionId);
@@ -423,17 +432,11 @@ export class AstroPartySimulation implements SimState {
       clientTimeMs?: number;
     },
   ): void {
-    const player = this.getHuman(sessionId);
+    const player = this.resolveControlledPlayer(
+      sessionId,
+      payload.controlledPlayerId,
+    );
     if (!player) return;
-
-    if (payload.controlledPlayerId && payload.controlledPlayerId !== player.id) {
-      this.hooks.onError(
-        sessionId,
-        "LOCAL_PLAYER_UNSUPPORTED",
-        "Local player control is deferred in this version",
-      );
-      return;
-    }
 
     player.input.buttonA = Boolean(payload.buttonA);
     this.setFireButtonState(player, Boolean(payload.buttonB));
@@ -442,16 +445,11 @@ export class AstroPartySimulation implements SimState {
   }
 
   queueDash(sessionId: string, payload: { controlledPlayerId?: string }): void {
-    const player = this.getHuman(sessionId);
+    const player = this.resolveControlledPlayer(
+      sessionId,
+      payload.controlledPlayerId,
+    );
     if (!player) return;
-    if (payload.controlledPlayerId && payload.controlledPlayerId !== player.id) {
-      this.hooks.onError(
-        sessionId,
-        "LOCAL_PLAYER_UNSUPPORTED",
-        "Local player control is deferred in this version",
-      );
-      return;
-    }
     player.dashQueued = true;
   }
 
@@ -563,12 +561,38 @@ export class AstroPartySimulation implements SimState {
     this.syncPlayers();
   }
 
-  addLocalPlayer(sessionId: string): void {
-    this.hooks.onError(
+  addLocalPlayer(sessionId: string, keySlot?: number): void {
+    if (!this.ensureLeader(sessionId)) return;
+    if (this.phase !== "LOBBY") {
+      this.hooks.onError(
+        sessionId,
+        "INVALID_PHASE",
+        "Local players can only be added in lobby",
+      );
+      return;
+    }
+    if (this.playerOrder.length >= this.maxPlayers) {
+      this.hooks.onError(sessionId, "ROOM_FULL", "Room is full");
+      return;
+    }
+
+    const normalizedKeySlot = this.resolveLocalKeySlot(sessionId, keySlot);
+    if (normalizedKeySlot < 0) return;
+
+    const id = "local_" + (++this.botCounter).toString();
+    const allocation = this.identityAllocator.allocateBot(id, "local");
+    const player = this.createPlayer(
+      id,
       sessionId,
-      "LOCAL_PLAYER_UNSUPPORTED",
-      "Local players are deferred and not available in this version",
+      allocation.displayName,
+      true,
+      "local",
+      allocation.colorIndex,
     );
+    player.keySlot = normalizedKeySlot;
+    this.players.set(id, player);
+    this.playerOrder.push(id);
+    this.syncPlayers();
   }
 
   setDevMode(sessionId: string, enabled: boolean): void {
@@ -1705,6 +1729,69 @@ export class AstroPartySimulation implements SimState {
     return this.players.get(playerId) ?? null;
   }
 
+  private resolveControlledPlayer(
+    sessionId: string,
+    controlledPlayerId?: string,
+  ): RuntimePlayer | null {
+    const human = this.getHuman(sessionId);
+    if (!human) return null;
+
+    if (!controlledPlayerId || controlledPlayerId === human.id) {
+      return human;
+    }
+
+    const target = this.players.get(controlledPlayerId);
+    if (!target) {
+      this.hooks.onError(sessionId, "NOT_FOUND", "Controlled player not found");
+      return null;
+    }
+
+    if (target.botType !== "local" || target.sessionId !== sessionId) {
+      this.hooks.onError(
+        sessionId,
+        "LOCAL_PLAYER_UNSUPPORTED",
+        "Controlled player is not available for this session",
+      );
+      return null;
+    }
+
+    return target;
+  }
+
+  private resolveLocalKeySlot(sessionId: string, keySlot?: number): number {
+    const preferred =
+      Number.isInteger(keySlot) && (keySlot as number) > 0
+        ? (keySlot as number)
+        : undefined;
+
+    if (preferred !== undefined) {
+      const inUse = [...this.players.values()].some(
+        (player) =>
+          player.botType === "local" &&
+          player.sessionId === sessionId &&
+          player.keySlot === preferred,
+      );
+      if (inUse) {
+        this.hooks.onError(sessionId, "KEY_SLOT_IN_USE", "Key slot already in use");
+        return -1;
+      }
+      return preferred;
+    }
+
+    for (let slot = 1; slot <= 6; slot += 1) {
+      const inUse = [...this.players.values()].some(
+        (player) =>
+          player.botType === "local" &&
+          player.sessionId === sessionId &&
+          player.keySlot === slot,
+      );
+      if (!inUse) return slot;
+    }
+
+    this.hooks.onError(sessionId, "KEY_SLOT_IN_USE", "No local key slots available");
+    return -1;
+  }
+
   private sanitizeName(raw?: string): string | null {
     if (!raw) return null;
     const out = raw.trim().slice(0, 20);
@@ -1776,7 +1863,10 @@ export class AstroPartySimulation implements SimState {
         clientTimeMs: this.nowMs,
       };
       player.dashQueued = false;
+      player.lastShipDashAtMs = this.nowMs - 1000;
       player.dashTimerSec = 0;
+      player.dashVectorX = 0;
+      player.dashVectorY = 0;
       player.recoilTimerSec = 0;
       player.angularVelocity = 0;
       player.botThinkAtMs = 0;
@@ -1841,7 +1931,10 @@ export class AstroPartySimulation implements SimState {
       fireButtonHeld: false,
       fireRequested: false,
       firePressStartMs: 0,
+      lastShipDashAtMs: -1000,
       dashTimerSec: 0,
+      dashVectorX: 0,
+      dashVectorY: 0,
       recoilTimerSec: 0,
       angularVelocity: 0,
       ship: {

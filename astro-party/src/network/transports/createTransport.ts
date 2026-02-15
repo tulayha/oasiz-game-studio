@@ -1,8 +1,13 @@
 import { ColyseusTransport } from "./ColyseusTransport";
+import { LocalSharedSimTransport } from "./LocalSharedSimTransport";
 import type { NetworkTransport } from "./NetworkTransport";
 
-export function createTransport(): NetworkTransport {
-  // Current runtime is Colyseus-only. Local mode will plug in a shared-sim transport.
+export type TransportMode = "online" | "local";
+
+export function createTransport(mode: TransportMode = "online"): NetworkTransport {
+  if (mode === "local") {
+    return new LocalSharedSimTransport();
+  }
   return new ColyseusTransport();
 }
 

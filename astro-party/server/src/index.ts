@@ -72,7 +72,8 @@ app.post("/match/join", async (req, res) => {
         ? normalizeRoomCode(req.body.roomCode)
         : "";
     if (code.length < roomCodeLength) {
-      res.status(400).json({
+      res.json({
+        ok: false,
         error: "INVALID_CODE",
         message: "Room code is invalid",
       });
@@ -81,7 +82,8 @@ app.post("/match/join", async (req, res) => {
 
     const roomId = getRoomIdByCode(code);
     if (!roomId) {
-      res.status(404).json({
+      res.json({
+        ok: false,
         error: "NOT_FOUND",
         message: "Room not found",
       });
@@ -95,6 +97,7 @@ app.post("/match/join", async (req, res) => {
     });
 
     res.json({
+      ok: true,
       roomCode: code,
       roomId,
       seatReservation,
