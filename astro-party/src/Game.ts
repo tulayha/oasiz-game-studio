@@ -588,6 +588,12 @@ export class Game {
       onMapIdReceived: (mapId) => {
         const nextMapId = mapId as MapId;
         if (nextMapId === this.selectedMapId) return;
+        console.log(
+          "[Game] Received map update from network. prev=" +
+            this.selectedMapId.toString() +
+            ", next=" +
+            nextMapId.toString(),
+        );
         this.selectedMapId = nextMapId;
         this._onMapChange?.(nextMapId);
       },
@@ -1158,8 +1164,15 @@ export class Game {
       this.networkSync.getRenderState(this.network.getMyPlayerId(), this.latencyMs);
     if (
       !this.network.isSimulationAuthority() &&
+      this.flowMgr.phase === "PLAYING" &&
       this.selectedMapId !== frameRenderState.networkMapId
     ) {
+      console.log(
+        "[Game] Syncing map from gameplay snapshot. prev=" +
+          this.selectedMapId.toString() +
+          ", snapshot=" +
+          frameRenderState.networkMapId.toString(),
+      );
       this.selectedMapId = frameRenderState.networkMapId;
       this._onMapChange?.(this.selectedMapId);
     }
@@ -1375,13 +1388,36 @@ export class Game {
   }
 
   setMap(mapId: MapId, source: "local" | "remote" = "local"): void {
-    if (source === "local" && !this.isLeader()) return;
-    if (this.flowMgr.phase !== "LOBBY") return;
-    if (this.selectedMapId === mapId) return;
+    console.log(
+      "[Game] setMap requested. source=" +
+        source +
+        ", mapId=" +
+        mapId.toString() +
+        ", current=" +
+        this.selectedMapId.toString() +
+        ", phase=" +
+        this.flowMgr.phase +
+        ", isLeader=" +
+        this.isLeader().toString(),
+    );
+    if (source === "local" && !this.isLeader()) {
+      console.log("[Game] setMap ignored: local player is not leader");
+      return;
+    }
+    if (this.flowMgr.phase !== "LOBBY") {
+      console.log("[Game] setMap ignored: phase is not LOBBY");
+      return;
+    }
+    if (this.selectedMapId === mapId) {
+      console.log("[Game] setMap ignored: map already selected");
+      return;
+    }
     this.selectedMapId = mapId;
     if (source === "local" && this.isLeader()) {
+      console.log("[Game] setMap sending to network: " + mapId.toString());
       this.network.setMap(mapId);
     }
+    console.log("[Game] setMap applied locally: " + mapId.toString());
     this._onMapChange?.(mapId);
   }
 

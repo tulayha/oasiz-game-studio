@@ -244,6 +244,16 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     mapId: MapId,
     source: "local" | "remote" = "local",
   ): void {
+    console.log(
+      "[LobbyUI] setMapUI source=" +
+        source +
+        " mapId=" +
+        mapId.toString() +
+        " gameMapId=" +
+        game.getMapId().toString() +
+        " isLeader=" +
+        game.isLeader().toString(),
+    );
     elements.mapBtn0.classList.toggle("active", mapId === 0);
     elements.mapBtn1.classList.toggle("active", mapId === 1);
     elements.mapBtn2.classList.toggle("active", mapId === 2);
@@ -376,29 +386,37 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     setModeUI("SANE");
   });
 
-  elements.mapBtn0.addEventListener("click", () => {
+  function handleMapButtonClick(mapId: MapId): void {
     triggerHaptic("light");
-    setMapUI(0, "local");
+    console.log(
+      "[LobbyUI] map button clicked mapId=" +
+        mapId.toString() +
+        " isLeader=" +
+        game.isLeader().toString() +
+        " phase=" +
+        game.getPhase(),
+    );
+    setMapUI(mapId, "local");
+  }
+
+  elements.mapBtn0.addEventListener("click", () => {
+    handleMapButtonClick(0);
   });
 
   elements.mapBtn1.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(1, "local");
+    handleMapButtonClick(1);
   });
 
   elements.mapBtn2.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(2, "local");
+    handleMapButtonClick(2);
   });
 
   elements.mapBtn3.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(3, "local");
+    handleMapButtonClick(3);
   });
 
   elements.mapBtn4.addEventListener("click", () => {
-    triggerHaptic("light");
-    setMapUI(4, "local");
+    handleMapButtonClick(4);
   });
 
   elements.leaveLobbyBtn.addEventListener("click", async () => {
