@@ -15,7 +15,45 @@
 
 <body>
     <div id="app">
-        <div id="game-container"></div>
+        <div id="game-container">
+            <!-- HTML Settings Button -->
+            <button id="settingsBtn" class="hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
+            <!-- HTML Settings Panel (for iOS webview compatibility) -->
+            <div id="settingsPanel" class="settings-panel hidden">
+                <div class="settings-backdrop" id="settingsBackdrop"></div>
+                <div class="settings-sheet">
+                    <div class="settings-header">
+                        <h2>SETTINGS</h2>
+                    </div>
+                    <div class="settings-content">
+                        <div class="settings-row">
+                            <label>MUSIC ENABLE</label>
+                            <div class="toggle-switch" id="toggleMusic" data-key="golf_settings_music">
+                                <span class="toggle-text">ON</span>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <label>AUDIO FX</label>
+                            <div class="toggle-switch" id="toggleFx" data-key="golf_settings_fx">
+                                <span class="toggle-text">ON</span>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <label>HAPTICS</label>
+                            <div class="toggle-switch" id="toggleHaptics" data-key="golf_settings_haptics">
+                                <span class="toggle-text">ON</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="settings-back-btn" id="settingsBackBtn">BACK</button>
+                </div>
+            </div>
+        </div>
         <!-- Force Font Load -->
         <div style="font-family:'Press Start 2P'; opacity:0; position:absolute; pointer-events:none;">.</div>
         <div style="font-family:'VT323'; opacity:0; position:absolute; pointer-events:none;">.</div>

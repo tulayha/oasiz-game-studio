@@ -1,0 +1,81 @@
+/**
+ * DOWNWELL - Configuration
+ * 
+ * Shared game configuration constants.
+ */
+
+export const CONFIG = {
+  // Internal resolution (scaled to viewport)
+  INTERNAL_WIDTH: 448,
+  INTERNAL_HEIGHT: 640,
+  
+  // Well structure
+  WALL_WIDTH: 32,           // Minimum wall thickness (1 block, always present)
+  WALL_BLOCK_SIZE: 32,      // Size of wall blocks
+  WALL_MIN_BLOCKS: 2,       // Minimum wall blocks from edge (always present)
+  WALL_MAX_BLOCKS: 4,       // Maximum wall protrusion in blocks at cluster peaks
+  WALL_CLUSTERS_MIN: 2,     // Min organic clusters per side per chunk
+  WALL_CLUSTERS_MAX: 4,     // Max organic clusters per side per chunk
+  PLATFORM_HEIGHT: 16,
+  MIN_PLATFORM_WIDTH: 40,
+  MAX_PLATFORM_WIDTH: 120,
+  
+  // Downwell-style floor generation
+  GAP_MIN_BLOCKS: 2,        // Minimum gap width in blocks
+  GAP_MAX_BLOCKS: 3,        // Maximum gap width in blocks
+  FULL_FLOOR_CHANCE: 0.15,  // Chance of a floor with no pre-made gap (must shoot through)
+  
+  // Player
+  PLAYER_WIDTH: 20,
+  PLAYER_HEIGHT: 28,
+  PLAYER_SPEED: 4,
+  PLAYER_GRAVITY: 0.5,
+  PLAYER_JUMP_FORCE: -10,
+  PLAYER_MAX_FALL_SPEED: 10,
+  PLAYER_RECOIL: -24,
+  PLAYER_BOUNCE_FORCE: -8,
+  PLAYER_MAX_HP: 4,
+  PLAYER_MAX_AMMO: 8,
+  
+  // Shooting
+  BULLET_SPEED: 12,
+  BULLET_WIDTH: 6,
+  BULLET_HEIGHT: 12,
+  SHOOT_COOLDOWN: 8,
+  BULLETS_PER_SHOT: 1,
+  BULLET_SPREAD: 15,
+  
+  // Enemies
+  ENEMY_BASE_HP: 1,
+  ENEMY_SPEED_STATIC: 0,
+  ENEMY_SPEED_HORIZONTAL: 2,
+  ENEMY_SPEED_EXPLODER: 1,
+  
+  // Level generation
+  CHUNK_HEIGHT: 640,
+  PLATFORMS_PER_CHUNK: 6,
+  ENEMIES_PER_CHUNK: 4,
+  GEMS_PER_CHUNK: 3,
+  SAFE_PATH_WIDTH: 80,
+  
+  // Combo system
+  COMBO_TIMEOUT: 120, // frames (2 seconds at 60fps)
+  COMBO_MULTIPLIER_MAX: 10,
+  
+  // Scoring
+  SCORE_PER_ENEMY: 10,
+  SCORE_PER_GEM: 5,
+  SCORE_PER_DEPTH: 1,
+  
+  // Camera
+  CAMERA_LOOKAHEAD: 100,
+  CAMERA_SMOOTHING: 0.1,
+  
+  // Dithering
+  DITHER_PIXEL_SIZE: 2,      // Size of dither pixels (1 = full res, 2 = chunky, 3+ = very chunky)
+  DITHER_STRENGTH: 0,      // Strength of dither effect (0.0 = no dither, 1.0 = full dither)
+  
+  // Powerups
+  POWERUP_SPAWN_DEPTH_INTERVAL: 100,  // Spawn powerup every N meters
+  POWERUP_DURATION_FRAMES: 600,       // Powerup duration (frames, 600 = 10 seconds at 60fps)
+};

@@ -727,6 +727,8 @@ class AudioManager {
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private initialized = false;
+  private bgMusic: HTMLAudioElement | null = null;
+  private bgMusicLoaded = false;
   settings: Settings;
 
   constructor(settings: Settings) {
@@ -756,8 +758,60 @@ class AudioManager {
 
       this.initialized = true;
       console.log("[AudioManager.init] Audio context initialized");
+
+      // Load background music
+      this.loadBgMusic();
     } catch (e) {
       console.warn("[AudioManager.init] Failed:", e);
+    }
+  }
+
+  private loadBgMusic(): void {
+    if (this.bgMusic) return;
+    try {
+      this.bgMusic = new Audio("/music.ogg");
+      this.bgMusic.loop = true;
+      this.bgMusic.volume = 0.25;
+      this.bgMusic.preload = "auto";
+      this.bgMusic.addEventListener("canplaythrough", () => {
+        this.bgMusicLoaded = true;
+        console.log("[AudioManager] Background music loaded");
+      });
+      this.bgMusic.addEventListener("error", (e) => {
+        console.warn("[AudioManager] Failed to load background music:", e);
+      });
+    } catch (e) {
+      console.warn("[AudioManager] Error creating bgMusic element:", e);
+    }
+  }
+
+  startMusic(): void {
+    if (!this.bgMusic || !this.settings.music) return;
+    this.bgMusic.currentTime = 0;
+    this.bgMusic.volume = 0.25;
+    this.bgMusic.play().catch((e) => {
+      console.warn("[AudioManager.startMusic] Playback failed:", e);
+    });
+    console.log("[AudioManager] Music started");
+  }
+
+  stopMusic(): void {
+    if (!this.bgMusic) return;
+    this.bgMusic.pause();
+    this.bgMusic.currentTime = 0;
+    console.log("[AudioManager] Music stopped");
+  }
+
+  updateMusicState(): void {
+    if (!this.bgMusic) return;
+    if (this.settings.music) {
+      // If music setting is on and audio is paused, resume it
+      if (this.bgMusic.paused && this.bgMusicLoaded) {
+        this.bgMusic.play().catch(() => {});
+      }
+    } else {
+      // If music setting is off, pause
+      this.bgMusic.pause();
     }
   }
 
@@ -1631,6 +1685,9 @@ class PaperPlaneGame {
         this.settings[settingKey].toString(),
       );
       this.audio.triggerHaptic("light");
+      if (settingKey === "music") {
+        this.audio.updateMusicState();
+      }
     });
   }
 
@@ -1779,6 +1836,7 @@ class PaperPlaneGame {
     console.log("[startGame] Plane:", this.selectedPlane);
 
     this.audio.init();
+    this.audio.startMusic();
     this.gameState = "PLAYING";
 
     // Reset state...
@@ -1869,6 +1927,7 @@ class PaperPlaneGame {
   showStartScreen(): void {
     console.log("[showStartScreen]");
     this.gameState = "START";
+    this.audio.stopMusic();
 
     document.getElementById("startScreen")?.classList.remove("hidden");
     document.getElementById("gameOverScreen")?.classList.add("hidden");
@@ -1908,6 +1967,7 @@ class PaperPlaneGame {
     this.gameState = "GAME_OVER";
 
     this.audio.playGameOver();
+    this.audio.stopMusic();
     this.audio.triggerHaptic("error");
 
     // Submit total points score

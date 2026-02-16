@@ -1,0 +1,547 @@
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    color: rgba(255, 255, 255, 0.87);
+    background-color: #000000;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+#app {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#game-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+#game-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#ui-layer {
+    position: fixed;
+    inset: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#pause-menu,
+#character-select-menu,
+#skills-info-menu {
+    margin: auto;
+}
+
+.character-options-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.char-option-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 178px;
+    padding: 14px 10px;
+    gap: 12px;
+}
+
+.char-name {
+    font-size: 0.72rem;
+    text-align: center;
+    line-height: 1.2;
+    letter-spacing: 0.04em;
+}
+
+.char-sprite {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background-repeat: no-repeat;
+    background-position: 0 0;
+}
+
+.char-sprite-knight {
+    width: 49px;
+    height: 52px;
+    background-size: 593px 52px;
+    background-image: url("./assets/PlayerSprites/Hero03 Knight Idle-Sheet.png");
+    animation: char-idle-knight 0.8s steps(12) infinite;
+}
+
+.char-sprite-mage {
+    width: 46px;
+    height: 52px;
+    background-size: 557px 52px;
+    background-image: url("./assets/MagePlayer/Hero01 Mage Idle2x-Sheet.png");
+    animation: char-idle-mage 0.8s steps(12) infinite;
+}
+
+.char-sprite-archer {
+    width: 45px;
+    height: 51px;
+    background-size: 540px 51px;
+    background-image: url("./assets/ArcherPlayer/Hero02 Archer Idle-Sheet2x.png");
+    animation: char-idle-archer 0.8s steps(12) infinite;
+}
+
+.char-sprite-rogue {
+    width: 56px;
+    height: 46px;
+    background-size: 338px 46px;
+    background-image: url("./assets/RoguePlayer/Hero04 Rogue Idle2x-Sheet.png");
+    animation: char-idle-rogue 0.6s steps(6) infinite;
+}
+
+/* Character stats header in skill window */
+.char-stats-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 12px;
+    border: 3px solid #000000;
+    background: rgba(0, 0, 0, 0.92);
+    margin-bottom: 6px;
+}
+
+.char-stats-sprite-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 80px;
+    min-height: 80px;
+}
+
+.char-stats-sprite-wrap .char-sprite {
+    transform: scale(1.8);
+    transform-origin: center center;
+}
+
+.char-stats-grid {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 6px 18px;
+    flex: 1;
+    min-width: 0;
+}
+
+.char-stat-label {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.95rem;
+    color: #888899;
+    white-space: nowrap;
+    line-height: 1.8;
+}
+
+.char-stat-value {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.95rem;
+    font-weight: bold;
+    white-space: nowrap;
+    text-align: right;
+    line-height: 1.8;
+}
+
+.char-stat-value.stat-hp { color: #66dd77; }
+.char-stat-value.stat-damage { color: #ff8866; }
+.char-stat-value.stat-speed { color: #77aaff; }
+.char-stat-value.stat-crit { color: #ddcc55; }
+.char-stat-value.stat-defense { color: #77aaff; }
+.char-stat-value.stat-utility { color: #aaaacc; }
+
+/* Tab bar */
+.skill-tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 6px;
+}
+
+.skill-tab-btn {
+    flex: 1;
+    padding: 14px 0;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 0.9rem;
+    text-align: center;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: #666;
+    transition: color 0.15s, border-color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+.skill-tab-btn.active {
+    color: #00A1E4;
+    border-bottom-color: #00A1E4;
+}
+
+.skill-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.skill-info-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px;
+    border: 3px solid #000000;
+    background: rgba(0, 0, 0, 0.88);
+    box-shadow: inset -3px -3px 0 rgba(255, 255, 255, 0.08);
+}
+
+.skill-info-icon {
+    width: 56px;
+    height: 56px;
+    flex: 0 0 56px;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+.skill-info-text {
+    min-width: 0;
+}
+
+.skill-info-name {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 1.05rem;
+    color: #ffe08a;
+    line-height: 1.3;
+    margin-bottom: 6px;
+}
+
+.skill-info-desc {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.85rem;
+    color: #f3f4f6;
+    line-height: 1.5;
+}
+
+.skill-info-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    margin-left: auto;
+    flex: 0 0 auto;
+}
+
+.skill-upgrade-btn {
+    flex: 0 0 auto;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.8rem;
+    padding: 10px 14px;
+    border: 3px solid #000;
+    color: #fff;
+    background: #2d6b2e;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+.skill-upgrade-btn:hover { background: #3a8c3b; }
+.skill-upgrade-btn:active { transform: scale(0.95); }
+.skill-upgrade-btn.btn-disabled {
+    background: #444;
+    color: #888;
+    cursor: default;
+    pointer-events: none;
+}
+.skill-upgrade-btn.btn-maxed {
+    background: #4a3a1a;
+    color: #c8a22a;
+    cursor: default;
+    pointer-events: none;
+}
+
+.skill-level-badge {
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.66rem;
+    color: #c8a22a;
+    margin-top: 2px;
+    text-align: right;
+}
+
+/* Skill stat pills */
+.skill-stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.skill-stat-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-family: 'Press Start 2P', cursive;
+    font-size: 0.54rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.skill-stat-pill .stat-label {
+    opacity: 0.8;
+}
+
+.skill-stat-pill .stat-value {
+    font-weight: bold;
+}
+
+/* Stat type colors */
+.skill-stat-pill.stat-physical {
+    background: rgba(220, 80, 60, 0.25);
+    color: #ff8866;
+    border: 1px solid rgba(220, 80, 60, 0.4);
+}
+
+.skill-stat-pill.stat-skill {
+    background: rgba(80, 120, 220, 0.25);
+    color: #77aaff;
+    border: 1px solid rgba(80, 120, 220, 0.4);
+}
+
+.skill-stat-pill.stat-buff {
+    background: rgba(60, 180, 80, 0.25);
+    color: #66dd77;
+    border: 1px solid rgba(60, 180, 80, 0.4);
+}
+
+.skill-stat-pill.stat-debuff {
+    background: rgba(200, 160, 40, 0.25);
+    color: #ddcc55;
+    border: 1px solid rgba(200, 160, 40, 0.4);
+}
+
+.skill-stat-pill.stat-utility {
+    background: rgba(160, 160, 180, 0.2);
+    color: #aaaacc;
+    border: 1px solid rgba(160, 160, 180, 0.3);
+}
+
+@keyframes char-idle-knight {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        background-position: -593px 0;
+    }
+}
+
+@keyframes char-idle-mage {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        background-position: -557px 0;
+    }
+}
+
+@keyframes char-idle-archer {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        background-position: -540px 0;
+    }
+}
+
+@keyframes char-idle-rogue {
+    from {
+        background-position: 0 0;
+    }
+    to {
+        background-position: -338px 0;
+    }
+}
+
+body.force-landscape #app,
+body.force-landscape #ui-layer {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 100dvh;
+    height: 100dvw;
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center center;
+}
+
+@media (pointer: coarse) {
+    #game-container canvas {
+        width: auto !important;
+        height: auto !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
+    }
+
+    body.force-landscape #game-container canvas {
+        width: 100% !important;
+        height: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+    }
+
+    #pause-menu {
+        width: min(56vw, 260px) !important;
+        max-width: 260px !important;
+        padding: 4px !important;
+    }
+
+    #pause-menu .pixel-border {
+        padding: 14px !important;
+        gap: 12px !important;
+    }
+
+    #pause-menu h2 {
+        font-size: 1rem !important;
+        margin-bottom: 2px !important;
+    }
+
+    #pause-menu .pixel-button {
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
+    }
+
+    #pause-menu .pixel-button span,
+    #pause-menu button {
+        font-size: 0.62rem !important;
+    }
+
+    #character-select-menu {
+        width: min(98vw, 760px) !important;
+        max-width: min(98vw, 760px) !important;
+        padding: 6px !important;
+    }
+
+    #character-select-menu .pixel-border {
+        padding: 14px !important;
+        gap: 10px !important;
+    }
+
+    #character-select-menu h2 {
+        font-size: 0.95rem !important;
+        margin-bottom: 0 !important;
+    }
+
+    #character-select-menu .character-options-grid {
+        gap: 8px !important;
+    }
+
+    #character-select-menu .char-option-card {
+        min-height: 126px !important;
+        padding: 10px 6px !important;
+        gap: 8px !important;
+    }
+
+    #character-select-menu .char-name {
+        font-size: 0.5rem !important;
+    }
+
+    #character-select-menu #btn-char-cancel {
+        max-width: 240px !important;
+        width: 100% !important;
+    }
+
+    #skills-info-menu {
+        width: min(98vw, 760px) !important;
+        max-width: min(98vw, 760px) !important;
+        max-height: 88vh !important;
+        padding: 6px !important;
+    }
+
+    #skills-info-menu .pixel-border {
+        padding: 12px !important;
+        gap: 8px !important;
+        max-height: calc(88vh - 16px) !important;
+    }
+
+    #skills-info-menu h2 {
+        font-size: 0.95rem !important;
+        margin-bottom: 0 !important;
+    }
+
+    #skills-info-menu .skill-info-list {
+        gap: 8px !important;
+    }
+
+    #skills-info-menu .skill-info-row {
+        padding: 8px !important;
+        gap: 10px !important;
+    }
+
+    #skills-info-menu .skill-info-name {
+        font-size: 0.82rem !important;
+        margin-bottom: 4px !important;
+    }
+
+    #skills-info-menu .skill-info-desc {
+        font-size: 0.72rem !important;
+        line-height: 1.4 !important;
+    }
+
+    #skills-info-menu .char-stat-label {
+        font-size: 0.75rem !important;
+    }
+
+    #skills-info-menu .char-stat-value {
+        font-size: 0.75rem !important;
+    }
+
+    #skills-info-menu .skill-upgrade-btn {
+        font-size: 0.7rem !important;
+        padding: 8px 10px !important;
+    }
+
+    #skills-info-menu #btn-skillinfo-close {
+        max-width: 240px !important;
+        width: 100% !important;
+    }
+
+    body.force-landscape #pause-menu,
+    body.force-landscape #character-select-menu,
+    body.force-landscape #skills-info-menu {
+        width: min(96vh, 760px) !important;
+        max-width: min(96vh, 760px) !important;
+    }
+
+    body.force-landscape #skills-info-menu {
+        max-height: 90vw !important;
+    }
+
+    body.force-landscape #skills-info-menu .pixel-border {
+        max-height: calc(90vw - 16px) !important;
+    }
+
+    body.force-landscape #pause-menu {
+        width: min(52vh, 260px) !important;
+        max-width: min(52vh, 260px) !important;
+    }
+}

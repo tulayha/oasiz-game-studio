@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Downwell</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #0a2a50;
+            font-family: 'Press Start 2P', cursive;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-overflow-scrolling: touch;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        #game-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0a2a50;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        /* Overlays */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            pointer-events: none;
+            background: transparent;
+        }
+
+        .overlay.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .overlay:not(.hidden) {
+            pointer-events: auto;
+        }
+
+        .content {
+            text-align: center;
+            padding: 40px;
+            max-width: 90%;
+        }
+
+        /* Title */
+        .title-wrapper {
+            position: relative;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .game-title {
+            font-size: 2.5rem;
+            font-weight: 400;
+            color: #e0f0ff;
+            margin-bottom: 0;
+            text-shadow: 0 0 20px rgba(80, 180, 255, 0.6),
+                         0 4px 0 #1a5080;
+            letter-spacing: 4px;
+            line-height: 1.6;
+        }
+
+        .title-weed {
+            position: absolute;
+            width: 48px;
+            height: 48px;
+            image-rendering: pixelated;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .title-weed img {
+            image-rendering: pixelated;
+            position: absolute;
+        }
+
+        .title-weed.weed-left {
+            left: -28px;
+            bottom: -10px;
+        }
+
+        .title-weed.weed-right {
+            right: -28px;
+            bottom: -10px;
+        }
+
+        .title-weed.weed-right img {
+            transform: scaleX(-1);
+        }
+
+        .title-weed.weed-top {
+            left: 50%;
+            top: -40px;
+            transform: translateX(-50%);
+        }
+
+        .subtitle {
+            font-size: 0.65rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 40px;
+            line-height: 2;
+        }
+
+        .controls-hint {
+            font-size: 0.5rem;
+            color: rgba(255, 255, 255, 0.4);
+            margin-top: 30px;
+            line-height: 2;
+        }
+
+        /* Buttons */
+        .btn {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 16px 40px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            margin: 8px;
+            border: 3px solid #fff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .btn:hover {
+            background: #000;
+            color: #fff;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Settings Button */
+        #settings-btn {
+            position: absolute;
+            top: 45px;
+            right: 16px;
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            z-index: 15;
+        }
+
+        #settings-btn.hidden {
+            display: none;
+        }
+
+        #settings-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: rotate(15deg);
+        }
+
+        #settings-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: #fff;
+        }
+
+        /* Game Over Screen */
+        .game-over-title {
+            font-size: 1.8rem;
+            font-weight: 400;
+            color: #f44;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(255, 68, 68, 0.5);
+        }
+
+        .final-score-container {
+            margin: 30px 0;
+        }
+
+        .final-score-label {
+            font-size: 0.6rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 12px;
+        }
+
+        .final-score {
+            font-size: 2.5rem;
+            font-weight: 400;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
+        .final-depth {
+            font-size: 0.8rem;
+            color: #0ff;
+            margin-top: 16px;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+        }
+
+        /* Settings Modal */
+        .settings-modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #0e2e55;
+            border-radius: 8px;
+            border: 3px solid rgba(100, 180, 255, 0.5);
+            padding: 30px 40px;
+            z-index: 100;
+            min-width: 300px;
+        }
+
+        .settings-modal.hidden {
+            display: none;
+        }
+
+        .settings-title {
+            font-size: 1rem;
+            font-weight: 400;
+            color: #fff;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .settings-row:last-of-type {
+            border-bottom: none;
+        }
+
+        .settings-label {
+            font-size: 0.6rem;
+            color: rgba(255, 255, 255, 0.8);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .settings-label svg {
+            width: 16px;
+            height: 16px;
+            fill: #fff;
+        }
+
+        .toggle {
+            width: 50px;
+            height: 28px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 14px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .toggle.active {
+            background: #0f0;
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s ease;
+        }
+
+        .toggle.active::after {
+            transform: translateX(22px);
+        }
+
+        .settings-close {
+            margin-top: 24px;
+            width: 100%;
+        }
+
+        /* HUD */
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 16px;
+            z-index: 5;
+            pointer-events: none;
+            display: none;
+        }
+
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding-top: 45px;
+        }
+
+        .hud-left {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .hud-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+
+        #score {
+            color: #fff;
+            font-size: 1rem;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+        }
+
+        #depth {
+            color: #0ff;
+            font-size: 0.7rem;
+            text-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+        }
+
+        /* Vertical HP Bubble Container (left side) */
+        #hp-bar {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 14px;
+            height: 180px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-evenly;
+            align-items: center;
+            z-index: 5;
+        }
+
+        #hp-bar.hidden {
+            display: none;
+        }
+
+        .hp-bubble {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, rgba(200, 240, 255, 0.6), rgba(100, 200, 255, 0.25) 60%, rgba(60, 160, 220, 0.15));
+            border: 1.5px solid rgba(180, 230, 255, 0.6);
+            position: relative;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            box-shadow: 0 0 6px rgba(100, 200, 255, 0.3), inset 0 -2px 4px rgba(60, 140, 200, 0.15);
+        }
+
+        /* Bubble shine highlight */
+        .hp-bubble::before {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 4px;
+            width: 6px;
+            height: 5px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Secondary smaller shine */
+        .hp-bubble::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 10px;
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.45);
+        }
+
+        /* Popped bubble state */
+        .hp-bubble.popped {
+            transform: scale(1.6);
+            opacity: 0;
+            background: radial-gradient(circle, rgba(180, 230, 255, 0.2), transparent 70%);
+            border-color: transparent;
+            box-shadow: none;
+            transition: transform 0.35s ease-out, opacity 0.35s ease-out;
+        }
+
+        .hp-bubble.popped::before,
+        .hp-bubble.popped::after {
+            display: none;
+        }
+
+        /* Empty bubble slot (after pop animation finishes) */
+        .hp-bubble.empty {
+            opacity: 0.15;
+            transform: scale(0.5);
+            background: radial-gradient(circle at 35% 35%, rgba(150, 200, 220, 0.2), transparent 70%);
+            border: 1px dashed rgba(150, 200, 220, 0.25);
+            box-shadow: none;
+        }
+
+        .hp-bubble.empty::before,
+        .hp-bubble.empty::after {
+            display: none;
+        }
+
+        #hp {
+            display: none; /* Hidden, using vertical hp-bar instead */
+        }
+
+        #ammo {
+            display: none; /* Hidden, using vertical slider instead */
+        }
+
+        /* Vertical Ammo Slider */
+        #ammo-slider {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 180px;
+            background: linear-gradient(90deg, #111 0%, #1a1a1a 40%, #0d0d0d 100%);
+            border: 2px solid #b00;
+            border-radius: 8px;
+            z-index: 5;
+            overflow: visible;
+            box-shadow:
+                inset 0 2px 4px rgba(0, 0, 0, 0.6),
+                inset 0 -2px 4px rgba(0, 0, 0, 0.4),
+                0 0 6px rgba(180, 0, 0, 0.3),
+                0 1px 2px rgba(0, 0, 0, 0.5);
+            /* Position is dynamically set by JS to center between wall and screen edge */
+        }
+
+        #ammo-slider-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: linear-gradient(90deg, #ddd 0%, #fff 45%, #ccc 100%);
+            border-radius: 0 0 6px 6px;
+            transition: height 0.1s ease;
+            box-shadow: 0 -2px 6px rgba(255, 255, 255, 0.3);
+        }
+
+        /* Full fill gets top rounding too */
+        #ammo-slider-fill[style*="height: 100%"],
+        #ammo-slider-fill[style*="height:100%"] {
+            border-radius: 6px;
+        }
+
+        #ammo-slider-segments {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .ammo-segment {
+            flex: 1;
+            border-bottom: 1.5px solid rgba(180, 0, 0, 0.5);
+        }
+
+        .ammo-segment:last-child {
+            border-bottom: none;
+        }
+
+        /* Beveled top cap */
+        #ammo-slider::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(180deg, rgba(255, 100, 100, 0.25), transparent);
+            border-radius: 6px 6px 0 0;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        /* Triangle indicator at bottom */
+        #ammo-slider::after {
+            content: '';
+            position: absolute;
+            bottom: -14px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 9px solid transparent;
+            border-right: 9px solid transparent;
+            border-top: 11px solid #b00;
+            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+            z-index: 2;
+        }
+
+        #ammo-slider.hidden {
+            display: none;
+        }
+
+        #combo {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0;
+            font-size: 1rem;
+            text-shadow: 0 0 20px rgba(255, 255, 0, 0.8);
+            transition: opacity 0.3s ease;
+            opacity: 0;
+        }
+
+
+        /* Mobile adjustments */
+        @media (pointer: coarse) {
+            .game-title {
+                font-size: 1.8rem;
+            }
+            .subtitle {
+                font-size: 0.55rem;
+            }
+            .content {
+                padding: 28px;
+            }
+            .btn {
+                padding: 14px 32px;
+                font-size: 0.6rem;
+            }
+            #settings-btn {
+                top: 120px;
+            }
+            .hud-top {
+                padding-top: 120px;
+            }
+            #score {
+                font-size: 0.9rem;
+            }
+            #depth {
+                font-size: 0.6rem;
+            }
+            #hp {
+                font-size: 0.55rem;
+            }
+            #ammo {
+                font-size: 0.45rem;
+            }
+            #combo {
+                font-size: 0.75rem;
+            }
+        }
+
+        /* Small screens */
+        @media (max-width: 400px) {
+            .game-title {
+                font-size: 1.4rem;
+            }
+            .settings-modal {
+                min-width: 260px;
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+
+        <!-- HUD -->
+        <div id="hud">
+            <div class="hud-top">
+                <div class="hud-left">
+                    <div id="score">0</div>
+                    <div id="depth">0m</div>
+                </div>
+                <div class="hud-right">
+                    <div id="hp"></div>
+                    <div id="ammo">AMMO: ●●●●●●●●</div>
+                </div>
+            </div>
+            <div id="combo">x1</div>
+        </div>
+
+        <!-- Vertical Ammo Slider -->
+        <div id="ammo-slider" class="hidden">
+            <div id="ammo-slider-fill"></div>
+            <div id="ammo-slider-segments">
+                <div class="ammo-segment"></div>
+                <div class="ammo-segment"></div>
+                <div class="ammo-segment"></div>
+                <div class="ammo-segment"></div>
+                <div class="ammo-segment"></div>
+                <div class="ammo-segment"></div>
+                <div class="ammo-segment"></div>
+                <div class="ammo-segment"></div>
+            </div>
+        </div>
+
+        <!-- Vertical HP Bubble Bar (left side) -->
+        <div id="hp-bar" class="hidden">
+            <div class="hp-bubble" data-hp="3"></div>
+            <div class="hp-bubble" data-hp="2"></div>
+            <div class="hp-bubble" data-hp="1"></div>
+            <div class="hp-bubble" data-hp="0"></div>
+        </div>
+
+        <!-- Settings Button -->
+        <button id="settings-btn" class="hidden">
+            <svg viewBox="0 0 24 24">
+                <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+            </svg>
+        </button>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="overlay">
+            <div class="content">
+                <div class="title-wrapper">
+                    <h1 class="game-title">Abyssal<br>Fall</h1>
+                    <div class="title-weed weed-left">
+                        <canvas id="weed-canvas-left" width="48" height="48"></canvas>
+                    </div>
+                    <div class="title-weed weed-right">
+                        <canvas id="weed-canvas-right" width="48" height="48"></canvas>
+                    </div>
+                    <div class="title-weed weed-top">
+                        <canvas id="weed-canvas-top" width="48" height="48"></canvas>
+                    </div>
+                </div>
+                <p class="subtitle">
+                    Descend into the deep ocean<br>
+                    Shoot creatures below you<br>
+                    Bounce on heads to combo<br>
+                    Survive as deep as you can
+                </p>
+                <button class="btn" id="start-btn">START</button>
+                <p class="controls-hint">
+                    Touch left/right to move<br>
+                    Touch center to shoot down
+                </p>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="overlay hidden">
+            <div class="content">
+                <h1 class="game-over-title">GAME OVER</h1>
+                <div class="final-score-container">
+                    <div class="final-score-label">FINAL SCORE</div>
+                    <div class="final-score" id="final-score">0</div>
+                    <div class="final-depth" id="final-depth">Depth: 0m</div>
+                </div>
+                <button class="btn" id="restart-btn">RESTART</button>
+            </div>
+        </div>
+
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="settings-modal hidden">
+            <div class="settings-title">SETTINGS</div>
+            <div class="settings-row">
+                <div class="settings-label">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                    </svg>
+                    Music
+                </div>
+                <div class="toggle active" id="toggle-music"></div>
+            </div>
+            <div class="settings-row">
+                <div class="settings-label">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                    </svg>
+                    FX
+                </div>
+                <div class="toggle active" id="toggle-fx"></div>
+            </div>
+            <div class="settings-row">
+                <div class="settings-label">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M0 15.998l.001-3.999.002-.017v-.02h-.002L0 11.98l.003-.015A.89.89 0 010 11.962V7.997c0-.553.45-1 .998-1h7.004c.553 0 1 .447 1 1v8c0 .553-.447 1-1 1H.998c-.552 0-.998-.447-.998-1zm2-6.999v5h5v-5H2zm16.5 8.5c.828 0 1.5-.672 1.5-1.5s-.672-1.5-1.5-1.5-1.5.672-1.5 1.5.672 1.5 1.5 1.5zm2.5-1.5c0 1.381-1.119 2.5-2.5 2.5s-2.5-1.119-2.5-2.5 1.119-2.5 2.5-2.5 2.5 1.119 2.5 2.5zm-5-8c.828 0 1.5-.672 1.5-1.5S16.828 5 16 5s-1.5.672-1.5 1.5.672 1.5 1.5 1.5zm2.5-1.5c0 1.381-1.119 2.5-2.5 2.5s-2.5-1.119-2.5-2.5S14.619 4 16 4s2.5 1.119 2.5 2.5zM13 15l6-9"/>
+                    </svg>
+                    Haptics
+                </div>
+                <div class="toggle active" id="toggle-haptics"></div>
+            </div>
+            <button class="btn settings-close" id="settings-close">CLOSE</button>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

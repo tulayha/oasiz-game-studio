@@ -3,6 +3,24 @@
 /* START OF COMPILED CODE */
 
 /* START-USER-IMPORTS */
+import {
+	getAllAnimDefs,
+	DAMAGE_IMPACT,
+	DAMAGE_KILL,
+	BALL_SPAWN,
+	DUPLICATE_SPLIT,
+	DASH_TRAIL,
+	LASER_IMPACT,
+	LASER_ACTIVATION,
+	ELECTRIC_CHAIN,
+	ELECTRIC_STRIKE,
+	ELECTRIC_ENDPOINT,
+	BOMB_EXPLOSION,
+	BOMB_SHOCKWAVE,
+	BOMB_SMOKE,
+	BOMB_PREFLASH,
+	BURST_FLASH,
+} from "../SpriteAnimConfig";
 /* END-USER-IMPORTS */
 
 export default class Scene extends Phaser.Scene {
@@ -377,6 +395,116 @@ export default class Scene extends Phaser.Scene {
 
 		// Initialize Audio
 		this.initAudio();
+
+		// Create sprite animations for skill effects
+		this.createSkillAnimations();
+	}
+
+	// ── Sprite Animation System ─────────────────────────────────────────
+
+	createSkillAnimations() {
+		const defs = getAllAnimDefs();
+		console.log("[Scene] Creating", defs.length, "sprite animations");
+
+		for (const def of defs) {
+			// Skip if animation already exists (e.g. shared keys)
+			if (this.anims.exists(def.key)) continue;
+
+			const frames: Phaser.Types.Animations.AnimationFrame[] = [];
+			for (let i = 0; i < def.frames; i++) {
+				frames.push({ key: def.key + "_" + i });
+			}
+
+			this.anims.create({
+				key: def.key,
+				frames: frames,
+				frameRate: def.fps,
+				repeat: 0,
+			});
+		}
+	}
+
+	/**
+	 * Play a one-shot sprite animation at a position, then auto-destroy.
+	 */
+	playEffect(animKey: string, x: number, y: number, scale: number = 2, depth: number = 60): Phaser.GameObjects.Sprite {
+		// Use first frame texture as the initial texture
+		const sprite = this.add.sprite(x, y, animKey + "_0");
+		sprite.setScale(scale);
+		sprite.setDepth(depth);
+		sprite.setBlendMode(Phaser.BlendModes.ADD);
+
+		sprite.play(animKey);
+		sprite.once("animationcomplete", () => {
+			sprite.destroy();
+		});
+
+		return sprite;
+	}
+
+	/**
+	 * Get the damage tier (0-3) based on current damage level.
+	 * Tier 0: Level 1-15, Tier 1: Level 16-30, Tier 2: Level 31-45, Tier 3: Level 46-60
+	 */
+	getDamageTier(): number {
+		if (this.damageLevel >= 46) return 3;
+		if (this.damageLevel >= 31) return 2;
+		if (this.damageLevel >= 16) return 1;
+		return 0;
+	}
+
+	/**
+	 * Get the duplicate tier (0-3) based on current duplicate level.
+	 * Tier 0: Level 1-5, Tier 1: Level 6-10, Tier 2: Level 11-15, Tier 3: Level 16-20
+	 */
+	getDuplicateTier(): number {
+		if (this.duplicateLevel >= 16) return 3;
+		if (this.duplicateLevel >= 11) return 2;
+		if (this.duplicateLevel >= 6) return 1;
+		return 0;
+	}
+
+	/**
+	 * Get the laser tier (0-2) based on current laser level.
+	 * Tier 0: Level 1-2, Tier 1: Level 3-4, Tier 2: Level 5-6
+	 */
+	getLaserTier(): number {
+		if (this.laserLevel >= 5) return 2;
+		if (this.laserLevel >= 3) return 1;
+		return 0;
+	}
+
+	/**
+	 * Get the electric tier (0-2) based on current electric level.
+	 * Tier 0: Level 1-2, Tier 1: Level 3-4, Tier 2: Level 5
+	 */
+	getElectricTier(): number {
+		if (this.electricLevel >= 5) return 2;
+		if (this.electricLevel >= 3) return 1;
+		return 0;
+	}
+
+	/**
+	 * Get the bomb tier (0-2) based on current bomb level.
+	 * Tier 0: Level 1-2, Tier 1: Level 3-4, Tier 2: Level 5
+	 */
+	getBombTier(): number {
+		if (this.bombLevel >= 5) return 2;
+		if (this.bombLevel >= 3) return 1;
+		return 0;
+	}
+
+	/**
+	 * Get the bullet tint color based on damage tier.
+	 */
+	getBulletTint(): number {
+		const tier = this.getDamageTier();
+		switch (tier) {
+			case 3: return 0xff4444; // Red
+			case 2: return 0xff8800; // Orange
+			case 1: return 0x44ff44; // Green
+			default: return 0xffffff; // White (default)
+		}
 	}
 
 	resize(gameSize: Phaser.Structs.Size, baseSize: Phaser.Structs.Size, displaySize: Phaser.Structs.Size, resolution: number) {
@@ -585,6 +713,12 @@ export default class Scene extends Phaser.Scene {
 	spawnBurst() {
 		this.updateShopUI(); // Safe to call
 
+		const centerX = this.scale.width / 2;
+		const centerY = this.scale.height / 2;
+
+		// Play light burst flash at center when burst activates
+		this.playEffect(BURST_FLASH.key, centerX, centerY, BURST_FLASH.scale, 55);
+
 		// 8 Balls, 10 Bounces, fired with delay
 		this.time.addEvent({
 			delay: 100, // 100ms delay between shots for "scanning" effect
@@ -592,6 +726,9 @@ export default class Scene extends Phaser.Scene {
 			callback: () => {
 				this.spawnSingleBall(10, 0x00ffff, true);
 				this.playSound('ballShoot', 0.5, Phaser.Math.Between(-300, 300));
+
+				// Play dash trail on each fired ball
+				this.playEffect(DASH_TRAIL.key, centerX, centerY, DASH_TRAIL.scale, 54);
 			},
 			callbackScope: this
 		});
@@ -605,7 +742,9 @@ export default class Scene extends Phaser.Scene {
 		const vx = Math.cos(this.spiralAngle) * speed;
 		const vy = Math.sin(this.spiralAngle) * speed;
 
-		const bullet = this.add.circle(centerX, centerY, 10, color);
+		// Tint burst balls with tier color for visual feedback
+		const bulletColor = isBurst ? 0x00ffff : this.getBulletTint();
+		const bullet = this.add.circle(centerX, centerY, 10, bulletColor);
 		this.bullets.add(bullet);
 		bullet.setData('vx', vx);
 		bullet.setData('vy', vy);
@@ -638,6 +777,9 @@ export default class Scene extends Phaser.Scene {
 		const centerY = this.scale.height / 2;
 		const speed = 25;
 
+		// Play spawn animation at center
+		this.playEffect(BALL_SPAWN.key, centerX, centerY, BALL_SPAWN.scale, 55);
+
 		// Helper to fire
 		const fire = (angleOffset: number, isExtra: boolean) => {
 			let finalAngle = this.spiralAngle + angleOffset;
@@ -657,7 +799,7 @@ export default class Scene extends Phaser.Scene {
 			const vx = Math.cos(finalAngle) * speed;
 			const vy = Math.sin(finalAngle) * speed;
 
-			const c = isExtra ? 0xff00ff : 0xffffff;
+			const c = isExtra ? 0xff00ff : this.getBulletTint();
 			const b = isExtra ? 15 : 9999; // Infinite for main
 
 			const bullet = this.add.circle(centerX, centerY, 10, c);
@@ -672,9 +814,18 @@ export default class Scene extends Phaser.Scene {
 		fire(0, false);
 
 		// Duplicate Shots
-		for (let i = 0; i < this.duplicateLevel; i++) {
-			const offset = Phaser.Math.FloatBetween(-0.2, 0.2);
-			fire(offset, true);
+		if (this.duplicateLevel > 0) {
+			for (let i = 0; i < this.duplicateLevel; i++) {
+				const offset = Phaser.Math.FloatBetween(-0.2, 0.2);
+				fire(offset, true);
+			}
+
+			// Play tiered split effect at center
+			const splitTier = this.getDuplicateTier();
+			const splitDef = DUPLICATE_SPLIT[splitTier];
+			if (splitDef) {
+				this.playEffect(splitDef.key, centerX, centerY, splitDef.scale, 55);
+			}
 		}
 
 		this.playSound('ballShoot', 0.6, Phaser.Math.Between(-300, 300));
@@ -852,16 +1003,6 @@ export default class Scene extends Phaser.Scene {
 							console.log("Exploding Red Block at", enemy.x, enemy.y);
 							this.triggerExplosion(enemy.x, enemy.y);
 							this.playSound('redBlockExplosion');
-						} else {
-							// Normal block pop sound for non-red explosion (or trigger pop implies hit?)
-							// User asked: "redBlockExplosion when red block exploded".
-							// And "blockPop when block hit".
-							// So valid to play pop here too? Logic below handles "hit" but this is "death".
-							// Usually death also implies a hit. 
-							// Let's add blockPop to the "hit" section generally, or just play it here if not red?
-							// Actually "block hit" -> existing "damage" logic?
-							// Let's look at "blockPop, kırmızı blok patlatıldığında redBlockExplosion"
-							// Maybe blockPop is for REGULAR hit?
 						}
 
 						// LASER CHANCE
@@ -889,15 +1030,27 @@ export default class Scene extends Phaser.Scene {
 						this.trackProgress();
 						this.triggerHaptic('medium');
 
-						// Impact Effect (Big)
-						this.impactEmitter.explode(20, bullet.x, bullet.y);
+						// Tiered Kill Effect Sprite (replaces old particle explosion)
+						const killTier = this.getDamageTier();
+						const killDef = DAMAGE_KILL[killTier];
+						if (killDef) {
+							this.playEffect(killDef.key, enemy.x, enemy.y, killDef.scale);
+						}
+
+						// Keep some particles for extra juice
+						this.impactEmitter.explode(10, bullet.x, bullet.y);
 					} else {
 						// Canı kaldıysa renk değiştir (Hasar aldığını belli et - Kırmızılaş)
-						// Vuruş Efekti: Parlama ve Titreme
-						// Not: Rectangle objelerinde setTint yoktur, setFillStyle kullanılır.
 						const top = enemy.getByName('top') as Phaser.GameObjects.Rectangle;
 						this.triggerHaptic('light');
 						this.playSound('blockPop');
+
+						// Tiered Impact Effect Sprite
+						const impactTier = this.getDamageTier();
+						const impactDef = DAMAGE_IMPACT[impactTier];
+						if (impactDef) {
+							this.playEffect(impactDef.key, bullet.x, bullet.y, impactDef.scale * 0.8);
+						}
 
 
 
@@ -1151,8 +1304,15 @@ export default class Scene extends Phaser.Scene {
 	}
 
 	triggerExplosion(x: number, y: number) {
-		// Visual Effect
-		this.explosionEmitter.explode(50, x, y);
+		// Visual Effect - particles + sprite
+		this.explosionEmitter.explode(30, x, y);
+
+		// Play an explosion sprite (use damage tier kill effect for consistency)
+		const killTier = this.getDamageTier();
+		const killDef = DAMAGE_KILL[killTier];
+		if (killDef) {
+			this.playEffect(killDef.key, x, y, killDef.scale * 1.5, 59);
+		}
 
 		// Haptics
 		this.triggerHaptic('heavy');
@@ -1328,22 +1488,37 @@ export default class Scene extends Phaser.Scene {
 	fireLaser(x: number, y: number, vx: number, vy: number) {
 		// Calculate direction angle
 		const angle = Math.atan2(vy, vx);
+		const tier = this.getLaserTier();
+
+		// Tier-based beam colors
+		const beamColors = [
+			{ outer: 0x4488ff, core: 0x88bbff }, // Tier 0: Blue
+			{ outer: 0xff8800, core: 0xffcc66 }, // Tier 1: Orange
+			{ outer: 0xff2222, core: 0xff8888 }, // Tier 2: Red
+		];
+		const colors = beamColors[tier] || beamColors[0];
+
+		// Tier-based beam thickness
+		const thicknessMult = 1 + tier * 0.3;
 
 		// Beam Length (very long to cover screen)
 		const length = 2000;
 		const endX = x + Math.cos(angle) * length;
 		const endY = y + Math.sin(angle) * length;
 
-		// Visuals: Laser Beam (2.5x thicker)
+		// Activation flash at source
+		this.playEffect(LASER_ACTIVATION.key, x, y, LASER_ACTIVATION.scale, 55);
+
+		// Visuals: Laser Beam
 		const graphics = this.add.graphics();
-		graphics.lineStyle(50, 0xffffff, 1);
+		graphics.lineStyle(Math.round(50 * thicknessMult), colors.outer, 1);
 		graphics.lineBetween(x, y, endX, endY);
 		graphics.setBlendMode(Phaser.BlendModes.ADD);
-		graphics.setDepth(50); // Below text but above background
+		graphics.setDepth(50);
 
-		// Inner Core (2.5x thicker)
+		// Inner Core
 		const core = this.add.graphics();
-		core.lineStyle(20, 0xffaaaa, 1); // Reddish core
+		core.lineStyle(Math.round(20 * thicknessMult), colors.core, 1);
 		core.lineBetween(x, y, endX, endY);
 		core.setBlendMode(Phaser.BlendModes.ADD);
 		core.setDepth(51);
@@ -1360,45 +1535,44 @@ export default class Scene extends Phaser.Scene {
 		});
 
 		// Audio
-		this.playSound('laser'); // Laser sound effect
+		this.playSound('laser');
 
-		// Collision Logic: Raycast / Line Intersection check against all enemies
+		// Collision Logic
 		const laserLine = new Phaser.Geom.Line(x, y, endX, endY);
 		const enemies = this.enemies.getChildren();
-
-		// Create a separate array to avoid modification issues during iteration
 		const enemieshit: Phaser.GameObjects.Container[] = [];
 
 		enemies.forEach((child: any) => {
 			const enemy = child as Phaser.GameObjects.Container;
 			if (!enemy.active) return;
 
-			// Simple circle check for enemies (radius ~25)
 			const enemyCircle = new Phaser.Geom.Circle(enemy.x, enemy.y, 30);
-
-			// Check if line intersects circle
 			if (Phaser.Geom.Intersects.LineToCircle(laserLine, enemyCircle)) {
 				enemieshit.push(enemy);
 			}
 		});
 
-		// Apply Instant Destroy (No damage, just destroy)
+		// Apply Instant Destroy with tiered impact sprites
+		const impactDef = LASER_IMPACT[tier];
+
 		enemieshit.forEach(enemy => {
 			if (!enemy.active) return;
 
-			// Get reward before destroying
 			const reward = enemy.getData('moneyValue') || 10;
 
-			// Check if red block for explosion
 			if (enemy.getData('originalColor') === 0xff0000) {
 				this.triggerExplosion(enemy.x, enemy.y);
 				this.playSound('redBlockExplosion');
 			}
 
-			// Visual Feedback for hit
-			this.impactEmitter.explode(15, enemy.x, enemy.y);
+			// Tiered impact sprite at each enemy hit location
+			if (impactDef) {
+				this.playEffect(impactDef.key, enemy.x, enemy.y, impactDef.scale);
+			}
 
-			// Instant destroy
+			// Keep some particles
+			this.impactEmitter.explode(8, enemy.x, enemy.y);
+
 			enemy.destroy();
 			this.addMoney(reward);
 			this.addScore(100);
@@ -1447,6 +1621,7 @@ export default class Scene extends Phaser.Scene {
 	}
 
 	triggerElectricEffect(sourceX: number, sourceY: number) {
+		const tier = this.getElectricTier();
 		const nearbyEnemies: any[] = [];
 		const maxTargets = 15;
 		const radius = 200;
@@ -1461,17 +1636,34 @@ export default class Scene extends Phaser.Scene {
 			}
 		});
 
-		// Sort by distance and take 5
 		nearbyEnemies.sort((a, b) => a.dist - b.dist);
 		const targets = nearbyEnemies.slice(0, maxTargets);
 
 		const damage = this.bulletDamage / 2;
 
+		// Play lightning strike sprite at origin
+		const strikeDef = ELECTRIC_STRIKE[tier];
+		if (strikeDef) {
+			this.playEffect(strikeDef.key, sourceX, sourceY, strikeDef.scale, 58);
+		}
+
+		// Play chain effect sprite at origin
+		const chainDef = ELECTRIC_CHAIN[tier];
+		if (chainDef) {
+			this.playEffect(chainDef.key, sourceX, sourceY, chainDef.scale, 56);
+		}
+
 		targets.forEach(t => {
 			const enemy = t.target;
 
-			// Visual Lightning
-			this.drawLightning(sourceX, sourceY, enemy.x, enemy.y);
+			// Keep drawn lightning for the actual chain visual
+			this.drawLightning(sourceX, sourceY, enemy.x, enemy.y, tier);
+
+			// Play endpoint burst sprite at each target
+			const endpointDef = ELECTRIC_ENDPOINT[tier];
+			if (endpointDef) {
+				this.playEffect(endpointDef.key, enemy.x, enemy.y, endpointDef.scale * 0.8, 57);
+			}
 
 			// Deal Damage
 			let hp = enemy.getData('hp');
@@ -1492,11 +1684,14 @@ export default class Scene extends Phaser.Scene {
 				this.showFloatingText(enemy.x, enemy.y, "+" + Math.floor(reward));
 				this.trackProgress();
 			} else {
-				// Flash effect
+				// Flash effect - tier-based color
+				const flashColors = [0x00ffff, 0xaa44ff, 0xffff00];
+				const flashColor = flashColors[tier] || 0x00ffff;
+
 				const top = enemy.getByName('top') as Phaser.GameObjects.Rectangle;
 				if (top) {
 					const originalFill = top.fillColor;
-					top.setFillStyle(0x00ffff);
+					top.setFillStyle(flashColor);
 					this.time.delayedCall(100, () => {
 						if (enemy.active && top.active) {
 							top.setFillStyle(originalFill);
@@ -1507,11 +1702,19 @@ export default class Scene extends Phaser.Scene {
 		});
 
 		if (targets.length > 0) {
-			this.playSound('electric'); // Electric sound effect
+			this.playSound('electric');
 		}
 	}
 
-	drawLightning(x1: number, y1: number, x2: number, y2: number) {
+	drawLightning(x1: number, y1: number, x2: number, y2: number, tier: number = 0) {
+		// Tier-based lightning colors
+		const lightningColors = [
+			{ glow: 0x00ffff, flash: 0x00ffff }, // Tier 0: Cyan/Blue
+			{ glow: 0xaa44ff, flash: 0xcc66ff }, // Tier 1: Purple/Violet
+			{ glow: 0xffff00, flash: 0xffff88 }, // Tier 2: Yellow
+		];
+		const colorSet = lightningColors[tier] || lightningColors[0];
+
 		// Draw multiple lightning bolts for more impact
 		for (let bolt = 0; bolt < 3; bolt++) {
 			const graphics = this.add.graphics();
@@ -1519,7 +1722,7 @@ export default class Scene extends Phaser.Scene {
 
 			// Outer glow (thicker, more transparent)
 			if (bolt === 0) {
-				graphics.lineStyle(12, 0x00ffff, 0.3);
+				graphics.lineStyle(12, colorSet.glow, 0.3);
 				const segments = 5;
 				const stepX = (x2 - x1) / segments;
 				const stepY = (y2 - y1) / segments;
@@ -1557,8 +1760,8 @@ export default class Scene extends Phaser.Scene {
 			graphics.lineTo(x2, y2);
 			graphics.strokePath();
 
-			// Secondary cyan glow
-			graphics.lineStyle(3, 0x00ffff, 0.8);
+			// Secondary colored glow
+			graphics.lineStyle(3, colorSet.glow, 0.8);
 			graphics.beginPath();
 			graphics.moveTo(x1, y1);
 
@@ -1584,14 +1787,13 @@ export default class Scene extends Phaser.Scene {
 			});
 		}
 
-		// Add impact particles at source
-		this.impactEmitter.explode(15, x1, y1);
-		// Add impact particles at target
-		this.impactEmitter.explode(10, x2, y2);
+		// Add impact particles
+		this.impactEmitter.explode(8, x1, y1);
+		this.impactEmitter.explode(6, x2, y2);
 
-		// Flash effect at both ends
-		const flashStart = this.add.circle(x1, y1, 20, 0x00ffff, 0.6);
-		const flashEnd = this.add.circle(x2, y2, 15, 0x00ffff, 0.6);
+		// Flash circles at both ends with tier color
+		const flashStart = this.add.circle(x1, y1, 20, colorSet.flash, 0.6);
+		const flashEnd = this.add.circle(x2, y2, 15, colorSet.flash, 0.6);
 
 		this.tweens.add({
 			targets: [flashStart, flashEnd],
@@ -1606,8 +1808,41 @@ export default class Scene extends Phaser.Scene {
 	}
 
 	triggerBombExplosion(x: number, y: number) {
-		// Visual Effect (2.5x bigger than red block explosion)
-		this.explosionEmitter.explode(125, x, y); // 50 * 2.5 = 125
+		const tier = this.getBombTier();
+
+		// Pre-flash effect
+		this.playEffect(BOMB_PREFLASH.key, x, y, BOMB_PREFLASH.scale, 58);
+
+		// Tiered explosion sprite (main visual)
+		const explosionDef = BOMB_EXPLOSION[tier];
+		if (explosionDef) {
+			this.playEffect(explosionDef.key, x, y, explosionDef.scale, 60);
+		}
+
+		// Shockwave ring (expanding AoE indicator)
+		const shockDef = BOMB_SHOCKWAVE[tier];
+		if (shockDef) {
+			const shockSprite = this.playEffect(shockDef.key, x, y, shockDef.scale * 0.5, 55);
+			// Scale up the shockwave over time for expanding ring effect
+			this.tweens.add({
+				targets: shockSprite,
+				scaleX: shockDef.scale * 1.5,
+				scaleY: shockDef.scale * 1.5,
+				alpha: 0.3,
+				duration: 400,
+			});
+		}
+
+		// Delayed smoke aftermath
+		const smokeDef = BOMB_SMOKE[tier];
+		if (smokeDef) {
+			this.time.delayedCall(150, () => {
+				this.playEffect(smokeDef.key, x, y, smokeDef.scale, 54);
+			});
+		}
+
+		// Keep some particles for extra impact
+		this.explosionEmitter.explode(40, x, y);
 
 		// Play explosion sound
 		this.playSound('redBlockExplosion');
@@ -1615,22 +1850,21 @@ export default class Scene extends Phaser.Scene {
 		// Haptics
 		this.triggerHaptic('heavy');
 
-		// Camera Shake (stronger)
-		this.cameras.main.shake(300, 0.015);
+		// Camera Shake (stronger at higher tiers)
+		const shakeIntensity = 0.015 + tier * 0.005;
+		this.cameras.main.shake(300, shakeIntensity);
 
-		// AoE Damage - Same radius and damage as red block explosion (150)
-		const explosionRadius = 150;
+		// AoE Damage - radius increases with tier
+		const explosionRadius = 150 + tier * 25;
 		const enemies = this.enemies.getChildren();
 
 		enemies.forEach((child: any) => {
 			const enemy = child as Phaser.GameObjects.Container;
 			if (!enemy.active) return;
 
-			// Check distance
 			const dist = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
 
 			if (dist <= explosionRadius) {
-				// Same damage/behavior as red block explosion
 				this.impactEmitter.explode(10, enemy.x, enemy.y);
 				enemy.destroy();
 				this.addScore(50);

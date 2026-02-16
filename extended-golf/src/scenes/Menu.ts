@@ -9,10 +9,8 @@ export default class Menu extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
-        // No background, let the Level scene show through fully
-
-        // --- Title: Extended Golf (Double Layer Retro Style) ---
-        const titleText = this.add.text(width / 2, height * 0.3, "EXTENDED\nGOLF", {
+        // --- Title ---
+        const titleText = this.add.text(width / 2, height * 0.25, "EXTENDED\nGOLF", {
             fontSize: '80px',
             color: '#ffffff',
             fontFamily: '"Press Start 2P"',
@@ -20,108 +18,63 @@ export default class Menu extends Phaser.Scene {
             strokeThickness: 12,
             align: 'center',
             lineSpacing: 20,
-            shadow: {
-                offsetX: 8,
-                offsetY: 8,
-                color: '#000000',
-                blur: 0,
-                stroke: true,
-                fill: true
-            }
+            shadow: { offsetX: 8, offsetY: 8, color: '#000000', blur: 0, stroke: true, fill: true }
         }).setOrigin(0.5);
 
-        // --- Play Button: 3D White Square Style ---
-        const btnWidth = 220;
-        const btnHeight = 80;
-        const btnX = width / 2;
-        const btnY = height * 0.65;
-
-        const btnContainer = this.add.container(btnX, btnY);
-
-        // 3D Shadow (Black/Dark Gray)
-        const shadow = this.add.graphics();
-        shadow.fillStyle(0x000000, 0.4);
-        shadow.fillRoundedRect(-btnWidth / 2 + 8, -btnHeight / 2 + 8, btnWidth, btnHeight, 10);
-        btnContainer.add(shadow);
-
-        // Button Surface (White)
-        const surface = this.add.graphics();
-        surface.fillStyle(0xffffff, 1);
-        surface.fillRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 10);
-        surface.lineStyle(4, 0x000000, 1);
-        surface.strokeRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 10);
-        btnContainer.add(surface);
-
-        const playText = this.add.text(0, 0, 'PLAY', {
-            fontSize: '28px',
-            color: '#000000',
-            fontFamily: '"Press Start 2P"',
-            fontStyle: 'bold'
-        }).setOrigin(0.5);
-        btnContainer.add(playText);
-
-        // Interaction Area (Hit Area for the entire button square)
-        const hitArea = this.add.zone(btnX, btnY, btnWidth, btnHeight).setInteractive({ useHandCursor: true });
-
-        // Interactions
-        btnContainer.setAlpha(0);
-        let ready = false;
-        this.time.delayedCall(500, () => {
-            this.tweens.add({
-                targets: btnContainer,
-                alpha: 1,
-                duration: 500
-            });
-            ready = true;
+        // Floating Title
+        this.tweens.add({
+            targets: titleText, y: height * 0.25 - 10, duration: 2000,
+            ease: 'Sine.easeInOut', yoyo: true, loop: -1
         });
 
-        hitArea.on('pointerover', () => {
-            if (!ready) return;
-            if (typeof (window as any).triggerHaptic === "function") (window as any).triggerHaptic("light");
-            surface.clear();
-            surface.fillStyle(0xeeeeee, 1);
-            surface.fillRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 10);
-            surface.lineStyle(4, 0x000000, 1);
-            surface.strokeRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 10);
-            btnContainer.y = btnY + 2;
-        });
+        // Force Level to update theme (in case we returned from MapSelect)
+        const level = this.scene.get('Level') as any;
+        if (level && typeof level.updateTheme === 'function') {
+            level.updateTheme();
+        }
 
-        hitArea.on('pointerout', () => {
-            surface.clear();
-            surface.fillStyle(0xffffff, 1);
-            surface.fillRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 10);
-            surface.lineStyle(4, 0x000000, 1);
-            surface.strokeRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 10);
-            btnContainer.y = btnY;
-        });
+        // Helper to create simplified Menu Button
+        const createButton = (x: number, y: number, label: string, callback: () => void, isSmall: boolean = false) => {
+            const btnW = isSmall ? 180 : 260;
+            const btnH = 70;
 
-        hitArea.on('pointerdown', () => {
-            if (!ready) return;
-            if (typeof (window as any).triggerHaptic === "function") (window as any).triggerHaptic("light");
-            ready = false;
+            const container = this.add.container(x, y);
+            const shadow = this.add.graphics();
+            shadow.fillStyle(0x000000, 0.4).fillRoundedRect(-btnW / 2 + 6, -btnH / 2 + 6, btnW, btnH, 10);
 
-            if (this.sound.get('ButtonClick')) {
-                this.sound.play('ButtonClick');
-            }
+            const surface = this.add.graphics();
+            surface.fillStyle(0xffffff, 1).fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10)
+                .lineStyle(4, 0x000000, 1).strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10);
 
-            // Clean up hit area to avoid multiple clicks during animation
-            hitArea.destroy();
+            const text = this.add.text(0, 0, label, {
+                fontSize: isSmall ? '20px' : '32px', color: '#000000', fontFamily: '"Press Start 2P"'
+            }).setOrigin(0.5);
 
-            // --- SMOOTH EXIT ANIMATION ---
-            // Title moves UP
-            this.tweens.add({
-                targets: titleText,
-                y: -200,
-                duration: 800,
-                ease: 'Back.easeIn'
+            container.add([shadow, surface, text]);
+
+            const zone = this.add.zone(0, 0, btnW, btnH).setInteractive({ useHandCursor: true });
+            container.add(zone);
+
+            zone.on('pointerdown', () => {
+                if (this.sound.get('ButtonClick')) this.sound.play('ButtonClick');
+                callback();
             });
 
-            // Button moves DOWN
+            // Hover effect
+            zone.on('pointerover', () => container.y += 2);
+            zone.on('pointerout', () => container.y -= 2);
+
+            return container;
+        };
+
+        // --- PLAY ---
+        const playBtn = createButton(width / 2, height * 0.55, "PLAY", () => {
+            // Animating exit
             this.tweens.add({
-                targets: btnContainer,
-                y: height + 200,
-                duration: 800,
-                ease: 'Back.easeIn',
+                targets: playBtn, y: height + 100, duration: 500, ease: 'Back.easeIn'
+            });
+            this.tweens.add({
+                targets: titleText, y: -200, duration: 500, ease: 'Back.easeIn',
                 onComplete: () => {
                     const level = this.scene.get('Level') as any;
                     if (level && typeof level.resumeFromMenu === 'function') {
@@ -132,14 +85,14 @@ export default class Menu extends Phaser.Scene {
             });
         });
 
-        // Floating animation for title
-        this.tweens.add({
-            targets: titleText,
-            y: height * 0.3 - 10,
-            duration: 2000,
-            ease: 'Sine.easeInOut',
-            yoyo: true,
-            loop: -1
-        });
+        // --- BALLS ---
+        createButton(width / 2 - 140, height * 0.75, "BALLS", () => {
+            this.scene.start('BallSelect');
+        }, true);
+
+        // --- MAPS ---
+        createButton(width / 2 + 140, height * 0.75, "MAPS", () => {
+            this.scene.start('MapSelect');
+        }, true);
     }
 }
