@@ -339,7 +339,6 @@ export class Game {
       },
 
       onDashParticlesReceived: (payload) => {
-        if (this.network.isSimulationAuthority()) return;
         this.renderer.spawnDashParticles(
           payload.x,
           payload.y,

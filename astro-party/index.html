@@ -909,6 +909,9 @@
       max-width: calc(var(--box-width) - 40px);
       max-height: calc(var(--box-height) - 40px);
       display: none;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
     }
 
     .settings-modal.active {
@@ -945,11 +948,13 @@
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1rem;
+      gap: 14px;
     }
 
     .settings-label {
       color: #ccc;
       font-size: 1rem;
+      min-width: 0;
     }
 
     .toggle {
@@ -995,6 +1000,21 @@
       flex-direction: column;
       padding: 1.25rem 1.5rem;
       overflow: hidden;
+    }
+
+    #leaveModal .leave-actions {
+      display: flex;
+      gap: 1rem;
+    }
+
+    #leaveModal .btn {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+    }
+
+    #leaveConfirmBtn {
+      background: #ef4444;
     }
 
     .advanced-settings-modal.active {
@@ -1082,6 +1102,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
       gap: 12px;
       padding: 0.5rem 0.6rem;
       border-radius: 12px;
@@ -1092,6 +1113,8 @@
     .advanced-label {
       color: rgba(255, 255, 255, 0.8);
       font-size: 0.85rem;
+      flex: 1 1 auto;
+      min-width: 0;
     }
 
     .advanced-settings-modal .settings-close {
@@ -1111,6 +1134,7 @@
       border: 1px solid rgba(255, 255, 255, 0.2);
       color: #fff;
       cursor: pointer;
+      flex-shrink: 0;
     }
 
     .toggle-pill.active {
@@ -1333,6 +1357,7 @@
       min-height: 0;
       width: 100%;
       height: 100%;
+      overflow: hidden;
     }
 
     .lobby-players {
@@ -1501,6 +1526,7 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 16px;
       padding: 12px;
+      flex-shrink: 0;
     }
 
     .lobby-actions .btn {
@@ -1530,6 +1556,7 @@
       flex-direction: column;
       gap: 12px;
       min-height: 0;
+      overflow: hidden;
     }
 
     .lobby-summary {
@@ -1540,8 +1567,9 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: min(190px, 32vh);
-      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      max-height: none;
     }
 
     .summary-title {
@@ -1556,6 +1584,9 @@
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
+      min-height: 0;
+      overflow-y: auto;
+      align-content: flex-start;
     }
 
     .summary-chip {
@@ -1807,9 +1838,165 @@
         font-size: clamp(1.5rem, 6vw, 3rem);
       }
 
+      .lobby-shell {
+        padding: 8px 10px;
+        gap: 10px;
+      }
+
+      .lobby-body {
+        gap: 10px;
+      }
+
+      .lobby-players,
+      .lobby-actions,
+      .lobby-summary {
+        padding: 10px;
+        border-radius: 14px;
+      }
+
+      .lobby-summary {
+        min-height: 80px;
+      }
+
+      .map-selector-title {
+        font-size: 0.58rem;
+      }
+
+      .map-btn {
+        padding: 0.38rem 0.2rem;
+        font-size: 0.62rem;
+      }
+
+      .lobby-bottombar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 10px;
+      }
+
+      .lobby-status {
+        font-size: 0.8rem;
+        text-align: left;
+        justify-self: start;
+      }
+
+      #startGameBtn {
+        margin: 0;
+        padding: 0.55rem 0.85rem;
+        font-size: 0.72rem;
+      }
+
+      .settings-modal {
+        width: min(360px, calc(min(var(--box-width), var(--box-height)) - 24px));
+        min-width: min(280px, calc(min(var(--box-width), var(--box-height)) - 24px));
+        max-width: calc(min(var(--box-width), var(--box-height)) - 24px);
+        max-height: calc(max(var(--box-width), var(--box-height)) - 24px);
+        padding: 1rem 1rem 0.9rem;
+        border-radius: 14px;
+      }
+
+      .settings-title {
+        font-size: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      .settings-row {
+        margin-bottom: 0.75rem;
+      }
+
+      .settings-label {
+        font-size: 0.9rem;
+      }
+
+      .settings-close {
+        margin-top: 0.6rem;
+      }
+
+      .toggle {
+        width: 48px;
+        height: 26px;
+        border-radius: 13px;
+      }
+
+      .toggle::after {
+        width: 20px;
+        height: 20px;
+      }
+
+      .advanced-settings-modal {
+        width: min(560px, calc(min(var(--box-width), var(--box-height)) - 24px));
+        max-width: calc(min(var(--box-width), var(--box-height)) - 24px);
+        max-height: calc(max(var(--box-width), var(--box-height)) - 24px);
+        padding: 0.95rem 1rem;
+      }
+
+      #leaveModal .leave-actions {
+        gap: 0.75rem;
+      }
+
+      .advanced-settings-header {
+        margin-bottom: 0.5rem;
+      }
+
+      .advanced-tabs {
+        margin-bottom: 0.5rem;
+        gap: 6px;
+      }
+
+      .advanced-settings-body {
+        gap: 0.55rem;
+        padding-right: 2px;
+      }
+
+      .advanced-row {
+        gap: 8px;
+        padding: 0.44rem 0.5rem;
+      }
+
+      .advanced-label {
+        font-size: 0.78rem;
+      }
+
+      .cycle-btn,
+      .toggle-pill {
+        font-size: 0.62rem;
+        padding: 0.32rem 0.62rem;
+      }
+
       :root {
         --hud-side-gap: 24px;
         --hud-top-pad: 12px;
+      }
+    }
+
+    @media (pointer: coarse) and (max-height: 460px) {
+      .lobby-title {
+        font-size: clamp(0.9rem, 2.3vw, 1.15rem);
+      }
+
+      .lobby-room {
+        padding: 4px 8px;
+      }
+
+      .room-code {
+        font-size: clamp(0.95rem, 2.3vw, 1.2rem);
+      }
+
+      .back-btn {
+        width: 38px;
+        height: 38px;
+      }
+
+      .back-btn svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .lobby-actions {
+        gap: 8px;
+      }
+
+      .lobby-summary {
+        min-height: 64px;
       }
     }
   </style>
@@ -1993,9 +2180,9 @@
   <div class="settings-modal" id="leaveModal">
     <h3 class="settings-title">Leave Game?</h3>
     <p style="color: rgba(255,255,255,0.7); text-align: center; margin-bottom: 1.5rem;">Are you sure you want to leave the match?</p>
-    <div style="display: flex; gap: 1rem;">
-      <button class="btn secondary" id="leaveCancelBtn" style="flex: 1;">Cancel</button>
-      <button class="btn" id="leaveConfirmBtn" style="flex: 1; background: #ef4444;">Leave</button>
+    <div class="leave-actions">
+      <button class="btn secondary" id="leaveCancelBtn">Cancel</button>
+      <button class="btn" id="leaveConfirmBtn">Leave</button>
     </div>
   </div>
 

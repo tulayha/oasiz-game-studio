@@ -15,6 +15,22 @@ export interface LobbyUI {
 
 export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   let addingBot = false;
+  let addButtonGuardUntilMs = 0;
+  const ADD_BUTTON_TAP_GUARD_MS = 450;
+
+  function beginAddButtonAction(): boolean {
+    const now = performance.now();
+    if (addingBot || now < addButtonGuardUntilMs) {
+      return false;
+    }
+    addingBot = true;
+    addButtonGuardUntilMs = now + ADD_BUTTON_TAP_GUARD_MS;
+    return true;
+  }
+
+  function endAddButtonAction(): void {
+    addingBot = false;
+  }
 
   function updateRoomCodeVisibility(): void {
     const roomContainer = elements.roomCodeDisplay.closest(
@@ -306,8 +322,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   });
 
   elements.addAIBotBtn.addEventListener("click", async () => {
-    if (addingBot) return;
-    addingBot = true;
+    if (!beginAddButtonAction()) return;
     triggerHaptic("light");
     AudioManager.playUIClick();
     elements.addAIBotBtn.disabled = true;
@@ -316,43 +331,43 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
       await game.addAIBot();
     } catch (e) {
       console.error("[Main] Failed to add AI bot:", e);
+    } finally {
+      elements.addAIBotBtn.disabled = false;
+      endAddButtonAction();
     }
-
-    elements.addAIBotBtn.disabled = false;
-    addingBot = false;
   });
 
   elements.addLocalPlayerBtn.addEventListener("click", async () => {
     if (!game.supportsLocalPlayers()) {
       return;
     }
-    if (addingBot) return;
-    addingBot = true;
+    if (!beginAddButtonAction()) return;
     elements.addLocalPlayerBtn.disabled = true;
     triggerHaptic("light");
     AudioManager.playUIClick();
 
-    if (isMobile) {
-      const usedSlots = game.getUsedKeySlots();
-      let nextSlot = -1;
-      for (let i = 1; i < 4; i++) {
-        if (!usedSlots.includes(i)) {
-          nextSlot = i;
-          break;
+    try {
+      if (isMobile) {
+        const usedSlots = game.getUsedKeySlots();
+        let nextSlot = -1;
+        for (let i = 1; i < 4; i++) {
+          if (!usedSlots.includes(i)) {
+            nextSlot = i;
+            break;
+          }
         }
-      }
-      if (nextSlot >= 0) {
-        try {
+        if (nextSlot >= 0) {
           await game.addLocalBot(nextSlot);
-        } catch (e) {
-          console.error("[Main] Failed to add local player:", e);
         }
+      } else {
+        showKeySelectModal();
       }
-    } else {
-      showKeySelectModal();
+    } catch (e) {
+      console.error("[Main] Failed to add local player:", e);
+    } finally {
+      elements.addLocalPlayerBtn.disabled = false;
+      endAddButtonAction();
     }
-    elements.addLocalPlayerBtn.disabled = false;
-    addingBot = false;
   });
 
   elements.keySelectBackdrop.addEventListener("click", hideKeySelectModal);

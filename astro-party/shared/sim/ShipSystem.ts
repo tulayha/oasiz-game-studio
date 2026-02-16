@@ -25,6 +25,9 @@ import {
   transformLocalVertices,
 } from "../geometry/EntityShapes.js";
 
+const STANDARD_DODGE_FORWARD_FACTOR = 0.35;
+const STANDARD_DODGE_SPEED_FACTOR = 1.65;
+
 export function updateShips(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
   const isStandard = sim.baseMode === "STANDARD";
@@ -52,9 +55,12 @@ export function updateShips(sim: SimState, dtSec: number): void {
       player.dashQueued = false;
       if (sim.nowMs - player.lastShipDashAtMs >= SHIP_DODGE_COOLDOWN_MS) {
         player.lastShipDashAtMs = sim.nowMs;
-        const dodgeAngle =
+        const dodgeAngle = normalizeAngle(
           ship.angle +
-          ((SHIP_DODGE_ANGLE_DEG * Math.PI) / 180) * sim.rotationDirection;
+            ((SHIP_DODGE_ANGLE_DEG * Math.PI) / 180) * sim.rotationDirection,
+        );
+        ship.angle = dodgeAngle;
+        sim.setShipAngle(player.id, ship.angle);
         player.dashVectorX = Math.cos(dodgeAngle);
         player.dashVectorY = Math.sin(dodgeAngle);
         player.dashTimerSec = cfg.SHIP_DASH_DURATION;
@@ -72,7 +78,7 @@ export function updateShips(sim: SimState, dtSec: number): void {
           playerId: player.id,
           x: ship.x,
           y: ship.y,
-          angle: dodgeAngle,
+          angle: ship.angle,
           color: PLAYER_COLORS[player.colorIndex].primary,
         });
       }
@@ -89,7 +95,8 @@ export function updateShips(sim: SimState, dtSec: number): void {
       player.recoilTimerSec = Math.max(0, player.recoilTimerSec - dtSec);
     }
     if (isStandard) {
-      const dodgeBoost = player.dashTimerSec > 0 ? cfg.SHIP_DASH_BOOST : 0;
+      const dodgeActive = player.dashTimerSec > 0;
+      const dodgeBoost = dodgeActive ? cfg.SHIP_DASH_BOOST : 0;
       const recoilSlowdown =
         player.recoilTimerSec > 0 ? cfg.SHIP_RECOIL_SLOWDOWN : 0;
       const joustPowerUp = sim.playerPowerUps.get(playerId);
@@ -98,10 +105,21 @@ export function updateShips(sim: SimState, dtSec: number): void {
         0,
         (cfg.SHIP_TARGET_SPEED - recoilSlowdown) * speedMultiplier,
       );
+      const dodgeForwardFactor = dodgeActive
+        ? STANDARD_DODGE_FORWARD_FACTOR
+        : 1;
+      const dodgeSpeed = dodgeActive
+        ? cfg.SHIP_TARGET_SPEED *
+          dodgeBoost *
+          STANDARD_DODGE_SPEED_FACTOR *
+          speedMultiplier
+        : 0;
       const desiredVx =
-        Math.cos(ship.angle) * forwardSpeed + player.dashVectorX * dodgeBoost;
+        Math.cos(ship.angle) * forwardSpeed * dodgeForwardFactor +
+        player.dashVectorX * dodgeSpeed;
       const desiredVy =
-        Math.sin(ship.angle) * forwardSpeed + player.dashVectorY * dodgeBoost;
+        Math.sin(ship.angle) * forwardSpeed * dodgeForwardFactor +
+        player.dashVectorY * dodgeSpeed;
       const t = 1 - Math.exp(-cfg.SHIP_SPEED_RESPONSE * dtSec);
       ship.vx += (desiredVx - ship.vx) * t;
       ship.vy += (desiredVy - ship.vy) * t;
