@@ -6,7 +6,11 @@ import {
   ALL_MAP_IDS,
   MapDefinition,
 } from "../../shared/sim/maps.js";
-import { ARENA_WIDTH, ARENA_HEIGHT } from "../../shared/sim/constants.js";
+import {
+  ARENA_WIDTH,
+  ARENA_HEIGHT,
+  PLAYER_COLORS,
+} from "../../shared/sim/constants.js";
 
 export interface MapPreviewUI {
   updateMapPreview: (mapId?: MapId) => void;
@@ -16,9 +20,30 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
   const canvas = elements.mapPreviewCanvas;
   const ctx = canvas.getContext("2d")!;
 
-  // Canvas dimensions - mini-map size (must match CSS)
-  const canvasWidth = 280;
-  const canvasHeight = 210;
+  // Get actual display size from CSS
+  function getCanvasDimensions(): { width: number; height: number } {
+    const rect = canvas.getBoundingClientRect();
+    // Use CSS pixel size, with minimum fallbacks for mobile
+    const width = Math.max(rect.width, 73);
+    const height = Math.max(rect.height, 55);
+    return { width, height };
+  }
+
+  function resizeCanvas(): void {
+    const { width, height } = getCanvasDimensions();
+    // Set internal resolution to match display size for crisp rendering
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  // Initial resize
+  resizeCanvas();
+
+  // Listen for resize events
+  window.addEventListener("resize", () => {
+    resizeCanvas();
+    updateMapPreview();
+  });
 
   // Colors for different map features
   const colors = {
@@ -36,18 +61,26 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
     grid: "rgba(255, 255, 255, 0.05)",
   };
 
+  function getCanvasWidth(): number {
+    return canvas.width;
+  }
+
+  function getCanvasHeight(): number {
+    return canvas.height;
+  }
+
   function scaleX(x: number): number {
-    return (x / ARENA_WIDTH) * canvasWidth;
+    return (x / ARENA_WIDTH) * getCanvasWidth();
   }
 
   function scaleY(y: number): number {
-    return (y / ARENA_HEIGHT) * canvasHeight;
+    return (y / ARENA_HEIGHT) * getCanvasHeight();
   }
 
   function scaleSize(size: number): number {
     return (
       (size / Math.max(ARENA_WIDTH, ARENA_HEIGHT)) *
-      Math.max(canvasWidth, canvasHeight)
+      Math.max(getCanvasWidth(), getCanvasHeight())
     );
   }
 
@@ -55,18 +88,20 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
     ctx.strokeStyle = colors.grid;
     ctx.lineWidth = 0.5;
     const gridSize = 20;
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
 
-    for (let x = 0; x <= canvasWidth; x += gridSize) {
+    for (let x = 0; x <= width; x += gridSize) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvasHeight);
+      ctx.lineTo(x, height);
       ctx.stroke();
     }
 
-    for (let y = 0; y <= canvasHeight; y += gridSize) {
+    for (let y = 0; y <= height; y += gridSize) {
       ctx.beginPath();
       ctx.moveTo(0, y);
-      ctx.lineTo(canvasWidth, y);
+      ctx.lineTo(width, y);
       ctx.stroke();
     }
   }
@@ -171,18 +206,23 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
     if (!config.enabled) return;
 
     const count = config.minCount;
-    ctx.fillStyle = colors.asteroid;
+    const asteroidColors = ["#9ca3af", "#f97316"]; // Grey and orange
 
     // Draw some representative asteroids in a circle or random positions
-    const centerX = canvasWidth / 2;
-    const centerY = canvasHeight / 2;
-    const radius = Math.min(canvasWidth, canvasHeight) * 0.35;
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.35;
 
     for (let i = 0; i < Math.min(count, 8); i++) {
       const angle = (i / count) * Math.PI * 2;
       const x = centerX + Math.cos(angle) * radius;
       const y = centerY + Math.sin(angle) * radius;
       const r = scaleSize(25); // Approximate asteroid size
+
+      // Alternate between grey and orange
+      ctx.fillStyle = asteroidColors[i % 2];
 
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -193,8 +233,10 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
   function drawTurret(hasTurret: boolean): void {
     if (!hasTurret) return;
 
-    const cx = canvasWidth / 2;
-    const cy = canvasHeight / 2;
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
+    const cx = width / 2;
+    const cy = height / 2;
     const size = 8;
 
     // Turret base
@@ -213,27 +255,47 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
   }
 
   function drawSpawnPoints(): void {
-    const padding = 15;
+    const padding = 20;
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
     const corners = [
-      { x: padding, y: padding },
-      { x: canvasWidth - padding, y: padding },
-      { x: canvasWidth - padding, y: canvasHeight - padding },
-      { x: padding, y: canvasHeight - padding },
+      { x: padding, y: padding, label: "P1", colorIndex: 0 },
+      { x: width - padding, y: padding, label: "P2", colorIndex: 1 },
+      {
+        x: width - padding,
+        y: height - padding,
+        label: "P3",
+        colorIndex: 2,
+      },
+      { x: padding, y: height - padding, label: "P4", colorIndex: 3 },
     ];
 
-    ctx.fillStyle = colors.spawnPoint;
     for (const corner of corners) {
+      const playerColor = PLAYER_COLORS[corner.colorIndex].primary;
+
+      // Draw circular background
+      ctx.fillStyle = playerColor;
       ctx.beginPath();
-      ctx.arc(corner.x, corner.y, 4, 0, Math.PI * 2);
+      ctx.arc(corner.x, corner.y, 12, 0, Math.PI * 2);
       ctx.fill();
+
+      // Draw text
+      ctx.fillStyle = "#000000";
+      ctx.font = "bold 10px Arial, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(corner.label, corner.x, corner.y);
     }
   }
 
   function drawMap(mapId: MapId): void {
     const map = getMapDefinition(mapId);
 
+    // Ensure canvas is sized correctly before drawing
+    resizeCanvas();
+
     // Clear canvas
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    ctx.clearRect(0, 0, getCanvasWidth(), getCanvasHeight());
 
     // Draw background grid
     drawGrid();
@@ -252,9 +314,6 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
     const currentMapId = mapId ?? game.getMapId();
     drawMap(currentMapId);
   }
-
-  // Initial draw
-  updateMapPreview();
 
   return { updateMapPreview };
 }

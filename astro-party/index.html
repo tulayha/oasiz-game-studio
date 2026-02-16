@@ -1631,8 +1631,8 @@
 
       #mapPreviewCanvas {
         display: block;
-        width: 280px;
-        height: 210px;
+        width: 276px;
+        height: 208px;
         background: transparent;
         border-radius: 4px;
         position: relative;
@@ -1728,6 +1728,91 @@
       #lobbyScreen:not(.is-host) .lobby-summary {
         background: var(--bg-panel);
         border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      /* Mobile/Responsive styles for map preview */
+      @media (pointer: coarse) {
+        .lobby-side {
+          justify-content: flex-start;
+          gap: 6px;
+        }
+
+        .lobby-actions {
+          padding: 8px;
+          gap: 6px;
+        }
+
+        .lobby-actions .add-bot-section {
+          gap: 6px;
+        }
+
+        .map-selector-section {
+          margin-bottom: 2%;
+          gap: 0.2rem;
+        }
+
+        .map-selector {
+          gap: 0.25rem;
+        }
+
+        .map-btn {
+          padding: 0.3rem 0.15rem;
+          font-size: 0.58rem;
+        }
+
+        .mode-pill {
+          gap: 0;
+        }
+
+        .mode-option {
+          padding: 0.35rem 0.7rem;
+          font-size: 0.65rem;
+        }
+
+        .lobby-summary {
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 10px;
+          gap: 10px;
+          flex: 0 0 auto;
+          min-height: auto;
+        }
+
+        .summary-title {
+          font-size: 0.7rem;
+          white-space: nowrap;
+        }
+
+        .minimap-container {
+          padding: 6px;
+          margin: 0;
+          flex: 0 0 auto;
+        }
+
+        #mapPreviewCanvas {
+          width: 75px;
+          height: 56px;
+        }
+      }
+
+      @media (pointer: coarse) and (min-width: 480px) {
+        .lobby-summary {
+          padding: 8px 12px;
+          gap: 12px;
+        }
+
+        #mapPreviewCanvas {
+          width: 96px;
+          height: 71px;
+        }
+      }
+
+      @media (pointer: coarse) and (min-width: 600px) {
+        #mapPreviewCanvas {
+          width: 116px;
+          height: 86px;
+        }
       }
 
       .end-actions {
@@ -1914,15 +1999,21 @@
           gap: 10px;
         }
 
-        .lobby-players,
-        .lobby-actions,
-        .lobby-summary {
+        .lobby-players {
           padding: 10px;
           border-radius: 14px;
         }
 
+        .lobby-actions {
+          padding: 8px;
+          border-radius: 14px;
+          gap: 6px;
+        }
+
         .lobby-summary {
-          min-height: 80px;
+          padding: 4px 6px;
+          border-radius: 14px;
+          min-height: auto;
         }
 
         .map-selector-title {
