@@ -4,6 +4,7 @@
 /* START OF COMPILED CODE */
 
 /* START-USER-IMPORTS */
+import { getAllAnimDefs } from "../SpriteAnimConfig";
 /* END-USER-IMPORTS */
 
 export default class Preload extends Phaser.Scene {
@@ -57,12 +58,29 @@ export default class Preload extends Phaser.Scene {
 
 		this.load.pack("asset-pack", "assets/asset-pack.json");
 
+		// Load all sprite animation frames
+		this.loadSpriteFrames();
+
 		const width = this.progressBar.width;
 
 		this.load.on("progress", (value: number) => {
 
 			this.progressBar.width = width * value;
 		});
+	}
+
+	loadSpriteFrames() {
+		const defs = getAllAnimDefs();
+		console.log("[Preload] Loading sprite frames for", defs.length, "animations");
+
+		for (const def of defs) {
+			for (let i = 0; i < def.frames; i++) {
+				const num = String(i).padStart(4, "0");
+				const textureKey = def.key + "_" + i;
+				const url = "assets/sprites/" + def.dir + "/frame" + num + ".png";
+				this.load.image(textureKey, url);
+			}
+		}
 	}
 
 	create() {

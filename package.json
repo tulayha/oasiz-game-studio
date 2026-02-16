@@ -4,6 +4,11 @@
   "type": "module",
   "scripts": {
     "upload": "bun scripts/upload-game.ts"
+  },
+  "devDependencies": {
+    "puppeteer": "^24.37.2"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
   }
 }
-

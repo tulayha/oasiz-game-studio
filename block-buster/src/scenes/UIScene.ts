@@ -196,61 +196,67 @@ export default class UIScene extends Phaser.Scene {
                 }
             };
 
-            if (this.damageBtn) {
-                toggleLock(this.damageBtn, isInitialLocked || isBallLocked);
-                this.damageBtn.innerHTML = `
+			if (this.damageBtn) {
+				toggleLock(this.damageBtn, isInitialLocked || isBallLocked);
+				this.damageBtn.innerHTML = `
+                    <img src="assets/icons/damage.png" class="skill-icon" alt="">
                     <span class="label">DAMAGE</span>
                     <span class="price text-yellow-300">$${Math.round(prices.damage)}</span>
                 `;
-            }
-            if (this.ballsBtn) {
-                // Balls button is ONLY locked during the first 5 seconds
-                toggleLock(this.ballsBtn, isInitialLocked);
-                this.ballsBtn.innerHTML = `
+			}
+			if (this.ballsBtn) {
+				toggleLock(this.ballsBtn, isInitialLocked);
+				this.ballsBtn.innerHTML = `
+                    <img src="assets/icons/balls.png" class="skill-icon" alt="">
                     <span class="label">BALLS</span>
                     <span class="price text-yellow-300">$${Math.round(prices.balls)}</span>
                 `;
-            }
-            if (this.duplicateBtn) {
-                toggleLock(this.duplicateBtn, isInitialLocked || isBallLocked);
-                const priceText = prices.duplicateMax ? 'MAX' : `$${Math.round(prices.duplicate)}`;
-                this.duplicateBtn.innerHTML = `
+			}
+			if (this.duplicateBtn) {
+				toggleLock(this.duplicateBtn, isInitialLocked || isBallLocked);
+				const priceText = prices.duplicateMax ? 'MAX' : `$${Math.round(prices.duplicate)}`;
+				this.duplicateBtn.innerHTML = `
+                    <img src="assets/icons/duplicate.png" class="skill-icon" alt="">
                     <span class="label">DUPLICATE</span>
                     <span class="price text-purple-300">${priceText}</span>
                 `;
-            }
-            if (this.laserBtn) {
-                toggleLock(this.laserBtn, isInitialLocked || isBallLocked);
-                const priceText = prices.laserMax ? 'MAX' : `$${Math.round(prices.laser)}`;
-                this.laserBtn.innerHTML = `
+			}
+			if (this.laserBtn) {
+				toggleLock(this.laserBtn, isInitialLocked || isBallLocked);
+				const priceText = prices.laserMax ? 'MAX' : `$${Math.round(prices.laser)}`;
+				this.laserBtn.innerHTML = `
+                    <img src="assets/icons/laser.png" class="skill-icon" alt="">
                     <span class="label">LASER</span>
                     <span class="price text-red-300">${priceText}</span>
                 `;
-            }
-            if (this.electricBtn) {
-                toggleLock(this.electricBtn, isInitialLocked || isBallLocked);
-                const priceText = prices.electricMax ? 'MAX' : `$${Math.round(prices.electric)}`;
-                this.electricBtn.innerHTML = `
+			}
+			if (this.electricBtn) {
+				toggleLock(this.electricBtn, isInitialLocked || isBallLocked);
+				const priceText = prices.electricMax ? 'MAX' : `$${Math.round(prices.electric)}`;
+				this.electricBtn.innerHTML = `
+                    <img src="assets/icons/electric.png" class="skill-icon" alt="">
                     <span class="label">ELECTRIC</span>
                     <span class="price text-blue-300">${priceText}</span>
                 `;
-            }
-            if (this.bombBtn) {
-                toggleLock(this.bombBtn, isInitialLocked || isBallLocked);
-                const priceText = prices.bombMax ? 'MAX' : `$${Math.round(prices.bomb)}`;
-                this.bombBtn.innerHTML = `
+			}
+			if (this.bombBtn) {
+				toggleLock(this.bombBtn, isInitialLocked || isBallLocked);
+				const priceText = prices.bombMax ? 'MAX' : `$${Math.round(prices.bomb)}`;
+				this.bombBtn.innerHTML = `
+                    <img src="assets/icons/bomb.png" class="skill-icon" alt="">
                     <span class="label">BOMB</span>
                     <span class="price text-orange-300">${priceText}</span>
                 `;
-            }
-            if (this.burstBtn) {
-                toggleLock(this.burstBtn, isInitialLocked || isBallLocked);
-                const priceText = `$${Math.round(prices.burst)}`;
-                this.burstBtn.innerHTML = `
+			}
+			if (this.burstBtn) {
+				toggleLock(this.burstBtn, isInitialLocked || isBallLocked);
+				const priceText = `$${Math.round(prices.burst)}`;
+				this.burstBtn.innerHTML = `
+                    <img src="assets/icons/burst.png" class="skill-icon" alt="">
                     <span class="label">BURST</span>
                     <span class="price text-red-300">${priceText}</span>
                 `;
-            }
+			}
         }, this);
 
         const uiLayer = document.getElementById('ui-layer');

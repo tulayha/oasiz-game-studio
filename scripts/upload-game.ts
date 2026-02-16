@@ -37,6 +37,7 @@ interface PublishConfig {
   gameId?: string;
   isMultiplayer?: boolean;
   maxPlayers?: number;
+  verticalOnly?: boolean;
 }
 
 interface UploadPayload {
@@ -48,6 +49,7 @@ interface UploadPayload {
   gameId?: string;
   isMultiplayer?: boolean;
   maxPlayers?: number;
+  verticalOnly?: boolean;
   thumbnailBase64?: string;
   bundleHtml: string;
   /** Asset files to upload separately (path -> base64 content) */
@@ -161,6 +163,7 @@ async function readPublishConfig(gamePath: string): Promise<PublishConfig> {
     gameId: config.gameId,
     isMultiplayer: config.isMultiplayer,
     maxPlayers: config.maxPlayers,
+    verticalOnly: config.verticalOnly,
   };
 }
 
@@ -703,6 +706,8 @@ async function main(): Promise<void> {
     console.log("Usage: bun run upload <game-folder> [options]");
     console.log("");
     console.log("Options:");
+    console.log("  horizontal     Upload as landscape-friendly (verticalOnly=false)");
+    console.log("  vertical       Upload as portrait-locked (verticalOnly=true, default)");
     console.log("  --list, -l     List available game folders");
     console.log("  --skip-build   Skip the build step (use existing dist/)");
     console.log("  --dry-run      Build but don't upload (test mode)");
@@ -714,6 +719,7 @@ async function main(): Promise<void> {
     console.log("");
     console.log("Examples:");
     console.log("  bun run upload block-blast");
+    console.log("  bun run upload block-blast horizontal");
     console.log("  bun run upload two-dots --skip-build");
     console.log("  bun run upload endless-hexagon --inline");
     console.log("  bun run upload --list");
@@ -729,6 +735,11 @@ async function main(): Promise<void> {
   const skipBuild = args.includes("--skip-build");
   const dryRun = args.includes("--dry-run");
   const useInlining = args.includes("--inline");
+
+  // Orientation: "horizontal" → verticalOnly=false, "vertical" or omitted → verticalOnly=true
+  const hasHorizontal = args.includes("horizontal");
+  const hasVertical = args.includes("vertical");
+  const orientationOverride: boolean | undefined = hasHorizontal ? false : hasVertical ? true : undefined;
 
   // Validate environment
   if (!dryRun) {
@@ -777,6 +788,7 @@ async function main(): Promise<void> {
     gameId: publishConfig.gameId,
     isMultiplayer: publishConfig.isMultiplayer,
     maxPlayers: publishConfig.maxPlayers,
+    verticalOnly: orientationOverride ?? publishConfig.verticalOnly,
     thumbnailBase64,
     bundleHtml,
     ...(assets && { assets }),
@@ -792,6 +804,7 @@ async function main(): Promise<void> {
     console.log(`  Description: ${payload.description}`);
     console.log(`  Creator Email: ${payload.email}`);
     console.log(`  Has Thumbnail: ${!!payload.thumbnailBase64}`);
+    console.log(`  Vertical Only: ${payload.verticalOnly ?? true} (default: true)`);
     console.log(`  Bundle Size: ${(payload.bundleHtml.length / 1024).toFixed(1)} KB`);
     console.log(`  Mode: ${useInlining ? 'Inline (legacy)' : 'CDN Assets'}`);
     if (assets) {

@@ -22,4 +22,6 @@ Thumbs.db
 .env.local
 .env.*.local
 
-
+# Assets
+assets/
+audio/

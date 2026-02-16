@@ -46,13 +46,18 @@ interface ClueEntry {
   auto: boolean;
 }
 
+interface ChatEntry {
+  playerId: string;
+  message: string;
+  round: number;
+}
+
 interface RoundResult {
   round: number;
   winner: "members" | "imposters";
   eliminatedId: string;
   eliminatedName: string;
   eliminatedRole: Role;
-  revealedWord: string;
   voteCounts: Record<string, number>;
 }
 
@@ -83,11 +88,15 @@ const STATE_KEYS = {
   round: "imposter_round",
   phaseEndsAt: "imposter_phase_ends_at",
   participants: "imposter_participants",
+  allParticipants: "imposter_all_participants",
   turnOrder: "imposter_turn_order",
   turnIndex: "imposter_turn_index",
   clues: "imposter_clues",
+  clueDone: "imposter_clue_done",
+  chat: "imposter_chat",
   result: "imposter_result",
   scoreboard: "imposter_scoreboard",
+  matchWinner: "imposter_match_winner",
 };
 
 const PLAYER_KEYS = {
@@ -97,8 +106,8 @@ const PLAYER_KEYS = {
   role: "imposter_role",
   secretWord: "imposter_secret_word",
   revealReady: "imposter_reveal_ready",
-  hasVoted: "imposter_has_voted",
   voteTarget: "imposter_vote_target",
+  endDiscussion: "imposter_end_discussion",
 };
 
 const DEFAULT_CONFIG: GameConfig = {
@@ -107,8 +116,8 @@ const DEFAULT_CONFIG: GameConfig = {
   rounds: 5,
   revealSeconds: 25,
   clueSeconds: 22,
-  discussionSeconds: 30,
-  votingSeconds: 25,
+  discussionSeconds: 180,
+  votingSeconds: 30,
   resultSeconds: 8,
 };
 
@@ -297,13 +306,16 @@ async function connectToRoom(roomCode: string): Promise<boolean> {
         [PLAYER_KEYS.role]: "",
         [PLAYER_KEYS.secretWord]: "",
         [PLAYER_KEYS.revealReady]: false,
-        [PLAYER_KEYS.hasVoted]: false,
         [PLAYER_KEYS.voteTarget]: "",
+        [PLAYER_KEYS.endDiscussion]: false,
       },
     });
 
     const connectedCode = getRoomCode();
-    log("connectToRoom", "Connected to room " + String(connectedCode || roomCode));
+    log(
+      "connectToRoom",
+      "Connected to room " + String(connectedCode || roomCode),
+    );
     shareRoomCode(connectedCode || roomCode);
 
     hideLoading();
@@ -426,7 +438,10 @@ class AudioEngine {
       this.audioContext = new AudioContext();
       return this.audioContext;
     } catch (error) {
-      log("AudioEngine.ensureContext", "Audio context unavailable " + String(error));
+      log(
+        "AudioEngine.ensureContext",
+        "Audio context unavailable " + String(error),
+      );
       return null;
     }
   }
@@ -457,7 +472,10 @@ class AudioEngine {
       Math.max(0.0001, gainValue),
       context.currentTime + 0.02,
     );
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + durationMs / 1000);
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      context.currentTime + durationMs / 1000,
+    );
 
     osc.connect(gain);
     gain.connect(context.destination);
@@ -525,13 +543,16 @@ class ImposterGame {
   private config: GameConfig = { ...DEFAULT_CONFIG };
   private round = 1;
   private participants: string[] = [];
+  private allParticipants: string[] = [];
   private turnOrder: string[] = [];
   private turnIndex = 0;
   private clues: ClueEntry[] = [];
+  private chat: ChatEntry[] = [];
   private phaseEndsAt = 0;
   private result: RoundResult | null = null;
   private selectedVoteTarget = "";
   private hasSubmittedScore = false;
+  private myEndDiscussion = false;
 
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private hostTickInterval: ReturnType<typeof setInterval> | null = null;
@@ -578,27 +599,34 @@ class ImposterGame {
   private revealReadyBtn = getEl<HTMLButtonElement>("reveal-ready-btn");
 
   private cluePanel = getEl<HTMLElement>("clue-panel");
-  private currentTurnLabel = getEl<HTMLElement>("current-turn");
+  private clueTurnName = getEl<HTMLElement>("clue-turn-name");
   private clueInput = getEl<HTMLInputElement>("clue-input");
   private clueFeed = getEl<HTMLElement>("clue-feed");
   private submitClueBtn = getEl<HTMLButtonElement>("submit-clue-btn");
+  private nextPlayerBtn = getEl<HTMLButtonElement>("next-player-btn");
 
   private discussionPanel = getEl<HTMLElement>("discussion-panel");
-  private discussionClues = getEl<HTMLElement>("discussion-clues");
+  private discussionCluesRef = getEl<HTMLElement>("discussion-clues-ref");
+  private chatFeed = getEl<HTMLElement>("chat-feed");
+  private chatInput = getEl<HTMLInputElement>("chat-input");
+  private sendChatBtn = getEl<HTMLButtonElement>("send-chat-btn");
+  private chatCounter = getEl<HTMLElement>("chat-counter");
+  private endDiscussionBtn = getEl<HTMLButtonElement>("end-discussion-btn");
+  private discussionRoster = getEl<HTMLElement>("discussion-roster");
 
   private votePanel = getEl<HTMLElement>("vote-panel");
   private voteSubtitle = getEl<HTMLElement>("vote-subtitle");
   private voteGrid = getEl<HTMLElement>("vote-grid");
-  private confirmVoteBtn = getEl<HTMLButtonElement>("confirm-vote-btn");
 
   private resultPanel = getEl<HTMLElement>("result-panel");
   private resultWinner = getEl<HTMLElement>("result-winner");
   private resultDetail = getEl<HTMLElement>("result-detail");
-  private revealedWord = getEl<HTMLElement>("revealed-word");
   private resultNextNote = getEl<HTMLElement>("result-next-note");
   private scoreboard = getEl<HTMLElement>("scoreboard");
 
   private matchPanel = getEl<HTMLElement>("match-panel");
+  private matchSubtitle = getEl<HTMLElement>("match-subtitle");
+  private matchWord = getEl<HTMLElement>("match-word");
   private matchScoreboard = getEl<HTMLElement>("match-scoreboard");
   private playAgainBtn = getEl<HTMLButtonElement>("play-again-btn");
 
@@ -638,7 +666,10 @@ class ImposterGame {
         };
       }
     } catch (error) {
-      log("ImposterGame.loadSettings", "Failed to load settings " + String(error));
+      log(
+        "ImposterGame.loadSettings",
+        "Failed to load settings " + String(error),
+      );
     }
 
     return {
@@ -652,60 +683,87 @@ class ImposterGame {
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
     } catch (error) {
-      log("ImposterGame.saveSettings", "Failed to save settings " + String(error));
+      log(
+        "ImposterGame.saveSettings",
+        "Failed to save settings " + String(error),
+      );
     }
   }
 
   private setupSettingsListeners(): void {
     const signal = this.abortController.signal;
 
-    settingsBtn.addEventListener("click", () => {
-      this.triggerHaptic("light");
-      this.playFx("click");
-      settingsModal.classList.remove("hidden");
-    }, { signal });
-
-    this.settingsCloseBtn.addEventListener("click", () => {
-      this.triggerHaptic("light");
-      this.playFx("click");
-      settingsModal.classList.add("hidden");
-    }, { signal });
-
-    settingsModal.addEventListener("click", (event) => {
-      if (event.target === settingsModal) {
+    settingsBtn.addEventListener(
+      "click",
+      () => {
         this.triggerHaptic("light");
+        this.playFx("click");
+        settingsModal.classList.remove("hidden");
+      },
+      { signal },
+    );
+
+    this.settingsCloseBtn.addEventListener(
+      "click",
+      () => {
+        this.triggerHaptic("light");
+        this.playFx("click");
         settingsModal.classList.add("hidden");
-      }
-    }, { signal });
+      },
+      { signal },
+    );
 
-    this.musicToggle.addEventListener("click", () => {
-      this.settings.music = !this.settings.music;
-      this.applySettingsState();
-      this.saveSettings();
-      this.triggerHaptic("light");
-      if (this.settings.music) {
-        this.applyMusicForPhase();
-      } else {
-        this.audio.stopMusic();
-      }
-    }, { signal });
+    settingsModal.addEventListener(
+      "click",
+      (event) => {
+        if (event.target === settingsModal) {
+          this.triggerHaptic("light");
+          settingsModal.classList.add("hidden");
+        }
+      },
+      { signal },
+    );
 
-    this.fxToggle.addEventListener("click", () => {
-      this.settings.fx = !this.settings.fx;
-      this.applySettingsState();
-      this.saveSettings();
-      this.triggerHaptic("light");
-      this.playFx("click");
-    }, { signal });
+    this.musicToggle.addEventListener(
+      "click",
+      () => {
+        this.settings.music = !this.settings.music;
+        this.applySettingsState();
+        this.saveSettings();
+        this.triggerHaptic("light");
+        if (this.settings.music) {
+          this.applyMusicForPhase();
+        } else {
+          this.audio.stopMusic();
+        }
+      },
+      { signal },
+    );
 
-    this.hapticsToggle.addEventListener("click", () => {
-      this.settings.haptics = !this.settings.haptics;
-      this.applySettingsState();
-      this.saveSettings();
-      if (typeof window.triggerHaptic === "function") {
-        window.triggerHaptic("light");
-      }
-    }, { signal });
+    this.fxToggle.addEventListener(
+      "click",
+      () => {
+        this.settings.fx = !this.settings.fx;
+        this.applySettingsState();
+        this.saveSettings();
+        this.triggerHaptic("light");
+        this.playFx("click");
+      },
+      { signal },
+    );
+
+    this.hapticsToggle.addEventListener(
+      "click",
+      () => {
+        this.settings.haptics = !this.settings.haptics;
+        this.applySettingsState();
+        this.saveSettings();
+        if (typeof window.triggerHaptic === "function") {
+          window.triggerHaptic("light");
+        }
+      },
+      { signal },
+    );
 
     this.applySettingsState();
   }
@@ -719,106 +777,197 @@ class ImposterGame {
   private setupLobbyListeners(): void {
     const signal = this.abortController.signal;
 
-    this.copyCodeBtn.addEventListener("click", () => {
-      const code = getRoomCode();
-      if (!code) {
-        return;
-      }
+    this.copyCodeBtn.addEventListener(
+      "click",
+      () => {
+        const code = getRoomCode();
+        if (!code) {
+          return;
+        }
 
-      void navigator.clipboard
-        .writeText(code)
-        .then(() => {
-          this.triggerHaptic("light");
-          this.playFx("click");
-          this.copyCodeBtn.innerHTML =
-            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.41 1.41L9 19 21 7l-1.41-1.41Z"/></svg>';
-          setTimeout(() => {
+        void navigator.clipboard
+          .writeText(code)
+          .then(() => {
+            this.triggerHaptic("light");
+            this.playFx("click");
             this.copyCodeBtn.innerHTML =
-              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H5a2 2 0 0 0-2 2v12h2V3h11V1Zm3 4H9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H9V7h10v14Z"/></svg>';
-          }, 1200);
-        })
-        .catch((error) => {
-          log("setupLobbyListeners.copyCode", "Clipboard failed " + String(error));
-        });
-    }, { signal });
+              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.41 1.41L9 19 21 7l-1.41-1.41Z"/></svg>';
+            setTimeout(() => {
+              this.copyCodeBtn.innerHTML =
+                '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H5a2 2 0 0 0-2 2v12h2V3h11V1Zm3 4H9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H9V7h10v14Z"/></svg>';
+            }, 1200);
+          })
+          .catch((error) => {
+            log(
+              "setupLobbyListeners.copyCode",
+              "Clipboard failed " + String(error),
+            );
+          });
+      },
+      { signal },
+    );
 
-    this.playerNameInput.addEventListener("input", () => {
-      if (this.nameDebounce) {
-        clearTimeout(this.nameDebounce);
-      }
+    this.playerNameInput.addEventListener(
+      "input",
+      () => {
+        if (this.nameDebounce) {
+          clearTimeout(this.nameDebounce);
+        }
 
-      this.nameDebounce = setTimeout(() => {
+        this.nameDebounce = setTimeout(() => {
+          this.savePlayerName();
+        }, 220);
+      },
+      { signal },
+    );
+
+    this.playerNameInput.addEventListener(
+      "blur",
+      () => {
         this.savePlayerName();
-      }, 220);
-    }, { signal });
+      },
+      { signal },
+    );
 
-    this.playerNameInput.addEventListener("blur", () => {
-      this.savePlayerName();
-    }, { signal });
+    this.readyBtn.addEventListener(
+      "click",
+      () => {
+        this.triggerHaptic("light");
+        this.playFx("click");
+        this.toggleReady();
+      },
+      { signal },
+    );
 
-    this.readyBtn.addEventListener("click", () => {
-      this.triggerHaptic("light");
-      this.playFx("click");
-      this.toggleReady();
-    }, { signal });
+    this.startMatchBtn.addEventListener(
+      "click",
+      () => {
+        this.triggerHaptic("medium");
+        this.playFx("vote");
+        this.startMatchIfHost();
+      },
+      { signal },
+    );
 
-    this.startMatchBtn.addEventListener("click", () => {
-      this.triggerHaptic("medium");
-      this.playFx("vote");
-      this.startMatchIfHost();
-    }, { signal });
-
-    const configInputs = [this.totalPlayersInput, this.impostersInput, this.roundsInput];
+    const configInputs = [
+      this.totalPlayersInput,
+      this.impostersInput,
+      this.roundsInput,
+    ];
 
     for (const input of configInputs) {
-      input.addEventListener("input", () => {
-        this.isInteractingWithConfig = true;
-        this.onHostConfigInput();
-      }, { signal });
+      input.addEventListener(
+        "input",
+        () => {
+          this.isInteractingWithConfig = true;
+          this.onHostConfigInput();
+        },
+        { signal },
+      );
 
-      input.addEventListener("pointerdown", () => {
-        this.isInteractingWithConfig = true;
-      }, { signal });
+      input.addEventListener(
+        "pointerdown",
+        () => {
+          this.isInteractingWithConfig = true;
+        },
+        { signal },
+      );
 
-      input.addEventListener("pointerup", () => {
-        this.isInteractingWithConfig = false;
-      }, { signal });
+      input.addEventListener(
+        "pointerup",
+        () => {
+          this.isInteractingWithConfig = false;
+        },
+        { signal },
+      );
 
-      input.addEventListener("change", () => {
-        this.isInteractingWithConfig = false;
-      }, { signal });
+      input.addEventListener(
+        "change",
+        () => {
+          this.isInteractingWithConfig = false;
+        },
+        { signal },
+      );
     }
   }
 
   private setupGameListeners(): void {
     const signal = this.abortController.signal;
 
-    this.revealReadyBtn.addEventListener("click", () => {
-      this.markRevealReady();
-    }, { signal });
+    this.revealReadyBtn.addEventListener(
+      "click",
+      () => {
+        this.markRevealReady();
+      },
+      { signal },
+    );
 
-    this.submitClueBtn.addEventListener("click", () => {
-      this.submitClue();
-    }, { signal });
-
-    this.clueInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
+    this.submitClueBtn.addEventListener(
+      "click",
+      () => {
         this.submitClue();
-      }
-    }, { signal });
+      },
+      { signal },
+    );
 
-    this.confirmVoteBtn.addEventListener("click", () => {
-      this.confirmVote();
-    }, { signal });
+    this.clueInput.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter") {
+          this.submitClue();
+        }
+      },
+      { signal },
+    );
 
-    this.playAgainBtn.addEventListener("click", () => {
-      this.restartToLobby();
-    }, { signal });
+    this.nextPlayerBtn.addEventListener(
+      "click",
+      () => {
+        this.nextPlayerClue();
+      },
+      { signal },
+    );
+
+    this.sendChatBtn.addEventListener(
+      "click",
+      () => {
+        this.submitChat();
+      },
+      { signal },
+    );
+
+    this.chatInput.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter") {
+          this.submitChat();
+        }
+      },
+      { signal },
+    );
+
+    this.endDiscussionBtn.addEventListener(
+      "click",
+      () => {
+        this.toggleEndDiscussion();
+      },
+      { signal },
+    );
+
+    this.playAgainBtn.addEventListener(
+      "click",
+      () => {
+        this.restartToLobby();
+      },
+      { signal },
+    );
   }
 
   private setupPlayroomListeners(): void {
     const cleanupMaybe = onPlayerJoin((player) => {
-      const alreadyExists = this.players.some((entry) => entry.id === player.id);
+      const alreadyExists = this.players.some(
+        (entry) => entry.id === player.id,
+      );
       if (!alreadyExists) {
         this.players.push(player);
       }
@@ -881,18 +1030,32 @@ class ImposterGame {
     const round = (getState(STATE_KEYS.round) as number | undefined) || 1;
     this.round = Math.max(1, Math.floor(round));
 
-    this.participants = ((getState(STATE_KEYS.participants) as string[] | undefined) || []).slice();
-    this.turnOrder = ((getState(STATE_KEYS.turnOrder) as string[] | undefined) || []).slice();
+    this.participants = (
+      (getState(STATE_KEYS.participants) as string[] | undefined) || []
+    ).slice();
+    this.allParticipants = (
+      (getState(STATE_KEYS.allParticipants) as string[] | undefined) || []
+    ).slice();
+    this.turnOrder = (
+      (getState(STATE_KEYS.turnOrder) as string[] | undefined) || []
+    ).slice();
     this.turnIndex =
       (getState(STATE_KEYS.turnIndex) as number | undefined) !== undefined
         ? Math.max(0, Number(getState(STATE_KEYS.turnIndex) as number))
         : 0;
 
-    this.phaseEndsAt = (getState(STATE_KEYS.phaseEndsAt) as number | undefined) || 0;
+    this.phaseEndsAt =
+      (getState(STATE_KEYS.phaseEndsAt) as number | undefined) || 0;
 
-    this.clues = ((getState(STATE_KEYS.clues) as ClueEntry[] | undefined) || []).slice();
+    this.clues = (
+      (getState(STATE_KEYS.clues) as ClueEntry[] | undefined) || []
+    ).slice();
+    this.chat = (
+      (getState(STATE_KEYS.chat) as ChatEntry[] | undefined) || []
+    ).slice();
 
-    this.result = (getState(STATE_KEYS.result) as RoundResult | null | undefined) || null;
+    this.result =
+      (getState(STATE_KEYS.result) as RoundResult | null | undefined) || null;
 
     if (this.players.length === 0) {
       this.lobbyStatus.textContent = "Waiting for player sync...";
@@ -912,6 +1075,18 @@ class ImposterGame {
       this.selectedVoteTarget = "";
       this.playFx("reveal");
       this.triggerHaptic("medium");
+    }
+
+    if (this.phase === "clue") {
+      this.selectedVoteTarget = "";
+    }
+
+    if (this.phase === "discussion") {
+      this.myEndDiscussion = false;
+    }
+
+    if (this.phase === "voting") {
+      this.selectedVoteTarget = "";
     }
 
     if (this.phase === "round_result" && this.result) {
@@ -993,19 +1168,16 @@ class ImposterGame {
 
   private toggleReady(): void {
     if (this.phase !== "lobby") {
-      log("toggleReady", "Not in lobby phase, skipping");
       return;
     }
 
     const me = myPlayer();
     if (!me) {
-      log("toggleReady", "No player found, skipping");
       return;
     }
 
     this.myReadyState = !this.myReadyState;
     me.setState(PLAYER_KEYS.ready, this.myReadyState, true);
-    log("toggleReady", "Ready toggled to " + String(this.myReadyState));
 
     this.readyBtn.textContent = this.myReadyState ? "Unready" : "Ready";
   }
@@ -1067,11 +1239,15 @@ class ImposterGame {
       setState(STATE_KEYS.phase, "lobby", true);
       setState(STATE_KEYS.round, 1, true);
       setState(STATE_KEYS.participants, [], true);
+      setState(STATE_KEYS.allParticipants, [], true);
       setState(STATE_KEYS.turnOrder, [], true);
       setState(STATE_KEYS.turnIndex, 0, true);
       setState(STATE_KEYS.clues, [], true);
+      setState(STATE_KEYS.clueDone, false, true);
+      setState(STATE_KEYS.chat, [], true);
       setState(STATE_KEYS.result, null, true);
       setState(STATE_KEYS.scoreboard, [], true);
+      setState(STATE_KEYS.matchWinner, "", true);
       setState(STATE_KEYS.phaseEndsAt, 0, true);
     }
   }
@@ -1089,7 +1265,10 @@ class ImposterGame {
     if (livePlayers.length !== this.config.totalPlayers) {
       log(
         "startMatchIfHost",
-        "Cannot start: connected " + String(livePlayers.length) + " expected " + String(this.config.totalPlayers),
+        "Cannot start: connected " +
+          String(livePlayers.length) +
+          " expected " +
+          String(this.config.totalPlayers),
       );
       return;
     }
@@ -1108,15 +1287,17 @@ class ImposterGame {
 
     const participantIds = livePlayers.map((player) => player.id);
     this.participants = participantIds;
+    this.allParticipants = participantIds.slice();
     this.round = 1;
     setState(STATE_KEYS.round, this.round, true);
     setState(STATE_KEYS.participants, participantIds, true);
+    setState(STATE_KEYS.allParticipants, participantIds, true);
 
     for (const player of livePlayers) {
       player.setState(PLAYER_KEYS.score, 0, true);
-      player.setState(PLAYER_KEYS.hasVoted, false, true);
       player.setState(PLAYER_KEYS.voteTarget, "", true);
       player.setState(PLAYER_KEYS.revealReady, false, true);
+      player.setState(PLAYER_KEYS.endDiscussion, false, true);
     }
 
     this.assignRolesForRound();
@@ -1139,16 +1320,23 @@ class ImposterGame {
     for (const player of players) {
       const role: Role = imposterIds.has(player.id) ? "imposter" : "member";
       player.setState(PLAYER_KEYS.role, role, true);
-      player.setState(PLAYER_KEYS.secretWord, role === "member" ? secretWord : "", true);
+      player.setState(
+        PLAYER_KEYS.secretWord,
+        role === "member" ? secretWord : "",
+        true,
+      );
       player.setState(PLAYER_KEYS.revealReady, false, true);
-      player.setState(PLAYER_KEYS.hasVoted, false, true);
       player.setState(PLAYER_KEYS.voteTarget, "", true);
+      player.setState(PLAYER_KEYS.endDiscussion, false, true);
     }
 
     setState(STATE_KEYS.turnOrder, [], true);
     setState(STATE_KEYS.turnIndex, 0, true);
     setState(STATE_KEYS.clues, [], true);
+    setState(STATE_KEYS.clueDone, false, true);
+    setState(STATE_KEYS.chat, [], true);
     setState(STATE_KEYS.result, null, true);
+    setState(STATE_KEYS.matchWinner, "", true);
 
     this.setPhase("role_reveal", this.config.revealSeconds);
   }
@@ -1170,6 +1358,7 @@ class ImposterGame {
     setState(STATE_KEYS.turnOrder, order, true);
     setState(STATE_KEYS.turnIndex, 0, true);
     setState(STATE_KEYS.clues, [], true);
+    setState(STATE_KEYS.clueDone, false, true);
     this.turnOrder = order;
     this.turnIndex = 0;
     this.clues = [];
@@ -1181,6 +1370,12 @@ class ImposterGame {
       return;
     }
 
+    setState(STATE_KEYS.chat, [], true);
+
+    for (const player of this.getParticipantPlayers()) {
+      player.setState(PLAYER_KEYS.endDiscussion, false, true);
+    }
+
     this.setPhase("discussion", this.config.discussionSeconds);
   }
 
@@ -1190,7 +1385,6 @@ class ImposterGame {
     }
 
     for (const player of this.getParticipantPlayers()) {
-      player.setState(PLAYER_KEYS.hasVoted, false, true);
       player.setState(PLAYER_KEYS.voteTarget, "", true);
     }
 
@@ -1207,14 +1401,67 @@ class ImposterGame {
       return;
     }
 
+    const eliminatedId = this.result.eliminatedId;
+    const nextParticipants = this.participants.filter(
+      (id) => id !== eliminatedId,
+    );
+    setState(STATE_KEYS.participants, nextParticipants, true);
+    this.participants = nextParticipants;
+
+    const participantPlayers = this.players.filter((p) =>
+      nextParticipants.includes(p.id),
+    );
+    let imposterCount = 0;
+    let memberCount = 0;
+    for (const player of participantPlayers) {
+      const role = String(player.getState(PLAYER_KEYS.role) || "member");
+      if (role === "imposter") {
+        imposterCount += 1;
+      } else {
+        memberCount += 1;
+      }
+    }
+
+    if (imposterCount === 0) {
+      setState(STATE_KEYS.matchWinner, "members", true);
+      this.finishMatch();
+      return;
+    }
+
+    if (imposterCount >= memberCount) {
+      setState(STATE_KEYS.matchWinner, "imposters", true);
+      this.finishMatch();
+      return;
+    }
+
     if (this.round >= this.config.rounds) {
+      const memberScoreTotal = participantPlayers
+        .filter((p) => String(p.getState(PLAYER_KEYS.role) || "") === "member")
+        .reduce((s, p) => s + Number(p.getState(PLAYER_KEYS.score) || 0), 0);
+      const imposterScoreTotal = participantPlayers
+        .filter(
+          (p) => String(p.getState(PLAYER_KEYS.role) || "") === "imposter",
+        )
+        .reduce((s, p) => s + Number(p.getState(PLAYER_KEYS.score) || 0), 0);
+
+      if (memberScoreTotal >= imposterScoreTotal) {
+        setState(STATE_KEYS.matchWinner, "members", true);
+      } else {
+        setState(STATE_KEYS.matchWinner, "imposters", true);
+      }
       this.finishMatch();
       return;
     }
 
     this.round += 1;
     setState(STATE_KEYS.round, this.round, true);
-    this.assignRolesForRound();
+
+    for (const player of participantPlayers) {
+      player.setState(PLAYER_KEYS.voteTarget, "", true);
+      player.setState(PLAYER_KEYS.endDiscussion, false, true);
+    }
+
+    this.startCluePhase();
   }
 
   private finishMatch(): void {
@@ -1243,19 +1490,24 @@ class ImposterGame {
       player.setState(PLAYER_KEYS.role, "", true);
       player.setState(PLAYER_KEYS.secretWord, "", true);
       player.setState(PLAYER_KEYS.revealReady, false, true);
-      player.setState(PLAYER_KEYS.hasVoted, false, true);
       player.setState(PLAYER_KEYS.voteTarget, "", true);
+      player.setState(PLAYER_KEYS.endDiscussion, false, true);
     }
 
     this.hasSubmittedScore = false;
+    this.myEndDiscussion = false;
     setState(STATE_KEYS.phase, "lobby", true);
     setState(STATE_KEYS.round, 1, true);
     setState(STATE_KEYS.participants, [], true);
+    setState(STATE_KEYS.allParticipants, [], true);
     setState(STATE_KEYS.turnOrder, [], true);
     setState(STATE_KEYS.turnIndex, 0, true);
     setState(STATE_KEYS.clues, [], true);
+    setState(STATE_KEYS.clueDone, false, true);
+    setState(STATE_KEYS.chat, [], true);
     setState(STATE_KEYS.result, null, true);
     setState(STATE_KEYS.scoreboard, [], true);
+    setState(STATE_KEYS.matchWinner, "", true);
     setState(STATE_KEYS.phaseEndsAt, 0, true);
   }
 
@@ -1273,7 +1525,9 @@ class ImposterGame {
         return;
       }
 
-      const allReady = players.every((player) => player.getState(PLAYER_KEYS.revealReady) === true);
+      const allReady = players.every(
+        (player) => player.getState(PLAYER_KEYS.revealReady) === true,
+      );
       if (allReady || now >= this.phaseEndsAt) {
         this.startCluePhase();
       }
@@ -1291,42 +1545,47 @@ class ImposterGame {
         return;
       }
 
-      const currentPlayerId = this.turnOrder[this.turnIndex];
-      const clueSubmitted = this.clues.some(
-        (entry) => entry.round === this.round && entry.playerId === currentPlayerId,
-      );
-
-      if (clueSubmitted) {
+      const clueDone = getState(STATE_KEYS.clueDone) === true;
+      if (clueDone) {
         this.advanceClueTurn();
         return;
       }
 
       if (now >= this.phaseEndsAt) {
-        const autoClue: ClueEntry = {
-          playerId: currentPlayerId,
-          clue: "No clue",
-          round: this.round,
-          auto: true,
-        };
-        const nextClues = [...this.clues, autoClue];
-        setState(STATE_KEYS.clues, nextClues, true);
+        const currentPlayerId = this.turnOrder[this.turnIndex];
+        const alreadyHasClue = this.clues.some(
+          (entry) =>
+            entry.round === this.round && entry.playerId === currentPlayerId,
+        );
+        if (!alreadyHasClue) {
+          const autoClue: ClueEntry = {
+            playerId: currentPlayerId,
+            clue: "No clue",
+            round: this.round,
+            auto: true,
+          };
+          setState(STATE_KEYS.clues, [...this.clues, autoClue], true);
+        }
         this.advanceClueTurn();
       }
       return;
     }
 
     if (this.phase === "discussion") {
-      if (now >= this.phaseEndsAt) {
+      const participants = this.getParticipantPlayers();
+      const allEnded =
+        participants.length > 0 &&
+        participants.every(
+          (player) => player.getState(PLAYER_KEYS.endDiscussion) === true,
+        );
+      if (allEnded || now >= this.phaseEndsAt) {
         this.startVotingPhase();
       }
       return;
     }
 
     if (this.phase === "voting") {
-      const participants = this.getParticipantPlayers();
-      const allVoted =
-        participants.length > 0 && participants.every((player) => player.getState(PLAYER_KEYS.hasVoted) === true);
-      if (allVoted || now >= this.phaseEndsAt) {
+      if (now >= this.phaseEndsAt) {
         this.finalizeVoting();
       }
       return;
@@ -1353,6 +1612,7 @@ class ImposterGame {
     const nextEndsAt = Date.now() + this.config.clueSeconds * 1000;
     setState(STATE_KEYS.turnIndex, nextIndex, true);
     setState(STATE_KEYS.phaseEndsAt, nextEndsAt, true);
+    setState(STATE_KEYS.clueDone, false, true);
     this.turnIndex = nextIndex;
     this.phaseEndsAt = nextEndsAt;
   }
@@ -1395,20 +1655,18 @@ class ImposterGame {
 
     tiedCandidates.sort((a, b) => a.localeCompare(b));
     const eliminatedId = tiedCandidates[0];
-    const eliminatedPlayer = participants.find((player) => player.id === eliminatedId) || participants[0];
+    const eliminatedPlayer =
+      participants.find((player) => player.id === eliminatedId) ||
+      participants[0];
 
-    const eliminatedRoleRaw = String(eliminatedPlayer.getState(PLAYER_KEYS.role) || "member");
-    const eliminatedRole: Role = eliminatedRoleRaw === "imposter" ? "imposter" : "member";
-
-    const winner: "members" | "imposters" = eliminatedRole === "imposter" ? "members" : "imposters";
-
-    const memberPlayer = participants.find(
-      (player) => String(player.getState(PLAYER_KEYS.role) || "") === "member",
+    const eliminatedRoleRaw = String(
+      eliminatedPlayer.getState(PLAYER_KEYS.role) || "member",
     );
+    const eliminatedRole: Role =
+      eliminatedRoleRaw === "imposter" ? "imposter" : "member";
 
-    const revealedWord = memberPlayer
-      ? String(memberPlayer.getState(PLAYER_KEYS.secretWord) || "Unknown")
-      : "Unknown";
+    const winner: "members" | "imposters" =
+      eliminatedRole === "imposter" ? "members" : "imposters";
 
     for (const player of participants) {
       const roleRaw = String(player.getState(PLAYER_KEYS.role) || "member");
@@ -1432,7 +1690,6 @@ class ImposterGame {
       eliminatedId,
       eliminatedName: this.getPlayerName(eliminatedPlayer),
       eliminatedRole,
-      revealedWord,
       voteCounts: counts,
     };
 
@@ -1484,13 +1741,9 @@ class ImposterGame {
       return;
     }
 
-    const alreadySubmitted = this.clues.some(
+    const existingIndex = this.clues.findIndex(
       (entry) => entry.round === this.round && entry.playerId === me.id,
     );
-
-    if (alreadySubmitted) {
-      return;
-    }
 
     const nextEntry: ClueEntry = {
       playerId: me.id,
@@ -1499,15 +1752,22 @@ class ImposterGame {
       auto: false,
     };
 
-    setState(STATE_KEYS.clues, [...this.clues, nextEntry], true);
-    this.clueInput.value = "";
+    let nextClues: ClueEntry[];
+    if (existingIndex >= 0) {
+      nextClues = this.clues.slice();
+      nextClues[existingIndex] = nextEntry;
+    } else {
+      nextClues = [...this.clues, nextEntry];
+    }
+
+    setState(STATE_KEYS.clues, nextClues, true);
 
     this.triggerHaptic("light");
     this.playFx("click");
   }
 
-  private confirmVote(): void {
-    if (this.phase !== "voting") {
+  private nextPlayerClue(): void {
+    if (this.phase !== "clue") {
       return;
     }
 
@@ -1520,16 +1780,92 @@ class ImposterGame {
       return;
     }
 
-    if (!this.selectedVoteTarget) {
+    const turnPlayerId = this.turnOrder[this.turnIndex] || "";
+    if (turnPlayerId !== me.id) {
+      return;
+    }
+
+    const hasClue = this.clues.some(
+      (entry) => entry.round === this.round && entry.playerId === me.id,
+    );
+
+    if (!hasClue) {
+      const clue = this.clueInput.value.trim().slice(0, 48);
+      if (clue) {
+        const nextEntry: ClueEntry = {
+          playerId: me.id,
+          clue,
+          round: this.round,
+          auto: false,
+        };
+        setState(STATE_KEYS.clues, [...this.clues, nextEntry], true);
+      }
+    }
+
+    setState(STATE_KEYS.clueDone, true, true);
+    this.triggerHaptic("medium");
+    this.playFx("click");
+  }
+
+  private submitChat(): void {
+    if (this.phase !== "discussion") {
+      return;
+    }
+
+    if (!this.isMyParticipant()) {
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me) {
+      return;
+    }
+
+    const myMessages = this.chat.filter(
+      (entry) => entry.round === this.round && entry.playerId === me.id,
+    );
+    if (myMessages.length >= 3) {
       this.triggerHaptic("error");
       return;
     }
 
-    me.setState(PLAYER_KEYS.voteTarget, this.selectedVoteTarget, true);
-    me.setState(PLAYER_KEYS.hasVoted, true, true);
+    const message = this.chatInput.value.trim().slice(0, 120);
+    if (!message) {
+      this.triggerHaptic("error");
+      return;
+    }
 
-    this.triggerHaptic("medium");
-    this.playFx("vote");
+    const nextEntry: ChatEntry = {
+      playerId: me.id,
+      message,
+      round: this.round,
+    };
+
+    setState(STATE_KEYS.chat, [...this.chat, nextEntry], true);
+    this.chatInput.value = "";
+
+    this.triggerHaptic("light");
+    this.playFx("click");
+  }
+
+  private toggleEndDiscussion(): void {
+    if (this.phase !== "discussion") {
+      return;
+    }
+
+    if (!this.isMyParticipant()) {
+      return;
+    }
+
+    const me = myPlayer();
+    if (!me) {
+      return;
+    }
+
+    this.myEndDiscussion = !this.myEndDiscussion;
+    me.setState(PLAYER_KEYS.endDiscussion, this.myEndDiscussion, true);
+    this.triggerHaptic("light");
+    this.playFx("click");
   }
 
   private renderAll(): void {
@@ -1548,7 +1884,8 @@ class ImposterGame {
   private renderLobby(): void {
     this.applyConfigInputs();
 
-    this.lobbyPlayerCount.textContent = String(this.players.length) + "/" + String(this.config.totalPlayers);
+    this.lobbyPlayerCount.textContent =
+      String(this.players.length) + "/" + String(this.config.totalPlayers);
 
     const me = myPlayer();
     const myId = me?.id || "";
@@ -1567,7 +1904,9 @@ class ImposterGame {
       .map((player) => {
         const name = this.escapeHtml(this.getPlayerName(player));
         const isMe = player.id === myId;
-        const ready = isMe ? this.myReadyState : player.getState(PLAYER_KEYS.ready) === true;
+        const ready = isMe
+          ? this.myReadyState
+          : player.getState(PLAYER_KEYS.ready) === true;
         const host = this.hostId === player.id;
 
         const statusParts: string[] = [];
@@ -1584,13 +1923,15 @@ class ImposterGame {
         return (
           '<li class="lobby-player-item">' +
           '<div class="player-label">' +
-          '<span class="player-dot ' + (ready ? "ready" : "") + '"></span>' +
+          '<span class="player-dot ' +
+          (ready ? "ready" : "") +
+          '"></span>' +
           '<span class="player-name">' +
           name +
           "</span>" +
           "</div>" +
           '<div class="player-meta">' +
-          this.escapeHtml(statusParts.join(" • ")) +
+          this.escapeHtml(statusParts.join(" / ")) +
           "</div>" +
           "</li>"
         );
@@ -1613,7 +1954,8 @@ class ImposterGame {
       }).length;
 
       if (missing > 0) {
-        this.lobbyStatus.textContent = "Waiting for " + String(missing) + " more players";
+        this.lobbyStatus.textContent =
+          "Waiting for " + String(missing) + " more players";
         this.startMatchBtn.disabled = true;
       } else if (readyCount < this.players.length) {
         this.lobbyStatus.textContent = "Waiting for all players to ready up";
@@ -1642,7 +1984,8 @@ class ImposterGame {
       return;
     }
 
-    this.roundLabel.textContent = "Round " + String(this.round) + " / " + String(this.config.rounds);
+    this.roundLabel.textContent =
+      "Round " + String(this.round) + " / " + String(this.config.rounds);
     this.phasePill.textContent = this.formatPhaseLabel(this.phase);
 
     this.spectatorNote.classList.toggle("hidden", this.isMyParticipant());
@@ -1687,7 +2030,8 @@ class ImposterGame {
       this.roleBadge.classList.remove("imposter");
       this.roleWord.textContent = "Waiting for next round";
       this.roleSubtitle.textContent = "This round is already in progress.";
-      this.roleNote.textContent = "You will join automatically when the next round starts.";
+      this.roleNote.textContent =
+        "You will join automatically when the next round starts.";
       this.revealReadyBtn.disabled = true;
       this.revealReadyBtn.textContent = "Spectating";
       return;
@@ -1699,7 +2043,9 @@ class ImposterGame {
     this.roleBadge.classList.toggle("imposter", isImposter);
     this.roleBadge.classList.toggle("member", !isImposter);
 
-    this.roleWord.textContent = isImposter ? "You get no word" : secretWord || "...";
+    this.roleWord.textContent = isImposter
+      ? "You get no word"
+      : secretWord || "...";
     this.roleSubtitle.textContent = isImposter
       ? "Blend in during clues and avoid detection."
       : "Share one subtle clue without saying the word.";
@@ -1711,23 +2057,46 @@ class ImposterGame {
 
   private renderCluePanel(): void {
     const currentPlayerId = this.turnOrder[this.turnIndex] || "";
-    const currentPlayer = this.players.find((player) => player.id === currentPlayerId);
-    const currentName = currentPlayer ? this.getPlayerName(currentPlayer) : "Waiting";
+    const currentPlayer = this.players.find(
+      (player) => player.id === currentPlayerId,
+    );
+    const currentName = currentPlayer
+      ? this.getPlayerName(currentPlayer)
+      : "Waiting";
 
-    this.currentTurnLabel.textContent = "Current turn: " + currentName;
+    this.clueTurnName.textContent = currentName;
 
     const me = myPlayer();
     const isMyTurn = Boolean(me && me.id === currentPlayerId);
     const canType = this.isMyParticipant() && isMyTurn;
 
+    const myExistingClue = this.clues.find(
+      (entry) =>
+        entry.round === this.round && entry.playerId === currentPlayerId,
+    );
+
     this.clueInput.disabled = !canType;
     this.submitClueBtn.disabled = !canType;
-    this.clueInput.placeholder = canType ? "Type one short clue" : "Waiting for current player";
+    this.clueInput.placeholder = canType
+      ? "Type one short clue"
+      : "Waiting for " + currentName;
+
+    if (canType && myExistingClue && !this.clueInput.value.trim()) {
+      this.clueInput.value = myExistingClue.clue;
+    }
+
+    this.submitClueBtn.textContent =
+      myExistingClue && isMyTurn ? "Update" : "Submit";
+
+    this.nextPlayerBtn.classList.toggle("hidden", !canType);
+    this.nextPlayerBtn.disabled = !canType;
 
     this.clueFeed.innerHTML = this.clues
       .filter((entry) => entry.round === this.round)
       .map((entry) => {
-        const player = this.players.find((candidate) => candidate.id === entry.playerId);
+        const player = this.players.find(
+          (candidate) => candidate.id === entry.playerId,
+        );
         const name = player ? this.getPlayerName(player) : "Player";
         const clueText = this.escapeHtml(entry.clue);
         const marker = entry.auto ? " (auto)" : "";
@@ -1745,13 +2114,15 @@ class ImposterGame {
   }
 
   private renderDiscussionPanel(): void {
-    this.discussionClues.innerHTML = this.clues
+    this.discussionCluesRef.innerHTML = this.clues
       .filter((entry) => entry.round === this.round)
       .map((entry) => {
-        const player = this.players.find((candidate) => candidate.id === entry.playerId);
+        const player = this.players.find(
+          (candidate) => candidate.id === entry.playerId,
+        );
         const name = player ? this.getPlayerName(player) : "Player";
         return (
-          '<li class="clue-item"><span class="clue-name">' +
+          '<li class="clue-ref-item"><span class="clue-name">' +
           this.escapeHtml(name) +
           "</span>" +
           this.escapeHtml(entry.clue) +
@@ -1759,27 +2130,96 @@ class ImposterGame {
         );
       })
       .join("");
+
+    const roundChat = this.chat.filter((entry) => entry.round === this.round);
+    this.chatFeed.innerHTML = roundChat
+      .map((entry) => {
+        const player = this.players.find(
+          (candidate) => candidate.id === entry.playerId,
+        );
+        const name = player ? this.getPlayerName(player) : "Player";
+        const isMe = entry.playerId === myPlayer()?.id;
+        return (
+          '<div class="chat-bubble' +
+          (isMe ? " mine" : "") +
+          '">' +
+          '<span class="chat-author">' +
+          this.escapeHtml(name) +
+          "</span>" +
+          '<span class="chat-text">' +
+          this.escapeHtml(entry.message) +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+
+    if (this.chatFeed.scrollHeight > this.chatFeed.clientHeight) {
+      this.chatFeed.scrollTop = this.chatFeed.scrollHeight;
+    }
+
+    const me = myPlayer();
+    const myMsgCount = roundChat.filter(
+      (entry) => entry.playerId === me?.id,
+    ).length;
+    const remaining = 3 - myMsgCount;
+    this.chatCounter.textContent = String(remaining) + "/3 left";
+    this.chatInput.disabled = !this.isMyParticipant() || remaining <= 0;
+    this.sendChatBtn.disabled = !this.isMyParticipant() || remaining <= 0;
+    this.chatInput.placeholder =
+      remaining <= 0 ? "No messages left" : "Type a message...";
+
+    const endDiscBtn = this.endDiscussionBtn;
+    const meEndDisc = me?.getState(PLAYER_KEYS.endDiscussion) === true;
+    this.myEndDiscussion = meEndDisc;
+    endDiscBtn.classList.toggle("active", meEndDisc);
+    endDiscBtn.textContent = meEndDisc
+      ? "Return to Discussion"
+      : "End Discussion";
+    endDiscBtn.disabled = !this.isMyParticipant();
+
+    const participantPlayers = this.getParticipantPlayers();
+    this.discussionRoster.innerHTML = participantPlayers
+      .map((player) => {
+        const name = this.escapeHtml(this.getPlayerName(player));
+        const ended = player.getState(PLAYER_KEYS.endDiscussion) === true;
+        const isMe = player.id === me?.id;
+        return (
+          '<div class="roster-item' +
+          (ended ? " ended" : "") +
+          (isMe ? " me" : "") +
+          '">' +
+          '<span class="roster-dot' +
+          (ended ? " done" : "") +
+          '"></span>' +
+          '<span class="roster-name">' +
+          name +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
   }
 
   private renderVotePanel(): void {
     const me = myPlayer();
-    const hasVoted = me?.getState(PLAYER_KEYS.hasVoted) === true;
 
     if (!this.isMyParticipant()) {
       this.voteSubtitle.textContent = "You are spectating this round.";
-    } else if (hasVoted) {
-      this.voteSubtitle.textContent = "Vote locked. Waiting for other players.";
     } else {
-      this.voteSubtitle.textContent = "Select one player and confirm your vote.";
+      this.voteSubtitle.textContent =
+        "Tap a player to select. Your vote is final when the timer ends.";
     }
 
-    const voteOptions = this.getParticipantPlayers().filter((player) => player.id !== me?.id);
+    const voteOptions = this.getParticipantPlayers().filter(
+      (player) => player.id !== me?.id,
+    );
 
     this.voteGrid.innerHTML = voteOptions
       .map((player) => {
         const selected = this.selectedVoteTarget === player.id;
-        const lockedClass = hasVoted || !this.isMyParticipant() ? " locked" : "";
         const selectedClass = selected ? " selected" : "";
+        const lockedClass = !this.isMyParticipant() ? " locked" : "";
 
         return (
           '<button class="vote-card' +
@@ -1788,7 +2228,10 @@ class ImposterGame {
           '" data-player-id="' +
           this.escapeHtml(player.id) +
           '">' +
+          '<span class="vote-card-name">' +
           this.escapeHtml(this.getPlayerName(player)) +
+          "</span>" +
+          (selected ? '<span class="vote-check-icon"></span>' : "") +
           "</button>"
         );
       })
@@ -1800,34 +2243,42 @@ class ImposterGame {
         if (!this.isMyParticipant()) {
           return;
         }
-        if (hasVoted) {
-          return;
-        }
 
         const target = card.getAttribute("data-player-id") || "";
         this.selectedVoteTarget = target;
+
+        const mePlayer = myPlayer();
+        if (mePlayer) {
+          mePlayer.setState(PLAYER_KEYS.voteTarget, target, true);
+        }
+
         this.triggerHaptic("light");
         this.playFx("click");
         this.renderVotePanel();
       });
     }
-
-    this.confirmVoteBtn.disabled = !this.isMyParticipant() || hasVoted || !this.selectedVoteTarget;
   }
 
   private renderResultPanel(): void {
     if (!this.result) {
       this.resultWinner.textContent = "Waiting for result";
       this.resultDetail.textContent = "Calculating...";
-      this.revealedWord.textContent = "Secret word: -";
       this.scoreboard.innerHTML = "";
       return;
     }
 
-    this.resultWinner.classList.toggle("member", this.result.winner === "members");
-    this.resultWinner.classList.toggle("imposter", this.result.winner === "imposters");
+    this.resultWinner.classList.toggle(
+      "member",
+      this.result.winner === "members",
+    );
+    this.resultWinner.classList.toggle(
+      "imposter",
+      this.result.winner === "imposters",
+    );
     this.resultWinner.textContent =
-      this.result.winner === "members" ? "Members win this round" : "Imposters win this round";
+      this.result.winner === "members"
+        ? "Members win this round"
+        : "Imposters win this round";
 
     this.resultDetail.textContent =
       this.result.eliminatedName +
@@ -1835,16 +2286,19 @@ class ImposterGame {
       (this.result.eliminatedRole === "imposter" ? "Imposter" : "Member") +
       ".";
 
-    this.revealedWord.textContent = "Secret word: " + this.result.revealedWord;
-
     this.scoreboard.innerHTML = this.buildScoreEntries()
       .map((entry) => {
         const mine = entry.playerId === myPlayer()?.id;
+        const eliminated =
+          !this.participants.includes(entry.playerId) &&
+          this.result?.eliminatedId === entry.playerId;
         return (
           '<li class="score-item' +
           (mine ? " me" : "") +
+          (eliminated ? " eliminated" : "") +
           '"><span>' +
           this.escapeHtml(entry.name) +
+          (eliminated ? " (out)" : "") +
           "</span><strong>" +
           String(entry.score) +
           "</strong></li>"
@@ -1852,15 +2306,38 @@ class ImposterGame {
       })
       .join("");
 
-    this.resultNextNote.textContent =
-      this.round >= this.config.rounds
-        ? "Final round complete. Showing match standings soon."
-        : "Next round is preparing...";
+    this.resultNextNote.textContent = "Next round preparing...";
   }
 
   private renderMatchPanel(): void {
     const scoreboardState =
-      (getState(STATE_KEYS.scoreboard) as ScoreEntry[] | undefined) || this.buildScoreEntries();
+      (getState(STATE_KEYS.scoreboard) as ScoreEntry[] | undefined) ||
+      this.buildScoreEntries();
+    const matchWinner = String(getState(STATE_KEYS.matchWinner) || "");
+
+    if (matchWinner === "members") {
+      this.matchSubtitle.textContent = "Members Win!";
+      this.matchSubtitle.classList.add("member-win");
+      this.matchSubtitle.classList.remove("imposter-win");
+    } else if (matchWinner === "imposters") {
+      this.matchSubtitle.textContent = "Imposters Win!";
+      this.matchSubtitle.classList.add("imposter-win");
+      this.matchSubtitle.classList.remove("member-win");
+    } else {
+      this.matchSubtitle.textContent = "Match Over";
+      this.matchSubtitle.classList.remove("member-win");
+      this.matchSubtitle.classList.remove("imposter-win");
+    }
+
+    const memberPlayer = this.players.find(
+      (p) =>
+        this.allParticipants.includes(p.id) &&
+        String(p.getState(PLAYER_KEYS.role) || "") === "member",
+    );
+    const secretWord = memberPlayer
+      ? String(memberPlayer.getState(PLAYER_KEYS.secretWord) || "???")
+      : "???";
+    this.matchWord.textContent = "The secret word was: " + secretWord;
 
     const sorted = scoreboardState
       .slice()
@@ -1887,10 +2364,18 @@ class ImposterGame {
   }
 
   private buildScoreEntries(): ScoreEntry[] {
-    return this.getParticipantPlayers()
+    const idsToShow =
+      this.allParticipants.length > 0
+        ? this.allParticipants
+        : this.participants;
+    const idSet = new Set(idsToShow);
+
+    return this.players
+      .filter((player) => idSet.has(player.id))
       .map((player) => {
         const roleRaw = String(player.getState(PLAYER_KEYS.role) || "");
-        const role: Role | "none" = roleRaw === "imposter" || roleRaw === "member" ? roleRaw : "none";
+        const role: Role | "none" =
+          roleRaw === "imposter" || roleRaw === "member" ? roleRaw : "none";
 
         return {
           playerId: player.id,
@@ -1908,8 +2393,19 @@ class ImposterGame {
       return;
     }
 
-    const seconds = Math.max(0, Math.ceil((this.phaseEndsAt - Date.now()) / 1000));
-    this.timerLabel.textContent = String(seconds) + "s";
+    const totalSeconds = Math.max(
+      0,
+      Math.ceil((this.phaseEndsAt - Date.now()) / 1000),
+    );
+
+    if (totalSeconds >= 60) {
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      this.timerLabel.textContent =
+        String(mins) + ":" + (secs < 10 ? "0" : "") + String(secs);
+    } else {
+      this.timerLabel.textContent = String(totalSeconds) + "s";
+    }
   }
 
   private syncRoleCard(): void {
@@ -1938,7 +2434,13 @@ class ImposterGame {
 
   private applyConfigInputs(): void {
     this.totalPlayersValue.textContent = String(this.config.totalPlayers);
-    this.impostersValue.textContent = String(clamp(this.config.imposters, 1, Math.min(3, this.config.totalPlayers - 1)));
+    this.impostersValue.textContent = String(
+      clamp(
+        this.config.imposters,
+        1,
+        Math.min(3, this.config.totalPlayers - 1),
+      ),
+    );
     this.roundsValue.textContent = String(this.config.rounds);
 
     if (this.isInteractingWithConfig) {
@@ -2093,7 +2595,10 @@ class ImposterGame {
     const rawScore = Number(me.getState(PLAYER_KEYS.score) || 0);
     const finalScore = Math.max(0, Math.floor(rawScore));
 
-    log("submitScoreAtMatchEndIfNeeded", "Submitting score " + String(finalScore));
+    log(
+      "submitScoreAtMatchEndIfNeeded",
+      "Submitting score " + String(finalScore),
+    );
     if (typeof window.submitScore === "function") {
       window.submitScore(finalScore);
     }
