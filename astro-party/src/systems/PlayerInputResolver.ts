@@ -1,7 +1,7 @@
 import { InputManager } from "./Input";
 import { MultiInputManager } from "./MultiInputManager";
 import { NetworkManager } from "../network/NetworkManager";
-import { PlayerInput, GAME_CONFIG } from "../types";
+import { PlayerInput, GamePhase, GAME_CONFIG } from "../types";
 import { NETWORK_GAME_FEEL_TUNING } from "../network/gameFeel/NetworkGameFeelTuning";
 
 export class PlayerInputResolver {
@@ -14,6 +14,8 @@ export class PlayerInputResolver {
   };
   private lastInputSendTime: number = 0;
   private nextInputSequence = 1;
+  private lastSentButtons: { buttonA: boolean; buttonB: boolean } | null = null;
+  private lastObservedPhase: GamePhase | null = null;
 
   constructor(
     private network: NetworkManager,
@@ -36,13 +38,33 @@ export class PlayerInputResolver {
     return this.localInputState;
   }
 
-  sendLocalInputIfNeeded(now: number): PlayerInput | null {
+  sendLocalInputIfNeeded(now: number, phase: GamePhase): PlayerInput | null {
     if (this.network.isSimulationAuthority()) return null;
+    const phaseAllowsGameplayInput =
+      phase === "COUNTDOWN" || phase === "PLAYING";
+    const previousPhaseAllowedGameplayInput =
+      this.lastObservedPhase === "COUNTDOWN" ||
+      this.lastObservedPhase === "PLAYING";
+    const enteredGameplayInputPhase =
+      phaseAllowsGameplayInput && !previousPhaseAllowedGameplayInput;
+    this.lastObservedPhase = phase;
+    if (!phaseAllowsGameplayInput) return null;
+
     const sendIntervalMs =
       this.network.getTransportMode() === "online"
         ? NETWORK_GAME_FEEL_TUNING.selfPrediction.inputSendIntervalMs
         : GAME_CONFIG.SYNC_INTERVAL;
-    if (now - this.lastInputSendTime < sendIntervalMs) return null;
+    const buttonsChanged =
+      this.lastSentButtons === null ||
+      this.lastSentButtons.buttonA !== this.localInputState.buttonA ||
+      this.lastSentButtons.buttonB !== this.localInputState.buttonB;
+    if (
+      !enteredGameplayInputPhase &&
+      !buttonsChanged &&
+      now - this.lastInputSendTime < sendIntervalMs
+    ) {
+      return null;
+    }
 
     const inputSequence = this.nextInputSequence++;
 
@@ -54,6 +76,10 @@ export class PlayerInputResolver {
     };
     this.network.sendInput(sendInput);
     this.localInputState.inputSequence = inputSequence;
+    this.lastSentButtons = {
+      buttonA: sendInput.buttonA,
+      buttonB: sendInput.buttonB,
+    };
     this.lastInputSendTime = now;
     return sendInput;
   }

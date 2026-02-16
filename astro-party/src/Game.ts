@@ -244,27 +244,32 @@ export class Game {
       },
 
       onGamePhaseReceived: (phase, winnerId, winnerName) => {
-        console.log("[Game] RPC phase received:", phase);
+        console.log("[Game] Phase received:", phase);
         if (!this.network.isSimulationAuthority()) {
           const shouldForceRosterSync =
             phase === "COUNTDOWN" || phase === "PLAYING";
           this.network.resyncPlayerListFromState(
-            "rpc-phase-" + phase.toLowerCase(),
+            "state-phase-" + phase.toLowerCase(),
             shouldForceRosterSync,
           );
           const oldPhase = this.flowMgr.phase;
           this.flowMgr.phase = phase;
 
           if (phase === "GAME_END") {
-            if (winnerId && winnerName) {
-              this.flowMgr.winnerId = winnerId;
-              this.flowMgr.winnerName = winnerName;
+            const resolvedWinnerId = winnerId ?? this.roundResult?.winnerId;
+            const resolvedWinnerName =
+              winnerName ?? this.roundResult?.winnerName;
+            if (resolvedWinnerId && resolvedWinnerName) {
+              this.flowMgr.winnerId = resolvedWinnerId;
+              this.flowMgr.winnerName = resolvedWinnerName;
               this.emitPlayersUpdate();
             }
             this.submitFinalScoreFromAuthoritativeState();
           }
 
-          if (phase === "LOBBY" && oldPhase === "GAME_END") {
+          if (phase === "LOBBY" && oldPhase !== "LOBBY") {
+            this.flowMgr.winnerId = null;
+            this.flowMgr.winnerName = null;
             this.clearAllGameState();
           }
 
@@ -386,6 +391,10 @@ export class Game {
         }
         if (code === "ROOM_FULL") {
           this._onSystemMessage?.("Room is full", 3000);
+          return;
+        }
+        if (code === "MATCH_IN_PROGRESS") {
+          this._onSystemMessage?.("Match already in progress", 3000);
           return;
         }
         if (code === "LEADER_ONLY") {
@@ -576,7 +585,10 @@ export class Game {
       this.botMgr.useTouchForHost,
     );
     this.networkSync.captureLocalInput(localInput);
-    const sentInput = this.inputResolver.sendLocalInputIfNeeded(now);
+    const sentInput = this.inputResolver.sendLocalInputIfNeeded(
+      now,
+      this.flowMgr.phase,
+    );
     if (sentInput) {
       this.networkSync.recordSentInput(sentInput);
     }
@@ -751,6 +763,10 @@ export class Game {
 
   private applyRoundResult(payload: RoundResultPayload): void {
     this.roundResult = payload;
+    if (payload.winnerId && payload.winnerName) {
+      this.flowMgr.winnerId = payload.winnerId;
+      this.flowMgr.winnerName = payload.winnerName;
+    }
     Object.entries(payload.roundWinsById).forEach(([playerId, wins]) => {
       const player = this.playerMgr.players.get(playerId);
       if (player) {

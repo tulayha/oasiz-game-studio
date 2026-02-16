@@ -26,5 +26,8 @@ export class AstroPartyRoomState extends Schema {
   @type("string") baseMode = "STANDARD";
   @type("number") mapId = 0;
   @type("string") settingsJson = "";
+  @type("string") roundResultJson = "";
+  @type("number") roundResultRevision = 0;
+  @type("number") countdown = 0;
   @type("boolean") devModeEnabled = false;
 }

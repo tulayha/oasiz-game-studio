@@ -41,8 +41,10 @@ These are read from `process.env` (no dotenv loader in code by default).
 - `CORS_ORIGIN` (default: `*`)
 - `MAX_PLAYERS` (default: `4`)
 - `SIM_TICK_HZ` (default: `60`)
-- `SNAPSHOT_HZ` (default: `20`)
 - `ROOM_CODE_LENGTH` (default: `4`)
+- `SNAPSHOT_HZ_LOBBY` (default: `12`, capped at tick rate)
+- `CLIENT_MAX_OUTBOUND_BUFFER_BYTES` (default: `262144`)
+- `WS_MAX_PAYLOAD_BYTES` (default: `262144`)
 
 ## HTTP API
 

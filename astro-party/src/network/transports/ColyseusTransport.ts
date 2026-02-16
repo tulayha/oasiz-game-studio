@@ -67,6 +67,9 @@ interface RoomStateView {
   baseMode?: string;
   mapId?: number;
   settingsJson?: string;
+  roundResultJson?: string;
+  roundResultRevision?: number;
+  countdown?: number;
   devModeEnabled?: boolean;
 }
 
@@ -125,6 +128,10 @@ export class ColyseusTransport implements NetworkTransport {
   private lastAdvancedSettingsSignature: string | null = null;
   private lastDevModeEnabled: boolean | null = null;
   private lastMapId: number | null = null;
+  private lastPhase: GamePhase | null = null;
+  private lastCountdown: number | null = null;
+  private lastRoundResultSignature: string | null = null;
+  private lastRoundResult: RoundResultPayload | null = null;
   private lastMeasuredRttMs = 0;
   private stateUnsubscribers: Array<() => void> = [];
   private schemaRosterCallbacksActive = false;
@@ -495,21 +502,6 @@ export class ColyseusTransport implements NetworkTransport {
       this.callbacks?.onDisconnected();
     });
 
-    room.onMessage(
-      "evt:phase",
-      (payload: { phase: GamePhase; winnerId?: string; winnerName?: string }) => {
-        this.callbacks?.onGamePhaseReceived(
-          payload.phase,
-          payload.winnerId,
-          payload.winnerName,
-        );
-      },
-    );
-
-    room.onMessage("evt:countdown", (count: number) => {
-      this.callbacks?.onCountdownReceived(count);
-    });
-
     room.onMessage("evt:snapshot", (payload: GameStateSync) => {
       this.callbacks?.onGameStateReceived(payload);
     });
@@ -544,10 +536,6 @@ export class ColyseusTransport implements NetworkTransport {
         this.callbacks?.onDashParticlesReceived?.(payload);
       },
     );
-
-    room.onMessage("evt:round_result", (payload: RoundResultPayload) => {
-      this.callbacks?.onRoundResultReceived(payload);
-    });
 
     room.onMessage(
       "evt:pong",
@@ -646,10 +634,14 @@ export class ColyseusTransport implements NetworkTransport {
     if (typeof root.listen === "function") {
       trackUnsubscriber(root.listen("leaderPlayerId", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("hostId", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("phase", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("mode", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("baseMode", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("mapId", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("settingsJson", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("roundResultJson", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("roundResultRevision", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("countdown", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("devModeEnabled", () => triggerStateRefresh()));
     }
 
@@ -741,6 +733,9 @@ export class ColyseusTransport implements NetworkTransport {
       this.callbacks.onHostChanged();
     }
 
+    this.applyRoundResultFromState(state);
+    this.applyPhaseFromState(state);
+    this.applyCountdownFromState(state);
     this.applyAdvancedSettingsFromState(state);
     this.applyMapFromState(state);
     this.applyDevModeFromState(state);
@@ -798,6 +793,50 @@ export class ColyseusTransport implements NetworkTransport {
     if (this.lastMapId === mapId) return;
     this.lastMapId = mapId;
     this.callbacks?.onMapIdReceived(mapId);
+  }
+
+  private applyRoundResultFromState(state: RoomStateView): void {
+    const roundResultJson = this.normalizeStateString(state.roundResultJson) ?? "";
+    const roundResultRevision = Number.isFinite(state.roundResultRevision)
+      ? (state.roundResultRevision as number)
+      : 0;
+    const signature = roundResultRevision.toString() + "|" + roundResultJson;
+    if (this.lastRoundResultSignature === signature) return;
+    this.lastRoundResultSignature = signature;
+
+    if (!roundResultJson) {
+      this.lastRoundResult = null;
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(roundResultJson) as RoundResultPayload;
+      this.lastRoundResult = payload;
+      this.callbacks?.onRoundResultReceived(payload);
+    } catch {
+      this.lastRoundResult = null;
+    }
+  }
+
+  private applyCountdownFromState(state: RoomStateView): void {
+    if (!Number.isFinite(state.countdown)) return;
+    const countdown = Math.max(0, Math.floor(state.countdown as number));
+    if (this.lastCountdown === countdown) return;
+    this.lastCountdown = countdown;
+    this.callbacks?.onCountdownReceived(countdown);
+  }
+
+  private applyPhaseFromState(state: RoomStateView): void {
+    const phase = state.phase;
+    if (!phase) return;
+    if (this.lastPhase === phase) return;
+    this.lastPhase = phase;
+
+    const winnerId =
+      phase === "GAME_END" ? this.lastRoundResult?.winnerId : undefined;
+    const winnerName =
+      phase === "GAME_END" ? this.lastRoundResult?.winnerName : undefined;
+    this.callbacks?.onGamePhaseReceived(phase, winnerId, winnerName);
   }
 
   private extractPlayerMetaList(playersState: unknown): PlayerMeta[] {
@@ -956,6 +995,10 @@ export class ColyseusTransport implements NetworkTransport {
     this.lastAdvancedSettingsSignature = null;
     this.lastDevModeEnabled = null;
     this.lastMapId = null;
+    this.lastPhase = null;
+    this.lastCountdown = null;
+    this.lastRoundResultSignature = null;
+    this.lastRoundResult = null;
     this.lastMeasuredRttMs = 0;
     this.playerOrder = [];
     this.playerMetaById.clear();

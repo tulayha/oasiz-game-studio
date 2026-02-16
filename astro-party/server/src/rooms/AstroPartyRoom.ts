@@ -22,7 +22,6 @@ interface CreateOptions {
   roomCode?: string;
   maxPlayers?: number;
   simTickHz?: number;
-  snapshotHz?: number;
 }
 
 interface PlayerInputMessage {
@@ -66,6 +65,12 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
   private simulation!: AstroPartySimulation;
   private latestSnapshot: SnapshotPayload | null = null;
   private simAccumulatorMs = 0;
+  private snapshotHzLobby = 12;
+  private lastLobbySnapshotBroadcastSimTimeMs = -Infinity;
+  private readonly maxOutboundBufferBytes = Number.parseInt(
+    process.env.CLIENT_MAX_OUTBOUND_BUFFER_BYTES ?? "262144",
+    10,
+  );
   private asteroidColliderById = new Map<string, number[]>();
   private asteroidColliderSentBySession = new Map<string, Set<string>>();
 
@@ -73,8 +78,12 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     const roomCode = options.roomCode ?? "----";
     const maxPlayers = options.maxPlayers ?? 4;
     const simTickHz = options.simTickHz ?? 60;
-    const snapshotHz = options.snapshotHz ?? 24;
     const tickDurationMs = 1000 / simTickHz;
+    this.snapshotHzLobby = this.parseSnapshotHz(
+      process.env.SNAPSHOT_HZ_LOBBY,
+      12,
+      simTickHz,
+    );
 
     this.maxClients = maxPlayers;
     this.setState(new AstroPartyRoomState());
@@ -92,20 +101,42 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
           this.setMetadata({
             roomCode: payload.roomCode,
             leaderPlayerId: payload.leaderPlayerId,
+            phase: payload.phase,
           });
           this.applyRoomMetaState(payload);
         },
-        onPhase: (phase: GamePhase, winnerId?: string, winnerName?: string) => {
-          this.broadcast("evt:phase", { phase, winnerId, winnerName });
+        onPhase: (phase: GamePhase) => {
+          if (phase === "LOBBY") {
+            this.unlock();
+          } else {
+            this.lock();
+          }
+          if (phase === "LOBBY" || phase === "COUNTDOWN") {
+            this.clearRoundResultState();
+          }
         },
         onCountdown: (count: number) => {
-          this.broadcast("evt:countdown", count);
+          this.state.countdown = count;
         },
         onRoundResult: (payload: RoundResultPayload) => {
-          this.broadcast("evt:round_result", payload);
+          this.state.roundResultJson = JSON.stringify(payload);
+          this.state.roundResultRevision += 1;
         },
         onSnapshot: (payload: SnapshotPayload) => {
           this.latestSnapshot = payload;
+          if (
+            this.simulation.phase === "ROUND_END" ||
+            this.simulation.phase === "GAME_END"
+          ) {
+            return;
+          }
+          if (
+            this.simulation.phase === "LOBBY" &&
+            !this.shouldBroadcastLobbySnapshot(payload)
+          ) {
+            return;
+          }
+          this.broadcastSnapshotToClients(payload);
         },
         onSound: (type: string, playerId: string) => {
           this.broadcast("evt:sound", { type, playerId });
@@ -152,10 +183,6 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
         this.simAccumulatorMs = 0;
       }
     }, tickDurationMs);
-
-    this.clock.setInterval(() => {
-      this.broadcastSnapshotToClients();
-    }, 1000 / snapshotHz);
 
     this.onMessage("cmd:set_name", (client, payload: { name?: string }) => {
       this.simulation.setName(client.sessionId, payload.name ?? "");
@@ -320,14 +347,23 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     this.state.settingsJson = JSON.stringify(payload.settings);
   }
 
-  private broadcastSnapshotToClients(): void {
-    if (!this.latestSnapshot) return;
+  private clearRoundResultState(): void {
+    if (this.state.roundResultJson !== "") {
+      this.state.roundResultJson = "";
+    }
+    this.state.roundResultRevision += 1;
+  }
+
+  private broadcastSnapshotToClients(snapshot: SnapshotPayload): void {
     for (const client of this.clients) {
-      this.sendSnapshotToClient(client, this.latestSnapshot);
+      this.sendSnapshotToClient(client, snapshot);
     }
   }
 
   private sendSnapshotToClient(client: Client, snapshot: SnapshotPayload): void {
+    if (this.getClientBufferedAmount(client) > this.maxOutboundBufferBytes) {
+      return;
+    }
     this.prepareColliderCache(snapshot);
     const pendingColliders = this.collectPendingColliders(client.sessionId, snapshot);
     if (pendingColliders.length > 0) {
@@ -407,5 +443,32 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       encoded.push(Math.round(point.y * ASTEROID_COLLIDER_VERTEX_SCALE));
     }
     return encoded;
+  }
+
+  private shouldBroadcastLobbySnapshot(snapshot: SnapshotPayload): boolean {
+    if (this.snapshotHzLobby <= 0) return false;
+    const simNowMs = snapshot.hostTick * snapshot.tickDurationMs;
+    const minIntervalMs = 1000 / this.snapshotHzLobby;
+    const elapsedMs = simNowMs - this.lastLobbySnapshotBroadcastSimTimeMs;
+
+    if (elapsedMs + 0.01 >= minIntervalMs) {
+      this.lastLobbySnapshotBroadcastSimTimeMs = simNowMs;
+      return true;
+    }
+    return false;
+  }
+
+  private parseSnapshotHz(rawValue: string | undefined, fallback: number, max: number): number {
+    const parsed = Number.parseInt(rawValue ?? "", 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return Math.max(1, Math.min(max, fallback));
+    }
+    return Math.max(1, Math.min(max, parsed));
+  }
+
+  private getClientBufferedAmount(client: Client): number {
+    const rawClient = client as unknown as { ref?: { bufferedAmount?: number } };
+    const bufferedAmount = rawClient.ref?.bufferedAmount;
+    return Number.isFinite(bufferedAmount) ? (bufferedAmount as number) : 0;
   }
 }
