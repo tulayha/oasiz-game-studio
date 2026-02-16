@@ -17,8 +17,8 @@ export function createMapPreviewUI(game: Game): MapPreviewUI {
   const ctx = canvas.getContext("2d")!;
 
   // Canvas dimensions - mini-map size (must match CSS)
-  const canvasWidth = 140;
-  const canvasHeight = 105;
+  const canvasWidth = 280;
+  const canvasHeight = 210;
 
   // Colors for different map features
   const colors = {
