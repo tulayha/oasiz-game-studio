@@ -305,13 +305,21 @@ Add a `publish.json` file in your game folder for metadata:
 {
   "title": "Your Game Title",
   "description": "A brief description of your game",
-  "category": "arcade"
+  "category": "arcade",
+  "verticalOnly": false
 }
 ```
 
 Categories: `arcade`, `puzzle`, `party`, `action`, `strategy`, `casual`
 
-If you skip this file, defaults will be used (folder name as title, "test" for description/category).
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `title` | string | folder name | Display name of the game |
+| `description` | string | `"test"` | Brief game description |
+| `category` | string | `"arcade"` | Game category |
+| `verticalOnly` | boolean | `true` | Lock to portrait orientation. Set to `false` for landscape-friendly games. |
+
+If you skip this file, defaults will be used (folder name as title, "test" for description/category, portrait-locked).
 
 #### 3. Upload Your Game
 
@@ -319,19 +327,29 @@ If you skip this file, defaults will be used (folder name as title, "test" for d
 # From the repo root directory
 bun run upload your-game-name
 
-# Or with options:
+# Orientation options (overrides publish.json):
+bun run upload your-game-name horizontal   # Landscape-friendly (verticalOnly=false)
+bun run upload your-game-name vertical     # Portrait-locked (verticalOnly=true, default)
+
+# Other options:
 bun run upload your-game-name --skip-build  # Use existing dist/
 bun run upload your-game-name --dry-run     # Test without uploading
+
+# Combine options:
+bun run upload your-game-name horizontal --skip-build
 
 # List all available games
 bun run upload --list
 ```
 
+**Orientation:** By default, games are uploaded as portrait-locked (`verticalOnly=true`). If your game works well in landscape, pass `horizontal` or set `"verticalOnly": false` in `publish.json`. The CLI argument overrides `publish.json`.
+
 The upload script will:
 1. Build your game (install deps + vite build)
 2. Read the bundled HTML from `dist/index.html`
-3. Include thumbnail if `thumbnail/` folder exists
-4. Upload to the Oasiz platform
+3. Collect and upload assets to CDN
+4. Include thumbnail if `thumbnail/` folder exists
+5. Upload to the Oasiz platform
 
 #### 4. Test on the App
 
