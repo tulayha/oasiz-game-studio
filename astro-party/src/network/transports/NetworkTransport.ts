@@ -1,5 +1,6 @@
 import {
   AdvancedSettingsSync,
+  AsteroidColliderSync,
   GamePhase,
   GameMode,
   GameStateSync,
@@ -68,6 +69,7 @@ export interface NetworkCallbacks {
     angle: number;
     color: string;
   }) => void;
+  onAsteroidCollidersReceived?: (payload: AsteroidColliderSync[]) => void;
 }
 
 export interface NetworkTransport {

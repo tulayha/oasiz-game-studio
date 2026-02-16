@@ -1,6 +1,7 @@
 import { Client, Room, getStateCallbacks } from "colyseus.js";
 import {
   AdvancedSettingsSync,
+  AsteroidColliderSync,
   GamePhase,
   GameMode,
   GameStateSync,
@@ -511,6 +512,10 @@ export class ColyseusTransport implements NetworkTransport {
 
     room.onMessage("evt:snapshot", (payload: GameStateSync) => {
       this.callbacks?.onGameStateReceived(payload);
+    });
+
+    room.onMessage("evt:asteroid_colliders", (payload: AsteroidColliderSync[]) => {
+      this.callbacks?.onAsteroidCollidersReceived?.(payload);
     });
 
     room.onMessage(

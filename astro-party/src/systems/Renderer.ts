@@ -921,6 +921,8 @@ export class Renderer {
       for (let i = 1; i < vertices.length; i++) {
         ctx.lineTo(vertices[i].x, vertices[i].y);
       }
+    } else {
+      ctx.arc(0, 0, state.size, 0, Math.PI * 2);
     }
     ctx.closePath();
     ctx.fill();
@@ -929,11 +931,12 @@ export class Renderer {
     // Add some surface detail (craters)
     ctx.shadowBlur = 0;
     ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+    const craterSource = vertices[0] ?? { x: state.size * 0.7, y: 0 };
     ctx.beginPath();
     ctx.arc(
-      vertices[0].x * 0.3,
-      vertices[0].y * 0.3,
-      Math.abs(vertices[0].x) * 0.25,
+      craterSource.x * 0.3,
+      craterSource.y * 0.3,
+      Math.max(3, Math.abs(craterSource.x) * 0.25),
       0,
       Math.PI * 2,
     );

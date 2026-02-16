@@ -2,6 +2,7 @@ import type {
   AdvancedSettings,
   AdvancedSettingsSync,
   AsteroidDensity,
+  AsteroidColliderSync,
   BaseGameMode,
   GameMode,
   GamePhase,
@@ -27,6 +28,7 @@ import type {
   TurretState,
   AsteroidState,
 } from "../sim/types.js";
+import { ASTEROID_COLLIDER_VERTEX_SCALE } from "../sim/types.js";
 import {
   ARENA_HEIGHT,
   ARENA_PADDING,
@@ -94,6 +96,7 @@ export type {
   AdvancedSettings,
   AdvancedSettingsSync,
   AsteroidDensity,
+  AsteroidColliderSync,
   AsteroidState,
   BaseGameMode,
   DashPreset,
@@ -118,6 +121,8 @@ export type {
   TurretBulletState,
   TurretState,
 };
+
+export { ASTEROID_COLLIDER_VERTEX_SCALE };
 
 export type GameStateSync = SnapshotPayload;
 

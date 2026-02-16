@@ -24,6 +24,8 @@ const MAX_STEPS_PER_FRAME = SELF_TUNING.maxPredictionStepsPerFrame;
 const MAX_ACCUMULATOR_SEC = SELF_TUNING.maxPredictionAccumulatorSec;
 const HISTORY_LIMIT_STEPS = SELF_TUNING.historyLimitSteps;
 const HARD_SNAP_THRESHOLD_PX = SELF_TUNING.hardSnapThresholdPx;
+const SOFT_BLEND_THRESHOLD_PX = SELF_TUNING.softBlendThresholdPx;
+const MAX_SOFT_CORRECTION_PER_SNAPSHOT_PX = SELF_TUNING.maxSoftCorrectionPerSnapshotPx;
 const CORRECTION_OFFSET_DECAY_PER_SEC = SELF_TUNING.correctionOffsetDecayPerSec;
 const MAX_RENDER_OFFSET_PX = SELF_TUNING.maxRenderOffsetPx;
 
@@ -64,6 +66,7 @@ export class SelfShipPredictor {
   private predictionErrorPxEwma = 0;
   private correctionEvents = 0;
   private hardSnapEvents = 0;
+  private lastOutlierDiscardAtMs = -Infinity;
   private simPlayer: any = null;
   private simPlayers = new Map<string, any>();
   private simPlayerOrder: string[] = [];
@@ -77,6 +80,7 @@ export class SelfShipPredictor {
   private shipBody = this.createShipBody();
   private wallBodies: Matter.Body[] = [];
   private asteroidBodies = new Map<string, Matter.Body>();
+  private asteroidColliderSignatureById = new Map<string, string>();
   private remoteShipBodies = new Map<string, Matter.Body>();
   private turretBody: Matter.Body | null = null;
 
@@ -123,6 +127,7 @@ export class SelfShipPredictor {
     rotationDirection: number,
     baseMode: BaseGameMode,
     snapshotState?: GameStateSync,
+    asteroidColliderVerticesById?: ReadonlyMap<string, Array<{ x: number; y: number }>>,
   ): void {
     if (!authoritativeShip) {
       this.predictedShip = null;
@@ -135,6 +140,7 @@ export class SelfShipPredictor {
       this.simPlayers.clear();
       this.simPlayerOrder = [];
       this.simPlayerPowerUps.clear();
+      this.lastOutlierDiscardAtMs = -Infinity;
       this.lastRenderStepAtMs = renderNowMs;
       return;
     }
@@ -157,7 +163,7 @@ export class SelfShipPredictor {
     }
 
     if (snapshotState) {
-      this.syncObstacleBodies(snapshotState);
+      this.syncObstacleBodies(snapshotState, asteroidColliderVerticesById);
     }
 
     const replaySteps = this.predictionHistory.filter(
@@ -185,15 +191,29 @@ export class SelfShipPredictor {
 
     if (previousPrediction && this.predictedShip) {
       const targetPrediction = { ...this.predictedShip };
-      const correctionX = targetPrediction.x - previousPrediction.x;
-      const correctionY = targetPrediction.y - previousPrediction.y;
-      const error = Math.hypot(correctionX, correctionY);
+      const rawCorrectionX = targetPrediction.x - previousPrediction.x;
+      const rawCorrectionY = targetPrediction.y - previousPrediction.y;
+      const error = Math.hypot(rawCorrectionX, rawCorrectionY);
       this.predictionErrorPxLast = error;
       this.predictionErrorPxEwma = this.predictionErrorPxEwma * 0.9 + error * 0.1;
       const lifecycleChanged = previousPrediction.alive !== targetPrediction.alive;
       if (lifecycleChanged) {
         this.renderOffsetX = 0;
         this.renderOffsetY = 0;
+      } else if (
+        error >= SELF_TUNING.outlierDiscardThresholdPx &&
+        this.predictionErrorPxEwma <= SELF_TUNING.unstableEwmaThresholdPx &&
+        renderNowMs - this.lastOutlierDiscardAtMs >= SELF_TUNING.outlierDiscardCooldownMs
+      ) {
+        this.lastOutlierDiscardAtMs = renderNowMs;
+        this.renderOffsetX -= rawCorrectionX;
+        this.renderOffsetY -= rawCorrectionY;
+        const offsetMag = Math.hypot(this.renderOffsetX, this.renderOffsetY);
+        if (offsetMag > MAX_RENDER_OFFSET_PX) {
+          const scale = MAX_RENDER_OFFSET_PX / offsetMag;
+          this.renderOffsetX *= scale;
+          this.renderOffsetY *= scale;
+        }
       } else if (error > SELF_TUNING.correctionThresholdPx) {
         this.correctionEvents += 1;
         if (error >= HARD_SNAP_THRESHOLD_PX) {
@@ -201,8 +221,53 @@ export class SelfShipPredictor {
           this.renderOffsetX = 0;
           this.renderOffsetY = 0;
         } else {
-          this.renderOffsetX -= correctionX;
-          this.renderOffsetY -= correctionY;
+          const blendFactor =
+            error >= SOFT_BLEND_THRESHOLD_PX
+              ? SELF_TUNING.softBlendFactor
+              : SELF_TUNING.smallErrorBlendFactor;
+          let correctionX = rawCorrectionX * blendFactor;
+          let correctionY = rawCorrectionY * blendFactor;
+          const correctionMag = Math.hypot(correctionX, correctionY);
+          if (correctionMag > MAX_SOFT_CORRECTION_PER_SNAPSHOT_PX) {
+            const scale = MAX_SOFT_CORRECTION_PER_SNAPSHOT_PX / correctionMag;
+            correctionX *= scale;
+            correctionY *= scale;
+          }
+
+          const wallDamped = this.dampWallNormalCorrection(
+            targetPrediction,
+            correctionX,
+            correctionY,
+          );
+          this.renderOffsetX -= wallDamped.x;
+          this.renderOffsetY -= wallDamped.y;
+
+          const velocityBlend = this.clamp(
+            SELF_TUNING.velocityCorrectionBlendFactor * blendFactor,
+            0,
+            1,
+          );
+          targetPrediction.vx = this.lerp(
+            previousPrediction.vx,
+            targetPrediction.vx,
+            velocityBlend,
+          );
+          targetPrediction.vy = this.lerp(
+            previousPrediction.vy,
+            targetPrediction.vy,
+            velocityBlend,
+          );
+
+          const angleBlend = this.clamp(
+            SELF_TUNING.angularCorrectionBlendFactor * blendFactor,
+            0,
+            1,
+          );
+          targetPrediction.angle = this.normalizeAngle(
+            previousPrediction.angle +
+              this.shortestAngleDelta(previousPrediction.angle, targetPrediction.angle) *
+                angleBlend,
+          );
           const offsetMag = Math.hypot(this.renderOffsetX, this.renderOffsetY);
           if (offsetMag > MAX_RENDER_OFFSET_PX) {
             const scale = MAX_RENDER_OFFSET_PX / offsetMag;
@@ -329,6 +394,7 @@ export class SelfShipPredictor {
     this.predictionErrorPxEwma = 0;
     this.correctionEvents = 0;
     this.hardSnapEvents = 0;
+    this.lastOutlierDiscardAtMs = -Infinity;
     this.latestAckSequence = 0;
     this.latestSentSequence = 0;
     this.latestCapturedSequence = 0;
@@ -342,6 +408,7 @@ export class SelfShipPredictor {
       Composite.remove(this.engine.world, body);
     });
     this.asteroidBodies.clear();
+    this.asteroidColliderSignatureById.clear();
     this.remoteShipBodies.forEach((body) => {
       Composite.remove(this.engine.world, body);
     });
@@ -612,8 +679,11 @@ export class SelfShipPredictor {
     );
   }
 
-  private syncObstacleBodies(state: GameStateSync): void {
-    this.syncAsteroidBodies(state.asteroids || []);
+  private syncObstacleBodies(
+    state: GameStateSync,
+    asteroidColliderVerticesById?: ReadonlyMap<string, Array<{ x: number; y: number }>>,
+  ): void {
+    this.syncAsteroidBodies(state.asteroids || [], asteroidColliderVerticesById);
     const selfPlayerId = this.predictedShip?.playerId ?? null;
     this.syncRemoteShipBodies(state.ships || [], selfPlayerId);
     if (state.turret && state.turret.alive) {
@@ -663,17 +733,38 @@ export class SelfShipPredictor {
     }
   }
 
-  private syncAsteroidBodies(asteroids: AsteroidState[]): void {
+  private syncAsteroidBodies(
+    asteroids: AsteroidState[],
+    asteroidColliderVerticesById?: ReadonlyMap<string, Array<{ x: number; y: number }>>,
+  ): void {
     const seen = new Set<string>();
     for (const asteroid of asteroids) {
       if (!asteroid.alive) continue;
       seen.add(asteroid.id);
+
+      const colliderVertices = asteroidColliderVerticesById?.get(asteroid.id);
+      const sourceVertices =
+        colliderVertices && colliderVertices.length >= 3
+          ? colliderVertices
+          : asteroid.vertices;
+      const vertices = sourceVertices.map((point) => ({
+        x: point.x,
+        y: point.y,
+      }));
+      const colliderSignature =
+        vertices.length >= 3
+          ? this.buildVertexSignature(vertices)
+          : "circle:" + Math.round(asteroid.size * 100).toString();
+
       let body = this.asteroidBodies.get(asteroid.id);
+      const previousSignature = this.asteroidColliderSignatureById.get(asteroid.id);
+      if (body && previousSignature !== colliderSignature) {
+        Composite.remove(this.engine.world, body);
+        this.asteroidBodies.delete(asteroid.id);
+        body = undefined;
+      }
+
       if (!body) {
-        const vertices = asteroid.vertices.map((point) => ({
-          x: point.x,
-          y: point.y,
-        }));
         if (vertices.length >= 3) {
           const result = Bodies.fromVertices(asteroid.x, asteroid.y, [vertices], {
             label: "predictor_asteroid",
@@ -701,8 +792,10 @@ export class SelfShipPredictor {
           });
         }
         this.asteroidBodies.set(asteroid.id, body);
+        this.asteroidColliderSignatureById.set(asteroid.id, colliderSignature);
         Composite.add(this.engine.world, body);
       }
+
       Body.setPosition(body, { x: asteroid.x, y: asteroid.y });
       Body.setVelocity(body, { x: asteroid.vx, y: asteroid.vy });
       Body.setAngle(body, asteroid.angle);
@@ -713,6 +806,7 @@ export class SelfShipPredictor {
       if (seen.has(asteroidId)) continue;
       Composite.remove(this.engine.world, body);
       this.asteroidBodies.delete(asteroidId);
+      this.asteroidColliderSignatureById.delete(asteroidId);
     }
   }
 
@@ -754,8 +848,16 @@ export class SelfShipPredictor {
     return out;
   }
 
+  private shortestAngleDelta(from: number, to: number): number {
+    return this.normalizeAngle(to - from);
+  }
+
   private clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
+  }
+
+  private lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t;
   }
 
   private decayRenderOffset(dtSec: number): void {
@@ -766,6 +868,40 @@ export class SelfShipPredictor {
     this.renderOffsetY *= keep;
     if (Math.abs(this.renderOffsetX) < 0.01) this.renderOffsetX = 0;
     if (Math.abs(this.renderOffsetY) < 0.01) this.renderOffsetY = 0;
+  }
+
+  private dampWallNormalCorrection(
+    targetPrediction: ShipState,
+    correctionX: number,
+    correctionY: number,
+  ): { x: number; y: number } {
+    const margin = Math.max(0, SELF_TUNING.wallCorrectionMarginPx);
+    const damping = this.clamp(SELF_TUNING.wallNormalCorrectionDamping, 0, 1);
+    if (margin <= 0 || damping >= 1) {
+      return { x: correctionX, y: correctionY };
+    }
+
+    let outX = correctionX;
+    let outY = correctionY;
+    if (
+      targetPrediction.x <= margin ||
+      targetPrediction.x >= GAME_CONFIG.ARENA_WIDTH - margin
+    ) {
+      outX *= damping;
+    }
+    if (
+      targetPrediction.y <= margin ||
+      targetPrediction.y >= GAME_CONFIG.ARENA_HEIGHT - margin
+    ) {
+      outY *= damping;
+    }
+    return { x: outX, y: outY };
+  }
+
+  private buildVertexSignature(vertices: Array<{ x: number; y: number }>): string {
+    return vertices
+      .map((point) => Math.round(point.x * 1000).toString() + ":" + Math.round(point.y * 1000))
+      .join("|");
   }
 
   private createShipLikeBody(x: number, y: number, label: string): Matter.Body {
@@ -797,7 +933,19 @@ export class SelfShipPredictor {
     fallback: () => Matter.Body,
   ): Matter.Body {
     if (Array.isArray(result)) {
-      return result[0] ?? fallback();
+      if (result.length <= 0) {
+        return fallback();
+      }
+      if (result.length === 1) {
+        return result[0];
+      }
+      return Body.create({
+        label: result[0].label,
+        parts: result,
+        frictionAir: result[0].frictionAir,
+        restitution: result[0].restitution,
+        friction: result[0].friction,
+      });
     }
     return result;
   }

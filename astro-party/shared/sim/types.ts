@@ -243,6 +243,15 @@ export interface RoomMetaPayload {
   mapId: MapId;
 }
 
+export const ASTEROID_COLLIDER_VERTEX_SCALE = 100;
+
+export interface AsteroidColliderSync {
+  asteroidId: string;
+  // Flat [x1, y1, x2, y2, ...] in local asteroid space,
+  // quantized by ASTEROID_COLLIDER_VERTEX_SCALE.
+  vertices: number[];
+}
+
 export interface SnapshotPayload {
   ships: ShipState[];
   pilots: PilotState[];

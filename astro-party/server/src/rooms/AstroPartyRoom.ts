@@ -4,12 +4,14 @@ import {
 } from "../../../shared/sim/AstroPartySimulation.js";
 import type {
   AdvancedSettingsSync,
+  AsteroidColliderSync,
   GamePhase,
   PlayerListPayload,
   RoomMetaPayload,
   RoundResultPayload,
   SnapshotPayload,
 } from "../../../shared/sim/types.js";
+import { ASTEROID_COLLIDER_VERTEX_SCALE } from "../../../shared/sim/types.js";
 import { unregisterRoomCodeByRoomId } from "../http/roomCodeRegistry.js";
 import {
   AstroPartyRoomState,
@@ -64,6 +66,8 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
   private simulation!: AstroPartySimulation;
   private latestSnapshot: SnapshotPayload | null = null;
   private simAccumulatorMs = 0;
+  private asteroidColliderById = new Map<string, number[]>();
+  private asteroidColliderSentBySession = new Map<string, Set<string>>();
 
   async onCreate(options: CreateOptions): Promise<void> {
     const roomCode = options.roomCode ?? "----";
@@ -150,8 +154,7 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     }, tickDurationMs);
 
     this.clock.setInterval(() => {
-      if (!this.latestSnapshot) return;
-      this.broadcast("evt:snapshot", this.latestSnapshot);
+      this.broadcastSnapshotToClients();
     }, 1000 / snapshotHz);
 
     this.onMessage("cmd:set_name", (client, payload: { name?: string }) => {
@@ -230,16 +233,20 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
 
   onJoin(client: Client, options?: { playerName?: string }): void {
     this.simulation.addHuman(client.sessionId, options?.playerName);
+    this.asteroidColliderSentBySession.set(client.sessionId, new Set());
     if (this.latestSnapshot) {
-      client.send("evt:snapshot", this.latestSnapshot);
+      this.sendSnapshotToClient(client, this.latestSnapshot);
     }
   }
 
   onLeave(client: Client): void {
     this.simulation.removeSession(client.sessionId);
+    this.asteroidColliderSentBySession.delete(client.sessionId);
   }
 
   onDispose(): void {
+    this.asteroidColliderById.clear();
+    this.asteroidColliderSentBySession.clear();
     unregisterRoomCodeByRoomId(this.roomId);
   }
 
@@ -311,5 +318,94 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     this.state.baseMode = payload.baseMode;
     this.state.mapId = payload.mapId;
     this.state.settingsJson = JSON.stringify(payload.settings);
+  }
+
+  private broadcastSnapshotToClients(): void {
+    if (!this.latestSnapshot) return;
+    for (const client of this.clients) {
+      this.sendSnapshotToClient(client, this.latestSnapshot);
+    }
+  }
+
+  private sendSnapshotToClient(client: Client, snapshot: SnapshotPayload): void {
+    this.prepareColliderCache(snapshot);
+    const pendingColliders = this.collectPendingColliders(client.sessionId, snapshot);
+    if (pendingColliders.length > 0) {
+      client.send("evt:asteroid_colliders", pendingColliders);
+    }
+    client.send("evt:snapshot", this.stripAsteroidVertices(snapshot));
+  }
+
+  private prepareColliderCache(snapshot: SnapshotPayload): void {
+    const aliveIds = new Set<string>();
+    for (const asteroid of snapshot.asteroids) {
+      aliveIds.add(asteroid.id);
+      if (this.asteroidColliderById.has(asteroid.id)) continue;
+      if (!asteroid.vertices || asteroid.vertices.length < 3) continue;
+      this.asteroidColliderById.set(
+        asteroid.id,
+        this.encodeAsteroidVertices(asteroid.vertices),
+      );
+    }
+
+    for (const asteroidId of [...this.asteroidColliderById.keys()]) {
+      if (aliveIds.has(asteroidId)) continue;
+      this.asteroidColliderById.delete(asteroidId);
+    }
+
+    for (const sentSet of this.asteroidColliderSentBySession.values()) {
+      for (const asteroidId of [...sentSet]) {
+        if (aliveIds.has(asteroidId)) continue;
+        sentSet.delete(asteroidId);
+      }
+    }
+  }
+
+  private collectPendingColliders(
+    sessionId: string,
+    snapshot: SnapshotPayload,
+  ): AsteroidColliderSync[] {
+    const sentSet = this.getSentColliderSet(sessionId);
+    const payload: AsteroidColliderSync[] = [];
+    for (const asteroid of snapshot.asteroids) {
+      if (sentSet.has(asteroid.id)) continue;
+      const encoded = this.asteroidColliderById.get(asteroid.id);
+      if (!encoded || encoded.length < 6) continue;
+      payload.push({
+        asteroidId: asteroid.id,
+        vertices: [...encoded],
+      });
+      sentSet.add(asteroid.id);
+    }
+    return payload;
+  }
+
+  private getSentColliderSet(sessionId: string): Set<string> {
+    let sentSet = this.asteroidColliderSentBySession.get(sessionId);
+    if (!sentSet) {
+      sentSet = new Set<string>();
+      this.asteroidColliderSentBySession.set(sessionId, sentSet);
+    }
+    return sentSet;
+  }
+
+  private stripAsteroidVertices(snapshot: SnapshotPayload): SnapshotPayload {
+    if (!snapshot.asteroids || snapshot.asteroids.length === 0) return snapshot;
+    return {
+      ...snapshot,
+      asteroids: snapshot.asteroids.map((asteroid) => ({
+        ...asteroid,
+        vertices: [],
+      })),
+    };
+  }
+
+  private encodeAsteroidVertices(vertices: Array<{ x: number; y: number }>): number[] {
+    const encoded: number[] = [];
+    for (const point of vertices) {
+      encoded.push(Math.round(point.x * ASTEROID_COLLIDER_VERTEX_SCALE));
+      encoded.push(Math.round(point.y * ASTEROID_COLLIDER_VERTEX_SCALE));
+    }
+    return encoded;
   }
 }

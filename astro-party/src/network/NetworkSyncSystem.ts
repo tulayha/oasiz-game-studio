@@ -6,6 +6,8 @@ import { GameConfig } from "../GameConfig";
 import { SelfShipPredictor } from "./gameFeel/SelfShipPredictor";
 import { NETWORK_GAME_FEEL_TUNING } from "./gameFeel/NetworkGameFeelTuning";
 import {
+  ASTEROID_COLLIDER_VERTEX_SCALE,
+  AsteroidColliderSync,
   GAME_CONFIG,
   BaseGameMode,
   GameStateSync,
@@ -30,6 +32,14 @@ interface SnapshotFrame {
   hostTick: number;
   tickDurationMs: number;
   hostTimeMs: number;
+}
+
+interface ProjectileWarmupState {
+  startX: number;
+  startY: number;
+  startVx: number;
+  startVy: number;
+  startedAtMs: number;
 }
 
 export interface RenderNetworkState {
@@ -109,6 +119,9 @@ export class NetworkSyncSystem {
   private clientAsteroidStates: Map<string, { x: number; y: number; size: number }> =
     new Map();
   private clientPilotPositions: Map<string, { x: number; y: number }> = new Map();
+  private asteroidColliderVerticesById = new Map<string, Array<{ x: number; y: number }>>();
+  private localProjectileWarmups = new Map<string, ProjectileWarmupState>();
+  private seenLocalProjectileIds = new Set<string>();
   private lastAppliedHostTick = -1;
 
   private selfShipPredictor = new SelfShipPredictor();
@@ -151,6 +164,16 @@ export class NetworkSyncSystem {
       this.renderer.spawnParticle(muzzleX, muzzleY, color, "hit");
     }
     this.renderer.spawnParticle(muzzleX, muzzleY, "#ffffff", "hit");
+  }
+
+  applyAsteroidColliders(payload: AsteroidColliderSync[]): void {
+    if (!Array.isArray(payload) || payload.length === 0) return;
+    for (const entry of payload) {
+      if (!entry || typeof entry.asteroidId !== "string") continue;
+      const decoded = this.decodeAsteroidVertices(entry.vertices);
+      if (decoded.length < 3) continue;
+      this.asteroidColliderVerticesById.set(entry.asteroidId, decoded);
+    }
   }
 
   getRenderState(
@@ -229,6 +252,7 @@ export class NetworkSyncSystem {
       }),
       t,
     );
+    this.applyLocalProjectileWarmups(this.networkProjectiles, myPlayerId, nowMs);
     this.networkAsteroids = this.interpolateList(
       prevState.asteroids || [],
       nextState.asteroids || [],
@@ -367,12 +391,13 @@ export class NetworkSyncSystem {
   }
 
   applyNetworkState(state: GameStateSync): void {
-    const normalizedHostTick = Number.isFinite(state.hostTick)
-      ? Math.floor(state.hostTick)
+    const hydratedState = this.hydrateAsteroidVertices(state);
+    const normalizedHostTick = Number.isFinite(hydratedState.hostTick)
+      ? Math.floor(hydratedState.hostTick)
       : this.lastAppliedHostTick + 1;
     const normalizedTickDurationMs =
-      Number.isFinite(state.tickDurationMs) && state.tickDurationMs > 0
-        ? state.tickDurationMs
+      Number.isFinite(hydratedState.tickDurationMs) && hydratedState.tickDurationMs > 0
+        ? hydratedState.tickDurationMs
         : NetworkSyncSystem.DEFAULT_TICK_MS;
 
     if (normalizedHostTick <= this.lastAppliedHostTick) {
@@ -380,12 +405,13 @@ export class NetworkSyncSystem {
     }
 
     this.lastAppliedHostTick = normalizedHostTick;
-    this.latestRotationDirection = state.rotationDirection ?? this.latestRotationDirection;
+    this.latestRotationDirection =
+      hydratedState.rotationDirection ?? this.latestRotationDirection;
 
     const receivedAtMs = performance.now();
 
     const frame: SnapshotFrame = {
-      state,
+      state: hydratedState,
       receivedAtMs,
       hostTick: normalizedHostTick,
       tickDurationMs: normalizedTickDurationMs,
@@ -411,13 +437,15 @@ export class NetworkSyncSystem {
 
       this.hostSimTimeMs = frame.hostTimeMs;
       this.estimatedHostNowTick = frame.hostTick;
-      this.networkMapId = (state.mapId ?? 0) as MapId;
-      this.networkYellowBlockHp = state.yellowBlockHp || [];
+      this.networkMapId = (hydratedState.mapId ?? 0) as MapId;
+      this.networkYellowBlockHp = hydratedState.yellowBlockHp || [];
+      this.localProjectileWarmups.clear();
+      this.seenLocalProjectileIds.clear();
 
-      this.applyDirectSnapshotState(state);
+      this.applyDirectSnapshotState(hydratedState);
       this.syncPlayerStatesFromNetwork();
-      this.processAuthoritativeEffects(state);
-      this.syncPlayerPowerUps(state.playerPowerUps);
+      this.processAuthoritativeEffects(hydratedState);
+      this.syncPlayerPowerUps(hydratedState.playerPowerUps);
       this.selfShipPredictor.clear();
       return;
     }
@@ -426,11 +454,11 @@ export class NetworkSyncSystem {
     this.appendSnapshot(frame);
 
     this.hostSimTimeMs = frame.hostTimeMs;
-    this.networkMapId = (state.mapId ?? 0) as MapId;
-    this.networkYellowBlockHp = state.yellowBlockHp || [];
+    this.networkMapId = (hydratedState.mapId ?? 0) as MapId;
+    this.networkYellowBlockHp = hydratedState.yellowBlockHp || [];
 
-    if (Number.isFinite(state.serverNowMs)) {
-      const biasSample = Date.now() - (state.serverNowMs as number);
+    if (Number.isFinite(hydratedState.serverNowMs)) {
+      const biasSample = Date.now() - (hydratedState.serverNowMs as number);
       this.hostNowBiasMs =
         this.hostNowBiasMs === null
           ? biasSample
@@ -439,10 +467,10 @@ export class NetworkSyncSystem {
     }
 
     this.syncPlayerStatesFromNetwork();
-    this.processAuthoritativeEffects(state);
-    this.syncPlayerPowerUps(state.playerPowerUps);
+    this.processAuthoritativeEffects(hydratedState);
+    this.syncPlayerPowerUps(hydratedState.playerPowerUps);
     if (this.isSelfPredictionEnabled()) {
-      this.ingestSelfAuthoritativeShip(state);
+      this.ingestSelfAuthoritativeShip(hydratedState);
     } else {
       this.selfShipPredictor.clear();
     }
@@ -467,6 +495,9 @@ export class NetworkSyncSystem {
     this.clientShipPositions.clear();
     this.clientAsteroidStates.clear();
     this.clientPilotPositions.clear();
+    this.asteroidColliderVerticesById.clear();
+    this.localProjectileWarmups.clear();
+    this.seenLocalProjectileIds.clear();
 
     this.snapshotBuffer = [];
     this.latestSnapshotFrame = null;
@@ -496,6 +527,8 @@ export class NetworkSyncSystem {
     this.clientShipPositions.clear();
     this.clientAsteroidStates.clear();
     this.clientPilotPositions.clear();
+    this.localProjectileWarmups.clear();
+    this.seenLocalProjectileIds.clear();
     this.selfShipPredictor.clear();
   }
 
@@ -518,6 +551,8 @@ export class NetworkSyncSystem {
     this.clientShipPositions.clear();
     this.clientAsteroidStates.clear();
     this.clientPilotPositions.clear();
+    this.localProjectileWarmups.clear();
+    this.seenLocalProjectileIds.clear();
 
     this.snapshotBuffer = [];
     this.latestSnapshotFrame = null;
@@ -692,6 +727,7 @@ export class NetworkSyncSystem {
       state.rotationDirection ?? this.latestRotationDirection,
       baseMode,
       state,
+      this.asteroidColliderVerticesById,
     );
   }
 
@@ -833,6 +869,163 @@ export class NetworkSyncSystem {
       angle: this.lerpAngle(prevTurret.angle, nextTurret.angle, t),
       targetAngle: this.lerpAngle(prevTurret.targetAngle, nextTurret.targetAngle, t),
     };
+  }
+
+  private hydrateAsteroidVertices(state: GameStateSync): GameStateSync {
+    const incomingAsteroids = state.asteroids || [];
+    if (incomingAsteroids.length === 0) {
+      this.asteroidColliderVerticesById.clear();
+      return {
+        ...state,
+        asteroids: [],
+      };
+    }
+
+    const aliveAsteroidIds = new Set<string>();
+    const asteroids = incomingAsteroids.map((asteroid) => {
+      aliveAsteroidIds.add(asteroid.id);
+
+      let vertices = this.normalizeVertices(asteroid.vertices);
+      if (vertices.length >= 3) {
+        this.asteroidColliderVerticesById.set(asteroid.id, vertices.map((point) => ({
+          x: point.x,
+          y: point.y,
+        })));
+      } else {
+        const cached = this.asteroidColliderVerticesById.get(asteroid.id);
+        if (cached && cached.length >= 3) {
+          vertices = cached.map((point) => ({ x: point.x, y: point.y }));
+        } else {
+          vertices = this.buildFallbackAsteroidVertices(asteroid.size);
+        }
+      }
+
+      return {
+        ...asteroid,
+        vertices,
+      };
+    });
+
+    for (const asteroidId of [...this.asteroidColliderVerticesById.keys()]) {
+      if (aliveAsteroidIds.has(asteroidId)) continue;
+      this.asteroidColliderVerticesById.delete(asteroidId);
+    }
+
+    return {
+      ...state,
+      asteroids,
+    };
+  }
+
+  private normalizeVertices(
+    vertices: Array<{ x: number; y: number }> | undefined,
+  ): Array<{ x: number; y: number }> {
+    if (!Array.isArray(vertices) || vertices.length < 3) return [];
+    const normalized: Array<{ x: number; y: number }> = [];
+    for (const vertex of vertices) {
+      if (!vertex) continue;
+      if (!Number.isFinite(vertex.x) || !Number.isFinite(vertex.y)) continue;
+      normalized.push({ x: vertex.x, y: vertex.y });
+    }
+    return normalized.length >= 3 ? normalized : [];
+  }
+
+  private decodeAsteroidVertices(
+    encodedVertices: number[] | undefined,
+  ): Array<{ x: number; y: number }> {
+    if (!Array.isArray(encodedVertices) || encodedVertices.length < 6) return [];
+    const decoded: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i + 1 < encodedVertices.length; i += 2) {
+      const x = encodedVertices[i];
+      const y = encodedVertices[i + 1];
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      decoded.push({
+        x: x / ASTEROID_COLLIDER_VERTEX_SCALE,
+        y: y / ASTEROID_COLLIDER_VERTEX_SCALE,
+      });
+    }
+    return decoded.length >= 3 ? decoded : [];
+  }
+
+  private buildFallbackAsteroidVertices(size: number): Array<{ x: number; y: number }> {
+    const pointCount = 8;
+    const radius = this.clamp(Number.isFinite(size) ? size : 20, 8, 80);
+    const vertices: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < pointCount; i += 1) {
+      const angle = (i / pointCount) * Math.PI * 2;
+      const wobble = 0.85 + Math.sin(i * 2.17) * 0.12;
+      vertices.push({
+        x: Math.cos(angle) * radius * wobble,
+        y: Math.sin(angle) * radius * wobble,
+      });
+    }
+    return vertices;
+  }
+
+  private applyLocalProjectileWarmups(
+    projectiles: ProjectileState[],
+    myPlayerId: string | null,
+    nowMs: number,
+  ): void {
+    if (!myPlayerId || !this.isSelfPredictionEnabled()) {
+      this.localProjectileWarmups.clear();
+      this.seenLocalProjectileIds.clear();
+      return;
+    }
+
+    const warmupDurationMs =
+      NETWORK_GAME_FEEL_TUNING.selfPrediction.localProjectileWarmupMs;
+    if (warmupDurationMs <= 0) return;
+
+    const localShip = this.getLocalVisualShip(myPlayerId);
+    const activeProjectileIds = new Set<string>();
+
+    for (let index = 0; index < projectiles.length; index += 1) {
+      const projectile = projectiles[index];
+      if (projectile.ownerId !== myPlayerId) continue;
+      activeProjectileIds.add(projectile.id);
+
+      if (!this.seenLocalProjectileIds.has(projectile.id)) {
+        const muzzleX = localShip
+          ? localShip.x + Math.cos(localShip.angle) * 18
+          : projectile.x;
+        const muzzleY = localShip
+          ? localShip.y + Math.sin(localShip.angle) * 18
+          : projectile.y;
+        this.localProjectileWarmups.set(projectile.id, {
+          startX: muzzleX,
+          startY: muzzleY,
+          startVx: projectile.vx,
+          startVy: projectile.vy,
+          startedAtMs: nowMs,
+        });
+        this.seenLocalProjectileIds.add(projectile.id);
+      }
+
+      const warmup = this.localProjectileWarmups.get(projectile.id);
+      if (!warmup) continue;
+
+      const elapsedMs = Math.max(0, nowMs - warmup.startedAtMs);
+      const elapsedSec = elapsedMs / 1000;
+      const blend = this.clamp(elapsedMs / warmupDurationMs, 0, 1);
+      const fromX = warmup.startX + warmup.startVx * elapsedSec * 60;
+      const fromY = warmup.startY + warmup.startVy * elapsedSec * 60;
+      projectiles[index] = {
+        ...projectile,
+        x: this.lerp(fromX, projectile.x, blend),
+        y: this.lerp(fromY, projectile.y, blend),
+      };
+
+      if (blend >= 1) {
+        this.localProjectileWarmups.delete(projectile.id);
+      }
+    }
+
+    for (const projectileId of [...this.seenLocalProjectileIds]) {
+      if (activeProjectileIds.has(projectileId)) continue;
+      this.seenLocalProjectileIds.delete(projectileId);
+      this.localProjectileWarmups.delete(projectileId);
+    }
   }
 
   private processAuthoritativeEffects(state: GameStateSync): void {

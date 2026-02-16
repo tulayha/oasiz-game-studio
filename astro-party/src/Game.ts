@@ -361,6 +361,11 @@ export class Game {
         );
       },
 
+      onAsteroidCollidersReceived: (payload) => {
+        if (this.network.isSimulationAuthority()) return;
+        this.networkSync.applyAsteroidColliders(payload);
+      },
+
       onTransportError: (code, message) => {
         this.lastTransportErrorCode = code;
         this.lastTransportErrorMessage = message;
