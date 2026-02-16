@@ -425,7 +425,7 @@ Architecture is ready for this thanks to Rapier:
 - Client runs shared sim locally for own ship + own projectiles
 - Rapier `takeSnapshot()` before applying local input
 - On server snapshot arrival: `restoreSnapshot()` → apply server state → replay unconfirmed inputs
-- Other entities: server snapshots + DisplaySmoother interpolation (existing)
+- Other entities: server snapshots with client-side interpolation path to be implemented as needed
 - Scope (ship only vs ship+projectiles vs +asteroids) to be decided based on feel testing
 
 ---

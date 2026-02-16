@@ -8,7 +8,7 @@ This intentionally ignores `unfinished-games/`.
 ## Authority and rates
 - Multiplayer is server-authoritative (Colyseus room + shared Matter.js sim).
 - Server simulation tick: 60 Hz.
-- Snapshot broadcast: 20 Hz (`SYNC_INTERVAL = 50 ms` target cadence on client input send side).
+- Snapshot broadcast: 24 Hz (`SYNC_INTERVAL = 41.67 ms` target cadence for snapshot-timing telemetry in client smoothing).
 
 ## Transport modes
 - `online`: `ColyseusTransport` (server-authoritative networked play).
@@ -85,11 +85,11 @@ Primary client tuning lives in `src/network/gameFeel/NetworkGameFeelTuning.ts`.
 - buffer size cap: `120 snapshots`
 
 ## Self prediction
-- replay step: `SYNC_INTERVAL / 1000`
-- pending input buffer cap: `64`
-- soft blend threshold: `32 px`
-- hard snap threshold: `85 px`
-- correction threshold (event count): `2 px`
+- replay fixed step: `1/60 s`
+- prediction history cap: `360 steps`
+- correction threshold: `15 px`
+- hard snap threshold: `140 px`
+- correction offset decay: `12 / s`
 
 ## Predicted local sound suppression
 - fire: `260 ms`

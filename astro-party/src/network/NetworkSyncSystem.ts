@@ -122,10 +122,12 @@ export class NetworkSyncSystem {
   ) {}
 
   captureLocalInput(input: PlayerInput): void {
+    if (!this.isSelfPredictionEnabled()) return;
     this.selfShipPredictor.captureInput(input);
   }
 
   recordSentInput(input: PlayerInput): void {
+    if (!this.isSelfPredictionEnabled()) return;
     this.selfShipPredictor.recordSentInput(input);
   }
 
@@ -174,8 +176,11 @@ export class NetworkSyncSystem {
       return this.buildRenderState();
     }
 
-    const baseMode = GameConfig.getMode();
-    this.selfShipPredictor.step(nowMs, this.latestRotationDirection, baseMode);
+    const selfPredictionEnabled = this.isSelfPredictionEnabled();
+    if (selfPredictionEnabled) {
+      const baseMode = GameConfig.getMode();
+      this.selfShipPredictor.step(nowMs, this.latestRotationDirection, baseMode);
+    }
 
     const estimatedHostNowMs =
       this.latestSnapshotFrame.hostTimeMs +
@@ -195,7 +200,7 @@ export class NetworkSyncSystem {
       prevState.ships || [],
       nextState.ships || [],
       t,
-      myPlayerId,
+      selfPredictionEnabled ? myPlayerId : null,
     );
     this.networkPilots = this.interpolateList(
       prevState.pilots || [],
@@ -310,8 +315,8 @@ export class NetworkSyncSystem {
     this.networkMapId = (nextState.mapId ?? 0) as MapId;
     this.networkYellowBlockHp = nextState.yellowBlockHp || [];
 
-    if (myPlayerId) {
-      const predictedShip = this.selfShipPredictor.getPredictedShip();
+    if (selfPredictionEnabled && myPlayerId) {
+      const predictedShip = this.selfShipPredictor.getPredictedShip(nowMs);
       if (predictedShip && predictedShip.playerId === myPlayerId) {
         this.replaceOrInsertShip(predictedShip);
       } else {
@@ -319,24 +324,31 @@ export class NetworkSyncSystem {
           (ship) => ship.playerId === myPlayerId,
         );
         if (latestOwnShip) {
-          this.replaceOrInsertShip({ ...latestOwnShip });
+          this.replaceOrInsertShip(
+            this.buildAuthoritativeSelfShip(latestOwnShip, nowMs),
+          );
         }
       }
     }
 
-    const latestAuthoritativeOwnShip = myPlayerId
-      ? this.latestSnapshotFrame.state.ships.find((ship) => ship.playerId === myPlayerId)
-      : null;
-    const shownOwnShip = myPlayerId
-      ? this.networkShips.find((ship) => ship.playerId === myPlayerId)
-      : null;
-    if (latestAuthoritativeOwnShip && shownOwnShip) {
-      const lagPx = Math.hypot(
-        latestAuthoritativeOwnShip.x - shownOwnShip.x,
-        latestAuthoritativeOwnShip.y - shownOwnShip.y,
-      );
-      this.presentationLagPxLast = lagPx;
-      this.presentationLagPxEwma = this.presentationLagPxEwma * 0.9 + lagPx * 0.1;
+    if (selfPredictionEnabled) {
+      const latestAuthoritativeOwnShip = myPlayerId
+        ? this.latestSnapshotFrame.state.ships.find((ship) => ship.playerId === myPlayerId)
+        : null;
+      const shownOwnShip = myPlayerId
+        ? this.networkShips.find((ship) => ship.playerId === myPlayerId)
+        : null;
+      if (latestAuthoritativeOwnShip && shownOwnShip) {
+        const lagPx = Math.hypot(
+          latestAuthoritativeOwnShip.x - shownOwnShip.x,
+          latestAuthoritativeOwnShip.y - shownOwnShip.y,
+        );
+        this.presentationLagPxLast = lagPx;
+        this.presentationLagPxEwma = this.presentationLagPxEwma * 0.9 + lagPx * 0.1;
+      }
+    } else {
+      this.presentationLagPxLast = 0;
+      this.presentationLagPxEwma = 0;
     }
 
     return this.buildRenderState();
@@ -429,7 +441,11 @@ export class NetworkSyncSystem {
     this.syncPlayerStatesFromNetwork();
     this.processAuthoritativeEffects(state);
     this.syncPlayerPowerUps(state.playerPowerUps);
-    this.ingestSelfAuthoritativeShip(state);
+    if (this.isSelfPredictionEnabled()) {
+      this.ingestSelfAuthoritativeShip(state);
+    } else {
+      this.selfShipPredictor.clear();
+    }
   }
 
   clear(): void {
@@ -509,6 +525,15 @@ export class NetworkSyncSystem {
       NETWORK_GAME_FEEL_TUNING.remoteSmoothing.interpolationDelayBaseMs;
     this.extrapolationCapMs =
       NETWORK_GAME_FEEL_TUNING.remoteSmoothing.extrapolationCapBaseMs;
+    this.snapshotJitterMs = 0;
+    this.snapshotIntervalMs = 0;
+    this.lastSnapshotReceivedAtMs = 0;
+    this.lastSnapshotAgeMs = 0;
+    this.lastPlayerStateSyncMs = 0;
+    this.hostNowBiasMs = null;
+    this.hostNowBiasTicks = null;
+    this.presentationLagPxLast = 0;
+    this.presentationLagPxEwma = 0;
     this.lastAppliedHostTick = -1;
     this.hostSimTimeMs = 0;
     this.estimatedHostNowTick = null;
@@ -537,7 +562,9 @@ export class NetworkSyncSystem {
       capturedInputTick: captured > 0 ? captured : null,
       latestHostAckTick: acked > 0 ? acked : null,
       inputAckGapTicks: gap > 0 ? gap : null,
-      inputAckGapMs: gap > 0 ? gap * GAME_CONFIG.SYNC_INTERVAL : null,
+      inputAckGapMs: gap > 0
+        ? gap * NETWORK_GAME_FEEL_TUNING.selfPrediction.inputSendIntervalMs
+        : null,
     };
   }
 
@@ -560,6 +587,20 @@ export class NetworkSyncSystem {
 
   private isOnlineGameFeelEnabled(): boolean {
     return this.network.getTransportMode() === "online";
+  }
+
+  private isSelfPredictionEnabled(): boolean {
+    return (
+      this.isOnlineGameFeelEnabled() &&
+      NETWORK_GAME_FEEL_TUNING.selfPrediction.enabled
+    );
+  }
+
+  isShipAlive(playerId: string): boolean {
+    const ship = this.latestSnapshotFrame?.state.ships.find(
+      (entry) => entry.playerId === playerId,
+    );
+    return Boolean(ship?.alive);
   }
 
   private applyDirectSnapshotState(state: GameStateSync): void {
@@ -635,24 +676,33 @@ export class NetworkSyncSystem {
     const ackSequence = state.lastProcessedInputSequenceByPlayer
       ? state.lastProcessedInputSequenceByPlayer[myPlayerId]
       : null;
-    const nowMs = performance.now();
+    const renderNowMs = performance.now();
+    const hostTick = Number.isFinite(state.hostTick) ? (state.hostTick as number) : 0;
+    const tickDurationMs =
+      Number.isFinite(state.tickDurationMs) && state.tickDurationMs > 0
+        ? (state.tickDurationMs as number)
+        : NetworkSyncSystem.DEFAULT_TICK_MS;
+    const authoritativeSimNowMs = hostTick * tickDurationMs;
     const baseMode: BaseGameMode = GameConfig.getMode();
     this.selfShipPredictor.ingestAuthoritative(
       ownShip,
       Number.isFinite(ackSequence) ? (ackSequence as number) : null,
-      nowMs,
+      renderNowMs,
+      authoritativeSimNowMs,
       state.rotationDirection ?? this.latestRotationDirection,
       baseMode,
+      state,
     );
   }
 
   private getLocalVisualShip(playerId: string): ShipState | null {
-    const predicted = this.selfShipPredictor.getPredictedShip();
+    const nowMs = performance.now();
+    const predicted = this.selfShipPredictor.getPredictedShip(nowMs);
     if (predicted && predicted.playerId === playerId) return predicted;
     const latest = this.latestSnapshotFrame?.state.ships.find(
       (ship) => ship.playerId === playerId,
     );
-    return latest ? { ...latest } : null;
+    return latest ? this.buildAuthoritativeSelfShip(latest, nowMs) : null;
   }
 
   private replaceOrInsertShip(ship: ShipState): void {
@@ -664,6 +714,29 @@ export class NetworkSyncSystem {
       return;
     }
     this.networkShips.push(ship);
+  }
+
+  private buildAuthoritativeSelfShip(ship: ShipState, nowMs: number): ShipState {
+    if (!ship.alive) {
+      return { ...ship };
+    }
+    const latestSnapshot = this.latestSnapshotFrame;
+    if (!latestSnapshot) {
+      return { ...ship };
+    }
+
+    const extrapolationMs = this.clamp(
+      nowMs - latestSnapshot.receivedAtMs,
+      0,
+      NETWORK_GAME_FEEL_TUNING.selfPrediction.authoritativeFallbackExtrapolationMs,
+    );
+    const dtSec = extrapolationMs / 1000;
+
+    return {
+      ...ship,
+      x: this.clamp(ship.x + ship.vx * dtSec * 60, 0, GAME_CONFIG.ARENA_WIDTH),
+      y: this.clamp(ship.y + ship.vy * dtSec * 60, 0, GAME_CONFIG.ARENA_HEIGHT),
+    };
   }
 
   private interpolateShips(
@@ -683,6 +756,14 @@ export class NetworkSyncSystem {
         out.push({ ...ship });
         continue;
       }
+
+      // Ship lifecycle changes (destroyed -> respawned, respawned -> destroyed)
+      // should snap to authoritative state instead of lerping across the arena.
+      if (prev.alive !== ship.alive) {
+        out.push({ ...ship });
+        continue;
+      }
+
       out.push({
         ...ship,
         x: this.lerp(prev.x, ship.x, t),

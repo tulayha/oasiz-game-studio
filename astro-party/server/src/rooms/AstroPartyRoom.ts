@@ -69,7 +69,7 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     const roomCode = options.roomCode ?? "----";
     const maxPlayers = options.maxPlayers ?? 4;
     const simTickHz = options.simTickHz ?? 60;
-    const snapshotHz = options.snapshotHz ?? 20;
+    const snapshotHz = options.snapshotHz ?? 24;
     const tickDurationMs = 1000 / simTickHz;
 
     this.maxClients = maxPlayers;

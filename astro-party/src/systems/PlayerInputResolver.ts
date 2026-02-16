@@ -2,6 +2,7 @@ import { InputManager } from "./Input";
 import { MultiInputManager } from "./MultiInputManager";
 import { NetworkManager } from "../network/NetworkManager";
 import { PlayerInput, GAME_CONFIG } from "../types";
+import { NETWORK_GAME_FEEL_TUNING } from "../network/gameFeel/NetworkGameFeelTuning";
 
 export class PlayerInputResolver {
   private localInputState: PlayerInput = {
@@ -37,7 +38,11 @@ export class PlayerInputResolver {
 
   sendLocalInputIfNeeded(now: number): PlayerInput | null {
     if (this.network.isSimulationAuthority()) return null;
-    if (now - this.lastInputSendTime < GAME_CONFIG.SYNC_INTERVAL) return null;
+    const sendIntervalMs =
+      this.network.getTransportMode() === "online"
+        ? NETWORK_GAME_FEEL_TUNING.selfPrediction.inputSendIntervalMs
+        : GAME_CONFIG.SYNC_INTERVAL;
+    if (now - this.lastInputSendTime < sendIntervalMs) return null;
 
     const inputSequence = this.nextInputSequence++;
 

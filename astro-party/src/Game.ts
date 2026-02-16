@@ -61,6 +61,7 @@ export class Game {
   private wasLocalFireHeld = false;
   private lastPredictedFireAtMs = 0;
   private lastPredictedDashAtMs = 0;
+  private controlledInputSequenceByPlayer = new Map<string, number>();
 
   private _originalHostLeft = false;
 
@@ -197,6 +198,7 @@ export class Game {
 
       onPlayerLeft: (playerId) => {
         this.playerPowerUps.delete(playerId);
+        this.controlledInputSequenceByPlayer.delete(playerId);
         this.playerMgr.removePlayer(playerId, () => this.emitPlayersUpdate());
 
         if (
@@ -348,6 +350,9 @@ export class Game {
 
       onDashParticlesReceived: (payload) => {
         if (this.network.isSimulationAuthority()) return;
+        if (this.shouldSuppressLocalDashParticles(payload.playerId)) {
+          return;
+        }
         this.renderer.spawnDashParticles(
           payload.x,
           payload.y,
@@ -412,6 +417,7 @@ export class Game {
     this.wasLocalFireHeld = false;
     this.lastPredictedFireAtMs = 0;
     this.lastPredictedDashAtMs = 0;
+    this.controlledInputSequenceByPlayer.clear();
 
     this.flowMgr.setPhase("LOBBY");
   }
@@ -421,13 +427,16 @@ export class Game {
       return;
     }
 
+    const myPlayerId = this.network.getMyPlayerId();
+    if (!myPlayerId) return;
+    if (!this.canRunLocalShipAction(myPlayerId)) return;
+
     if (this.network.getTransportMode() !== "online") {
       this.network.sendDashRequest();
       return;
     }
 
-    const myPlayerId = this.network.getMyPlayerId();
-    if (myPlayerId) {
+    if (NETWORK_GAME_FEEL_TUNING.predictedLocalActionCosmetics.dash) {
       this.networkSync.triggerLocalDashPrediction(myPlayerId);
       AudioManager.playDash();
       SettingsManager.triggerHaptic("medium");
@@ -469,6 +478,7 @@ export class Game {
     this.wasLocalFireHeld = false;
     this.lastPredictedFireAtMs = 0;
     this.lastPredictedDashAtMs = 0;
+    this.controlledInputSequenceByPlayer.clear();
   }
 
   private seedRngForRound(): void {
@@ -621,13 +631,16 @@ export class Game {
           clientTimeMs: nowMs,
           inputSequence: 0,
         };
+      const nextInputSequence =
+        (this.controlledInputSequenceByPlayer.get(playerId) ?? 0) + 1;
+      this.controlledInputSequenceByPlayer.set(playerId, nextInputSequence);
 
       this.network.sendInput(
         {
           ...input,
           timestamp: nowMs,
           clientTimeMs: nowMs,
-          inputSequence: input.inputSequence ?? 0,
+          inputSequence: nextInputSequence,
         },
         playerId,
       );
@@ -658,6 +671,8 @@ export class Game {
 
     const myPlayerId = this.network.getMyPlayerId();
     if (!myPlayerId) return;
+    if (!this.canRunLocalShipAction(myPlayerId)) return;
+    if (!NETWORK_GAME_FEEL_TUNING.predictedLocalActionCosmetics.fire) return;
 
     this.networkSync.triggerLocalFirePrediction(myPlayerId);
     AudioManager.playFire();
@@ -668,6 +683,12 @@ export class Game {
   private shouldSuppressAuthoritativeSound(type: string, playerId: string): boolean {
     if (this.network.isSimulationAuthority()) return false;
     if (this.network.getTransportMode() !== "online") return false;
+    if (
+      !NETWORK_GAME_FEEL_TUNING.predictedLocalActionCosmetics.fire &&
+      !NETWORK_GAME_FEEL_TUNING.predictedLocalActionCosmetics.dash
+    ) {
+      return false;
+    }
     const myPlayerId = this.network.getMyPlayerId();
     if (!myPlayerId || playerId !== myPlayerId) return false;
 
@@ -680,6 +701,21 @@ export class Game {
       return true;
     }
     return false;
+  }
+
+  private canRunLocalShipAction(playerId: string): boolean {
+    const localPlayer = this.playerMgr.players.get(playerId);
+    if (!localPlayer) return false;
+    if (localPlayer.state !== "ACTIVE") return false;
+    if (!this.networkSync.isShipAlive(playerId)) return false;
+    return true;
+  }
+
+  private shouldSuppressLocalDashParticles(playerId: string): boolean {
+    if (!NETWORK_GAME_FEEL_TUNING.predictedLocalActionCosmetics.dash) return false;
+    const myPlayerId = this.network.getMyPlayerId();
+    if (!myPlayerId || playerId !== myPlayerId) return false;
+    return performance.now() - this.lastPredictedDashAtMs <= 300;
   }
 
   private playGameSoundLocal(type: string): void {
