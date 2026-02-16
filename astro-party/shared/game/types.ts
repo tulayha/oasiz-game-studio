@@ -28,7 +28,7 @@ import type {
   TurretState,
   AsteroidState,
 } from "../sim/types.js";
-import { ASTEROID_COLLIDER_VERTEX_SCALE } from "../sim/types.js";
+import { ASTEROID_COLLIDER_VERTEX_SCALE } from "../sim/constants.js";
 import {
   ARENA_HEIGHT,
   ARENA_PADDING,

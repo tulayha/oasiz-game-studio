@@ -243,7 +243,7 @@ export interface RoomMetaPayload {
   mapId: MapId;
 }
 
-export const ASTEROID_COLLIDER_VERTEX_SCALE: number = 100;
+export { ASTEROID_COLLIDER_VERTEX_SCALE } from "./constants.js";
 
 export interface AsteroidColliderSync {
   asteroidId: string;

@@ -11,7 +11,7 @@ import type {
   RoundResultPayload,
   SnapshotPayload,
 } from "../../../shared/sim/types.js";
-import { ASTEROID_COLLIDER_VERTEX_SCALE } from "../../../shared/sim/types.js";
+import { ASTEROID_COLLIDER_VERTEX_SCALE } from "../../../shared/sim/constants.js";
 import { unregisterRoomCodeByRoomId } from "../http/roomCodeRegistry.js";
 import {
   AstroPartyRoomState,
