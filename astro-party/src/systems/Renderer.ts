@@ -1067,7 +1067,7 @@ export class Renderer {
       const size = 3 + this.random() * 3;
 
       // Spawn slightly behind the ship
-      const spawnDistance = 15;
+      const spawnDistance = 10;
       const spawnX = x + Math.cos(backAngle) * spawnDistance;
       const spawnY = y + Math.sin(backAngle) * spawnDistance;
 
@@ -1091,7 +1091,7 @@ export class Renderer {
       const life = 0.1 + this.random() * 0.1;
       const size = 2 + this.random() * 2;
 
-      const spawnDistance = 12;
+      const spawnDistance = 8;
       const spawnX = x + Math.cos(backAngle) * spawnDistance;
       const spawnY = y + Math.sin(backAngle) * spawnDistance;
 

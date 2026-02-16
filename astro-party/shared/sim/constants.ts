@@ -20,7 +20,7 @@ export const PLAYER_COLORS = [
 export const SHIP_RADIUS = 18;
 export const SHIP_HIT_RADIUS = 25;
 export const SHIP_DODGE_COOLDOWN_MS = 320;
-export const SHIP_DODGE_ANGLE_DEG = 80;
+export const SHIP_DODGE_ANGLE_DEG = 90;
 
 // ============= FIRE / AMMO =============
 

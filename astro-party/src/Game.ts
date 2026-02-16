@@ -349,7 +349,6 @@ export class Game {
       },
 
       onDashParticlesReceived: (payload) => {
-        if (this.network.isSimulationAuthority()) return;
         if (this.shouldSuppressLocalDashParticles(payload.playerId)) {
           return;
         }
