@@ -30,7 +30,12 @@ import type {
 } from "./types.js";
 import Matter from "matter-js";
 import { SeededRNG } from "./SeededRNG.js";
-import { clamp, getModeBaseConfig, normalizeAngle, resolveConfigValue } from "./utils.js";
+import {
+  clamp,
+  getModeBaseConfig,
+  normalizeAngle,
+  resolveConfigValue,
+} from "./utils.js";
 import { Physics } from "./Physics.js";
 import { setupCollisions } from "./Collision.js";
 import { PlayerIdentityAllocator } from "./PlayerIdentityAllocator.js";
@@ -66,6 +71,7 @@ import {
 } from "./constants.js";
 import {
   getMapDefinition,
+  ALL_MAP_IDS,
   type MapDefinition,
   type YellowBlock,
 } from "./maps.js";
@@ -93,6 +99,7 @@ import {
   updateHomingMissiles,
   checkHomingMissileCollisions,
   updateJoustCollisions,
+  damageJoustSword,
   updateTurret,
   updateTurretBullets,
 } from "./WeaponSystem.js";
@@ -125,7 +132,10 @@ interface ShipTransformHistoryEntry {
   angle: number;
 }
 
-function isInList<T extends string>(value: string, values: readonly T[]): value is T {
+function isInList<T extends string>(
+  value: string,
+  values: readonly T[],
+): value is T {
   return (values as readonly string[]).includes(value);
 }
 
@@ -159,19 +169,23 @@ function sanitizeAdvancedSettings(input: AdvancedSettings): AdvancedSettings {
     settings.rotationPreset = DEFAULT_ADVANCED_SETTINGS.rotationPreset;
   }
   if (!isInList(settings.rotationBoostPreset, MODE_PRESETS)) {
-    settings.rotationBoostPreset = DEFAULT_ADVANCED_SETTINGS.rotationBoostPreset;
+    settings.rotationBoostPreset =
+      DEFAULT_ADVANCED_SETTINGS.rotationBoostPreset;
   }
   if (!isInList(settings.recoilPreset, MODE_PRESETS)) {
     settings.recoilPreset = DEFAULT_ADVANCED_SETTINGS.recoilPreset;
   }
   if (!isInList(settings.shipRestitutionPreset, MODE_PRESETS)) {
-    settings.shipRestitutionPreset = DEFAULT_ADVANCED_SETTINGS.shipRestitutionPreset;
+    settings.shipRestitutionPreset =
+      DEFAULT_ADVANCED_SETTINGS.shipRestitutionPreset;
   }
   if (!isInList(settings.shipFrictionAirPreset, MODE_PRESETS)) {
-    settings.shipFrictionAirPreset = DEFAULT_ADVANCED_SETTINGS.shipFrictionAirPreset;
+    settings.shipFrictionAirPreset =
+      DEFAULT_ADVANCED_SETTINGS.shipFrictionAirPreset;
   }
   if (!isInList(settings.wallRestitutionPreset, MODE_PRESETS)) {
-    settings.wallRestitutionPreset = DEFAULT_ADVANCED_SETTINGS.wallRestitutionPreset;
+    settings.wallRestitutionPreset =
+      DEFAULT_ADVANCED_SETTINGS.wallRestitutionPreset;
   }
   if (!isInList(settings.wallFrictionPreset, MODE_PRESETS)) {
     settings.wallFrictionPreset = DEFAULT_ADVANCED_SETTINGS.wallFrictionPreset;
@@ -180,13 +194,17 @@ function sanitizeAdvancedSettings(input: AdvancedSettings): AdvancedSettings {
     settings.shipFrictionPreset = DEFAULT_ADVANCED_SETTINGS.shipFrictionPreset;
   }
   if (!isInList(settings.angularDampingPreset, MODE_PRESETS)) {
-    settings.angularDampingPreset = DEFAULT_ADVANCED_SETTINGS.angularDampingPreset;
+    settings.angularDampingPreset =
+      DEFAULT_ADVANCED_SETTINGS.angularDampingPreset;
   }
 
   return settings;
 }
 
-function applyModeTemplate(baseMode: BaseGameMode, roundsToWin: number): AdvancedSettings {
+function applyModeTemplate(
+  baseMode: BaseGameMode,
+  roundsToWin: number,
+): AdvancedSettings {
   if (baseMode === "SANE") {
     return {
       ...DEFAULT_ADVANCED_SETTINGS,
@@ -411,7 +429,8 @@ export class AstroPartySimulation implements SimState {
   removeSession(sessionId: string): void {
     const localPlayerIds = [...this.players.values()]
       .filter(
-        (player) => player.botType === "local" && player.sessionId === sessionId,
+        (player) =>
+          player.botType === "local" && player.sessionId === sessionId,
       )
       .map((player) => player.id);
     for (const localPlayerId of localPlayerIds) {
@@ -455,7 +474,8 @@ export class AstroPartySimulation implements SimState {
     player.input.timestamp = this.nowMs;
     player.input.clientTimeMs = payload.clientTimeMs ?? this.nowMs;
     const nextInputSequence =
-      Number.isFinite(payload.inputSequence) && (payload.inputSequence as number) >= 0
+      Number.isFinite(payload.inputSequence) &&
+      (payload.inputSequence as number) >= 0
         ? Math.floor(payload.inputSequence as number)
         : player.input.inputSequence;
     player.input.inputSequence = nextInputSequence;
@@ -480,11 +500,19 @@ export class AstroPartySimulation implements SimState {
   startMatch(sessionId: string): void {
     if (!this.ensureLeader(sessionId)) return;
     if (this.phase !== "LOBBY" && this.phase !== "GAME_END") {
-      this.hooks.onError(sessionId, "INVALID_PHASE", "Cannot start from this phase");
+      this.hooks.onError(
+        sessionId,
+        "INVALID_PHASE",
+        "Cannot start from this phase",
+      );
       return;
     }
     if (this.playerOrder.length < 2) {
-      this.hooks.onError(sessionId, "NOT_ENOUGH_PLAYERS", "Need at least 2 players");
+      this.hooks.onError(
+        sessionId,
+        "NOT_ENOUGH_PLAYERS",
+        "Need at least 2 players",
+      );
       return;
     }
 
@@ -547,7 +575,11 @@ export class AstroPartySimulation implements SimState {
   setMap(sessionId: string, mapId: number): void {
     if (!this.ensureLeader(sessionId)) return;
     if (this.phase !== "LOBBY") {
-      this.hooks.onError(sessionId, "INVALID_PHASE", "Maps can only be changed in lobby");
+      this.hooks.onError(
+        sessionId,
+        "INVALID_PHASE",
+        "Maps can only be changed in lobby",
+      );
       return;
     }
     if (!Number.isInteger(mapId) || mapId < 0 || mapId > 4) {
@@ -559,10 +591,29 @@ export class AstroPartySimulation implements SimState {
     syncRoomMeta(this);
   }
 
+  rotateToRandomMap(): void {
+    const otherMaps = ALL_MAP_IDS.filter((id) => id !== this.mapId);
+    const randomIndex = Math.floor(this.idRng.next() * otherMaps.length);
+    const newMapId = otherMaps[randomIndex];
+    this.mapId = newMapId;
+    this.mapPowerUpsSpawned = false;
+    console.log(
+      "[AstroPartySimulation] Map rotated to:",
+      newMapId,
+      "(previous was:",
+      this.mapId,
+      ")",
+    );
+  }
+
   addAIBot(sessionId: string): void {
     if (!this.ensureLeader(sessionId)) return;
     if (this.phase !== "LOBBY") {
-      this.hooks.onError(sessionId, "INVALID_PHASE", "Bots can only be added in lobby");
+      this.hooks.onError(
+        sessionId,
+        "INVALID_PHASE",
+        "Bots can only be added in lobby",
+      );
       return;
     }
     if (this.playerOrder.length >= this.maxPlayers) {
@@ -629,7 +680,11 @@ export class AstroPartySimulation implements SimState {
     const player = this.getHuman(sessionId);
     if (!player) return;
     if (!this.devModeEnabled) {
-      this.hooks.onError(sessionId, "DEV_MODE_REQUIRED", "Enable dev mode first");
+      this.hooks.onError(
+        sessionId,
+        "DEV_MODE_REQUIRED",
+        "Enable dev mode first",
+      );
       return;
     }
 
@@ -644,7 +699,11 @@ export class AstroPartySimulation implements SimState {
     }
 
     if (type !== "REVERSE" && this.playerPowerUps.get(player.id)) {
-      this.hooks.onError(sessionId, "POWERUP_OCCUPIED", "Ship already has a power-up");
+      this.hooks.onError(
+        sessionId,
+        "POWERUP_OCCUPIED",
+        "Ship already has a power-up",
+      );
       return;
     }
 
@@ -682,7 +741,10 @@ export class AstroPartySimulation implements SimState {
       }
     }
     if (this.screenShakeDuration > 0) {
-      this.screenShakeDuration = Math.max(0, this.screenShakeDuration - deltaMs / 1000);
+      this.screenShakeDuration = Math.max(
+        0,
+        this.screenShakeDuration - deltaMs / 1000,
+      );
       if (this.screenShakeDuration <= 0) {
         this.screenShakeIntensity = 0;
       }
@@ -706,6 +768,7 @@ export class AstroPartySimulation implements SimState {
       if (this.roundEndMs <= 0) {
         this.currentRound += 1;
         clearRoundEntities(this);
+        this.rotateToRandomMap();
         this.phase = "COUNTDOWN";
         this.countdownMs = COUNTDOWN_SECONDS * 1000;
         this.countdownValue = COUNTDOWN_SECONDS;
@@ -800,11 +863,28 @@ export class AstroPartySimulation implements SimState {
       cfg.DASH_FORCE = 0.018;
     }
 
-    cfg.ROTATION_SPEED = resolveConfigValue(this.settings.rotationPreset, 3.2, 3.0, 4.5);
-    cfg.ROTATION_THRUST_BONUS = resolveConfigValue(this.settings.rotationBoostPreset, 0, 0.00004, 0.00008);
-    cfg.RECOIL_FORCE = resolveConfigValue(this.settings.recoilPreset, 0, 0.00015, 0.0003);
-    cfg.SHIP_RESTITUTION = SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset];
-    cfg.SHIP_FRICTION_AIR = SHIP_FRICTION_AIR_BY_PRESET[this.settings.shipFrictionAirPreset];
+    cfg.ROTATION_SPEED = resolveConfigValue(
+      this.settings.rotationPreset,
+      3.2,
+      3.0,
+      4.5,
+    );
+    cfg.ROTATION_THRUST_BONUS = resolveConfigValue(
+      this.settings.rotationBoostPreset,
+      0,
+      0.00004,
+      0.00008,
+    );
+    cfg.RECOIL_FORCE = resolveConfigValue(
+      this.settings.recoilPreset,
+      0,
+      0.00015,
+      0.0003,
+    );
+    cfg.SHIP_RESTITUTION =
+      SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset];
+    cfg.SHIP_FRICTION_AIR =
+      SHIP_FRICTION_AIR_BY_PRESET[this.settings.shipFrictionAirPreset];
 
     return cfg;
   }
@@ -993,7 +1073,10 @@ export class AstroPartySimulation implements SimState {
     });
     if (existing) return;
 
-    const typeIndex = this.powerUpRng.nextInt(0, mapPowerUpConfig.types.length - 1);
+    const typeIndex = this.powerUpRng.nextInt(
+      0,
+      mapPowerUpConfig.types.length - 1,
+    );
     const type = mapPowerUpConfig.types[typeIndex];
     this.powerUps.push({
       id: this.nextEntityId("pow"),
@@ -1014,6 +1097,66 @@ export class AstroPartySimulation implements SimState {
   updateMapFeatures(dtSec: number): void {
     this.mapTimeSec += dtSec;
     const map = this.getCurrentMap();
+
+    // Handle center hole rotation (vortex effect)
+    if (map.centerHoles.length > 0) {
+      for (const hole of map.centerHoles) {
+        const influenceRadius = hole.radius * 2.5;
+        const rotationSpeed = 1.5 * this.rotationDirection; // Match visual rotation speed
+
+        const applyRotationalForce = (body: Matter.Body | undefined): void => {
+          if (!body) return;
+          const dx = body.position.x - hole.x;
+          const dy = body.position.y - hole.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist >= influenceRadius || dist <= hole.radius + 10) return;
+
+          // Tangential force for rotation (perpendicular to radius)
+          // Direction depends on rotationDirection: 1 = clockwise, -1 = counter-clockwise
+          const tx = (-dy / dist) * this.rotationDirection;
+          const ty = (dx / dist) * this.rotationDirection;
+
+          const falloff = (influenceRadius - dist) / influenceRadius;
+          const forceMagnitude = 0.0015 * falloff * falloff;
+
+          Body.applyForce(body, body.position, {
+            x: tx * forceMagnitude,
+            y: ty * forceMagnitude,
+          });
+        };
+
+        // Apply to all entities
+        for (const player of this.players.values()) {
+          if (!player.ship.alive) continue;
+          applyRotationalForce(this.shipBodies.get(player.id));
+        }
+
+        for (const [playerId, pilot] of this.pilots) {
+          if (!pilot.alive) continue;
+          applyRotationalForce(this.pilotBodies.get(playerId));
+        }
+
+        for (const asteroid of this.asteroids) {
+          if (!asteroid.alive) continue;
+          applyRotationalForce(this.asteroidBodies.get(asteroid.id));
+        }
+
+        for (const projectile of this.projectiles) {
+          applyRotationalForce(this.projectileBodies.get(projectile.id));
+        }
+
+        for (const powerUp of this.powerUps) {
+          if (!powerUp.alive) continue;
+          applyRotationalForce(this.powerUpBodies.get(powerUp.id));
+        }
+
+        for (const bullet of this.turretBullets) {
+          if (!bullet.alive) continue;
+          applyRotationalForce(this.turretBulletBodies.get(bullet.id));
+        }
+      }
+    }
+
     if (map.repulsionZones.length === 0) return;
 
     for (const zone of map.repulsionZones) {
@@ -1030,7 +1173,8 @@ export class AstroPartySimulation implements SimState {
         const ny = dy / dist;
         const falloff = (influenceRadius - dist) / influenceRadius;
         const strengthScale = 0.8 + falloff * 1.4;
-        const forceMagnitude = (zone.strength * strengthScale) / Math.max(dist * dist, 60);
+        const forceMagnitude =
+          (zone.strength * strengthScale) / Math.max(dist * dist, 60);
 
         Body.applyForce(body, body.position, {
           x: nx * forceMagnitude,
@@ -1207,12 +1351,18 @@ export class AstroPartySimulation implements SimState {
   }
 
   clearPhysicsBodies(): void {
-    for (const playerId of [...this.shipBodies.keys()]) this.removeShipBody(playerId);
-    for (const asteroidId of [...this.asteroidBodies.keys()]) this.removeAsteroidBody(asteroidId);
-    for (const playerId of [...this.pilotBodies.keys()]) this.removePilotBody(playerId);
-    for (const projectileId of [...this.projectileBodies.keys()]) this.removeProjectileBody(projectileId);
-    for (const powerUpId of [...this.powerUpBodies.keys()]) this.removePowerUpBody(powerUpId);
-    for (const bulletId of [...this.turretBulletBodies.keys()]) this.removeTurretBulletBody(bulletId);
+    for (const playerId of [...this.shipBodies.keys()])
+      this.removeShipBody(playerId);
+    for (const asteroidId of [...this.asteroidBodies.keys()])
+      this.removeAsteroidBody(asteroidId);
+    for (const playerId of [...this.pilotBodies.keys()])
+      this.removePilotBody(playerId);
+    for (const projectileId of [...this.projectileBodies.keys()])
+      this.removeProjectileBody(projectileId);
+    for (const powerUpId of [...this.powerUpBodies.keys()])
+      this.removePowerUpBody(powerUpId);
+    for (const bulletId of [...this.turretBulletBodies.keys()])
+      this.removeTurretBulletBody(bulletId);
     if (this.turretBody) {
       this.physics.removeBody(this.turretBody);
       this.turretBody = null;
@@ -1283,12 +1433,17 @@ export class AstroPartySimulation implements SimState {
       aliveShips.add(playerId);
       const existing = this.shipBodies.get(playerId);
       if (!existing) {
-        const body = this.physics.createShip(player.ship.x, player.ship.y, playerId, {
-          frictionAir: shipFrictionAir,
-          restitution: shipRestitution,
-          friction: shipFriction,
-          angularDamping: shipAngularDamping,
-        });
+        const body = this.physics.createShip(
+          player.ship.x,
+          player.ship.y,
+          playerId,
+          {
+            frictionAir: shipFrictionAir,
+            restitution: shipRestitution,
+            friction: shipFriction,
+            angularDamping: shipAngularDamping,
+          },
+        );
         Body.setAngle(body, player.ship.angle);
         Body.setAngularVelocity(body, player.angularVelocity);
         Body.setVelocity(body, { x: player.ship.vx, y: player.ship.vy });
@@ -1367,7 +1522,8 @@ export class AstroPartySimulation implements SimState {
       }
     }
     for (const [projectileId] of this.projectileBodies) {
-      if (!aliveProjectiles.has(projectileId)) this.removeProjectileBody(projectileId);
+      if (!aliveProjectiles.has(projectileId))
+        this.removeProjectileBody(projectileId);
     }
 
     const alivePowerUps = new Set<string>();
@@ -1413,9 +1569,15 @@ export class AstroPartySimulation implements SimState {
 
     if (this.turret && this.turret.alive) {
       if (!this.turretBody) {
-        this.turretBody = this.physics.createTurret(this.turret.x, this.turret.y);
+        this.turretBody = this.physics.createTurret(
+          this.turret.x,
+          this.turret.y,
+        );
       } else {
-        Body.setPosition(this.turretBody, { x: this.turret.x, y: this.turret.y });
+        Body.setPosition(this.turretBody, {
+          x: this.turret.x,
+          y: this.turret.y,
+        });
       }
     } else if (this.turretBody) {
       this.physics.removeBody(this.turretBody);
@@ -1500,7 +1662,10 @@ export class AstroPartySimulation implements SimState {
     }
   }
 
-  private handleProjectileHitShip(projectileBody: Matter.Body, shipBody: Matter.Body): void {
+  private handleProjectileHitShip(
+    projectileBody: Matter.Body,
+    shipBody: Matter.Body,
+  ): void {
     const projectileId = this.getPluginString(projectileBody, "entityId");
     const projectileOwnerId = this.getPluginString(projectileBody, "ownerId");
     const shipPlayerId = this.getPluginString(shipBody, "playerId");
@@ -1516,7 +1681,9 @@ export class AstroPartySimulation implements SimState {
     if (powerUp?.type === "SHIELD") {
       powerUp.shieldHits += 1;
       this.removeProjectileBody(projectileId);
-      this.projectiles = this.projectiles.filter((proj) => proj.id !== projectileId);
+      this.projectiles = this.projectiles.filter(
+        (proj) => proj.id !== projectileId,
+      );
       this.triggerScreenShake(3, 0.1);
       if (powerUp.shieldHits >= POWERUP_SHIELD_HITS) {
         this.playerPowerUps.delete(shipPlayerId);
@@ -1526,12 +1693,17 @@ export class AstroPartySimulation implements SimState {
 
     const owner = this.players.get(projectileOwnerId);
     this.removeProjectileBody(projectileId);
-    this.projectiles = this.projectiles.filter((proj) => proj.id !== projectileId);
+    this.projectiles = this.projectiles.filter(
+      (proj) => proj.id !== projectileId,
+    );
     this.playerPowerUps.delete(shipPlayerId);
     this.onShipHit(owner, shipPlayer);
   }
 
-  private handleProjectileHitPilot(projectileBody: Matter.Body, pilotBody: Matter.Body): void {
+  private handleProjectileHitPilot(
+    projectileBody: Matter.Body,
+    pilotBody: Matter.Body,
+  ): void {
     const projectileId = this.getPluginString(projectileBody, "entityId");
     const projectileOwnerId = this.getPluginString(projectileBody, "ownerId");
     const pilotPlayerId = this.getPluginString(pilotBody, "playerId");
@@ -1540,11 +1712,16 @@ export class AstroPartySimulation implements SimState {
     const pilot = this.pilots.get(pilotPlayerId);
     if (!pilot || !pilot.alive) return;
     this.removeProjectileBody(projectileId);
-    this.projectiles = this.projectiles.filter((proj) => proj.id !== projectileId);
+    this.projectiles = this.projectiles.filter(
+      (proj) => proj.id !== projectileId,
+    );
     this.killPilot(pilotPlayerId, projectileOwnerId);
   }
 
-  private handleShipHitPilot(shipBody: Matter.Body, pilotBody: Matter.Body): void {
+  private handleShipHitPilot(
+    shipBody: Matter.Body,
+    pilotBody: Matter.Body,
+  ): void {
     const shipPlayerId = this.getPluginString(shipBody, "playerId");
     const pilotPlayerId = this.getPluginString(pilotBody, "playerId");
     if (!shipPlayerId || !pilotPlayerId) return;
@@ -1555,14 +1732,21 @@ export class AstroPartySimulation implements SimState {
     this.killPilot(pilotPlayerId, shipPlayerId);
   }
 
-  private handleProjectileHitAsteroid(projectileBody: Matter.Body, asteroidBody: Matter.Body): void {
+  private handleProjectileHitAsteroid(
+    projectileBody: Matter.Body,
+    asteroidBody: Matter.Body,
+  ): void {
     const projectileId = this.getPluginString(projectileBody, "entityId");
     const asteroidId = this.getPluginString(asteroidBody, "entityId");
     if (!projectileId || !asteroidId) return;
     if (!this.projectileBodies.has(projectileId)) return;
-    const asteroid = this.asteroids.find((item) => item.id === asteroidId && item.alive);
+    const asteroid = this.asteroids.find(
+      (item) => item.id === asteroidId && item.alive,
+    );
     this.removeProjectileBody(projectileId);
-    this.projectiles = this.projectiles.filter((proj) => proj.id !== projectileId);
+    this.projectiles = this.projectiles.filter(
+      (proj) => proj.id !== projectileId,
+    );
     if (asteroid) {
       hitAsteroid(this, asteroid);
     }
@@ -1577,15 +1761,21 @@ export class AstroPartySimulation implements SimState {
     if (!this.projectileBodies.has(projectileId)) return;
 
     this.removeProjectileBody(projectileId);
-    this.projectiles = this.projectiles.filter((proj) => proj.id !== projectileId);
+    this.projectiles = this.projectiles.filter(
+      (proj) => proj.id !== projectileId,
+    );
 
-    const rawBlockIndex = (blockBody.plugin as { blockIndex?: unknown } | undefined)
-      ?.blockIndex;
+    const rawBlockIndex = (
+      blockBody.plugin as { blockIndex?: unknown } | undefined
+    )?.blockIndex;
     if (!Number.isInteger(rawBlockIndex)) return;
     this.damageYellowBlock(rawBlockIndex as number, 1);
   }
 
-  private handleShipHitAsteroid(shipBody: Matter.Body, asteroidBody: Matter.Body): void {
+  private handleShipHitAsteroid(
+    shipBody: Matter.Body,
+    asteroidBody: Matter.Body,
+  ): void {
     if (!ASTEROID_DAMAGE_SHIPS) return;
     const shipPlayerId = this.getPluginString(shipBody, "playerId");
     const asteroidId = this.getPluginString(asteroidBody, "entityId");
@@ -1593,7 +1783,9 @@ export class AstroPartySimulation implements SimState {
     const shipPlayer = this.players.get(shipPlayerId);
     if (!shipPlayer || !shipPlayer.ship.alive) return;
     if (shipPlayer.ship.invulnerableUntil > this.nowMs) return;
-    const asteroid = this.asteroids.find((item) => item.id === asteroidId && item.alive);
+    const asteroid = this.asteroids.find(
+      (item) => item.id === asteroidId && item.alive,
+    );
     if (asteroid) {
       this.destroyAsteroid(asteroid);
     }
@@ -1601,28 +1793,38 @@ export class AstroPartySimulation implements SimState {
     this.onShipHit(undefined, shipPlayer);
   }
 
-  private handlePilotHitAsteroid(pilotBody: Matter.Body, asteroidBody: Matter.Body): void {
+  private handlePilotHitAsteroid(
+    pilotBody: Matter.Body,
+    asteroidBody: Matter.Body,
+  ): void {
     if (!ASTEROID_DAMAGE_SHIPS) return;
     const pilotPlayerId = this.getPluginString(pilotBody, "playerId");
     const asteroidId = this.getPluginString(asteroidBody, "entityId");
     if (!pilotPlayerId || !asteroidId) return;
     const pilot = this.pilots.get(pilotPlayerId);
     if (!pilot || !pilot.alive) return;
-    const asteroid = this.asteroids.find((item) => item.id === asteroidId && item.alive);
+    const asteroid = this.asteroids.find(
+      (item) => item.id === asteroidId && item.alive,
+    );
     if (asteroid) {
       this.destroyAsteroid(asteroid);
     }
     this.killPilot(pilotPlayerId, "asteroid");
   }
 
-  private handleShipHitPowerUp(shipBody: Matter.Body, powerUpBody: Matter.Body): void {
+  private handleShipHitPowerUp(
+    shipBody: Matter.Body,
+    powerUpBody: Matter.Body,
+  ): void {
     const shipPlayerId = this.getPluginString(shipBody, "playerId");
     const powerUpId = this.getPluginString(powerUpBody, "entityId");
     if (!shipPlayerId || !powerUpId) return;
 
     if (this.playerPowerUps.get(shipPlayerId)) return;
 
-    const powerUp = this.powerUps.find((item) => item.id === powerUpId && item.alive);
+    const powerUp = this.powerUps.find(
+      (item) => item.id === powerUpId && item.alive,
+    );
     if (!powerUp) return;
 
     this.grantPowerUp(shipPlayerId, powerUp.type);
@@ -1693,10 +1895,30 @@ export class AstroPartySimulation implements SimState {
     }
 
     return (
-      this.lineIntersectsLine(start, end, { x: left, y: top }, { x: right, y: top }) ||
-      this.lineIntersectsLine(start, end, { x: right, y: top }, { x: right, y: bottom }) ||
-      this.lineIntersectsLine(start, end, { x: right, y: bottom }, { x: left, y: bottom }) ||
-      this.lineIntersectsLine(start, end, { x: left, y: bottom }, { x: left, y: top })
+      this.lineIntersectsLine(
+        start,
+        end,
+        { x: left, y: top },
+        { x: right, y: top },
+      ) ||
+      this.lineIntersectsLine(
+        start,
+        end,
+        { x: right, y: top },
+        { x: right, y: bottom },
+      ) ||
+      this.lineIntersectsLine(
+        start,
+        end,
+        { x: right, y: bottom },
+        { x: left, y: bottom },
+      ) ||
+      this.lineIntersectsLine(
+        start,
+        end,
+        { x: left, y: bottom },
+        { x: left, y: top },
+      )
     );
   }
 
@@ -1708,10 +1930,7 @@ export class AstroPartySimulation implements SimState {
     bottom: number,
   ): boolean {
     return (
-      point.x >= left &&
-      point.x <= right &&
-      point.y >= top &&
-      point.y <= bottom
+      point.x >= left && point.x <= right && point.y >= top && point.y <= bottom
     );
   }
 
@@ -1751,14 +1970,21 @@ export class AstroPartySimulation implements SimState {
       const coneTipY = player.ship.y;
       const coneAngle = player.ship.angle;
 
-      for (let blockIndex = 0; blockIndex < this.yellowBlocks.length; blockIndex++) {
+      for (
+        let blockIndex = 0;
+        blockIndex < this.yellowBlocks.length;
+        blockIndex++
+      ) {
         const block = this.yellowBlocks[blockIndex];
         if (!block || block.hp <= 0 || !block.body) continue;
 
         const corners = [
           { x: block.block.x, y: block.block.y },
           { x: block.block.x + block.block.width, y: block.block.y },
-          { x: block.block.x + block.block.width, y: block.block.y + block.block.height },
+          {
+            x: block.block.x + block.block.width,
+            y: block.block.y + block.block.height,
+          },
           { x: block.block.x, y: block.block.y + block.block.height },
         ];
 
@@ -1777,11 +2003,13 @@ export class AstroPartySimulation implements SimState {
           ) {
             hit = this.tryDamageYellowBlockWithSword(blockIndex);
             if (hit) {
-              if (powerUp.leftSwordActive) {
-                powerUp.leftSwordActive = false;
-              } else if (powerUp.rightSwordActive) {
-                powerUp.rightSwordActive = false;
-              }
+              // Apply durability damage to joust sword instead of immediate destruction
+              const side = powerUp.leftSwordActive ? "left" : "right";
+              const swordBroke = damageJoustSword(powerUp, side);
+              this.triggerScreenShake(
+                swordBroke ? 5 : 3,
+                swordBroke ? 0.15 : 0.1,
+              );
               if (!powerUp.leftSwordActive && !powerUp.rightSwordActive) {
                 this.playerPowerUps.delete(playerId);
               }
@@ -1828,7 +2056,9 @@ export class AstroPartySimulation implements SimState {
     if (!projectileId) return;
     if (!this.projectileBodies.has(projectileId)) return;
     this.removeProjectileBody(projectileId);
-    this.projectiles = this.projectiles.filter((proj) => proj.id !== projectileId);
+    this.projectiles = this.projectiles.filter(
+      (proj) => proj.id !== projectileId,
+    );
   }
 
   private getPluginString(body: Matter.Body, key: string): string | null {
@@ -1837,7 +2067,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   private reseed(seed: number): void {
-    const normalized = (seed >>> 0) || 0x9e3779b9;
+    const normalized = seed >>> 0 || 0x9e3779b9;
     this.baseSeed = normalized;
     this.asteroidRng = new SeededRNG(normalized ^ 0xa341316c);
     this.powerUpRng = new SeededRNG(normalized ^ 0xc8013ea4);
@@ -1849,7 +2079,11 @@ export class AstroPartySimulation implements SimState {
     const player = this.getHuman(sessionId);
     if (!player) return false;
     if (this.leaderPlayerId !== player.id) {
-      this.hooks.onError(sessionId, "LEADER_ONLY", "Only room leader can do this");
+      this.hooks.onError(
+        sessionId,
+        "LEADER_ONLY",
+        "Only room leader can do this",
+      );
       return false;
     }
     return true;
@@ -1904,7 +2138,11 @@ export class AstroPartySimulation implements SimState {
           player.keySlot === preferred,
       );
       if (inUse) {
-        this.hooks.onError(sessionId, "KEY_SLOT_IN_USE", "Key slot already in use");
+        this.hooks.onError(
+          sessionId,
+          "KEY_SLOT_IN_USE",
+          "Key slot already in use",
+        );
         return -1;
       }
       return preferred;
@@ -1920,7 +2158,11 @@ export class AstroPartySimulation implements SimState {
       if (!inUse) return slot;
     }
 
-    this.hooks.onError(sessionId, "KEY_SLOT_IN_USE", "No local key slots available");
+    this.hooks.onError(
+      sessionId,
+      "KEY_SLOT_IN_USE",
+      "No local key slots available",
+    );
     return -1;
   }
 
@@ -1947,7 +2189,9 @@ export class AstroPartySimulation implements SimState {
     for (const projectileId of removeProjectileIds) {
       this.removeProjectileBody(projectileId);
     }
-    this.projectiles = this.projectiles.filter((proj) => proj.ownerId !== playerId);
+    this.projectiles = this.projectiles.filter(
+      (proj) => proj.ownerId !== playerId,
+    );
     this.removeShipBody(playerId);
     this.removePilotBody(playerId);
 
@@ -2140,7 +2384,11 @@ export class AstroPartySimulation implements SimState {
         vy: pilot.vy,
         angle: pilot.angle,
         spawnTime: pilot.spawnTime,
-        survivalProgress: clamp((this.nowMs - pilot.spawnTime) / PILOT_SURVIVAL_MS, 0, 1),
+        survivalProgress: clamp(
+          (this.nowMs - pilot.spawnTime) / PILOT_SURVIVAL_MS,
+          0,
+          1,
+        ),
         alive: true,
       }));
 
@@ -2151,7 +2399,8 @@ export class AstroPartySimulation implements SimState {
 
     const lastProcessedInputSequenceByPlayer: Record<string, number> = {};
     for (const [playerId, player] of this.players) {
-      lastProcessedInputSequenceByPlayer[playerId] = player.lastProcessedInputSequence;
+      lastProcessedInputSequenceByPlayer[playerId] =
+        player.lastProcessedInputSequence;
     }
 
     return {
@@ -2192,7 +2441,8 @@ export class AstroPartySimulation implements SimState {
           type: powerUp.type,
           spawnTime: powerUp.spawnTime,
           remainingTimeFraction: clamp(
-            (POWERUP_DESPAWN_MS - (this.nowMs - powerUp.spawnTime)) / POWERUP_DESPAWN_MS,
+            (POWERUP_DESPAWN_MS - (this.nowMs - powerUp.spawnTime)) /
+              POWERUP_DESPAWN_MS,
             0,
             1,
           ),
@@ -2200,28 +2450,32 @@ export class AstroPartySimulation implements SimState {
           magneticRadius: powerUp.magneticRadius,
           isMagneticActive: powerUp.isMagneticActive,
         })),
-      laserBeams: this.laserBeams.filter((beam) => beam.alive).map((beam) => ({
-        id: beam.id,
-        ownerId: beam.ownerId,
-        x: beam.x,
-        y: beam.y,
-        angle: beam.angle,
-        spawnTime: beam.spawnTime,
-        alive: beam.alive,
-      })),
-      mines: this.mines.filter((mine) => mine.alive).map((mine) => ({
-        id: mine.id,
-        ownerId: mine.ownerId,
-        x: mine.x,
-        y: mine.y,
-        spawnTime: mine.spawnTime,
-        alive: mine.alive,
-        exploded: mine.exploded,
-        explosionTime: mine.explosionTime,
-        arming: mine.arming,
-        armingStartTime: mine.armingStartTime,
-        triggeringPlayerId: mine.triggeringPlayerId,
-      })),
+      laserBeams: this.laserBeams
+        .filter((beam) => beam.alive)
+        .map((beam) => ({
+          id: beam.id,
+          ownerId: beam.ownerId,
+          x: beam.x,
+          y: beam.y,
+          angle: beam.angle,
+          spawnTime: beam.spawnTime,
+          alive: beam.alive,
+        })),
+      mines: this.mines
+        .filter((mine) => mine.alive)
+        .map((mine) => ({
+          id: mine.id,
+          ownerId: mine.ownerId,
+          x: mine.x,
+          y: mine.y,
+          spawnTime: mine.spawnTime,
+          alive: mine.alive,
+          exploded: mine.exploded,
+          explosionTime: mine.explosionTime,
+          arming: mine.arming,
+          armingStartTime: mine.armingStartTime,
+          triggeringPlayerId: mine.triggeringPlayerId,
+        })),
       homingMissiles: this.homingMissiles
         .filter((missile) => missile.alive)
         .map((missile) => ({

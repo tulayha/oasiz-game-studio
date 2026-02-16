@@ -21,7 +21,8 @@ export function updatePowerUps(sim: SimState, dtSec: number): void {
       continue;
     }
 
-    let best: { id: string; x: number; y: number; distSq: number } | null = null;
+    let best: { id: string; x: number; y: number; distSq: number } | null =
+      null;
     for (const playerId of sim.playerOrder) {
       const player = sim.players.get(playerId);
       if (!player || !player.ship.alive) continue;
@@ -49,7 +50,11 @@ export function updatePowerUps(sim: SimState, dtSec: number): void {
   }
 }
 
-export function grantPowerUp(sim: SimState, playerId: string, type: PowerUpType): void {
+export function grantPowerUp(
+  sim: SimState,
+  playerId: string,
+  type: PowerUpType,
+): void {
   if (type === "LASER") {
     sim.playerPowerUps.set(playerId, {
       type: "LASER",
@@ -103,6 +108,8 @@ export function grantPowerUp(sim: SimState, playerId: string, type: PowerUpType)
       shieldHits: 0,
       leftSwordActive: true,
       rightSwordActive: true,
+      leftSwordDurability: 6,
+      rightSwordDurability: 6,
     });
     return;
   }
@@ -116,7 +123,9 @@ export function grantPowerUp(sim: SimState, playerId: string, type: PowerUpType)
 }
 
 export function spawnRandomPowerUp(sim: SimState): void {
-  const entries = Object.entries(POWERUP_SPAWN_WEIGHTS) as Array<[PowerUpType, number]>;
+  const entries = Object.entries(POWERUP_SPAWN_WEIGHTS) as Array<
+    [PowerUpType, number]
+  >;
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
   const r = sim.powerUpRng.next() * total;
   let cumulative = 0;
