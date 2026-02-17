@@ -103,6 +103,8 @@ export function grantPowerUp(sim: SimState, playerId: string, type: PowerUpType)
       shieldHits: 0,
       leftSwordActive: true,
       rightSwordActive: true,
+      leftSwordDurability: 6,
+      rightSwordDurability: 6,
     });
     return;
   }

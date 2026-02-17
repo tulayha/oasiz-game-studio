@@ -66,6 +66,7 @@ import {
 } from "./constants.js";
 import {
   getMapDefinition,
+  ALL_MAP_IDS,
   type MapDefinition,
   type YellowBlock,
 } from "./maps.js";
@@ -93,6 +94,7 @@ import {
   updateHomingMissiles,
   checkHomingMissileCollisions,
   updateJoustCollisions,
+  damageJoustSword,
   updateTurret,
   updateTurretBullets,
 } from "./WeaponSystem.js";
@@ -559,6 +561,23 @@ export class AstroPartySimulation implements SimState {
     syncRoomMeta(this);
   }
 
+  rotateToRandomMap(): void {
+    const previousMapId = this.mapId;
+    const otherMaps = ALL_MAP_IDS.filter((id) => id !== previousMapId);
+    if (otherMaps.length === 0) return;
+    const randomIndex = Math.floor(this.idRng.next() * otherMaps.length);
+    const newMapId = otherMaps[randomIndex];
+    this.mapId = newMapId;
+    this.mapPowerUpsSpawned = false;
+    console.log(
+      "[AstroPartySimulation] Map rotated to:",
+      newMapId,
+      "(previous was:",
+      previousMapId,
+      ")",
+    );
+  }
+
   addAIBot(sessionId: string): void {
     if (!this.ensureLeader(sessionId)) return;
     if (this.phase !== "LOBBY") {
@@ -706,6 +725,7 @@ export class AstroPartySimulation implements SimState {
       if (this.roundEndMs <= 0) {
         this.currentRound += 1;
         clearRoundEntities(this);
+        this.rotateToRandomMap();
         this.phase = "COUNTDOWN";
         this.countdownMs = COUNTDOWN_SECONDS * 1000;
         this.countdownValue = COUNTDOWN_SECONDS;
@@ -1014,6 +1034,60 @@ export class AstroPartySimulation implements SimState {
   updateMapFeatures(dtSec: number): void {
     this.mapTimeSec += dtSec;
     const map = this.getCurrentMap();
+
+    if (map.centerHoles.length > 0) {
+      for (const hole of map.centerHoles) {
+        const influenceRadius = hole.radius * 2.5;
+
+        const applyRotationalForce = (body: Matter.Body | undefined): void => {
+          if (!body) return;
+          const dx = body.position.x - hole.x;
+          const dy = body.position.y - hole.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist >= influenceRadius || dist <= hole.radius + 10) return;
+
+          const tx = (-dy / dist) * this.rotationDirection;
+          const ty = (dx / dist) * this.rotationDirection;
+          const falloff = (influenceRadius - dist) / influenceRadius;
+          const forceMagnitude = 0.0015 * falloff * falloff;
+
+          Body.applyForce(body, body.position, {
+            x: tx * forceMagnitude,
+            y: ty * forceMagnitude,
+          });
+        };
+
+        for (const player of this.players.values()) {
+          if (!player.ship.alive) continue;
+          applyRotationalForce(this.shipBodies.get(player.id));
+        }
+
+        for (const [playerId, pilot] of this.pilots) {
+          if (!pilot.alive) continue;
+          applyRotationalForce(this.pilotBodies.get(playerId));
+        }
+
+        for (const asteroid of this.asteroids) {
+          if (!asteroid.alive) continue;
+          applyRotationalForce(this.asteroidBodies.get(asteroid.id));
+        }
+
+        for (const projectile of this.projectiles) {
+          applyRotationalForce(this.projectileBodies.get(projectile.id));
+        }
+
+        for (const powerUp of this.powerUps) {
+          if (!powerUp.alive) continue;
+          applyRotationalForce(this.powerUpBodies.get(powerUp.id));
+        }
+
+        for (const bullet of this.turretBullets) {
+          if (!bullet.alive) continue;
+          applyRotationalForce(this.turretBulletBodies.get(bullet.id));
+        }
+      }
+    }
+
     if (map.repulsionZones.length === 0) return;
 
     for (const zone of map.repulsionZones) {
@@ -1777,11 +1851,12 @@ export class AstroPartySimulation implements SimState {
           ) {
             hit = this.tryDamageYellowBlockWithSword(blockIndex);
             if (hit) {
-              if (powerUp.leftSwordActive) {
-                powerUp.leftSwordActive = false;
-              } else if (powerUp.rightSwordActive) {
-                powerUp.rightSwordActive = false;
-              }
+              const side = powerUp.leftSwordActive ? "left" : "right";
+              const swordBroke = damageJoustSword(powerUp, side);
+              this.triggerScreenShake(
+                swordBroke ? 5 : 3,
+                swordBroke ? 0.15 : 0.1,
+              );
               if (!powerUp.leftSwordActive && !powerUp.rightSwordActive) {
                 this.playerPowerUps.delete(playerId);
               }

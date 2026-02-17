@@ -105,60 +105,8 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     elements.advancedSettingsBackdrop.classList.remove("active");
   }
 
-  function updateSummary(settings: AdvancedSettings): void {
-    const modeLabel = labelGameMode(game.getGameMode());
-    const chips = [
-      { label: "Mode", value: modeLabel },
-      { label: "Asteroids", value: labelAsteroids(settings.asteroidDensity) },
-      { label: "Start Powerups", value: settings.startPowerups ? "On" : "Off" },
-      { label: "Rounds", value: String(settings.roundsToWin) },
-      { label: "Ship Speed", value: labelSpeed(settings.shipSpeed) },
-      { label: "Dodge Power", value: labelDash(settings.dashPower) },
-      {
-        label: "Rotation",
-        value: labelPreset("rotation", settings.rotationPreset),
-      },
-      {
-        label: "Rot Boost",
-        value: labelPreset("rotationBoost", settings.rotationBoostPreset),
-      },
-      { label: "Recoil", value: labelPreset("recoil", settings.recoilPreset) },
-      {
-        label: "Ship Rest",
-        value: labelPreset("shipRestitution", settings.shipRestitutionPreset),
-      },
-      {
-        label: "Ship Air",
-        value: labelPreset("shipAir", settings.shipFrictionAirPreset),
-      },
-      {
-        label: "Wall Rest",
-        value: labelPreset("wallRestitution", settings.wallRestitutionPreset),
-      },
-      {
-        label: "Wall Fric",
-        value: labelPreset("wallFriction", settings.wallFrictionPreset),
-      },
-      {
-        label: "Ship Fric",
-        value: labelPreset("shipFriction", settings.shipFrictionPreset),
-      },
-      {
-        label: "Ang Damp",
-        value: labelPreset("angularDamping", settings.angularDampingPreset),
-      },
-    ];
-
-    elements.advancedSummaryChips.innerHTML = chips
-      .map(
-        (chip) =>
-          '<div class="summary-chip"><span class="summary-key">' +
-          chip.label +
-          ':</span><span class="summary-value">' +
-          chip.value +
-          "</span></div>",
-      )
-      .join("");
+  function updateSummary(_settings: AdvancedSettings): void {
+    // Map preview replaced the summary chips panel.
   }
 
   function updateAdvancedSettingsUI(settings?: AdvancedSettings): void {

@@ -266,6 +266,31 @@ export function checkHomingMissileCollisions(sim: SimState): void {
   }
 }
 
+export function damageJoustSword(
+  powerUp: {
+    leftSwordActive?: boolean;
+    rightSwordActive?: boolean;
+    leftSwordDurability?: number;
+    rightSwordDurability?: number;
+  },
+  side: "left" | "right",
+): boolean {
+  const durabilityKey =
+    side === "left" ? "leftSwordDurability" : "rightSwordDurability";
+  const activeKey = side === "left" ? "leftSwordActive" : "rightSwordActive";
+
+  if (!powerUp[activeKey]) return false;
+
+  const currentDurability = powerUp[durabilityKey] ?? 1;
+  if (currentDurability <= 1) {
+    powerUp[activeKey] = false;
+    return true;
+  }
+
+  powerUp[durabilityKey] = currentDurability - 1;
+  return false;
+}
+
 export function updateJoustCollisions(sim: SimState): void {
   const consumedProjectiles = new Set<string>();
   for (const [playerId, powerUp] of sim.playerPowerUps) {
@@ -288,16 +313,16 @@ export function updateJoustCollisions(sim: SimState): void {
           const otherPowerUp = sim.playerPowerUps.get(otherId);
           if (otherPowerUp?.type === "SHIELD") {
             sim.playerPowerUps.delete(otherId);
-            powerUp.leftSwordActive = false;
+            const swordBroke = damageJoustSword(powerUp, "left");
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
             const knockback = 2.5;
             applyShipKnockback(sim, otherId, other.ship, dx / dist, dy / dist, knockback);
-            sim.triggerScreenShake(8, 0.25);
+            sim.triggerScreenShake(swordBroke ? 8 : 5, swordBroke ? 0.25 : 0.15);
           } else {
             sim.playerPowerUps.delete(otherId);
             sim.onShipHit(owner, other);
-            powerUp.leftSwordActive = false;
-            sim.triggerScreenShake(8, 0.25);
+            const swordBroke = damageJoustSword(powerUp, "left");
+            sim.triggerScreenShake(swordBroke ? 8 : 5, swordBroke ? 0.25 : 0.15);
           }
           hitShip = true;
         }
@@ -310,16 +335,16 @@ export function updateJoustCollisions(sim: SimState): void {
           const otherPowerUp = sim.playerPowerUps.get(otherId);
           if (otherPowerUp?.type === "SHIELD") {
             sim.playerPowerUps.delete(otherId);
-            powerUp.rightSwordActive = false;
+            const swordBroke = damageJoustSword(powerUp, "right");
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
             const knockback = 2.5;
             applyShipKnockback(sim, otherId, other.ship, dx / dist, dy / dist, knockback);
-            sim.triggerScreenShake(8, 0.25);
+            sim.triggerScreenShake(swordBroke ? 8 : 5, swordBroke ? 0.25 : 0.15);
           } else {
             sim.playerPowerUps.delete(otherId);
             sim.onShipHit(owner, other);
-            powerUp.rightSwordActive = false;
-            sim.triggerScreenShake(8, 0.25);
+            const swordBroke = damageJoustSword(powerUp, "right");
+            sim.triggerScreenShake(swordBroke ? 8 : 5, swordBroke ? 0.25 : 0.15);
           }
         }
       }
@@ -342,18 +367,18 @@ export function updateJoustCollisions(sim: SimState): void {
         const dx = proj.x - swords.left.centerX;
         const dy = proj.y - swords.left.centerY;
         if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + 8) ** 2 && isFromSide) {
-          powerUp.leftSwordActive = false;
+          damageJoustSword(powerUp, "left");
           consumedProjectiles.add(proj.id);
-          sim.triggerScreenShake(5, 0.15);
+          sim.triggerScreenShake(3, 0.1);
         }
       }
       if (powerUp.rightSwordActive) {
         const dx = proj.x - swords.right.centerX;
         const dy = proj.y - swords.right.centerY;
         if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + 8) ** 2 && isFromSide) {
-          powerUp.rightSwordActive = false;
+          damageJoustSword(powerUp, "right");
           consumedProjectiles.add(proj.id);
-          sim.triggerScreenShake(5, 0.15);
+          sim.triggerScreenShake(3, 0.1);
         }
       }
     }
@@ -365,7 +390,8 @@ export function updateJoustCollisions(sim: SimState): void {
 
     for (const asteroid of sim.asteroids) {
       if (!asteroid.alive) continue;
-      let destroyed = false;
+      let hitByLeft = false;
+      let hitByRight = false;
       if (powerUp.leftSwordActive) {
         if (
           checkCircleAsteroidCollision(
@@ -375,10 +401,10 @@ export function updateJoustCollisions(sim: SimState): void {
             asteroid,
           )
         ) {
-          destroyed = true;
+          hitByLeft = true;
         }
       }
-      if (!destroyed && powerUp.rightSwordActive) {
+      if (!hitByLeft && powerUp.rightSwordActive) {
         if (
           checkCircleAsteroidCollision(
             swords.right.centerX,
@@ -387,12 +413,18 @@ export function updateJoustCollisions(sim: SimState): void {
             asteroid,
           )
         ) {
-          destroyed = true;
+          hitByRight = true;
         }
       }
-      if (destroyed) {
+      if (hitByLeft || hitByRight) {
         sim.triggerScreenShake(3, 0.1);
         sim.destroyAsteroid(asteroid);
+        if (hitByLeft) {
+          damageJoustSword(powerUp, "left");
+        }
+        if (hitByRight) {
+          damageJoustSword(powerUp, "right");
+        }
       }
     }
   }

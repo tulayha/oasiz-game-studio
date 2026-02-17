@@ -201,6 +201,8 @@ export interface PlayerPowerUp {
   shieldHits: number;
   leftSwordActive?: boolean;
   rightSwordActive?: boolean;
+  leftSwordDurability?: number;
+  rightSwordDurability?: number;
 }
 
 // ============= PAYLOADS =============

@@ -1,0 +1,276 @@
+import { Game } from "../Game";
+import { MapId } from "../types";
+import { elements } from "./elements";
+import { getMapDefinition, type MapDefinition } from "../../shared/sim/maps.js";
+import {
+  ARENA_WIDTH,
+  ARENA_HEIGHT,
+  PLAYER_COLORS,
+} from "../../shared/sim/constants.js";
+
+export interface MapPreviewUI {
+  updateMapPreview: (mapId?: MapId) => void;
+}
+
+export function createMapPreviewUI(game: Game): MapPreviewUI {
+  const canvas = elements.mapPreviewCanvas;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return {
+      updateMapPreview: () => {
+        // Canvas context missing; no-op.
+      },
+    };
+  }
+
+  const context: CanvasRenderingContext2D = ctx;
+
+  function getCanvasDimensions(): { width: number; height: number } {
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(rect.width, 73);
+    const height = Math.max(rect.height, 55);
+    return { width, height };
+  }
+
+  function resizeCanvas(): void {
+    const { width, height } = getCanvasDimensions();
+    canvas.width = width;
+    canvas.height = height;
+  }
+
+  resizeCanvas();
+
+  window.addEventListener("resize", () => {
+    resizeCanvas();
+    updateMapPreview();
+  });
+
+  const colors = {
+    yellowBlock: "#fbbf24",
+    centerHole: "#1f2937",
+    centerHoleBorder: "#374151",
+    repulsionZone: "rgba(59, 130, 246, 0.3)",
+    repulsionZoneBorder: "rgba(59, 130, 246, 0.6)",
+    overlayBox: "rgba(75, 85, 99, 0.5)",
+    overlayBoxBorder: "rgba(107, 114, 128, 0.8)",
+    turret: "#ef4444",
+    grid: "rgba(255, 255, 255, 0.05)",
+  };
+
+  function getCanvasWidth(): number {
+    return canvas.width;
+  }
+
+  function getCanvasHeight(): number {
+    return canvas.height;
+  }
+
+  function scaleX(x: number): number {
+    return (x / ARENA_WIDTH) * getCanvasWidth();
+  }
+
+  function scaleY(y: number): number {
+    return (y / ARENA_HEIGHT) * getCanvasHeight();
+  }
+
+  function scaleSize(size: number): number {
+    return (
+      (size / Math.max(ARENA_WIDTH, ARENA_HEIGHT)) *
+      Math.max(getCanvasWidth(), getCanvasHeight())
+    );
+  }
+
+  function drawGrid(): void {
+    context.strokeStyle = colors.grid;
+    context.lineWidth = 0.5;
+    const gridSize = 20;
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
+
+    for (let x = 0; x <= width; x += gridSize) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, height);
+      context.stroke();
+    }
+
+    for (let y = 0; y <= height; y += gridSize) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(width, y);
+      context.stroke();
+    }
+  }
+
+  function drawYellowBlocks(blocks: MapDefinition["yellowBlocks"]): void {
+    context.fillStyle = colors.yellowBlock;
+    for (const block of blocks) {
+      const x = scaleX(block.x);
+      const y = scaleY(block.y);
+      const w = scaleX(block.x + block.width) - x;
+      const h = scaleY(block.y + block.height) - y;
+      context.fillRect(x, y, w, h);
+    }
+  }
+
+  function drawCenterHoles(holes: MapDefinition["centerHoles"]): void {
+    for (const hole of holes) {
+      const cx = scaleX(hole.x);
+      const cy = scaleY(hole.y);
+      const r = scaleSize(hole.radius);
+      context.fillStyle = colors.centerHole;
+      context.beginPath();
+      context.arc(cx, cy, r, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = colors.centerHoleBorder;
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(cx, cy, r, 0, Math.PI * 2);
+      context.stroke();
+    }
+  }
+
+  function drawRepulsionZones(zones: MapDefinition["repulsionZones"]): void {
+    for (const zone of zones) {
+      const cx = scaleX(zone.x);
+      const cy = scaleY(zone.y);
+      const r = scaleSize(zone.radius);
+      context.fillStyle = colors.repulsionZone;
+      context.beginPath();
+      context.arc(cx, cy, r, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = colors.repulsionZoneBorder;
+      context.lineWidth = 1;
+      context.beginPath();
+      context.arc(cx, cy, r, 0, Math.PI * 2);
+      context.stroke();
+
+      context.strokeStyle = colors.repulsionZoneBorder;
+      context.lineWidth = 2;
+      const arrowSize = r * 0.3;
+      context.beginPath();
+      context.moveTo(cx - arrowSize, cy);
+      context.lineTo(cx + arrowSize, cy);
+      context.moveTo(cx + arrowSize * 0.7, cy - arrowSize * 0.3);
+      context.lineTo(cx + arrowSize, cy);
+      context.lineTo(cx + arrowSize * 0.7, cy + arrowSize * 0.3);
+      context.stroke();
+    }
+  }
+
+  function drawOverlayBoxes(boxes: MapDefinition["overlayBoxes"]): void {
+    context.fillStyle = colors.overlayBox;
+    context.strokeStyle = colors.overlayBoxBorder;
+    context.lineWidth = 1;
+
+    for (const box of boxes) {
+      const x = scaleX(box.x);
+      const y = scaleY(box.y);
+      const w = scaleX(box.x + box.width) - x;
+      const h = scaleY(box.y + box.height) - y;
+      context.fillRect(x, y, w, h);
+      context.strokeRect(x, y, w, h);
+
+      context.fillStyle = "rgba(0, 0, 0, 0.5)";
+      for (const hole of box.holes) {
+        const hx = x + (hole.x / box.width) * w;
+        const hy = y + (hole.y / box.height) * h;
+        const hr = scaleSize(hole.radius);
+        context.beginPath();
+        context.arc(hx, hy, hr, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.fillStyle = colors.overlayBox;
+    }
+  }
+
+  function drawAsteroidConfig(config: MapDefinition["asteroidConfig"]): void {
+    if (!config.enabled) return;
+    const count = config.minCount;
+    const asteroidColors = ["#9ca3af", "#f97316"];
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.35;
+
+    for (let i = 0; i < Math.min(count, 8); i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const x = centerX + Math.cos(angle) * radius;
+      const y = centerY + Math.sin(angle) * radius;
+      const r = scaleSize(25);
+      context.fillStyle = asteroidColors[i % 2];
+      context.beginPath();
+      context.arc(x, y, r, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+
+  function drawTurret(hasTurret: boolean): void {
+    if (!hasTurret) return;
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
+    const cx = width / 2;
+    const cy = height / 2;
+    const size = 8;
+
+    context.fillStyle = colors.turret;
+    context.beginPath();
+    context.arc(cx, cy, size, 0, Math.PI * 2);
+    context.fill();
+
+    context.strokeStyle = colors.turret;
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(cx, cy);
+    context.lineTo(cx + size * 1.5, cy);
+    context.stroke();
+  }
+
+  function drawSpawnPoints(): void {
+    const padding = 20;
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
+    const corners = [
+      { x: padding, y: padding, label: "P1", colorIndex: 0 },
+      { x: width - padding, y: padding, label: "P2", colorIndex: 1 },
+      { x: width - padding, y: height - padding, label: "P3", colorIndex: 2 },
+      { x: padding, y: height - padding, label: "P4", colorIndex: 3 },
+    ];
+
+    for (const corner of corners) {
+      const playerColor = PLAYER_COLORS[corner.colorIndex].primary;
+      context.fillStyle = playerColor;
+      context.beginPath();
+      context.arc(corner.x, corner.y, 12, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = "#000000";
+      context.font = "bold 10px Arial, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(corner.label, corner.x, corner.y);
+    }
+  }
+
+  function drawMap(mapId: MapId): void {
+    const map = getMapDefinition(mapId);
+    resizeCanvas();
+    context.clearRect(0, 0, getCanvasWidth(), getCanvasHeight());
+    drawGrid();
+    drawRepulsionZones(map.repulsionZones);
+    drawCenterHoles(map.centerHoles);
+    drawOverlayBoxes(map.overlayBoxes);
+    drawYellowBlocks(map.yellowBlocks);
+    drawAsteroidConfig(map.asteroidConfig);
+    drawTurret(map.hasTurret);
+    drawSpawnPoints();
+  }
+
+  function updateMapPreview(mapId?: MapId): void {
+    const currentMapId = mapId ?? game.getMapId();
+    drawMap(currentMapId);
+  }
+
+  return { updateMapPreview };
+}
+
