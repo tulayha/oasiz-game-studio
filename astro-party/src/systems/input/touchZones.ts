@@ -367,7 +367,7 @@ export class TouchZoneManager {
     zone.addEventListener(
       "touchstart",
       (e) => {
-        e.preventDefault();
+        if (e.cancelable) e.preventDefault();
         // Track each touch individually
         for (let i = 0; i < e.changedTouches.length; i++) {
           const touch = e.changedTouches[i];
@@ -384,7 +384,7 @@ export class TouchZoneManager {
     );
 
     zone.addEventListener("touchend", (e) => {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       for (let i = 0; i < e.changedTouches.length; i++) {
         this.activeTouches.delete(e.changedTouches[i].identifier);
       }
@@ -396,7 +396,7 @@ export class TouchZoneManager {
     });
 
     zone.addEventListener("touchcancel", (e) => {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       for (let i = 0; i < e.changedTouches.length; i++) {
         this.activeTouches.delete(e.changedTouches[i].identifier);
       }

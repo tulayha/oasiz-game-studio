@@ -13,6 +13,7 @@ import type {
 } from "./network/NetworkSyncSystem";
 import { PlayerInputResolver } from "./systems/PlayerInputResolver";
 import { DeterministicRNGManager } from "./systems/DeterministicRNGManager";
+import { AdaptiveCameraController } from "./systems/AdaptiveCameraController";
 import { AudioManager } from "./AudioManager";
 import { SettingsManager } from "./SettingsManager";
 import { NETWORK_GAME_FEEL_TUNING } from "./network/gameFeel/NetworkGameFeelTuning";
@@ -58,6 +59,7 @@ export class Game {
   private gameRenderer: GameRenderer;
   private networkSync: NetworkSyncSystem;
   private inputResolver: PlayerInputResolver;
+  private adaptiveCamera = new AdaptiveCameraController();
 
   private playerPowerUps: Map<string, PlayerPowerUp | null> = new Map();
   private nitroColorIndex: number = 0;
@@ -545,6 +547,8 @@ export class Game {
   private clearAllGameState(): void {
     this.clearEntities();
     this.networkSync.clear();
+    this.adaptiveCamera.reset();
+    this.renderer.resetCamera();
     this.wasLocalFireHeld = false;
     this.lastPredictedFireAtMs = 0;
     this.lastPredictedDashAtMs = 0;
@@ -613,6 +617,8 @@ export class Game {
   private resetForNextRound(): void {
     this.clearEntities();
     this.networkSync.clearClientTracking();
+    this.adaptiveCamera.reset();
+    this.renderer.resetCamera();
     this.wasLocalFireHeld = false;
     this.lastPredictedFireAtMs = 0;
     this.lastPredictedDashAtMs = 0;
@@ -939,6 +945,55 @@ export class Game {
     });
   }
 
+  private collectAdaptiveCameraAnchors(
+    renderState: RenderNetworkState,
+  ): Array<{ x: number; y: number }> {
+    const aliveShips = new Map<string, { x: number; y: number }>();
+    for (const ship of renderState.networkShips) {
+      if (!ship.alive) continue;
+      aliveShips.set(ship.playerId, { x: ship.x, y: ship.y });
+    }
+
+    const alivePilots = new Map<string, { x: number; y: number }>();
+    for (const pilot of renderState.networkPilots) {
+      if (!pilot.alive) continue;
+      alivePilots.set(pilot.playerId, { x: pilot.x, y: pilot.y });
+    }
+
+    const anchors: Array<{ x: number; y: number }> = [];
+    for (const [playerId] of this.playerMgr.players) {
+      const ship = aliveShips.get(playerId);
+      if (ship) {
+        anchors.push(ship);
+        continue;
+      }
+      const pilot = alivePilots.get(playerId);
+      if (pilot) {
+        anchors.push(pilot);
+      }
+    }
+
+    if (anchors.length > 0) {
+      return anchors;
+    }
+
+    for (const ship of renderState.networkShips) {
+      if (ship.alive) {
+        anchors.push({ x: ship.x, y: ship.y });
+      }
+    }
+    if (anchors.length > 0) {
+      return anchors;
+    }
+
+    for (const pilot of renderState.networkPilots) {
+      if (pilot.alive) {
+        anchors.push({ x: pilot.x, y: pilot.y });
+      }
+    }
+    return anchors;
+  }
+
   private render(dt: number, renderState: RenderNetworkState): void {
     if (
       !this.network.isSimulationAuthority() &&
@@ -954,6 +1009,18 @@ export class Game {
       this.selectedMapId = renderState.networkMapId;
       this._onMapChange?.(this.selectedMapId);
     }
+
+    const adaptiveCameraState = this.adaptiveCamera.update({
+      dt,
+      nowMs: this.networkSync.hostSimTimeMs,
+      phase: this.flowMgr.phase,
+      anchors: this.collectAdaptiveCameraAnchors(renderState),
+    });
+    this.renderer.setCamera(
+      adaptiveCameraState.zoom,
+      adaptiveCameraState.focusX,
+      adaptiveCameraState.focusY,
+    );
 
     this.gameRenderer.render({
       dt,

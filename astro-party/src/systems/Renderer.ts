@@ -37,6 +37,9 @@ export class Renderer {
   private scale: number = 1;
   private offsetX: number = 0;
   private offsetY: number = 0;
+  private cameraZoom: number = 1;
+  private cameraFocusX: number = GAME_CONFIG.ARENA_WIDTH / 2;
+  private cameraFocusY: number = GAME_CONFIG.ARENA_HEIGHT / 2;
   private entitySprites = new EntitySpriteStore();
   private mapOverlays = new MapOverlayStore();
 
@@ -86,6 +89,8 @@ export class Renderer {
 
     this.canvas.width = Math.max(1, Math.round(targetWidth));
     this.canvas.height = Math.max(1, Math.round(targetHeight));
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = "high";
 
     // Calculate scale to fit fixed arena in window while maintaining aspect ratio
     const scaleX = this.canvas.width / GAME_CONFIG.ARENA_WIDTH;
@@ -106,6 +111,22 @@ export class Renderer {
 
   getScale(): number {
     return this.scale;
+  }
+
+  setCamera(zoom: number, focusX: number, focusY: number): void {
+    this.cameraZoom = this.clampCameraZoom(zoom);
+    this.cameraFocusX = Number.isFinite(focusX)
+      ? focusX
+      : GAME_CONFIG.ARENA_WIDTH / 2;
+    this.cameraFocusY = Number.isFinite(focusY)
+      ? focusY
+      : GAME_CONFIG.ARENA_HEIGHT / 2;
+  }
+
+  resetCamera(): void {
+    this.cameraZoom = 1;
+    this.cameraFocusX = GAME_CONFIG.ARENA_WIDTH / 2;
+    this.cameraFocusY = GAME_CONFIG.ARENA_HEIGHT / 2;
   }
 
   // Enable/disable dev mode visualization
@@ -437,9 +458,13 @@ export class Renderer {
       this.ctx.translate(this.screenShake.offsetX, this.screenShake.offsetY);
     }
 
-    // Apply arena scaling and centering
-    this.ctx.translate(this.offsetX, this.offsetY);
-    this.ctx.scale(this.scale, this.scale);
+    // Apply camera around world-space focus.
+    const zoom = this.clampCameraZoom(this.cameraZoom);
+    const focus = this.getClampedCameraFocus(zoom);
+    const scaled = this.scale * zoom;
+    this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+    this.ctx.scale(scaled, scaled);
+    this.ctx.translate(-focus.x, -focus.y);
   }
 
   endFrame(): void {
@@ -495,6 +520,36 @@ export class Renderer {
     this.screenShake.duration = 0;
     this.screenShake.offsetX = 0;
     this.screenShake.offsetY = 0;
+  }
+
+  private clampCameraZoom(zoom: number): number {
+    if (!Number.isFinite(zoom)) return 1;
+    return Math.max(1, Math.min(1.35, zoom));
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private getClampedCameraFocus(zoom: number): { x: number; y: number } {
+    const viewHalfWidth = this.canvas.width / (2 * this.scale * zoom);
+    const viewHalfHeight = this.canvas.height / (2 * this.scale * zoom);
+
+    const minFocusX = viewHalfWidth;
+    const maxFocusX = GAME_CONFIG.ARENA_WIDTH - viewHalfWidth;
+    const minFocusY = viewHalfHeight;
+    const maxFocusY = GAME_CONFIG.ARENA_HEIGHT - viewHalfHeight;
+
+    const x =
+      minFocusX > maxFocusX
+        ? GAME_CONFIG.ARENA_WIDTH / 2
+        : this.clamp(this.cameraFocusX, minFocusX, maxFocusX);
+    const y =
+      minFocusY > maxFocusY
+        ? GAME_CONFIG.ARENA_HEIGHT / 2
+        : this.clamp(this.cameraFocusY, minFocusY, maxFocusY);
+
+    return { x, y };
   }
 
   // ============= SHIP RENDERING =============
