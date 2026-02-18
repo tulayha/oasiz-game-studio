@@ -115,6 +115,7 @@ export interface NetworkTransport {
   broadcastRoundResult(payload: RoundResultPayload): void;
   broadcastDevMode(enabled: boolean): void;
   requestDevPowerUp(type: PowerUpType | "SPAWN_RANDOM"): void;
+  requestDevEjectPilot(): void;
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void;
   broadcastRNGSeed(baseSeed: number): void;
   broadcastPlayerList(): void;

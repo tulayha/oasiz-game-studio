@@ -275,6 +275,12 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.emitDebugStateFromSimulation();
   }
 
+  requestDevEjectPilot(): void {
+    if (!this.simulation || !this.mySessionId) return;
+    this.simulation.devEjectPilot(this.mySessionId);
+    this.emitDebugStateFromSimulation();
+  }
+
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {
     this.setAdvancedSettings(payload);
   }

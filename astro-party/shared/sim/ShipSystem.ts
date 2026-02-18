@@ -157,8 +157,9 @@ export function tryFire(
   isStandard: boolean,
 ): boolean {
   const ship = player.ship;
-  const spawnX = ship.x + Math.cos(ship.angle) * 18;
-  const spawnY = ship.y + Math.sin(ship.angle) * 18;
+  // Spawn from ship center to avoid nose-side tunneling when ships are pressed together.
+  const spawnX = ship.x;
+  const spawnY = ship.y;
   const powerUp = sim.playerPowerUps.get(player.id);
 
   if (powerUp?.type === "JOUST") {

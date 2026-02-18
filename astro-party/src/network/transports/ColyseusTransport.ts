@@ -331,6 +331,11 @@ export class ColyseusTransport implements NetworkTransport {
     this.room.send("cmd:dev_grant_powerup", { type });
   }
 
+  requestDevEjectPilot(): void {
+    if (!this.room) return;
+    this.room.send("cmd:dev_eject_pilot", {});
+  }
+
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {
     this.setAdvancedSettings(payload);
   }

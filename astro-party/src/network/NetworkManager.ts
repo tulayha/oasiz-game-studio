@@ -147,6 +147,10 @@ export class NetworkManager {
     this.transport.requestDevPowerUp(type);
   }
 
+  requestDevEjectPilot(): void {
+    this.transport.requestDevEjectPilot();
+  }
+
   broadcastAdvancedSettings(payload: AdvancedSettingsSync): void {
     this.transport.broadcastAdvancedSettings(payload);
   }

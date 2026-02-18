@@ -467,7 +467,10 @@ export class Game {
     this.network.startSync();
     this.finalScoreSubmittedForMatch = false;
     this.lobbyHasEligibleScoreBot = false;
-    this.debugToolsEnabledForRoom = false;
+    this.debugToolsEnabledForRoom =
+      this.network.getTransportMode() === "local"
+        ? this.debugToolsRequested
+        : false;
     this.debugSessionTainted = false;
     this.applyDevKeyInputGate();
     if (!this.network.isSimulationAuthority()) {
@@ -1347,8 +1350,9 @@ export class Game {
   }
 
   toggleDevMode(): boolean {
-    if (!this.canUseDebugToolsInCurrentSession()) {
-      this._onSystemMessage?.("Debug tools are disabled", 2500);
+    const blockedMessage = this.getDebugToolsBlockedMessage();
+    if (blockedMessage) {
+      this._onSystemMessage?.(blockedMessage, 2500);
       return this.input.isDevModeEnabled();
     }
     const newState = this.input.toggleDevMode();
@@ -1371,11 +1375,22 @@ export class Game {
   }
 
   requestDebugPowerUp(type: PowerUpType | "SPAWN_RANDOM"): boolean {
-    if (!this.canUseDebugToolsInCurrentSession()) {
-      this._onSystemMessage?.("Debug tools are disabled", 2500);
+    const blockedMessage = this.getDebugToolsBlockedMessage();
+    if (blockedMessage) {
+      this._onSystemMessage?.(blockedMessage, 2500);
       return false;
     }
     this.network.requestDevPowerUp(type);
+    return true;
+  }
+
+  requestDebugEjectPilot(): boolean {
+    const blockedMessage = this.getDebugToolsBlockedMessage();
+    if (blockedMessage) {
+      this._onSystemMessage?.(blockedMessage, 2500);
+      return false;
+    }
+    this.network.requestDevEjectPilot();
     return true;
   }
 
@@ -1461,6 +1476,16 @@ export class Game {
 
   private canUseDebugToolsInCurrentSession(): boolean {
     return this.debugToolsRequested && this.debugToolsEnabledForRoom;
+  }
+
+  private getDebugToolsBlockedMessage(): string | null {
+    if (!this.debugToolsRequested) {
+      return "Debug tools are disabled";
+    }
+    if (!this.debugToolsEnabledForRoom) {
+      return "Debug commands are disabled for this room";
+    }
+    return null;
   }
 
   private applyDevKeyInputGate(): void {

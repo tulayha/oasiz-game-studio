@@ -707,6 +707,25 @@ export class AstroPartySimulation implements SimState {
     this.grantPowerUp(player.id, type);
   }
 
+  devEjectPilot(sessionId: string): void {
+    if (!this.debugToolsEnabled) {
+      this.hooks.onError(
+        sessionId,
+        "DEBUG_TOOLS_DISABLED",
+        "Debug tools are disabled for this room",
+      );
+      return;
+    }
+    const player = this.getHuman(sessionId);
+    if (!player) return;
+    this.markDebugSessionTainted();
+    if (!player.ship.alive) {
+      this.hooks.onError(sessionId, "INVALID_STATE", "You need an active ship");
+      return;
+    }
+    this.onShipHit(undefined, player);
+  }
+
   private markDebugSessionTainted(): void {
     if (this.debugSessionTainted) return;
     this.debugSessionTainted = true;

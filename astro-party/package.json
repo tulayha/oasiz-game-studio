@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "generate:entities": "bun run scripts/generate-entity-assets.ts",
+    "prebuild": "bun run generate:entities",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

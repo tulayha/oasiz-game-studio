@@ -1,26 +1,34 @@
-export interface ShapePoint {
-  x: number;
-  y: number;
+import {
+  getEntityAsset,
+  type EntityAssetId,
+} from "./EntityAssets.js";
+import type { ShapePoint as GeneratedShapePoint } from "./generated/EntitySvgData.js";
+
+export type ShapePoint = GeneratedShapePoint;
+
+/**
+ * Shared collider vertices used by simulation/physics.
+ *
+ * Source of truth is SVG + manifest:
+ * - shared/assets/entities/<entity>.svg
+ * - shared/geometry/entityAssets.manifest.json
+ *
+ * When adding a new entity:
+ * 1) Add/replace SVG with a <path id="collider" d="..."> path.
+ * 2) Add entry in shared/geometry/entityAssets.manifest.json.
+ * 3) Run `bun run generate:entities` (or `bun run build`, which runs prebuild).
+ */
+export const SHIP_COLLIDER_VERTICES: ReadonlyArray<ShapePoint> =
+  getEntityAsset("ship").colliderVertices;
+
+export const PILOT_COLLIDER_VERTICES: ReadonlyArray<ShapePoint> =
+  getEntityAsset("pilot").colliderVertices;
+
+export function getColliderVertices(
+  entityId: EntityAssetId,
+): ReadonlyArray<ShapePoint> {
+  return getEntityAsset(entityId).colliderVertices;
 }
-
-// Matches Matter.js Bodies.fromVertices output used by prior implementation.
-export const SHIP_COLLIDER_VERTICES: ReadonlyArray<ShapePoint> = [
-  { x: 17, y: 0 },
-  { x: -8.5, y: 9 },
-  { x: -8.5, y: -9 },
-];
-
-// Matches Matter.js Bodies.fromVertices output used by prior implementation.
-export const PILOT_COLLIDER_VERTICES: ReadonlyArray<ShapePoint> = [
-  { x: -11.297, y: -4 },
-  { x: -7.297, y: -5 },
-  { x: 4.703, y: -5 },
-  { x: 11.203, y: -4.5 },
-  { x: 11.203, y: 4.5 },
-  { x: 4.703, y: 5 },
-  { x: -7.297, y: 5 },
-  { x: -11.297, y: 4 },
-];
 
 export function cloneShapeVertices(
   vertices: ReadonlyArray<ShapePoint>,

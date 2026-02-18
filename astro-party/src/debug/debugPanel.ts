@@ -37,11 +37,13 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
   toggle.className = "qa-debug-toggle";
   toggle.type = "button";
   toggle.textContent = "DBG";
+  toggle.setAttribute("aria-expanded", "false");
 
   const panel = document.createElement("div");
   panel.id = PANEL_ID;
   panel.className = "qa-debug-panel";
   panel.setAttribute("aria-hidden", "true");
+  panel.setAttribute("inert", "");
 
   panel.appendChild(buildHeader(panel));
   panel.appendChild(buildStatusBlock());
@@ -94,6 +96,12 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
           options.game.toggleDevMode();
         },
       },
+      {
+        label: "Eject Pilot",
+        onClick: () => {
+          options.game.requestDebugEjectPilot();
+        },
+      },
     ]),
   );
   panel.appendChild(
@@ -113,14 +121,16 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
   document.body.appendChild(root);
 
   toggle.addEventListener("click", () => {
-    const isOpen = panel.classList.toggle("active");
-    panel.setAttribute("aria-hidden", isOpen ? "false" : "true");
+    if (panel.classList.contains("active")) {
+      closePanel(panel, toggle);
+      return;
+    }
+    openPanel(panel, toggle);
   });
 
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    panel.classList.remove("active");
-    panel.setAttribute("aria-hidden", "true");
+    closePanel(panel, toggle);
   });
 
   updateStatus(options.game);
@@ -142,8 +152,8 @@ function buildHeader(panel: HTMLElement): HTMLElement {
   close.type = "button";
   close.textContent = "Close";
   close.addEventListener("click", () => {
-    panel.classList.remove("active");
-    panel.setAttribute("aria-hidden", "true");
+    const toggle = document.getElementById(TOGGLE_ID) as HTMLButtonElement | null;
+    closePanel(panel, toggle);
   });
 
   header.appendChild(title);
@@ -298,8 +308,8 @@ function injectStyles(): void {
   style.textContent = `
     .qa-debug-root {
       position: fixed;
-      right: 12px;
-      top: calc(var(--safe-top) + 12px);
+      left: calc(var(--box-left) + var(--hud-side-gap) + 52px);
+      top: calc(var(--box-top) + var(--hud-top-pad));
       z-index: 250;
       pointer-events: none;
     }
@@ -406,8 +416,8 @@ function injectStyles(): void {
 
     @media (pointer: coarse) {
       .qa-debug-root {
-        right: 10px;
-        top: calc(var(--safe-top) + 8px);
+        left: calc(var(--box-left) + var(--hud-side-gap) + 58px);
+        top: calc(var(--box-top) + var(--hud-top-pad));
       }
 
       .qa-debug-toggle {
@@ -426,4 +436,31 @@ function injectStyles(): void {
     }
   `;
   document.head.appendChild(style);
+}
+
+function openPanel(panel: HTMLElement, toggle: HTMLButtonElement): void {
+  panel.classList.add("active");
+  panel.removeAttribute("inert");
+  panel.setAttribute("aria-hidden", "false");
+  toggle.setAttribute("aria-expanded", "true");
+}
+
+function closePanel(
+  panel: HTMLElement,
+  toggle: HTMLButtonElement | null,
+): void {
+  const active = document.activeElement as HTMLElement | null;
+  if (active && panel.contains(active)) {
+    if (toggle) {
+      toggle.focus();
+    } else {
+      active.blur();
+    }
+  }
+  panel.classList.remove("active");
+  panel.setAttribute("aria-hidden", "true");
+  panel.setAttribute("inert", "");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", "false");
+  }
 }

@@ -9,6 +9,9 @@ import { CollisionCategory } from "./CollisionCategories.js";
 
 const { Engine, Bodies, Body, Events, Composite } = Matter;
 const FIXED_STEP_MS = 1000 / 60;
+const REMOVE_COLLINEAR_THRESHOLD = 0.01;
+const MIN_PART_AREA = 0.05;
+const REMOVE_DUPLICATE_THRESHOLD = 0.01;
 
 function createBodyFromLocalVertices(
   x: number,
@@ -17,19 +20,41 @@ function createBodyFromLocalVertices(
   options: Matter.IBodyDefinition,
 ): Matter.Body {
   const localVertices = cloneShapeVertices(vertices);
-  return Bodies.fromVertices(x, y, [localVertices], options);
+  return Bodies.fromVertices(
+    x,
+    y,
+    [localVertices],
+    options,
+    false,
+    REMOVE_COLLINEAR_THRESHOLD,
+    MIN_PART_AREA,
+    REMOVE_DUPLICATE_THRESHOLD,
+  );
 }
 
 export class Physics {
   engine: Matter.Engine;
   world: Matter.World;
   private walls: Matter.Body[] = [];
+  private playerCollisionGroups = new Map<string, number>();
 
   constructor() {
     this.engine = Engine.create({
       gravity: { x: 0, y: 0 },
     });
     this.world = this.engine.world;
+  }
+
+  private getOrCreatePlayerCollisionGroup(playerId: string): number {
+    const existing = this.playerCollisionGroups.get(playerId);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    // Negative group means "never collide with bodies in the same group".
+    const group = -(this.playerCollisionGroups.size + 1);
+    this.playerCollisionGroups.set(playerId, group);
+    return group;
   }
 
   createWalls(
@@ -105,6 +130,7 @@ export class Physics {
       friction: options.friction,
       density: 0.001,
       collisionFilter: {
+        group: this.getOrCreatePlayerCollisionGroup(playerId),
         category: CollisionCategory.Ship,
         mask:
           CollisionCategory.Ship |
@@ -181,6 +207,7 @@ export class Physics {
       density: 0.0001,
       isSensor: false,
       collisionFilter: {
+        group: this.getOrCreatePlayerCollisionGroup(ownerId),
         category: CollisionCategory.Projectile,
         mask:
           CollisionCategory.Ship |

@@ -59,6 +59,7 @@ interface DevGrantPowerUpMessage {
     | "HOMING_MISSILE"
     | "SPAWN_RANDOM";
 }
+interface DevEjectPilotMessage {}
 
 export class AstroPartyRoom extends Room<AstroPartyRoomState> {
   maxClients = 4;
@@ -79,7 +80,7 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     const maxPlayers = options.maxPlayers ?? 4;
     const simTickHz = options.simTickHz ?? 60;
     const tickDurationMs = 1000 / simTickHz;
-    const debugToolsEnabled = true;
+    const debugToolsEnabled = this.resolveDebugToolsEnabled();
     this.snapshotHzLobby = this.parseSnapshotHz(
       process.env.SNAPSHOT_HZ_LOBBY,
       12,
@@ -231,6 +232,13 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       (client, payload: DevGrantPowerUpMessage) => {
         if (!payload || typeof payload.type !== "string") return;
         this.simulation.devGrantPowerUp(client.sessionId, payload.type);
+      },
+    );
+
+    this.onMessage(
+      "cmd:dev_eject_pilot",
+      (client, _payload: DevEjectPilotMessage) => {
+        this.simulation.devEjectPilot(client.sessionId);
       },
     );
 
@@ -470,6 +478,18 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       return Math.max(1, Math.min(max, fallback));
     }
     return Math.max(1, Math.min(max, parsed));
+  }
+
+  private resolveDebugToolsEnabled(): boolean {
+    return this.parseBooleanEnv(process.env.DEBUG_TOOLS_ENABLED, true);
+  }
+
+  private parseBooleanEnv(rawValue: string | undefined, fallback: boolean): boolean {
+    if (rawValue === undefined) return fallback;
+    const normalized = rawValue.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+    return fallback;
   }
 
   private getClientBufferedAmount(client: Client): number {

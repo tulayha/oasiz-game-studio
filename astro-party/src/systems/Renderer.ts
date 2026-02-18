@@ -13,7 +13,7 @@ import {
   GAME_CONFIG,
 } from "../types";
 import { SeededRNG } from "./SeededRNG";
-import { SHIP_COLLIDER_VERTICES } from "../../shared/geometry/EntityShapes";
+import { EntitySpriteStore } from "./EntitySpriteStore";
 import type {
   YellowBlock,
   CenterHole,
@@ -36,6 +36,7 @@ export class Renderer {
   private scale: number = 1;
   private offsetX: number = 0;
   private offsetY: number = 0;
+  private entitySprites = new EntitySpriteStore();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -749,52 +750,21 @@ export class Renderer {
     }
 
     // Flash when invulnerable
-    if (isInvulnerable && Math.floor(nowMs / 100) % 2 === 0) {
+    const shouldFlash = isInvulnerable && Math.floor(nowMs / 100) % 2 === 0;
+    if (shouldFlash) {
       ctx.globalAlpha = 0.5;
     }
-
-    // Engine glow - ALWAYS on since ship always thrusts forward
-    // Use pre-calculated random offset to avoid flicker
-    const flameLength = size * 0.8 + Math.sin(nowMs * 0.02) * size * 0.2;
-    ctx.fillStyle = "#ff4400";
-    const baseAlpha =
-      isInvulnerable && Math.floor(nowMs / 100) % 2 === 0 ? 0.35 : 0.7;
-    ctx.globalAlpha = baseAlpha;
-    ctx.beginPath();
-    ctx.moveTo(-size * 0.4, 0);
-    ctx.lineTo(-size * 0.7, -size * 0.3);
-    ctx.lineTo(-size * 0.4 - flameLength, 0);
-    ctx.lineTo(-size * 0.7, size * 0.3);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha =
-      isInvulnerable && Math.floor(nowMs / 100) % 2 === 0 ? 0.5 : 1;
 
     // Glow effect
     ctx.shadowColor = color.glow;
     ctx.shadowBlur = 15;
 
-    // Ship body (triangle pointing right)
-    ctx.fillStyle = color.primary;
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
+    this.entitySprites.drawEntity(this.ctx, "ship", {
+      "slot-primary": color.primary,
+    });
 
-    ctx.beginPath();
-    ctx.moveTo(SHIP_COLLIDER_VERTICES[0].x, SHIP_COLLIDER_VERTICES[0].y);
-    for (let i = 1; i < SHIP_COLLIDER_VERTICES.length; i++) {
-      const vertex = SHIP_COLLIDER_VERTICES[i];
-      ctx.lineTo(vertex.x, vertex.y);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Cockpit
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(size * 0.2, 0, 4, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.globalAlpha = 1;
 
     ctx.restore();
   }
@@ -803,18 +773,10 @@ export class Renderer {
 
   drawPilot(state: PilotState, color: PlayerColor): void {
     const { ctx } = this;
-    const { x, y, vx, vy, angle, id, survivalProgress } = state;
+    const { x, y, angle, survivalProgress } = state;
     const nowMs = this.getNowMs();
     const isFlashing =
       survivalProgress > 0.6 && Math.floor(nowMs / 150) % 2 === 0;
-    const speed = Math.sqrt(vx * vx + vy * vy);
-    const swayAmount = Math.min(1, speed / 4);
-    let phase = 0;
-    for (let i = 0; i < id.length; i++) {
-      phase = (phase + id.charCodeAt(i) * 0.17) % (Math.PI * 2);
-    }
-    const time = nowMs * 0.01;
-    const limbSway = Math.sin(time + phase) * 3 * swayAmount;
 
     ctx.save();
     ctx.translate(x, y);
@@ -840,56 +802,12 @@ export class Renderer {
     ctx.save();
     ctx.rotate(angle);
 
-    // Backpack
-    ctx.fillStyle = "#d6d6d6";
-    ctx.fillRect(-10, -4, 4, 8);
-
-    // Body suit
-    ctx.fillStyle = "#f5f5f5";
-    ctx.strokeStyle = "#dcdcdc";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.rect(-6, -5, 12, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    // Accent stripes
-    ctx.fillStyle = color.primary;
-    ctx.fillRect(-5, -3, 2, 6);
-    ctx.fillRect(3, -3, 2, 6);
-
-    // Arms
-    ctx.strokeStyle = "#e2e2e2";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-4, -2);
-    ctx.lineTo(-8, -3 - limbSway * 0.3);
-    ctx.moveTo(-4, 2);
-    ctx.lineTo(-8, 3 + limbSway * 0.3);
-    ctx.stroke();
-
-    // Legs
-    ctx.beginPath();
-    ctx.moveTo(-2, 5);
-    ctx.lineTo(-4, 9 + limbSway);
-    ctx.moveTo(2, 5);
-    ctx.lineTo(4, 9 - limbSway);
-    ctx.stroke();
-
-    // Helmet
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#dcdcdc";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(8, 0, 4.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Visor
-    ctx.fillStyle = "#1cc7c7";
-    ctx.beginPath();
-    ctx.ellipse(9, 0, 2.6, 1.6, 0, 0, Math.PI * 2);
-    ctx.fill();
+    this.entitySprites.drawEntity(this.ctx, "pilot", {
+      "slot-primary": color.primary,
+      "slot-secondary": "#f4fbff",
+      "slot-tertiary": "#1d2636",
+      "slot-outline": "#ffffff",
+    });
 
     ctx.restore();
 
