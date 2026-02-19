@@ -16,6 +16,12 @@ import {
 import { SeededRNG } from "../../shared/sim/SeededRNG";
 import { EntitySpriteStore } from "./EntitySpriteStore";
 import { MapOverlayStore } from "./MapOverlayStore";
+import {
+  CAMERA_DEFAULT_ZOOM,
+  CAMERA_EDGE_SLACK_RATIO,
+  CAMERA_MAX_ZOOM,
+  CAMERA_MIN_ZOOM,
+} from "./cameraConstants";
 import type {
   YellowBlock,
   CenterHole,
@@ -37,7 +43,7 @@ export class Renderer {
   private scale: number = 1;
   private offsetX: number = 0;
   private offsetY: number = 0;
-  private cameraZoom: number = 1;
+  private cameraZoom: number = CAMERA_DEFAULT_ZOOM;
   private cameraFocusX: number = GAME_CONFIG.ARENA_WIDTH / 2;
   private cameraFocusY: number = GAME_CONFIG.ARENA_HEIGHT / 2;
   private viewportWidth: number = 1;
@@ -131,7 +137,7 @@ export class Renderer {
   }
 
   resetCamera(): void {
-    this.cameraZoom = 1;
+    this.cameraZoom = CAMERA_DEFAULT_ZOOM;
     this.cameraFocusX = GAME_CONFIG.ARENA_WIDTH / 2;
     this.cameraFocusY = GAME_CONFIG.ARENA_HEIGHT / 2;
   }
@@ -530,8 +536,8 @@ export class Renderer {
   }
 
   private clampCameraZoom(zoom: number): number {
-    if (!Number.isFinite(zoom)) return 1;
-    return Math.max(1, Math.min(1.35, zoom));
+    if (!Number.isFinite(zoom)) return CAMERA_DEFAULT_ZOOM;
+    return Math.max(CAMERA_MIN_ZOOM, Math.min(CAMERA_MAX_ZOOM, zoom));
   }
 
   private clamp(value: number, min: number, max: number): number {
@@ -541,11 +547,13 @@ export class Renderer {
   private getClampedCameraFocus(zoom: number): { x: number; y: number } {
     const viewHalfWidth = this.viewportWidth / (2 * this.scale * zoom);
     const viewHalfHeight = this.viewportHeight / (2 * this.scale * zoom);
+    const edgeSlackX = viewHalfWidth * CAMERA_EDGE_SLACK_RATIO;
+    const edgeSlackY = viewHalfHeight * CAMERA_EDGE_SLACK_RATIO;
 
-    const minFocusX = viewHalfWidth;
-    const maxFocusX = GAME_CONFIG.ARENA_WIDTH - viewHalfWidth;
-    const minFocusY = viewHalfHeight;
-    const maxFocusY = GAME_CONFIG.ARENA_HEIGHT - viewHalfHeight;
+    const minFocusX = viewHalfWidth - edgeSlackX;
+    const maxFocusX = GAME_CONFIG.ARENA_WIDTH - viewHalfWidth + edgeSlackX;
+    const minFocusY = viewHalfHeight - edgeSlackY;
+    const maxFocusY = GAME_CONFIG.ARENA_HEIGHT - viewHalfHeight + edgeSlackY;
 
     const x =
       minFocusX > maxFocusX

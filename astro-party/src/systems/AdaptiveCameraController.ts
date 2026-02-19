@@ -1,6 +1,14 @@
 import { GAME_CONFIG, GamePhase } from "../types";
-
-type CameraTier = 0 | 1 | 2;
+import {
+  CAMERA_DEFAULT_ZOOM,
+  CAMERA_FOCUS_SMOOTH_TIME,
+  CAMERA_MAX_CLOSE_ZOOM,
+  CAMERA_MAX_SPREAD_FOR_DEFAULT_ZOOM,
+  CAMERA_MIN_SPREAD_FOR_MAX_ZOOM,
+  CAMERA_SPREAD_SMOOTH_TIME,
+  CAMERA_ZOOM_DEADBAND,
+  CAMERA_ZOOM_SMOOTH_TIME,
+} from "./cameraConstants";
 
 export interface CameraAnchor {
   x: number;
@@ -18,48 +26,34 @@ export interface AdaptiveCameraState {
   zoom: number;
   focusX: number;
   focusY: number;
-  tier: CameraTier;
 }
 
 const DEFAULT_FOCUS_X = GAME_CONFIG.ARENA_WIDTH / 2;
 const DEFAULT_FOCUS_Y = GAME_CONFIG.ARENA_HEIGHT / 2;
 
-const CAMERA_ZOOM_BY_TIER: Record<CameraTier, number> = {
-  0: 1,
-  1: 1.14,
-  2: 1.28,
-};
-
-const TIER_1_ENTER_DISTANCE = 520;
-const TIER_1_EXIT_DISTANCE = 620;
-const TIER_2_ENTER_DISTANCE = 320;
-const TIER_2_EXIT_DISTANCE = 390;
-
-const TIER_1_ENTER_DISTANCE_SQ = TIER_1_ENTER_DISTANCE * TIER_1_ENTER_DISTANCE;
-const TIER_1_EXIT_DISTANCE_SQ = TIER_1_EXIT_DISTANCE * TIER_1_EXIT_DISTANCE;
-const TIER_2_ENTER_DISTANCE_SQ = TIER_2_ENTER_DISTANCE * TIER_2_ENTER_DISTANCE;
-const TIER_2_EXIT_DISTANCE_SQ = TIER_2_EXIT_DISTANCE * TIER_2_EXIT_DISTANCE;
-
-const TIER_SWITCH_COOLDOWN_MS = 220;
-const ZOOM_SMOOTHING = 7.5;
-const FOCUS_SMOOTHING = 6;
-
 export class AdaptiveCameraController {
-  private tier: CameraTier = 0;
-  private zoom = CAMERA_ZOOM_BY_TIER[0];
+  private zoom = CAMERA_DEFAULT_ZOOM;
   private focusX = DEFAULT_FOCUS_X;
   private focusY = DEFAULT_FOCUS_Y;
-  private lastTierSwitchAtMs = Number.NEGATIVE_INFINITY;
+  private spread = CAMERA_MAX_SPREAD_FOR_DEFAULT_ZOOM;
+  private zoomVelocity = 0;
+  private spreadVelocity = 0;
+  private focusVelocityX = 0;
+  private focusVelocityY = 0;
 
   reset(): void {
-    this.tier = 0;
-    this.zoom = CAMERA_ZOOM_BY_TIER[0];
+    this.zoom = CAMERA_DEFAULT_ZOOM;
     this.focusX = DEFAULT_FOCUS_X;
     this.focusY = DEFAULT_FOCUS_Y;
-    this.lastTierSwitchAtMs = Number.NEGATIVE_INFINITY;
+    this.spread = CAMERA_MAX_SPREAD_FOR_DEFAULT_ZOOM;
+    this.zoomVelocity = 0;
+    this.spreadVelocity = 0;
+    this.focusVelocityX = 0;
+    this.focusVelocityY = 0;
   }
 
   update(input: AdaptiveCameraUpdateInput): AdaptiveCameraState {
+    void input.nowMs;
     const dt = Math.max(0, Math.min(0.25, input.dt));
     const isAdaptivePhase =
       input.phase === "PLAYING" ||
@@ -69,58 +63,105 @@ export class AdaptiveCameraController {
 
     let targetFocusX = DEFAULT_FOCUS_X;
     let targetFocusY = DEFAULT_FOCUS_Y;
-    let requestedTier: CameraTier = 0;
+    let targetSpread = CAMERA_MAX_SPREAD_FOR_DEFAULT_ZOOM;
 
     if (isAdaptivePhase && hasGroup) {
       const centroid = this.computeCentroid(input.anchors);
       targetFocusX = centroid.x;
       targetFocusY = centroid.y;
-      const maxDistanceSq = this.computeMaxDistanceSq(input.anchors);
-      requestedTier = this.resolveTier(maxDistanceSq);
+      targetSpread = Math.sqrt(this.computeMaxDistanceSq(input.anchors));
     }
 
-    if (
-      requestedTier !== this.tier &&
-      input.nowMs - this.lastTierSwitchAtMs >= TIER_SWITCH_COOLDOWN_MS
-    ) {
-      this.tier = requestedTier;
-      this.lastTierSwitchAtMs = input.nowMs;
+    // Smooth spread first, then derive zoom from the filtered spread.
+    // This removes high-frequency jitter from player micro-movements.
+    this.spread = this.smoothDamp(
+      this.spread,
+      targetSpread,
+      "spreadVelocity",
+      CAMERA_SPREAD_SMOOTH_TIME,
+      dt,
+    );
+
+    let targetZoom = this.computeTargetZoomFromSpread(this.spread);
+    // Continuous hysteresis: ignore tiny oscillations around the current zoom.
+    if (Math.abs(targetZoom - this.zoom) < CAMERA_ZOOM_DEADBAND) {
+      targetZoom = this.zoom;
     }
 
-    const targetZoom = CAMERA_ZOOM_BY_TIER[this.tier];
-    const zoomAlpha = 1 - Math.exp(-ZOOM_SMOOTHING * dt);
-    const focusAlpha = 1 - Math.exp(-FOCUS_SMOOTHING * dt);
-
-    this.zoom += (targetZoom - this.zoom) * zoomAlpha;
-    this.focusX += (targetFocusX - this.focusX) * focusAlpha;
-    this.focusY += (targetFocusY - this.focusY) * focusAlpha;
+    this.zoom = this.smoothDamp(
+      this.zoom,
+      targetZoom,
+      "zoomVelocity",
+      CAMERA_ZOOM_SMOOTH_TIME,
+      dt,
+    );
+    this.focusX = this.smoothDamp(
+      this.focusX,
+      targetFocusX,
+      "focusVelocityX",
+      CAMERA_FOCUS_SMOOTH_TIME,
+      dt,
+    );
+    this.focusY = this.smoothDamp(
+      this.focusY,
+      targetFocusY,
+      "focusVelocityY",
+      CAMERA_FOCUS_SMOOTH_TIME,
+      dt,
+    );
 
     return {
       zoom: this.zoom,
       focusX: this.focusX,
       focusY: this.focusY,
-      tier: this.tier,
     };
   }
 
-  private resolveTier(maxDistanceSq: number): CameraTier {
-    if (this.tier === 0) {
-      if (maxDistanceSq <= TIER_2_ENTER_DISTANCE_SQ) return 2;
-      if (maxDistanceSq <= TIER_1_ENTER_DISTANCE_SQ) return 1;
-      return 0;
-    }
+  private computeTargetZoomFromSpread(spread: number): number {
+    const range = Math.max(
+      1,
+      CAMERA_MAX_SPREAD_FOR_DEFAULT_ZOOM - CAMERA_MIN_SPREAD_FOR_MAX_ZOOM,
+    );
+    const normalized = this.clamp01(
+      (spread - CAMERA_MIN_SPREAD_FOR_MAX_ZOOM) / range,
+    );
+    const eased = this.smootherStep(normalized);
+    return this.lerp(CAMERA_MAX_CLOSE_ZOOM, CAMERA_DEFAULT_ZOOM, eased);
+  }
 
-    if (this.tier === 1) {
-      if (maxDistanceSq <= TIER_2_ENTER_DISTANCE_SQ) return 2;
-      if (maxDistanceSq >= TIER_1_EXIT_DISTANCE_SQ) return 0;
-      return 1;
-    }
+  private clamp01(value: number): number {
+    return Math.max(0, Math.min(1, value));
+  }
 
-    if (maxDistanceSq >= TIER_2_EXIT_DISTANCE_SQ) {
-      if (maxDistanceSq >= TIER_1_EXIT_DISTANCE_SQ) return 0;
-      return 1;
-    }
-    return 2;
+  private lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t;
+  }
+
+  private smootherStep(t: number): number {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  // Critically damped smoothing (Unity-style SmoothDamp).
+  private smoothDamp(
+    current: number,
+    target: number,
+    velocityKey:
+      | "zoomVelocity"
+      | "spreadVelocity"
+      | "focusVelocityX"
+      | "focusVelocityY",
+    smoothTime: number,
+    dt: number,
+  ): number {
+    const safeSmoothTime = Math.max(0.0001, smoothTime);
+    const omega = 2 / safeSmoothTime;
+    const x = omega * dt;
+    const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+
+    const change = current - target;
+    const temp = (this[velocityKey] + omega * change) * dt;
+    this[velocityKey] = (this[velocityKey] - omega * temp) * exp;
+    return target + (change + temp) * exp;
   }
 
   private computeCentroid(anchors: readonly CameraAnchor[]): CameraAnchor {
@@ -152,4 +193,5 @@ export class AdaptiveCameraController {
     }
     return maxDistanceSq;
   }
+
 }
