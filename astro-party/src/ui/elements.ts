@@ -72,10 +72,8 @@ export const elements = {
 
   // Game mode toggle
   gameModeSection: getElement<HTMLElement>("gameModeSection"),
-  modeStandard: getElement<HTMLButtonElement>("modeStandard"),
-  modeChaotic: getElement<HTMLButtonElement>("modeChaotic"),
-  modeSane: getElement<HTMLButtonElement>("modeSane"),
-  modeCustom: getElement<HTMLButtonElement>("modeCustom"),
+  modeCycleBtn: getElement<HTMLButtonElement>("modeCycleBtn"),
+  modeCycleValue: getElement<HTMLElement>("modeCycleValue"),
 
   // Map selector
   mapSelectorSection: getElement<HTMLElement>("mapSelectorSection"),

@@ -1213,6 +1213,10 @@ export class Game {
     return this.currentMode;
   }
 
+  getBaseMode(): BaseGameMode {
+    return this.baseMode;
+  }
+
   setMap(mapId: MapId, source: "local" | "remote" = "local"): void {
     console.log(
       "[Game] setMap requested. source=" +

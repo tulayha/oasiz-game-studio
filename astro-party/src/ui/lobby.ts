@@ -1,5 +1,5 @@
 import { Game } from "../Game";
-import { GameMode, MapId, PlayerData } from "../types";
+import { BaseGameMode, GameMode, MapId, PlayerData } from "../types";
 import { AudioManager } from "../AudioManager";
 import { triggerHaptic } from "./haptics";
 import { elements } from "./elements";
@@ -21,6 +21,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   let addButtonGuardUntilMs = 0;
   const ADD_BUTTON_TAP_GUARD_MS = 450;
   const MAP_PICKER_ORDER: MapId[] = [0, 5, 1, 2, 3, 4];
+  const MODE_CYCLE_ORDER: BaseGameMode[] = ["STANDARD", "SANE", "CHAOTIC"];
   const mapPickerCards = new Map<MapId, HTMLButtonElement>();
 
   function beginAddButtonAction(): boolean {
@@ -229,10 +230,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     updateBotControlsVisibility(players.length, isLeader);
     elements.gameModeSection.classList.toggle("hidden", false);
     elements.gameModeSection.classList.toggle("readonly", !isLeader);
-    elements.modeStandard.disabled = !isLeader;
-    elements.modeChaotic.disabled = !isLeader;
-    elements.modeSane.disabled = !isLeader;
-    elements.modeCustom.disabled = true;
+    elements.modeCycleBtn.disabled = !isLeader;
     elements.advancedSettingsBtn.style.display = isLeader ? "block" : "none";
     elements.advancedSettingsBtn.disabled = !isLeader;
     const actionsBox = elements.gameModeSection.closest(".lobby-actions");
@@ -267,10 +265,9 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     mode: GameMode,
     source: "local" | "remote" = "local",
   ): void {
-    elements.modeStandard.classList.toggle("active", mode === "STANDARD");
-    elements.modeChaotic.classList.toggle("active", mode === "CHAOTIC");
-    elements.modeSane.classList.toggle("active", mode === "SANE");
-    elements.modeCustom.classList.toggle("active", mode === "CUSTOM");
+    elements.modeCycleValue.textContent = mode;
+    elements.modeCycleBtn.classList.toggle("is-custom", mode === "CUSTOM");
+    elements.modeCycleBtn.setAttribute("data-mode", mode);
     if (source === "local") {
       game.setGameMode(mode, "local");
     }
@@ -480,19 +477,17 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     game.startGame();
   });
 
-  elements.modeStandard.addEventListener("click", () => {
+  elements.modeCycleBtn.addEventListener("click", () => {
+    if (!game.isLeader()) return;
     triggerHaptic("light");
-    setModeUI("STANDARD");
-  });
-
-  elements.modeChaotic.addEventListener("click", () => {
-    triggerHaptic("light");
-    setModeUI("CHAOTIC");
-  });
-
-  elements.modeSane.addEventListener("click", () => {
-    triggerHaptic("light");
-    setModeUI("SANE");
+    AudioManager.playUIClick();
+    const mode = game.getGameMode();
+    const anchorMode: BaseGameMode =
+      mode === "CUSTOM" ? game.getBaseMode() : mode;
+    const currentIndex = MODE_CYCLE_ORDER.indexOf(anchorMode);
+    const nextMode =
+      MODE_CYCLE_ORDER[(currentIndex + 1) % MODE_CYCLE_ORDER.length];
+    setModeUI(nextMode);
   });
 
   elements.openMapPickerBtn.addEventListener("click", () => {

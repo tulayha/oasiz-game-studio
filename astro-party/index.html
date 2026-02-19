@@ -411,40 +411,71 @@
       display: none;
     }
 
+    .mode-inline-controls {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      align-items: stretch;
+    }
+
     .mode-pill {
-      display: flex;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 20px;
-      overflow: hidden;
-    }
-
-    .mode-option {
-      padding: 0.4rem 1.2rem;
-      font-size: 0.8rem;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      color: rgba(255, 255, 255, 0.4);
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s ease;
       font-family: inherit;
     }
 
-    .mode-option.active {
-      color: #000;
-      background: var(--cyan);
+    .mode-cycle-btn {
+      width: 100%;
+      min-height: 36px;
+      padding: 0.28rem 0.7rem;
+      cursor: pointer;
+      color: rgba(255, 255, 255, 0.82);
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.18);
     }
 
-    .mode-option:not(.active):hover {
-      color: rgba(255, 255, 255, 0.7);
-      background: rgba(255, 255, 255, 0.08);
+    .mode-cycle-btn:hover {
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(0, 240, 255, 0.42);
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.16);
     }
 
-    .mode-option:disabled {
+    .mode-cycle-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .mode-cycle-value {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.68rem;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #00f0ff;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .mode-cycle-btn.is-custom .mode-cycle-value {
+      color: #ff6ec7;
+    }
+
+    .mode-inline-controls #advancedSettingsBtn {
+      margin: 0;
+      width: 100%;
+      min-width: 0;
+      white-space: nowrap;
+      align-self: stretch;
+      min-height: 36px;
+      padding: 0.28rem 0.65rem;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
     }
 
     .map-change-btn {
@@ -2186,14 +2217,25 @@
         gap: 6px;
       }
 
-      .mode-pill {
-        gap: 0;
+      .mode-inline-controls {
+        gap: 6px;
       }
 
-      .mode-option {
-        padding: 0.35rem 0.7rem;
-        font-size: 0.65rem;
-        min-height: 40px;
+      .mode-cycle-btn {
+        min-height: 34px;
+        padding: 0.24rem 0.55rem;
+      }
+
+      .mode-cycle-value {
+        font-size: 0.62rem;
+        letter-spacing: 0.07em;
+      }
+
+      .mode-inline-controls #advancedSettingsBtn {
+        min-height: 34px;
+        padding: 0.24rem 0.52rem;
+        font-size: 0.58rem;
+        letter-spacing: 0.06em;
       }
 
       .lobby-summary {
@@ -2577,6 +2619,23 @@
         padding: 8px;
       }
 
+      .mode-inline-controls {
+        gap: 4px;
+      }
+
+      .mode-cycle-btn {
+        padding: 0.2rem 0.46rem;
+      }
+
+      .mode-cycle-value {
+        font-size: 0.56rem;
+      }
+
+      .mode-inline-controls #advancedSettingsBtn {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.54rem;
+      }
+
       .map-summary-content {
         grid-template-columns: 78px minmax(0, 1fr);
         gap: 6px;
@@ -2700,15 +2759,13 @@
               </div>
 
               <div id="gameModeSection" class="game-mode-section hidden">
-                <div class="mode-pill">
-                  <button class="mode-option active" id="modeStandard" data-mode="STANDARD">STANDARD</button>
-                  <button class="mode-option" id="modeSane" data-mode="SANE">SANE</button>
-                  <button class="mode-option" id="modeChaotic" data-mode="CHAOTIC">CHAOTIC</button>
-                  <button class="mode-option" id="modeCustom" data-mode="CUSTOM" disabled>CUSTOM</button>
+                <div class="mode-inline-controls">
+                  <button class="mode-pill mode-cycle-btn" id="modeCycleBtn" data-mode="STANDARD" aria-label="Cycle game mode">
+                    <span class="mode-cycle-value" id="modeCycleValue">STANDARD</span>
+                  </button>
+                  <button class="btn tertiary compact" id="advancedSettingsBtn" disabled>Advanced</button>
                 </div>
               </div>
-
-              <button class="btn tertiary compact" id="advancedSettingsBtn" disabled>Advanced Settings</button>
             </div>
 
             <div id="mapSelectorSection" class="lobby-summary hidden">
