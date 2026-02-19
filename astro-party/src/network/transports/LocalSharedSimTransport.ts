@@ -1,6 +1,8 @@
 import { AstroPartySimulation } from "../../../shared/sim/AstroPartySimulation";
 import type {
   AdvancedSettingsSync,
+  DebugPhysicsTuningPayload,
+  DebugPhysicsTuningSnapshot,
   GamePhase,
   GameMode,
   GameStateSync,
@@ -219,6 +221,17 @@ export class LocalSharedSimTransport implements NetworkTransport {
   setAdvancedSettings(payload: AdvancedSettingsSync): void {
     if (!this.simulation || !this.mySessionId) return;
     this.simulation.setAdvancedSettings(this.mySessionId, payload);
+  }
+
+  setDebugPhysicsTuning(payload: DebugPhysicsTuningPayload | null): void {
+    if (!this.simulation || !this.mySessionId) return;
+    this.simulation.setDebugPhysicsTuning(this.mySessionId, payload);
+    this.emitDebugStateFromSimulation();
+  }
+
+  getDebugPhysicsTuningSnapshot(): DebugPhysicsTuningSnapshot | null {
+    if (!this.simulation) return null;
+    return this.simulation.getDebugPhysicsTuningSnapshot();
   }
 
   sendDashRequest(controlledPlayerId?: string): void {

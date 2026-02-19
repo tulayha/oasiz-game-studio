@@ -406,6 +406,28 @@ export interface ActiveConfig {
   PILOT_DASH_FORCE: number;
 }
 
+export interface DebugPhysicsMaterials {
+  SHIP_RESTITUTION: number;
+  SHIP_FRICTION_AIR: number;
+  SHIP_FRICTION: number;
+  SHIP_ANGULAR_DAMPING: number;
+  WALL_RESTITUTION: number;
+  WALL_FRICTION: number;
+  PILOT_FRICTION_AIR: number;
+  PILOT_ANGULAR_DAMPING: number;
+}
+
+export interface DebugPhysicsTuningPayload {
+  configOverrides?: Partial<ActiveConfig>;
+  materialOverrides?: Partial<DebugPhysicsMaterials>;
+}
+
+export interface DebugPhysicsTuningSnapshot {
+  config: ActiveConfig;
+  materials: DebugPhysicsMaterials;
+  overrides: DebugPhysicsTuningPayload | null;
+}
+
 // ============= SIM STATE (interface for system access) =============
 
 export interface SimState {

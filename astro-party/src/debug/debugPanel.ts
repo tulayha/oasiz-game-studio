@@ -2,6 +2,7 @@ import type { Game } from "../Game";
 import { PLAYER_COLORS, type PlayerData, type PowerUpType } from "../types";
 import { elements } from "../ui/elements";
 import type { ScreenController } from "../ui/screens";
+import { createPhysicsLabController } from "./physicsLab";
 
 interface DebugPanelOptions {
   game: Game;
@@ -11,6 +12,7 @@ interface DebugPanelOptions {
 
 const PANEL_ID = "qaDebugPanel";
 const TOGGLE_ID = "qaDebugToggle";
+const LAB_TOGGLE_ID = "qaLabToggle";
 const STATUS_ID = "qaDebugStatus";
 
 const POWERUP_ACTIONS: Array<{
@@ -26,11 +28,23 @@ const POWERUP_ACTIONS: Array<{
 
 export function mountDebugPanel(options: DebugPanelOptions): void {
   if (document.getElementById(PANEL_ID)) return;
+  const physicsLab = createPhysicsLabController(options.game, {
+    onVisibilityChange: (visible) => {
+      const labToggle = document.getElementById(
+        LAB_TOGGLE_ID,
+      ) as HTMLButtonElement | null;
+      if (!labToggle) return;
+      labToggle.setAttribute("aria-expanded", visible ? "true" : "false");
+    },
+  });
 
   injectStyles();
 
   const root = document.createElement("div");
   root.className = "qa-debug-root";
+
+  const toggles = document.createElement("div");
+  toggles.className = "qa-debug-toggle-row";
 
   const toggle = document.createElement("button");
   toggle.id = TOGGLE_ID;
@@ -38,6 +52,13 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
   toggle.type = "button";
   toggle.textContent = "DBG";
   toggle.setAttribute("aria-expanded", "false");
+
+  const labToggle = document.createElement("button");
+  labToggle.id = LAB_TOGGLE_ID;
+  labToggle.className = "qa-debug-lab-toggle";
+  labToggle.type = "button";
+  labToggle.textContent = "LAB";
+  labToggle.setAttribute("aria-expanded", "false");
 
   const panel = document.createElement("div");
   panel.id = PANEL_ID;
@@ -61,10 +82,18 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
     closePanel(panel, toggle);
     stopStatusUpdates();
   };
+  const closePhysicsLab = (): void => {
+    physicsLab.close();
+  };
   const openDebugPanel = (): void => {
+    closePhysicsLab();
     openPanel(panel, toggle);
     updateStatus(options.game);
     startStatusUpdates();
+  };
+  const openPhysicsLab = (): void => {
+    closeDebugPanel();
+    physicsLab.open();
   };
 
   panel.appendChild(buildHeader(closeDebugPanel));
@@ -119,6 +148,12 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
         },
       },
       {
+        label: "Physics Lab",
+        onClick: () => {
+          openPhysicsLab();
+        },
+      },
+      {
         label: "Eject Pilot",
         onClick: () => {
           options.game.requestDebugEjectPilot();
@@ -138,7 +173,9 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
     ),
   );
 
-  root.appendChild(toggle);
+  toggles.appendChild(toggle);
+  toggles.appendChild(labToggle);
+  root.appendChild(toggles);
   root.appendChild(panel);
   document.body.appendChild(root);
 
@@ -149,10 +186,18 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
     }
     openDebugPanel();
   });
+  labToggle.addEventListener("click", () => {
+    if (physicsLab.isOpen()) {
+      closePhysicsLab();
+      return;
+    }
+    openPhysicsLab();
+  });
 
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     closeDebugPanel();
+    closePhysicsLab();
   });
   window.addEventListener("beforeunload", stopStatusUpdates, { once: true });
 
@@ -333,19 +378,44 @@ function injectStyles(): void {
       pointer-events: none;
     }
 
-    .qa-debug-toggle {
+    .qa-debug-toggle-row {
+      pointer-events: none;
+      display: flex;
+      gap: 6px;
+    }
+
+    .qa-debug-toggle,
+    .qa-debug-lab-toggle {
       pointer-events: auto;
       width: 50px;
       height: 34px;
       border-radius: 10px;
-      border: 1px solid rgba(255, 180, 0, 0.85);
       background: rgba(20, 16, 4, 0.92);
-      color: #ffcf47;
       font-family: 'Orbitron', sans-serif;
       font-size: 0.74rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      transition: background 0.16s ease, border-color 0.16s ease;
+    }
+
+    .qa-debug-toggle {
+      border: 1px solid rgba(255, 180, 0, 0.85);
+      color: #ffcf47;
       box-shadow: 0 0 18px rgba(255, 180, 0, 0.25);
+    }
+
+    .qa-debug-lab-toggle {
+      border: 1px solid rgba(0, 240, 255, 0.75);
+      color: #86f4ff;
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.22);
+    }
+
+    .qa-debug-toggle[aria-expanded="true"] {
+      background: rgba(34, 24, 6, 0.96);
+    }
+
+    .qa-debug-lab-toggle[aria-expanded="true"] {
+      background: rgba(4, 24, 30, 0.94);
     }
 
     .qa-debug-panel {
@@ -440,6 +510,11 @@ function injectStyles(): void {
       }
 
       .qa-debug-toggle {
+        width: 56px;
+        height: 38px;
+      }
+
+      .qa-debug-lab-toggle {
         width: 56px;
         height: 38px;
       }

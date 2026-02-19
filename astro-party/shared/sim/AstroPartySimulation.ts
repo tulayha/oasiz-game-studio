@@ -26,6 +26,9 @@ import type {
   RoundResultPayload,
   ShipState,
   ActiveConfig,
+  DebugPhysicsMaterials,
+  DebugPhysicsTuningPayload,
+  DebugPhysicsTuningSnapshot,
   SimState,
 } from "./types.js";
 import Matter from "matter-js";
@@ -124,6 +127,34 @@ const DASH_PRESETS = ["LOW", "NORMAL", "HIGH"] as const;
 const ASTEROID_DENSITIES = ["NONE", "SOME", "MANY", "SPAWN"] as const;
 const LAG_COMP_HISTORY_MS = 500;
 const LAG_COMP_MAX_REWIND_MS = 200;
+const DEBUG_CONFIG_KEYS: ReadonlyArray<keyof ActiveConfig> = [
+  "BASE_THRUST",
+  "ROTATION_SPEED",
+  "ROTATION_THRUST_BONUS",
+  "RECOIL_FORCE",
+  "DASH_FORCE",
+  "SHIP_FRICTION_AIR",
+  "SHIP_RESTITUTION",
+  "SHIP_TARGET_SPEED",
+  "SHIP_SPEED_RESPONSE",
+  "SHIP_DASH_BOOST",
+  "SHIP_DASH_DURATION",
+  "SHIP_RECOIL_SLOWDOWN",
+  "SHIP_RECOIL_DURATION",
+  "PROJECTILE_SPEED",
+  "PILOT_ROTATION_SPEED",
+  "PILOT_DASH_FORCE",
+];
+const DEBUG_MATERIAL_KEYS: ReadonlyArray<keyof DebugPhysicsMaterials> = [
+  "SHIP_RESTITUTION",
+  "SHIP_FRICTION_AIR",
+  "SHIP_FRICTION",
+  "SHIP_ANGULAR_DAMPING",
+  "WALL_RESTITUTION",
+  "WALL_FRICTION",
+  "PILOT_FRICTION_AIR",
+  "PILOT_ANGULAR_DAMPING",
+];
 
 interface ShipTransformHistoryEntry {
   atMs: number;
@@ -295,6 +326,7 @@ export class AstroPartySimulation implements SimState {
   devModeEnabled = false;
   debugToolsEnabled = false;
   debugSessionTainted = false;
+  private debugPhysicsTuning: DebugPhysicsTuningPayload | null = null;
   currentRound = 1;
   screenShakeIntensity = 0;
   screenShakeDuration = 0;
@@ -677,6 +709,40 @@ export class AstroPartySimulation implements SimState {
     this.hooks.onDevMode(this.devModeEnabled);
   }
 
+  setDebugPhysicsTuning(
+    sessionId: string,
+    payload: DebugPhysicsTuningPayload | null,
+  ): void {
+    if (!this.debugToolsEnabled) {
+      this.hooks.onError(
+        sessionId,
+        "DEBUG_TOOLS_DISABLED",
+        "Debug tools are disabled for this room",
+      );
+      return;
+    }
+    if (!this.ensureLeader(sessionId)) return;
+    this.markDebugSessionTainted();
+    this.debugPhysicsTuning = this.sanitizeDebugPhysicsTuning(payload);
+  }
+
+  getDebugPhysicsTuningSnapshot(): DebugPhysicsTuningSnapshot {
+    return {
+      config: this.getActiveConfig(),
+      materials: this.resolveMaterialValues(),
+      overrides: this.debugPhysicsTuning
+        ? {
+            configOverrides: this.debugPhysicsTuning.configOverrides
+              ? { ...this.debugPhysicsTuning.configOverrides }
+              : undefined,
+            materialOverrides: this.debugPhysicsTuning.materialOverrides
+              ? { ...this.debugPhysicsTuning.materialOverrides }
+              : undefined,
+          }
+        : null,
+    };
+  }
+
   devGrantPowerUp(sessionId: string, type: PowerUpType | "SPAWN_RANDOM"): void {
     if (!this.debugToolsEnabled) {
       this.hooks.onError(
@@ -913,8 +979,84 @@ export class AstroPartySimulation implements SimState {
     );
     cfg.SHIP_RESTITUTION = SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset];
     cfg.SHIP_FRICTION_AIR = SHIP_FRICTION_AIR_BY_PRESET[this.settings.shipFrictionAirPreset];
+    const configOverrides = this.debugPhysicsTuning?.configOverrides;
+    if (configOverrides) {
+      for (const key of DEBUG_CONFIG_KEYS) {
+        const value = configOverrides[key];
+        if (typeof value === "number" && Number.isFinite(value)) {
+          cfg[key] = value;
+        }
+      }
+    }
 
     return cfg;
+  }
+
+  private resolveMaterialValues(): DebugPhysicsMaterials {
+    const materials: DebugPhysicsMaterials = {
+      SHIP_RESTITUTION:
+        SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset] ?? 0,
+      SHIP_FRICTION:
+        SHIP_FRICTION_BY_PRESET[this.settings.shipFrictionPreset] ?? 0,
+      SHIP_FRICTION_AIR:
+        SHIP_FRICTION_AIR_BY_PRESET[this.settings.shipFrictionAirPreset] ?? 0,
+      SHIP_ANGULAR_DAMPING:
+        SHIP_ANGULAR_DAMPING_BY_PRESET[this.settings.angularDampingPreset] ?? 0,
+      WALL_RESTITUTION:
+        WALL_RESTITUTION_BY_PRESET[this.settings.wallRestitutionPreset] ?? 0,
+      WALL_FRICTION: WALL_FRICTION_BY_PRESET[this.settings.wallFrictionPreset] ?? 0,
+      PILOT_FRICTION_AIR: PILOT_FRICTION_AIR,
+      PILOT_ANGULAR_DAMPING: PILOT_ANGULAR_DAMPING,
+    };
+
+    const materialOverrides = this.debugPhysicsTuning?.materialOverrides;
+    if (materialOverrides) {
+      for (const key of DEBUG_MATERIAL_KEYS) {
+        const value = materialOverrides[key];
+        if (typeof value === "number" && Number.isFinite(value)) {
+          materials[key] = value;
+        }
+      }
+    }
+    return materials;
+  }
+
+  private sanitizeDebugPhysicsTuning(
+    payload: DebugPhysicsTuningPayload | null,
+  ): DebugPhysicsTuningPayload | null {
+    if (!payload) return null;
+
+    const configOverrides: Partial<ActiveConfig> = {};
+    const sourceConfigOverrides = payload.configOverrides;
+    if (sourceConfigOverrides) {
+      for (const key of DEBUG_CONFIG_KEYS) {
+        const value = sourceConfigOverrides[key];
+        if (typeof value === "number" && Number.isFinite(value)) {
+          configOverrides[key] = value;
+        }
+      }
+    }
+
+    const materialOverrides: Partial<DebugPhysicsMaterials> = {};
+    const sourceMaterialOverrides = payload.materialOverrides;
+    if (sourceMaterialOverrides) {
+      for (const key of DEBUG_MATERIAL_KEYS) {
+        const value = sourceMaterialOverrides[key];
+        if (typeof value === "number" && Number.isFinite(value)) {
+          materialOverrides[key] = value;
+        }
+      }
+    }
+
+    const hasConfigOverrides = Object.keys(configOverrides).length > 0;
+    const hasMaterialOverrides = Object.keys(materialOverrides).length > 0;
+    if (!hasConfigOverrides && !hasMaterialOverrides) {
+      return null;
+    }
+    return {
+      configOverrides: hasConfigOverrides ? configOverrides : undefined,
+      materialOverrides: hasMaterialOverrides ? materialOverrides : undefined,
+    };
   }
 
   triggerScreenShake(intensity: number, duration: number): void {
@@ -1424,18 +1566,13 @@ export class AstroPartySimulation implements SimState {
   }
 
   private syncPhysicsFromSim(): void {
-    const shipRestitution =
-      SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset] ?? 0;
-    const shipFriction =
-      SHIP_FRICTION_BY_PRESET[this.settings.shipFrictionPreset] ?? 0;
-    const shipFrictionAir =
-      SHIP_FRICTION_AIR_BY_PRESET[this.settings.shipFrictionAirPreset] ?? 0;
-    const shipAngularDamping =
-      SHIP_ANGULAR_DAMPING_BY_PRESET[this.settings.angularDampingPreset] ?? 0;
-    const wallRestitution =
-      WALL_RESTITUTION_BY_PRESET[this.settings.wallRestitutionPreset] ?? 0;
-    const wallFriction =
-      WALL_FRICTION_BY_PRESET[this.settings.wallFrictionPreset] ?? 0;
+    const materials = this.resolveMaterialValues();
+    const shipRestitution = materials.SHIP_RESTITUTION;
+    const shipFriction = materials.SHIP_FRICTION;
+    const shipFrictionAir = materials.SHIP_FRICTION_AIR;
+    const shipAngularDamping = materials.SHIP_ANGULAR_DAMPING;
+    const wallRestitution = materials.WALL_RESTITUTION;
+    const wallFriction = materials.WALL_FRICTION;
     this.physics.setWallMaterials(wallRestitution, wallFriction);
 
     const aliveShips = new Set<string>();
@@ -1498,14 +1635,18 @@ export class AstroPartySimulation implements SimState {
       const existing = this.pilotBodies.get(playerId);
       if (!existing) {
         const body = this.physics.createPilot(pilot.x, pilot.y, playerId, {
-          frictionAir: PILOT_FRICTION_AIR,
-          angularDamping: PILOT_ANGULAR_DAMPING,
+          frictionAir: materials.PILOT_FRICTION_AIR,
+          angularDamping: materials.PILOT_ANGULAR_DAMPING,
           initialAngle: pilot.angle,
           initialAngularVelocity: pilot.angularVelocity,
           vx: pilot.vx,
           vy: pilot.vy,
         });
         this.pilotBodies.set(playerId, body);
+      } else {
+        existing.frictionAir = materials.PILOT_FRICTION_AIR;
+        (existing as unknown as { angularDamping?: number }).angularDamping =
+          materials.PILOT_ANGULAR_DAMPING;
       }
     }
     for (const [playerId] of this.pilotBodies) {

@@ -29,6 +29,8 @@ import {
   RoundResultPayload,
   AdvancedSettings,
   AdvancedSettingsSync,
+  DebugPhysicsTuningPayload,
+  DebugPhysicsTuningSnapshot,
   DEFAULT_ADVANCED_SETTINGS,
 } from "./types";
 import {
@@ -1456,6 +1458,27 @@ export class Game {
     }
     this.network.requestDevEjectPilot();
     return true;
+  }
+
+  setDebugPhysicsTuning(payload: DebugPhysicsTuningPayload | null): boolean {
+    const blockedMessage = this.getDebugToolsBlockedMessage();
+    if (blockedMessage) {
+      this._onSystemMessage?.(blockedMessage, 2500);
+      return false;
+    }
+    if (this.network.getTransportMode() !== "local") {
+      this._onSystemMessage?.(
+        "Physics lab is available in local mode only",
+        3000,
+      );
+      return false;
+    }
+    this.network.setDebugPhysicsTuning(payload);
+    return true;
+  }
+
+  getDebugPhysicsTuningSnapshot(): DebugPhysicsTuningSnapshot | null {
+    return this.network.getDebugPhysicsTuningSnapshot();
   }
 
   getDebugStatus(): {

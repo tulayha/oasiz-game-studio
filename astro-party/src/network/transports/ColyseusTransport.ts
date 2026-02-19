@@ -2,6 +2,8 @@ import { Client, Room, getStateCallbacks } from "colyseus.js";
 import {
   AdvancedSettingsSync,
   AsteroidColliderSync,
+  DebugPhysicsTuningPayload,
+  DebugPhysicsTuningSnapshot,
   GamePhase,
   GameMode,
   GameStateSync,
@@ -276,6 +278,17 @@ export class ColyseusTransport implements NetworkTransport {
   setAdvancedSettings(payload: AdvancedSettingsSync): void {
     if (!this.room) return;
     this.room.send("cmd:set_advanced_settings", payload);
+  }
+
+  setDebugPhysicsTuning(_payload: DebugPhysicsTuningPayload | null): void {
+    this.callbacks?.onTransportError?.(
+      "LOCAL_ONLY",
+      "Physics lab is available in local mode only",
+    );
+  }
+
+  getDebugPhysicsTuningSnapshot(): DebugPhysicsTuningSnapshot | null {
+    return null;
   }
 
   sendDashRequest(controlledPlayerId?: string): void {

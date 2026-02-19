@@ -1,5 +1,7 @@
 import {
   AdvancedSettingsSync,
+  DebugPhysicsTuningPayload,
+  DebugPhysicsTuningSnapshot,
   GamePhase,
   GameMode,
   GameStateSync,
@@ -95,6 +97,14 @@ export class NetworkManager {
 
   setAdvancedSettings(payload: AdvancedSettingsSync): void {
     this.transport.setAdvancedSettings(payload);
+  }
+
+  setDebugPhysicsTuning(payload: DebugPhysicsTuningPayload | null): void {
+    this.transport.setDebugPhysicsTuning(payload);
+  }
+
+  getDebugPhysicsTuningSnapshot(): DebugPhysicsTuningSnapshot | null {
+    return this.transport.getDebugPhysicsTuningSnapshot();
   }
 
   broadcastGamePhase(

@@ -1,6 +1,8 @@
 import {
   AdvancedSettingsSync,
   AsteroidColliderSync,
+  DebugPhysicsTuningPayload,
+  DebugPhysicsTuningSnapshot,
   GamePhase,
   GameMode,
   GameStateSync,
@@ -93,6 +95,8 @@ export interface NetworkTransport {
   setMode(mode: GameMode): void;
   setMap(mapId: number): void;
   setAdvancedSettings(payload: AdvancedSettingsSync): void;
+  setDebugPhysicsTuning(payload: DebugPhysicsTuningPayload | null): void;
+  getDebugPhysicsTuningSnapshot(): DebugPhysicsTuningSnapshot | null;
 
   sendDashRequest(controlledPlayerId?: string): void;
   broadcastDashParticles(
