@@ -101,6 +101,14 @@ import {
   type RuntimeYellowBlockState,
   type SimulationMapFeaturesContext,
 } from "./simulationMapFeatures.js";
+import {
+  ensureRoomLeader,
+  getHumanBySession,
+  resolveControlledPlayerFromSession,
+  resolveLocalKeySlotForSession,
+  sanitizePlayerName,
+  type PlayerControlsContext,
+} from "./simulationPlayerControls.js";
 
 // System imports
 import { updateBots } from "./AISystem.js";
@@ -293,7 +301,7 @@ export class AstroPartySimulation implements SimState {
     }
 
     const id = sessionId;
-    const customName = this.sanitizeName(requestedName);
+    const customName = sanitizePlayerName(requestedName);
     const allocation = this.identityAllocator.allocateHuman(id, customName);
     const player = this.createPlayer(
       id,
@@ -343,9 +351,9 @@ export class AstroPartySimulation implements SimState {
   }
 
   setName(sessionId: string, rawName: string): void {
-    const player = this.getHuman(sessionId);
+    const player = getHumanBySession(this.createPlayerControlsContext(), sessionId);
     if (!player) return;
-    const name = this.sanitizeName(rawName);
+    const name = sanitizePlayerName(rawName);
     if (!name) return;
     player.name = name;
     this.syncPlayers();
@@ -362,7 +370,8 @@ export class AstroPartySimulation implements SimState {
       rttMs?: number;
     },
   ): void {
-    const player = this.resolveControlledPlayer(
+    const player = resolveControlledPlayerFromSession(
+      this.createPlayerControlsContext(),
       sessionId,
       payload.controlledPlayerId,
     );
@@ -387,7 +396,8 @@ export class AstroPartySimulation implements SimState {
   }
 
   queueDash(sessionId: string, payload: { controlledPlayerId?: string }): void {
-    const player = this.resolveControlledPlayer(
+    const player = resolveControlledPlayerFromSession(
+      this.createPlayerControlsContext(),
       sessionId,
       payload.controlledPlayerId,
     );
@@ -396,7 +406,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   startMatch(sessionId: string): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     if (this.phase !== "LOBBY" && this.phase !== "GAME_END") {
       this.hooks.onError(sessionId, "INVALID_PHASE", "Cannot start from this phase");
       return;
@@ -427,7 +437,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   restartToLobby(sessionId: string): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     this.phase = "LOBBY";
     this.countdownMs = 0;
     this.countdownValue = COUNTDOWN_SECONDS;
@@ -446,7 +456,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   setMode(sessionId: string, mode: GameMode): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     if (mode === "CUSTOM") return;
     const baseMode = mode as BaseGameMode;
     this.baseMode = baseMode;
@@ -457,7 +467,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   setAdvancedSettings(sessionId: string, payload: AdvancedSettingsSync): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     const baseMode = sanitizeBaseMode(payload.baseMode, this.baseMode);
     const sanitized = sanitizeAdvancedSettings(payload.settings);
     const template = applyModeTemplate(baseMode, sanitized.roundsToWin);
@@ -471,7 +481,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   setMap(sessionId: string, mapId: number): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     if (this.phase !== "LOBBY") {
       this.hooks.onError(sessionId, "INVALID_PHASE", "Maps can only be changed in lobby");
       return;
@@ -507,7 +517,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   addAIBot(sessionId: string): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     if (this.phase !== "LOBBY") {
       this.hooks.onError(sessionId, "INVALID_PHASE", "Bots can only be added in lobby");
       return;
@@ -533,7 +543,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   addLocalPlayer(sessionId: string, keySlot?: number): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     if (this.phase !== "LOBBY") {
       this.hooks.onError(
         sessionId,
@@ -547,7 +557,11 @@ export class AstroPartySimulation implements SimState {
       return;
     }
 
-    const normalizedKeySlot = this.resolveLocalKeySlot(sessionId, keySlot);
+    const normalizedKeySlot = resolveLocalKeySlotForSession(
+      this.createPlayerControlsContext(),
+      sessionId,
+      keySlot,
+    );
     if (normalizedKeySlot < 0) return;
 
     const id = "local_" + (++this.botCounter).toString();
@@ -575,7 +589,7 @@ export class AstroPartySimulation implements SimState {
       );
       return;
     }
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     this.markDebugSessionTainted();
     this.devModeEnabled = Boolean(enabled);
     this.hooks.onDevMode(this.devModeEnabled);
@@ -593,7 +607,7 @@ export class AstroPartySimulation implements SimState {
       );
       return;
     }
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     this.markDebugSessionTainted();
     this.debugPhysicsTuning = sanitizeDebugPhysicsTuningPayload(payload);
   }
@@ -627,7 +641,7 @@ export class AstroPartySimulation implements SimState {
       );
       return;
     }
-    const player = this.getHuman(sessionId);
+    const player = getHumanBySession(this.createPlayerControlsContext(), sessionId);
     if (!player) return;
     this.markDebugSessionTainted();
     if (!this.devModeEnabled) {
@@ -662,7 +676,7 @@ export class AstroPartySimulation implements SimState {
       );
       return;
     }
-    const player = this.getHuman(sessionId);
+    const player = getHumanBySession(this.createPlayerControlsContext(), sessionId);
     if (!player) return;
     this.markDebugSessionTainted();
     if (!player.ship.alive) {
@@ -679,7 +693,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   removeBot(sessionId: string, playerId: string): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     const player = this.players.get(playerId);
     if (!player || !player.isBot) {
       this.hooks.onError(sessionId, "NOT_FOUND", "Bot not found");
@@ -689,7 +703,7 @@ export class AstroPartySimulation implements SimState {
   }
 
   kickPlayer(sessionId: string, targetId: string): void {
-    if (!this.ensureLeader(sessionId)) return;
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     const target = this.players.get(targetId);
     if (!target) {
       this.hooks.onError(sessionId, "NOT_FOUND", "Player not found");
@@ -1208,89 +1222,13 @@ export class AstroPartySimulation implements SimState {
     this.hooks.onReseed?.(normalized);
   }
 
-  private ensureLeader(sessionId: string): boolean {
-    const player = this.getHuman(sessionId);
-    if (!player) return false;
-    if (this.leaderPlayerId !== player.id) {
-      this.hooks.onError(sessionId, "LEADER_ONLY", "Only room leader can do this");
-      return false;
-    }
-    return true;
-  }
-
-  private getHuman(sessionId: string): RuntimePlayer | null {
-    const playerId = this.humanBySession.get(sessionId);
-    if (!playerId) return null;
-    return this.players.get(playerId) ?? null;
-  }
-
-  private resolveControlledPlayer(
-    sessionId: string,
-    controlledPlayerId?: string,
-  ): RuntimePlayer | null {
-    const human = this.getHuman(sessionId);
-    if (!human) return null;
-
-    if (!controlledPlayerId || controlledPlayerId === human.id) {
-      return human;
-    }
-
-    const target = this.players.get(controlledPlayerId);
-    if (!target) {
-      this.hooks.onError(sessionId, "NOT_FOUND", "Controlled player not found");
-      return null;
-    }
-
-    if (target.botType !== "local" || target.sessionId !== sessionId) {
-      this.hooks.onError(
-        sessionId,
-        "LOCAL_PLAYER_UNSUPPORTED",
-        "Controlled player is not available for this session",
-      );
-      return null;
-    }
-
-    return target;
-  }
-
-  private resolveLocalKeySlot(sessionId: string, keySlot?: number): number {
-    const preferred =
-      Number.isInteger(keySlot) && (keySlot as number) > 0
-        ? (keySlot as number)
-        : undefined;
-
-    if (preferred !== undefined) {
-      const inUse = [...this.players.values()].some(
-        (player) =>
-          player.botType === "local" &&
-          player.sessionId === sessionId &&
-          player.keySlot === preferred,
-      );
-      if (inUse) {
-        this.hooks.onError(sessionId, "KEY_SLOT_IN_USE", "Key slot already in use");
-        return -1;
-      }
-      return preferred;
-    }
-
-    for (let slot = 1; slot <= 6; slot += 1) {
-      const inUse = [...this.players.values()].some(
-        (player) =>
-          player.botType === "local" &&
-          player.sessionId === sessionId &&
-          player.keySlot === slot,
-      );
-      if (!inUse) return slot;
-    }
-
-    this.hooks.onError(sessionId, "KEY_SLOT_IN_USE", "No local key slots available");
-    return -1;
-  }
-
-  private sanitizeName(raw?: string): string | null {
-    if (!raw) return null;
-    const out = raw.trim().slice(0, 20);
-    return out.length > 0 ? out : null;
+  private createPlayerControlsContext(): PlayerControlsContext {
+    return {
+      players: this.players,
+      humanBySession: this.humanBySession,
+      leaderPlayerId: this.leaderPlayerId,
+      hooks: this.hooks,
+    };
   }
 
   private getCurrentMap(): MapDefinition {
@@ -1505,3 +1443,4 @@ export type {
   RoundResultPayload,
   SnapshotPayload,
 } from "./types.js";
+
