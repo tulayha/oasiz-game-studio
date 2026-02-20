@@ -1049,6 +1049,7 @@ export class Game {
       networkTurret: renderState.networkTurret,
       networkTurretBullets: renderState.networkTurretBullets,
       mapId: this.selectedMapId,
+      rotationDirection: renderState.networkRotationDirection,
       yellowBlockHp: renderState.networkYellowBlockHp,
     });
   }

@@ -38,10 +38,13 @@ export interface RenderContext {
   networkTurret: TurretState | null;
   networkTurretBullets: TurretBulletState[];
   mapId: MapId;
+  rotationDirection: number;
   yellowBlockHp: number[];
 }
 
 export class GameRenderer {
+  private mapVisualTimeSec = 0;
+
   constructor(private renderer: Renderer) {}
 
   render(ctx: RenderContext): void {
@@ -56,7 +59,10 @@ export class GameRenderer {
     this.renderer.drawStars();
     const map = getMapDefinition(ctx.mapId);
     const mapTheme = this.getMapTheme(ctx.mapId);
-    const mapTimeSec = ctx.nowMs / 1000;
+    // Keep map FX phase on a monotonic local clock to avoid
+    // snapshot-time jitter causing apparent random jumps on direction swaps.
+    this.mapVisualTimeSec += Math.max(0, Math.min(ctx.dt, 0.1));
+    const mapTimeSec = this.mapVisualTimeSec;
     if (ctx.showMapElements) {
       this.renderer.drawArenaBorder(mapTheme.border);
       for (const block of this.getYellowBlocksForRender(
@@ -66,7 +72,12 @@ export class GameRenderer {
         this.renderer.drawYellowBlock(block);
       }
       for (const hole of map.centerHoles) {
-        this.renderer.drawCenterHole(hole, mapTimeSec, 1, mapTheme.centerHole);
+        this.renderer.drawCenterHole(
+          hole,
+          mapTimeSec,
+          ctx.rotationDirection === -1 ? -1 : 1,
+          mapTheme.centerHole,
+        );
       }
       for (const zone of map.repulsionZones) {
         this.renderer.drawRepulsionZone(zone, mapTimeSec, mapTheme.repulsion);

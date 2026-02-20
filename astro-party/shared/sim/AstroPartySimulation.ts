@@ -1355,10 +1355,17 @@ export class AstroPartySimulation implements SimState {
     const map = this.getCurrentMap();
 
     if (map.centerHoles.length > 0) {
+      const PROJECTILE_VORTEX_DIVERGENCE_FACTOR = 0.45;
+      const TURRET_BULLET_VORTEX_DIVERGENCE_FACTOR = 0.55;
+      const VORTEX_PROJECTILE_DISTANCE_DAMPING = 18;
       for (const hole of map.centerHoles) {
         const influenceRadius = hole.radius * 2.5;
 
-        const applyRotationalForce = (body: Matter.Body | undefined): void => {
+        const applyRotationalForce = (
+          body: Matter.Body | undefined,
+          divergenceFactor = 1,
+          distanceDamping = 0,
+        ): void => {
           if (!body) return;
           const dx = body.position.x - hole.x;
           const dy = body.position.y - hole.y;
@@ -1368,7 +1375,17 @@ export class AstroPartySimulation implements SimState {
           const tx = (-dy / dist) * this.rotationDirection;
           const ty = (dx / dist) * this.rotationDirection;
           const falloff = (influenceRadius - dist) / influenceRadius;
-          const forceMagnitude = 0.0015 * falloff * falloff;
+          let forceMagnitude = 0.0015 * falloff * falloff;
+
+          // Projectiles/bullets should curve less aggressively in vortex maps.
+          // This makes their divergence feel closer to repulse-style handling.
+          if (divergenceFactor < 1) {
+            const damping =
+              distanceDamping > 0
+                ? influenceRadius / Math.max(dist * distanceDamping, 120)
+                : 1;
+            forceMagnitude *= divergenceFactor * damping;
+          }
 
           Body.applyForce(body, body.position, {
             x: tx * forceMagnitude,
@@ -1392,7 +1409,11 @@ export class AstroPartySimulation implements SimState {
         }
 
         for (const projectile of this.projectiles) {
-          applyRotationalForce(this.projectileBodies.get(projectile.id));
+          applyRotationalForce(
+            this.projectileBodies.get(projectile.id),
+            PROJECTILE_VORTEX_DIVERGENCE_FACTOR,
+            VORTEX_PROJECTILE_DISTANCE_DAMPING,
+          );
         }
 
         for (const powerUp of this.powerUps) {
@@ -1402,7 +1423,11 @@ export class AstroPartySimulation implements SimState {
 
         for (const bullet of this.turretBullets) {
           if (!bullet.alive) continue;
-          applyRotationalForce(this.turretBulletBodies.get(bullet.id));
+          applyRotationalForce(
+            this.turretBulletBodies.get(bullet.id),
+            TURRET_BULLET_VORTEX_DIVERGENCE_FACTOR,
+            VORTEX_PROJECTILE_DISTANCE_DAMPING,
+          );
         }
       }
     }

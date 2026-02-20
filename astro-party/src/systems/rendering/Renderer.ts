@@ -53,6 +53,16 @@ export class Renderer {
   private entitySprites = new EntitySpriteStore();
   private mapOverlays = new MapOverlayStore();
   private powerUpSprites = new PowerUpSpriteStore();
+  private centerHoleRotationState = new Map<
+    string,
+    {
+      direction: number;
+      ringOffset: number;
+      snakeOffset: number;
+      snakeSizeFlipT: number;
+      lastTime: number;
+    }
+  >();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -537,6 +547,7 @@ export class Renderer {
     this.screenShake.duration = 0;
     this.screenShake.offsetX = 0;
     this.screenShake.offsetY = 0;
+    this.centerHoleRotationState.clear();
   }
 
   private clampCameraZoom(zoom: number): number {
@@ -1523,6 +1534,13 @@ export class Renderer {
     const { ctx } = this;
     ctx.save();
 
+    const direction = playerMovementDirection === -1 ? -1 : 1;
+    const { ringAngle, snakeAngle, snakeSizeFlipT } = this.getStableCenterHoleAngles(
+      hole,
+      time,
+      direction,
+    );
+
     const gradientInner = theme?.gradientInner ?? "rgba(0, 0, 0, 0.95)";
     const gradientMid = theme?.gradientMid ?? "rgba(10, 10, 30, 0.9)";
     const gradientOuter = theme?.gradientOuter ?? "rgba(20, 20, 50, 0.6)";
@@ -1566,7 +1584,7 @@ export class Renderer {
     if (hole.hasRotatingArrow) {
       ctx.shadowBlur = 0;
       const lineRadius = hole.radius + 18;
-      const rotationAngle = time * 1.5 * playerMovementDirection;
+      const rotationAngle = ringAngle;
       const segments = 3;
       const segmentArc = Math.PI / 6;
       const gapArc = Math.PI / 12;
@@ -1584,7 +1602,7 @@ export class Renderer {
         ctx.stroke();
       }
 
-      const arrowAngle = rotationAngle + 0.25 * playerMovementDirection;
+      const arrowAngle = rotationAngle + 0.25 * direction;
       const ax = hole.x + Math.cos(arrowAngle) * (lineRadius + 8);
       const ay = hole.y + Math.sin(arrowAngle) * (lineRadius + 8);
       const arrowSize = 10;
@@ -1592,7 +1610,7 @@ export class Renderer {
       ctx.save();
       ctx.translate(ax, ay);
       ctx.rotate(
-        arrowAngle + (playerMovementDirection > 0 ? Math.PI / 2 : -Math.PI / 2),
+        arrowAngle + (direction > 0 ? Math.PI / 2 : -Math.PI / 2),
       );
       ctx.fillStyle = arrowColor;
       ctx.shadowColor = arrowColor;
@@ -1607,7 +1625,7 @@ export class Renderer {
 
       ctx.shadowBlur = 0;
       for (let i = 1; i <= 5; i++) {
-        const trailAngle = rotationAngle - i * 0.4 * playerMovementDirection;
+        const trailAngle = rotationAngle - i * 0.4 * direction;
         const trailAlpha = 0.5 - i * 0.08;
         ctx.globalAlpha = Math.max(0, trailAlpha);
         ctx.strokeStyle = arrowColor;
@@ -1626,16 +1644,69 @@ export class Renderer {
     }
 
     if (theme?.ring === "#ff5a2b") {
-      this.drawVortexSnake(hole, time, playerMovementDirection, theme);
+      this.drawVortexSnake(hole, snakeAngle, snakeSizeFlipT, theme);
     }
 
     ctx.restore();
   }
 
-  private drawVortexSnake(
+  private getCenterHoleStateKey(hole: CenterHole): string {
+    return `${hole.x}|${hole.y}|${hole.radius}`;
+  }
+
+  private getStableCenterHoleAngles(
     hole: CenterHole,
     time: number,
-    playerMovementDirection: number,
+    direction: number,
+  ): { ringAngle: number; snakeAngle: number; snakeSizeFlipT: number } {
+    const ringSpeed = 1.5;
+    const snakeSpeed = 1.2;
+    const sizeFlipRate = 8;
+    const sizeFlipTarget = direction === -1 ? 1 : 0;
+    const key = this.getCenterHoleStateKey(hole);
+    const state = this.centerHoleRotationState.get(key);
+    if (!state) {
+      const initial = {
+        direction,
+        ringOffset: 0,
+        snakeOffset: 0,
+        snakeSizeFlipT: sizeFlipTarget,
+        lastTime: time,
+      };
+      this.centerHoleRotationState.set(key, initial);
+      return {
+        ringAngle: time * ringSpeed * direction,
+        snakeAngle: time * snakeSpeed * direction,
+        snakeSizeFlipT: initial.snakeSizeFlipT,
+      };
+    }
+
+    const dt = this.clamp(time - state.lastTime, 0, 0.2);
+    if (state.direction !== direction) {
+      const currentRingAngle = time * ringSpeed * state.direction + state.ringOffset;
+      state.ringOffset = currentRingAngle - time * ringSpeed * direction;
+
+      const currentSnakeAngle = time * snakeSpeed * state.direction + state.snakeOffset;
+      state.snakeOffset = currentSnakeAngle - time * snakeSpeed * direction;
+
+      state.direction = direction;
+    }
+    const blendAlpha = 1 - Math.exp(-sizeFlipRate * dt);
+    state.snakeSizeFlipT +=
+      (sizeFlipTarget - state.snakeSizeFlipT) * blendAlpha;
+    state.lastTime = time;
+
+    return {
+      ringAngle: time * ringSpeed * state.direction + state.ringOffset,
+      snakeAngle: time * snakeSpeed * state.direction + state.snakeOffset,
+      snakeSizeFlipT: state.snakeSizeFlipT,
+    };
+  }
+
+  private drawVortexSnake(
+    hole: CenterHole,
+    baseAngle: number,
+    sizeFlipT: number,
     theme: {
       ring: string;
       innerRing: string;
@@ -1649,38 +1720,41 @@ export class Renderer {
     void theme;
     const { ctx } = this;
     const snakeRadius = hole.radius + 25;
-    const snakeSpeed = 1.2;
     const segmentCount = 8;
     const segmentSpacing = 0.25;
-    const baseAngle = time * snakeSpeed * playerMovementDirection;
+    const leadIndex = (segmentCount - 1) * this.clamp01(sizeFlipT);
 
     ctx.save();
     for (let i = segmentCount - 1; i >= 0; i--) {
-      const segmentAngle =
-        baseAngle - i * segmentSpacing * playerMovementDirection;
+      // Keep segment spacing independent from rotation direction so
+      // direction swaps reverse motion smoothly without flipping tail side.
+      const segmentAngle = baseAngle - i * segmentSpacing;
       const x = hole.x + Math.cos(segmentAngle) * snakeRadius;
       const y = hole.y + Math.sin(segmentAngle) * snakeRadius;
-      const size = 8 - i * 0.6;
-      const alpha = 1 - i * 0.08;
+      const flippedIndex = segmentCount - 1 - i;
+      const visualIndex = i + (flippedIndex - i) * sizeFlipT;
+      const size = 8 - visualIndex * 0.6;
+      const alpha = 1 - visualIndex * 0.08;
+      const leadWeight = this.clamp01(1 - Math.abs(i - leadIndex));
 
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(segmentAngle);
-      if (i === 0) {
+      if (leadWeight > 0) {
         ctx.shadowColor = "#ff8844";
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * leadWeight;
       }
 
       const r = 255;
-      const g = Math.floor(136 - i * 12);
-      const b = Math.floor(68 - i * 6);
+      const g = Math.floor(136 - visualIndex * 12);
+      const b = Math.floor(68 - visualIndex * 6);
       ctx.fillStyle = "rgba(" + r + ", " + g + ", " + b + ", " + alpha + ")";
       ctx.beginPath();
       ctx.ellipse(0, 0, size * 1.2, size * 0.8, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      if (i === 0) {
-        ctx.fillStyle = "#ffaa66";
+      if (leadWeight > 0) {
+        ctx.fillStyle = "rgba(255, 170, 102, " + leadWeight + ")";
         ctx.beginPath();
         ctx.ellipse(size * 0.3, 0, size * 0.5, size * 0.4, 0, 0, Math.PI * 2);
         ctx.fill();

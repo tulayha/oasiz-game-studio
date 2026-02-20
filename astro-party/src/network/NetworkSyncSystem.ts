@@ -44,6 +44,7 @@ export interface RenderNetworkState {
   networkTurret: TurretState | null;
   networkTurretBullets: TurretBulletState[];
   networkMapId: MapId;
+  networkRotationDirection: number;
   networkYellowBlockHp: number[];
 }
 
@@ -96,6 +97,7 @@ export class NetworkSyncSystem {
   private networkTurret: TurretState | null = null;
   private networkTurretBullets: TurretBulletState[] = [];
   private networkMapId: MapId = 0;
+  private networkRotationDirection = 1;
   private networkYellowBlockHp: number[] = [];
 
   hostSimTimeMs = 0;
@@ -304,6 +306,7 @@ export class NetworkSyncSystem {
     this.networkTurret = null;
     this.networkTurretBullets = [];
     this.networkMapId = 0;
+    this.networkRotationDirection = 1;
     this.networkYellowBlockHp = [];
 
     this.clientArmingMines.clear();
@@ -336,6 +339,7 @@ export class NetworkSyncSystem {
     this.networkTurret = null;
     this.networkTurretBullets = [];
     this.networkMapId = 0;
+    this.networkRotationDirection = 1;
     this.networkYellowBlockHp = [];
 
     this.clientArmingMines.clear();
@@ -398,6 +402,7 @@ export class NetworkSyncSystem {
       networkTurret: this.networkTurret,
       networkTurretBullets: this.networkTurretBullets,
       networkMapId: this.networkMapId,
+      networkRotationDirection: this.networkRotationDirection,
       networkYellowBlockHp: this.networkYellowBlockHp,
     };
   }
@@ -486,6 +491,8 @@ export class NetworkSyncSystem {
     this.networkTurret = state.turret ?? null;
     this.networkTurretBullets = state.turretBullets || [];
     this.networkMapId = (state.mapId ?? 0) as MapId;
+    this.networkRotationDirection =
+      state.rotationDirection === -1 ? -1 : 1;
     this.networkYellowBlockHp = state.yellowBlockHp || [];
   }
 
