@@ -45,8 +45,6 @@ import {
   FIRE_COOLDOWN_MS,
   MAX_AMMO,
   HOMING_MISSILE_LIFETIME_MS,
-  POWERUP_MAGNETIC_RADIUS,
-  POWERUP_MAGNETIC_SPEED,
   WALL_RESTITUTION_BY_PRESET,
   WALL_FRICTION_BY_PRESET,
 } from "./constants.js";
@@ -54,13 +52,7 @@ import {
   getMapDefinition,
   CLASSIC_ROTATION_MAP_IDS,
   type MapDefinition,
-  type YellowBlock,
 } from "./maps.js";
-import {
-  REPULSION_TUNING,
-  VORTEX_TUNING,
-  sampleMapField,
-} from "./mapFeatureTuning.js";
 import {
   applyModeTemplate,
   isCustomComparedToTemplate,
@@ -102,6 +94,13 @@ import {
   removeProjectileByBodyCollision,
   type SimulationCollisionHandlersContext,
 } from "./simulationCollisionHandlers.js";
+import {
+  clearMapFeatures as clearMapFeaturesState,
+  spawnMapFeatures as spawnMapFeaturesState,
+  updateMapFeatures as updateMapFeaturesState,
+  type RuntimeYellowBlockState,
+  type SimulationMapFeaturesContext,
+} from "./simulationMapFeatures.js";
 
 // System imports
 import { updateBots } from "./AISystem.js";
@@ -145,13 +144,6 @@ import {
 const { Body } = Matter;
 
 const LAG_COMP_MAX_REWIND_MS = 200;
-
-interface RuntimeYellowBlock {
-  block: YellowBlock;
-  body: Matter.Body | null;
-  hp: number;
-  maxHp: number;
-}
 
 interface SimulationOptions {
   debugToolsEnabled?: boolean;
@@ -202,7 +194,7 @@ export class AstroPartySimulation implements SimState {
   private powerUpBodies = new Map<string, Matter.Body>();
   private turretBulletBodies = new Map<string, Matter.Body>();
   private turretBody: Matter.Body | null = null;
-  private yellowBlocks: RuntimeYellowBlock[] = [];
+  private yellowBlocks: RuntimeYellowBlockState[] = [];
   private yellowBlockBodyIndex = new Map<number, number>();
   private yellowBlockSwordHitCooldown = new Map<number, number>();
   private centerHoleBodies: Matter.Body[] = [];
@@ -1030,366 +1022,54 @@ export class AstroPartySimulation implements SimState {
     player.input.buttonB = pressed;
   }
 
+  private createMapFeaturesContext(): SimulationMapFeaturesContext {
+    return {
+      physics: this.physics,
+      nowMs: this.nowMs,
+      nextEntityId: this.nextEntityId.bind(this),
+      powerUpRng: this.powerUpRng,
+      rotationDirection: this.rotationDirection,
+      getCurrentMap: this.getCurrentMap.bind(this),
+      getMapPowerUpsSpawned: () => this.mapPowerUpsSpawned,
+      setMapPowerUpsSpawned: (spawned: boolean) => {
+        this.mapPowerUpsSpawned = spawned;
+      },
+      addMapTimeSec: (delta: number) => {
+        this.mapTimeSec += delta;
+      },
+      resetMapTimeSec: () => {
+        this.mapTimeSec = 0;
+      },
+      yellowBlocks: this.yellowBlocks,
+      yellowBlockBodyIndex: this.yellowBlockBodyIndex,
+      yellowBlockSwordHitCooldown: this.yellowBlockSwordHitCooldown,
+      centerHoleBodies: this.centerHoleBodies,
+      powerUps: this.powerUps,
+      players: this.players,
+      pilots: this.pilots,
+      asteroids: this.asteroids,
+      projectiles: this.projectiles,
+      turretBullets: this.turretBullets,
+      homingMissiles: this.homingMissiles,
+      mines: this.mines,
+      shipBodies: this.shipBodies,
+      pilotBodies: this.pilotBodies,
+      asteroidBodies: this.asteroidBodies,
+      projectileBodies: this.projectileBodies,
+      turretBulletBodies: this.turretBulletBodies,
+    };
+  }
+
   spawnMapFeatures(): void {
-    this.clearMapFeatures();
-    const map = this.getCurrentMap();
-
-    if (map.yellowBlocks.length > 0) {
-      for (const [index, block] of map.yellowBlocks.entries()) {
-        const body = this.physics.createYellowBlock(
-          block.x + block.width * 0.5,
-          block.y + block.height * 0.5,
-          block.width,
-          block.height,
-          index,
-        );
-        this.yellowBlocks.push({
-          block,
-          body,
-          hp: 1,
-          maxHp: 1,
-        });
-        this.yellowBlockBodyIndex.set(body.id, index);
-      }
-    }
-
-    if (map.centerHoles.length > 0) {
-      for (const hole of map.centerHoles) {
-        const body = this.physics.createCenterHoleObstacle(
-          hole.x,
-          hole.y,
-          hole.radius,
-        );
-        this.centerHoleBodies.push(body);
-      }
-    }
-
-    const mapPowerUpConfig = map.powerUpConfig;
-    if (!mapPowerUpConfig?.enabled) return;
-    if (this.mapPowerUpsSpawned && !mapPowerUpConfig.respawnPerRound) return;
-
-    const x = mapPowerUpConfig.x * ARENA_WIDTH;
-    const y = mapPowerUpConfig.y * ARENA_HEIGHT;
-    const existing = this.powerUps.find((powerUp) => {
-      if (!powerUp.alive) return false;
-      const dx = Math.abs(powerUp.x - x);
-      const dy = Math.abs(powerUp.y - y);
-      return dx < 5 && dy < 5;
-    });
-    if (existing) return;
-
-    const typeIndex = this.powerUpRng.nextInt(0, mapPowerUpConfig.types.length - 1);
-    const type = mapPowerUpConfig.types[typeIndex];
-    this.powerUps.push({
-      id: this.nextEntityId("pow"),
-      x,
-      y,
-      type,
-      spawnTime: this.nowMs,
-      remainingTimeFraction: 1,
-      alive: true,
-      magneticRadius: POWERUP_MAGNETIC_RADIUS,
-      magneticSpeed: POWERUP_MAGNETIC_SPEED,
-      isMagneticActive: false,
-      targetPlayerId: null,
-    });
-    this.mapPowerUpsSpawned = true;
+    spawnMapFeaturesState(this.createMapFeaturesContext());
   }
 
   updateMapFeatures(dtSec: number): void {
-    this.mapTimeSec += dtSec;
-    const map = this.getCurrentMap();
-
-    if (map.centerHoles.length > 0) {
-      for (const hole of map.centerHoles) {
-        const influenceRadius =
-          hole.radius * VORTEX_TUNING.profile.influenceRadiusMultiplier;
-
-        const applyRotationalForce = (
-          body: Matter.Body | undefined,
-          divergenceFactor = 1,
-          distanceDamping = 0,
-        ): void => {
-          if (!body) return;
-          const dx = body.position.x - hole.x;
-          const dy = body.position.y - hole.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const sample = sampleMapField(
-            dist,
-            influenceRadius,
-            VORTEX_TUNING.profile,
-          );
-          if (!sample) return;
-
-          const tx = (-dy / dist) * this.rotationDirection;
-          const ty = (dx / dist) * this.rotationDirection;
-          let forceMagnitude = VORTEX_TUNING.baseForce * sample.falloff;
-
-          // Projectiles/bullets should curve less aggressively in vortex maps.
-          // This makes their divergence feel closer to repulse-style handling.
-          if (divergenceFactor < 1) {
-            // Keep damping floor in tuning so lowering/raising distance
-            // sensitivity stays predictable.
-            const dampingWithFloor =
-              distanceDamping > 0
-                ? influenceRadius /
-                  Math.max(
-                    dist * distanceDamping,
-                    VORTEX_TUNING.profile.distanceFloor,
-                  )
-                : 1;
-            forceMagnitude *= divergenceFactor * dampingWithFloor;
-          }
-
-          Body.applyForce(body, body.position, {
-            x: tx * forceMagnitude,
-            y: ty * forceMagnitude,
-          });
-        };
-
-        for (const player of this.players.values()) {
-          if (!player.ship.alive) continue;
-          applyRotationalForce(this.shipBodies.get(player.id));
-        }
-
-        for (const [playerId, pilot] of this.pilots) {
-          if (!pilot.alive) continue;
-          applyRotationalForce(this.pilotBodies.get(playerId));
-        }
-
-        for (const asteroid of this.asteroids) {
-          if (!asteroid.alive) continue;
-          applyRotationalForce(this.asteroidBodies.get(asteroid.id));
-        }
-
-        for (const projectile of this.projectiles) {
-          applyRotationalForce(
-            this.projectileBodies.get(projectile.id),
-            VORTEX_TUNING.projectileDivergenceFactor,
-            VORTEX_TUNING.projectileDistanceDamping,
-          );
-        }
-
-        for (const bullet of this.turretBullets) {
-          if (!bullet.alive) continue;
-          applyRotationalForce(
-            this.turretBulletBodies.get(bullet.id),
-            VORTEX_TUNING.turretBulletDivergenceFactor,
-            VORTEX_TUNING.projectileDistanceDamping,
-          );
-        }
-
-        for (const missile of this.homingMissiles) {
-          if (!missile.alive) continue;
-          const dx = missile.x - hole.x;
-          const dy = missile.y - hole.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const sample = sampleMapField(
-            dist,
-            influenceRadius,
-            VORTEX_TUNING.profile,
-          );
-          if (!sample) continue;
-          const tx = (-dy / dist) * this.rotationDirection;
-          const ty = (dx / dist) * this.rotationDirection;
-          const drift =
-            VORTEX_TUNING.homingMissileTangentialBase +
-            sample.falloff * VORTEX_TUNING.homingMissileTangentialFalloff;
-          missile.vx += tx * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
-          missile.vy += ty * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
-        }
-
-        for (const mine of this.mines) {
-          if (!mine.alive || mine.exploded) continue;
-          const dx = mine.x - hole.x;
-          const dy = mine.y - hole.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const sample = sampleMapField(
-            dist,
-            influenceRadius,
-            VORTEX_TUNING.profile,
-          );
-          if (!sample) continue;
-          const tx = (-dy / dist) * this.rotationDirection;
-          const ty = (dx / dist) * this.rotationDirection;
-          const drift =
-            VORTEX_TUNING.mineTangentialBase +
-            sample.falloff * VORTEX_TUNING.mineTangentialFalloff;
-          mine.x += tx * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
-          mine.y += ty * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
-          mine.x = clamp(mine.x, 0, ARENA_WIDTH);
-          mine.y = clamp(mine.y, 0, ARENA_HEIGHT);
-        }
-
-        for (const powerUp of this.powerUps) {
-          if (!powerUp.alive) continue;
-          const dx = powerUp.x - hole.x;
-          const dy = powerUp.y - hole.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const sample = sampleMapField(
-            dist,
-            influenceRadius,
-            VORTEX_TUNING.profile,
-          );
-          if (!sample) continue;
-          const tx = (-dy / dist) * this.rotationDirection;
-          const ty = (dx / dist) * this.rotationDirection;
-          const drift =
-            VORTEX_TUNING.powerUpTangentialBase +
-            sample.falloff * VORTEX_TUNING.powerUpTangentialFalloff;
-          powerUp.x += tx * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
-          powerUp.y += ty * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
-          powerUp.x = clamp(powerUp.x, 0, ARENA_WIDTH);
-          powerUp.y = clamp(powerUp.y, 0, ARENA_HEIGHT);
-        }
-      }
-    }
-
-    if (map.repulsionZones.length === 0) return;
-
-    for (const zone of map.repulsionZones) {
-      const influenceRadius =
-        zone.radius * REPULSION_TUNING.profile.influenceRadiusMultiplier;
-
-      const applyForceToBody = (body: Matter.Body | undefined): void => {
-        if (!body) return;
-        const dx = body.position.x - zone.x;
-        const dy = body.position.y - zone.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const sample = sampleMapField(
-          dist,
-          influenceRadius,
-          REPULSION_TUNING.profile,
-        );
-        if (!sample) return;
-
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const strengthScale =
-          REPULSION_TUNING.bodyStrengthBaseScale +
-          sample.falloff * REPULSION_TUNING.bodyStrengthFalloffScale;
-        const forceMagnitude =
-          (zone.strength * strengthScale) /
-          Math.max(
-            Math.pow(dist, REPULSION_TUNING.bodyDistanceExponent),
-            REPULSION_TUNING.profile.distanceFloor,
-          );
-
-        Body.applyForce(body, body.position, {
-          x: nx * forceMagnitude,
-          y: ny * forceMagnitude,
-        });
-      };
-
-      for (const player of this.players.values()) {
-        if (!player.ship.alive) continue;
-        applyForceToBody(this.shipBodies.get(player.id));
-      }
-
-      for (const [playerId, pilot] of this.pilots) {
-        if (!pilot.alive) continue;
-        applyForceToBody(this.pilotBodies.get(playerId));
-      }
-
-      for (const asteroid of this.asteroids) {
-        if (!asteroid.alive) continue;
-        applyForceToBody(this.asteroidBodies.get(asteroid.id));
-      }
-
-      for (const projectile of this.projectiles) {
-        applyForceToBody(this.projectileBodies.get(projectile.id));
-      }
-
-      for (const bullet of this.turretBullets) {
-        if (!bullet.alive) continue;
-        applyForceToBody(this.turretBulletBodies.get(bullet.id));
-      }
-
-      for (const missile of this.homingMissiles) {
-        if (!missile.alive) continue;
-        const dx = missile.x - zone.x;
-        const dy = missile.y - zone.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const sample = sampleMapField(
-          dist,
-          influenceRadius,
-          REPULSION_TUNING.profile,
-        );
-        if (!sample) continue;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const accel =
-          zone.strength *
-          (REPULSION_TUNING.homingMissileAccelBase +
-            sample.falloff * REPULSION_TUNING.homingMissileAccelFalloff);
-        missile.vx += nx * accel * dtSec * REPULSION_TUNING.kinematicStepScale;
-        missile.vy += ny * accel * dtSec * REPULSION_TUNING.kinematicStepScale;
-      }
-
-      for (const mine of this.mines) {
-        if (!mine.alive || mine.exploded) continue;
-        const dx = mine.x - zone.x;
-        const dy = mine.y - zone.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const sample = sampleMapField(
-          dist,
-          influenceRadius,
-          REPULSION_TUNING.profile,
-        );
-        if (!sample) continue;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const drift =
-          zone.strength *
-          (REPULSION_TUNING.mineDriftBase +
-            sample.falloff * REPULSION_TUNING.mineDriftFalloff);
-        mine.x += nx * drift * dtSec * REPULSION_TUNING.kinematicStepScale;
-        mine.y += ny * drift * dtSec * REPULSION_TUNING.kinematicStepScale;
-        mine.x = clamp(mine.x, 0, ARENA_WIDTH);
-        mine.y = clamp(mine.y, 0, ARENA_HEIGHT);
-      }
-
-      for (const powerUp of this.powerUps) {
-        if (!powerUp.alive) continue;
-        const dx = powerUp.x - zone.x;
-        const dy = powerUp.y - zone.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const sample = sampleMapField(
-          dist,
-          influenceRadius,
-          REPULSION_TUNING.profile,
-        );
-        if (!sample) continue;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const drift =
-          zone.strength *
-          (REPULSION_TUNING.powerUpDriftBase +
-            sample.falloff * REPULSION_TUNING.powerUpDriftFalloff);
-        powerUp.x += nx * drift * dtSec * REPULSION_TUNING.kinematicStepScale;
-        powerUp.y += ny * drift * dtSec * REPULSION_TUNING.kinematicStepScale;
-        powerUp.x = clamp(powerUp.x, 0, ARENA_WIDTH);
-        powerUp.y = clamp(powerUp.y, 0, ARENA_HEIGHT);
-      }
-    }
+    updateMapFeaturesState(this.createMapFeaturesContext(), dtSec);
   }
 
   clearMapFeatures(): void {
-    for (const yellowBlock of this.yellowBlocks) {
-      if (yellowBlock.body) {
-        this.physics.removeBody(yellowBlock.body);
-      }
-    }
-    this.yellowBlocks = [];
-    this.yellowBlockBodyIndex.clear();
-    this.yellowBlockSwordHitCooldown.clear();
-
-    for (const centerHoleBody of this.centerHoleBodies) {
-      this.physics.removeBody(centerHoleBody);
-    }
-    this.centerHoleBodies = [];
-
-    this.mapTimeSec = 0;
+    clearMapFeaturesState(this.createMapFeaturesContext());
   }
 
   onShipHit(owner: RuntimePlayer | undefined, target: RuntimePlayer): void {
