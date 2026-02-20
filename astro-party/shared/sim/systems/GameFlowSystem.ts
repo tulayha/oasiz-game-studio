@@ -18,6 +18,9 @@ import { grantStartingPowerups } from "./PowerUpSystem.js";
 import { getMapDefinition } from "../maps.js";
 import { getScoreAwardForEvent } from "../scoring.js";
 
+// Keep both pilot dash trigger modes available for easy tuning/rollback.
+const PILOT_DASH_USE_EDGE_TRIGGER = false;
+
 function awardPlayerScore(
   player: RuntimePlayer | undefined,
   event: "SHIP_DESTROY" | "PILOT_KILL" | "ROUND_WIN" | "GAME_WIN",
@@ -74,7 +77,8 @@ export function updatePilots(sim: SimState, dtSec: number): void {
     }
     const dashPressedNow = dash && !pilot.dashInputHeld;
     pilot.dashInputHeld = dash;
-    if (dashPressedNow && sim.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
+    const dashRequested = PILOT_DASH_USE_EDGE_TRIGGER ? dashPressedNow : dash;
+    if (dashRequested && sim.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
       pilot.lastDashAtMs = sim.nowMs;
       sim.applyPilotForce(
         playerId,

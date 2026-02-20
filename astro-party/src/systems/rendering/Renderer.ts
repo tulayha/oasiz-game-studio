@@ -29,10 +29,24 @@ import type {
   RepulsionZone,
 } from "../../../shared/sim/maps";
 
+interface BulletCasing {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  width: number;
+  height: number;
+  angle: number;
+  angularVelocity: number;
+  shimmerOffset: number;
+}
+
 export class Renderer {
+  private static readonly MAX_BULLET_CASINGS = 96;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private particles: Particle[] = [];
+  private bulletCasings: BulletCasing[] = [];
   private screenShake = { intensity: 0, duration: 0, offsetX: 0, offsetY: 0 };
   private visualRng: SeededRNG;
   private gameTimeMs: number | null = null;
@@ -544,6 +558,7 @@ export class Renderer {
 
   clearEffects(): void {
     this.particles = [];
+    this.bulletCasings = [];
     this.screenShake.intensity = 0;
     this.screenShake.duration = 0;
     this.screenShake.offsetX = 0;
@@ -1137,6 +1152,35 @@ export class Renderer {
     }
   }
 
+  spawnBulletCasing(
+    x: number,
+    y: number,
+    shotAngle: number,
+    inheritedVx: number = 0,
+    inheritedVy: number = 0,
+  ): void {
+    const ejectionAngle =
+      shotAngle + Math.PI / 2 + (this.random() - 0.5) * 0.5;
+    const ejectionSpeed = 28 + this.random() * 34;
+    const casingScale = 1.5;
+
+    this.bulletCasings.push({
+      x,
+      y,
+      vx: Math.cos(ejectionAngle) * ejectionSpeed + inheritedVx * 0.08,
+      vy: Math.sin(ejectionAngle) * ejectionSpeed + inheritedVy * 0.08,
+      width: (4.6 + this.random() * 1.6) * casingScale,
+      height: (2 + this.random() * 0.8) * casingScale,
+      angle: this.random() * Math.PI * 2,
+      angularVelocity: (this.random() - 0.5) * 7,
+      shimmerOffset: this.random() * Math.PI * 2,
+    });
+
+    while (this.bulletCasings.length > Renderer.MAX_BULLET_CASINGS) {
+      this.bulletCasings.shift();
+    }
+  }
+
   spawnAsteroidDebris(x: number, y: number, size: number, color: string): void {
     // Spawn debris pieces - purely visual, no collision
     const pieceCount = 4 + Math.floor(this.random() * 4); // 4-7 pieces
@@ -1238,6 +1282,33 @@ export class Renderer {
   }
 
   updateParticles(dt: number): void {
+    for (let i = this.bulletCasings.length - 1; i >= 0; i--) {
+      const casing = this.bulletCasings[i];
+      casing.x += casing.vx * dt;
+      casing.y += casing.vy * dt;
+      casing.vx *= 0.993;
+      casing.vy = casing.vy * 0.993 + 2.4 * dt;
+      casing.angle += casing.angularVelocity * dt;
+      casing.angularVelocity *= 0.995;
+
+      if (casing.x < 0) {
+        casing.x = 0;
+        casing.vx = Math.abs(casing.vx) * 0.45;
+      } else if (casing.x > GAME_CONFIG.ARENA_WIDTH) {
+        casing.x = GAME_CONFIG.ARENA_WIDTH;
+        casing.vx = -Math.abs(casing.vx) * 0.45;
+      }
+
+      if (casing.y < 0) {
+        casing.y = 0;
+        casing.vy = Math.abs(casing.vy) * 0.45;
+      } else if (casing.y > GAME_CONFIG.ARENA_HEIGHT) {
+        casing.y = GAME_CONFIG.ARENA_HEIGHT;
+        casing.vy = -Math.abs(casing.vy) * 0.45;
+      }
+
+    }
+
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.x += p.vx * dt;
@@ -1250,6 +1321,34 @@ export class Renderer {
         this.particles.splice(i, 1);
       }
     }
+  }
+
+  drawBulletCasings(): void {
+    const { ctx } = this;
+    const nowMs = this.getNowMs();
+    for (const casing of this.bulletCasings) {
+      const shimmer = 0.78 + 0.22 * Math.sin(nowMs * 0.006 + casing.shimmerOffset);
+      ctx.save();
+      ctx.translate(casing.x, casing.y);
+      ctx.rotate(casing.angle);
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = "rgba(200, 160, 80, 1)";
+      ctx.fillRect(
+        -casing.width * 0.5,
+        -casing.height * 0.5,
+        casing.width,
+        casing.height,
+      );
+      ctx.fillStyle = "rgba(255, 225, 165, " + shimmer + ")";
+      ctx.fillRect(
+        -casing.width * 0.34,
+        -casing.height * 0.34,
+        casing.width * 0.52,
+        casing.height * 0.5,
+      );
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   drawParticles(): void {

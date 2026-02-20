@@ -130,6 +130,8 @@ export class GameRenderer {
         }
       });
 
+      this.renderer.drawBulletCasings();
+
       renderProjectiles.forEach((state) => {
         this.renderer.drawProjectile(state);
       });

@@ -107,6 +107,8 @@ export class NetworkSyncSystem {
 
   private clientArmingMines: Set<string> = new Set();
   private clientExplodedMines: Set<string> = new Set();
+  private clientProjectileIds: Set<string> = new Set();
+  private hasProjectileBaseline = false;
   private clientShipPositions: Map<
     string,
     { x: number; y: number; color: string }
@@ -314,6 +316,8 @@ export class NetworkSyncSystem {
 
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
+    this.clientProjectileIds.clear();
+    this.hasProjectileBaseline = false;
     this.clientShipPositions.clear();
     this.clientAsteroidStates.clear();
     this.clientPilotPositions.clear();
@@ -325,6 +329,8 @@ export class NetworkSyncSystem {
   clearClientTracking(): void {
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
+    this.clientProjectileIds.clear();
+    this.hasProjectileBaseline = false;
     this.clientShipPositions.clear();
     this.clientAsteroidStates.clear();
     this.clientPilotPositions.clear();
@@ -347,6 +353,8 @@ export class NetworkSyncSystem {
 
     this.clientArmingMines.clear();
     this.clientExplodedMines.clear();
+    this.clientProjectileIds.clear();
+    this.hasProjectileBaseline = false;
     this.clientShipPositions.clear();
     this.clientAsteroidStates.clear();
     this.clientPilotPositions.clear();
@@ -598,6 +606,7 @@ export class NetworkSyncSystem {
 
   private processAuthoritativeEffects(state: GameStateSync): void {
     const incomingShips = state.ships || [];
+    const shipById = new Map(incomingShips.map((ship) => [ship.playerId, ship]));
     const currentShipIds = new Set(incomingShips.map((ship) => ship.playerId));
     for (const [playerId, shipData] of this.clientShipPositions) {
       if (!currentShipIds.has(playerId)) {
@@ -634,6 +643,41 @@ export class NetworkSyncSystem {
         x: pilotState.x,
         y: pilotState.y,
       });
+    }
+
+    const incomingProjectiles = state.projectiles || [];
+    const currentProjectileIds = new Set<string>();
+    for (const projectile of incomingProjectiles) {
+      currentProjectileIds.add(projectile.id);
+    }
+
+    if (!this.hasProjectileBaseline) {
+      this.clientProjectileIds = currentProjectileIds;
+      this.hasProjectileBaseline = true;
+    } else {
+      for (const projectile of incomingProjectiles) {
+        if (this.clientProjectileIds.has(projectile.id)) continue;
+        this.clientProjectileIds.add(projectile.id);
+
+        const ownerShip = shipById.get(projectile.ownerId);
+        const shotAngle = ownerShip
+          ? ownerShip.angle
+          : Math.atan2(projectile.vy, projectile.vx);
+        const spawnX = projectile.x - Math.cos(shotAngle) * 8;
+        const spawnY = projectile.y - Math.sin(shotAngle) * 8;
+        this.renderer.spawnBulletCasing(
+          spawnX,
+          spawnY,
+          shotAngle,
+          ownerShip?.vx ?? 0,
+          ownerShip?.vy ?? 0,
+        );
+      }
+      for (const projectileId of this.clientProjectileIds) {
+        if (!currentProjectileIds.has(projectileId)) {
+          this.clientProjectileIds.delete(projectileId);
+        }
+      }
     }
 
     const incomingAsteroids = state.asteroids || [];
