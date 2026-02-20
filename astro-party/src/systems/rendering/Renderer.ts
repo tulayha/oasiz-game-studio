@@ -49,6 +49,7 @@ export class Renderer {
   private cameraFocusY: number = GAME_CONFIG.ARENA_HEIGHT / 2;
   private viewportWidth: number = 1;
   private viewportHeight: number = 1;
+  private coarsePointer = false;
   private entitySprites = new EntitySpriteStore();
   private mapOverlays = new MapOverlayStore();
   private powerUpSprites = new PowerUpSpriteStore();
@@ -101,6 +102,7 @@ export class Renderer {
     const cssHeight = Math.max(1, Math.round(targetHeight));
     this.viewportWidth = cssWidth;
     this.viewportHeight = cssHeight;
+    this.coarsePointer = window.matchMedia("(pointer: coarse)").matches;
 
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     this.canvas.width = Math.max(1, Math.round(cssWidth * dpr));
@@ -474,7 +476,7 @@ export class Renderer {
     }
 
     // Apply camera around world-space focus.
-    const zoom = this.clampCameraZoom(this.cameraZoom);
+    const zoom = this.getEffectiveCameraZoom();
     const focus = this.getClampedCameraFocus(zoom);
     const scaled = this.scale * zoom;
     this.ctx.translate(this.viewportWidth / 2, this.viewportHeight / 2);
@@ -540,6 +542,33 @@ export class Renderer {
   private clampCameraZoom(zoom: number): number {
     if (!Number.isFinite(zoom)) return CAMERA_DEFAULT_ZOOM;
     return Math.max(CAMERA_MIN_ZOOM, Math.min(CAMERA_MAX_ZOOM, zoom));
+  }
+
+  private getViewportZoomCompensation(baseZoom: number): number {
+    if (!this.coarsePointer) return 1;
+    // Keep mobile close-up from feeling undersized on short-height viewports,
+    // while preserving the far-spread baseline zoom exactly.
+    const shortEdge = Math.min(this.viewportWidth, this.viewportHeight);
+    const t = this.clamp01((620 - shortEdge) / 280);
+    const zoomInRange = Math.max(0.0001, CAMERA_MAX_ZOOM - CAMERA_DEFAULT_ZOOM);
+    const zoomInT = this.clamp01((baseZoom - CAMERA_DEFAULT_ZOOM) / zoomInRange);
+    return 1 + t * 0.16 * zoomInT;
+  }
+
+  private getEffectiveCameraZoom(): number {
+    const baseZoom = this.clampCameraZoom(this.cameraZoom);
+    return this.clampCameraZoom(baseZoom * this.getViewportZoomCompensation(baseZoom));
+  }
+
+  private getEffectBlurPx(
+    baseBlurAtUnitScale: number,
+    minBlur: number,
+    maxBlur: number,
+  ): number {
+    // Shadow blur is screen-space; scale it with world->screen scale
+    // so glow remains visually consistent across zoom/device sizes.
+    const px = baseBlurAtUnitScale * this.scale * this.getEffectiveCameraZoom();
+    return this.clamp(px, minBlur, maxBlur);
   }
 
   private clamp(value: number, min: number, max: number): number {
@@ -724,7 +753,7 @@ export class Renderer {
 
       // Red ball glow
       ctx.shadowColor = "#ff0044";
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = this.getEffectBlurPx(15, 7, 22);
       ctx.fillStyle = "#ff0044";
       ctx.beginPath();
       ctx.arc(ballX, ballY, 6, 0, Math.PI * 2);
@@ -749,7 +778,7 @@ export class Renderer {
 
       // Glow effect for lightsabers
       ctx.shadowColor = "#00ff44";
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = this.getEffectBlurPx(20, 8, 28);
 
       // Ship triangle vertices (relative to center)
       const noseX = size;
@@ -829,15 +858,11 @@ export class Renderer {
       ctx.globalAlpha = 0.5;
     }
 
-    // Glow effect
-    ctx.shadowColor = color.glow;
-    ctx.shadowBlur = 15;
-
+    // Ship glow disabled for visual comparison pass.
     this.entitySprites.drawEntity(this.ctx, "ship", {
       "slot-primary": color.primary,
     });
 
-    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
 
     ctx.restore();
@@ -1254,7 +1279,7 @@ export class Renderer {
 
     const glowColor = this.powerUpSprites.getGlowColor(type);
     ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = this.getEffectBlurPx(15, 7, 22);
 
     const drewSprite = this.powerUpSprites.drawPowerUp(ctx, type, size);
     ctx.shadowBlur = 0;
@@ -1348,7 +1373,7 @@ export class Renderer {
 
     // Glow effect
     ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = this.getEffectBlurPx(20, 8, 28);
 
     // Draw oval shield
     ctx.fillStyle = color;

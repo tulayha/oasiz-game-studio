@@ -66,9 +66,9 @@ export class AdaptiveCameraController {
     let targetSpread = CAMERA_MAX_SPREAD_FOR_DEFAULT_ZOOM;
 
     if (isAdaptivePhase && hasGroup) {
-      const centroid = this.computeCentroid(input.anchors);
-      targetFocusX = centroid.x;
-      targetFocusY = centroid.y;
+      const bounds = this.computeBounds(input.anchors);
+      targetFocusX = (bounds.minX + bounds.maxX) * 0.5;
+      targetFocusY = (bounds.minY + bounds.maxY) * 0.5;
       targetSpread = Math.sqrt(this.computeMaxDistanceSq(input.anchors));
     }
 
@@ -164,17 +164,32 @@ export class AdaptiveCameraController {
     return target + (change + temp) * exp;
   }
 
-  private computeCentroid(anchors: readonly CameraAnchor[]): CameraAnchor {
+  private computeBounds(anchors: readonly CameraAnchor[]): {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  } {
     if (anchors.length <= 0) {
-      return { x: DEFAULT_FOCUS_X, y: DEFAULT_FOCUS_Y };
+      return {
+        minX: DEFAULT_FOCUS_X,
+        maxX: DEFAULT_FOCUS_X,
+        minY: DEFAULT_FOCUS_Y,
+        maxY: DEFAULT_FOCUS_Y,
+      };
     }
-    let sumX = 0;
-    let sumY = 0;
-    for (const anchor of anchors) {
-      sumX += anchor.x;
-      sumY += anchor.y;
+    let minX = anchors[0].x;
+    let maxX = anchors[0].x;
+    let minY = anchors[0].y;
+    let maxY = anchors[0].y;
+    for (let i = 1; i < anchors.length; i += 1) {
+      const anchor = anchors[i];
+      if (anchor.x < minX) minX = anchor.x;
+      if (anchor.x > maxX) maxX = anchor.x;
+      if (anchor.y < minY) minY = anchor.y;
+      if (anchor.y > maxY) maxY = anchor.y;
     }
-    return { x: sumX / anchors.length, y: sumY / anchors.length };
+    return { minX, maxX, minY, maxY };
   }
 
   private computeMaxDistanceSq(anchors: readonly CameraAnchor[]): number {
