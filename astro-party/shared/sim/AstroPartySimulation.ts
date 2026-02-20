@@ -603,13 +603,16 @@ export class AstroPartySimulation implements SimState {
     }
     if (!this.ensureLeader(sessionId)) return;
     this.markDebugSessionTainted();
-    this.debugPhysicsTuning = this.sanitizeDebugPhysicsTuning(payload);
+    this.debugPhysicsTuning = sanitizeDebugPhysicsTuningPayload(payload);
   }
 
   getDebugPhysicsTuningSnapshot(): DebugPhysicsTuningSnapshot {
     return {
       config: this.getActiveConfig(),
-      materials: this.resolveMaterialValues(),
+      materials: resolveMaterialValuesFromSettings(
+        this.settings,
+        this.debugPhysicsTuning,
+      ),
       overrides: this.debugPhysicsTuning
         ? {
             configOverrides: this.debugPhysicsTuning.configOverrides
@@ -760,7 +763,12 @@ export class AstroPartySimulation implements SimState {
     }
 
     if (this.phase !== "PLAYING") {
-      this.recordShipTransformHistory();
+      syncRecordShipTransformHistory({
+        nowMs: this.nowMs,
+        playerOrder: this.playerOrder,
+        players: this.players,
+        shipTransformHistory: this.shipTransformHistory,
+      });
       this.hooks.onSnapshot(this.buildSnapshot());
       return;
     }
@@ -772,9 +780,48 @@ export class AstroPartySimulation implements SimState {
     updatePilots(this, dtSec);
     updateAsteroidSpawning(this);
     updateAsteroids(this, dtSec);
-    this.syncPhysicsFromSim();
+    syncPhysicsFromSimState({
+      resolveMaterialValues: () =>
+        resolveMaterialValuesFromSettings(this.settings, this.debugPhysicsTuning),
+      physics: this.physics,
+      playerOrder: this.playerOrder,
+      players: this.players,
+      shipBodies: this.shipBodies,
+      asteroids: this.asteroids,
+      asteroidBodies: this.asteroidBodies,
+      pilots: this.pilots,
+      pilotBodies: this.pilotBodies,
+      projectiles: this.projectiles,
+      projectileBodies: this.projectileBodies,
+      powerUps: this.powerUps,
+      powerUpBodies: this.powerUpBodies,
+      turretBullets: this.turretBullets,
+      turretBulletBodies: this.turretBulletBodies,
+      turret: this.turret,
+      getTurretBody: () => this.turretBody,
+      setTurretBody: (body) => {
+        this.turretBody = body;
+      },
+      removeShipBody: this.removeShipBody.bind(this),
+      removeAsteroidBody: this.removeAsteroidBody.bind(this),
+      removePilotBody: this.removePilotBody.bind(this),
+      removeProjectileBody: this.removeProjectileBody.bind(this),
+      removePowerUpBody: this.removePowerUpBody.bind(this),
+      removeTurretBulletBody: this.removeTurretBulletBody.bind(this),
+    });
     this.physics.update(deltaMs);
-    this.syncSimFromPhysics();
+    syncSimFromPhysicsState({
+      players: this.players,
+      shipBodies: this.shipBodies,
+      asteroids: this.asteroids,
+      asteroidBodies: this.asteroidBodies,
+      pilots: this.pilots,
+      pilotBodies: this.pilotBodies,
+      projectiles: this.projectiles,
+      projectileBodies: this.projectileBodies,
+      turretBullets: this.turretBullets,
+      turretBulletBodies: this.turretBulletBodies,
+    });
     wrapAsteroids(this);
     updateProjectiles(this, dtSec);
     updatePowerUps(this, dtSec);
@@ -794,7 +841,12 @@ export class AstroPartySimulation implements SimState {
       checkEliminationWin(this);
     }
 
-    this.recordShipTransformHistory();
+    syncRecordShipTransformHistory({
+      nowMs: this.nowMs,
+      playerOrder: this.playerOrder,
+      players: this.players,
+      shipTransformHistory: this.shipTransformHistory,
+    });
     this.hooks.onSnapshot(this.buildSnapshot());
   }
 
@@ -832,19 +884,6 @@ export class AstroPartySimulation implements SimState {
       this.settings,
       this.debugPhysicsTuning,
     );
-  }
-
-  private resolveMaterialValues() {
-    return resolveMaterialValuesFromSettings(
-      this.settings,
-      this.debugPhysicsTuning,
-    );
-  }
-
-  private sanitizeDebugPhysicsTuning(
-    payload: DebugPhysicsTuningPayload | null,
-  ): DebugPhysicsTuningPayload | null {
-    return sanitizeDebugPhysicsTuningPayload(payload);
   }
 
   triggerScreenShake(intensity: number, duration: number): void {
@@ -1441,61 +1480,6 @@ export class AstroPartySimulation implements SimState {
   }
 
   // ============= PRIVATE HELPERS =============
-
-  private recordShipTransformHistory(): void {
-    syncRecordShipTransformHistory({
-      nowMs: this.nowMs,
-      playerOrder: this.playerOrder,
-      players: this.players,
-      shipTransformHistory: this.shipTransformHistory,
-    });
-  }
-
-  private syncPhysicsFromSim(): void {
-    syncPhysicsFromSimState({
-      resolveMaterialValues: () => this.resolveMaterialValues(),
-      physics: this.physics,
-      playerOrder: this.playerOrder,
-      players: this.players,
-      shipBodies: this.shipBodies,
-      asteroids: this.asteroids,
-      asteroidBodies: this.asteroidBodies,
-      pilots: this.pilots,
-      pilotBodies: this.pilotBodies,
-      projectiles: this.projectiles,
-      projectileBodies: this.projectileBodies,
-      powerUps: this.powerUps,
-      powerUpBodies: this.powerUpBodies,
-      turretBullets: this.turretBullets,
-      turretBulletBodies: this.turretBulletBodies,
-      turret: this.turret,
-      getTurretBody: () => this.turretBody,
-      setTurretBody: (body) => {
-        this.turretBody = body;
-      },
-      removeShipBody: this.removeShipBody.bind(this),
-      removeAsteroidBody: this.removeAsteroidBody.bind(this),
-      removePilotBody: this.removePilotBody.bind(this),
-      removeProjectileBody: this.removeProjectileBody.bind(this),
-      removePowerUpBody: this.removePowerUpBody.bind(this),
-      removeTurretBulletBody: this.removeTurretBulletBody.bind(this),
-    });
-  }
-
-  private syncSimFromPhysics(): void {
-    syncSimFromPhysicsState({
-      players: this.players,
-      shipBodies: this.shipBodies,
-      asteroids: this.asteroids,
-      asteroidBodies: this.asteroidBodies,
-      pilots: this.pilots,
-      pilotBodies: this.pilotBodies,
-      projectiles: this.projectiles,
-      projectileBodies: this.projectileBodies,
-      turretBullets: this.turretBullets,
-      turretBulletBodies: this.turretBulletBodies,
-    });
-  }
 
   private createCollisionHandlersContext(): SimulationCollisionHandlersContext {
     return {
