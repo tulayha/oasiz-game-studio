@@ -812,7 +812,7 @@ function checkArrowHit(a: Arrow, r: Ragdoll): number {
 
 function handleArrowHit(a: Arrow, r: Ragdoll, hitResult: number): void {
   r.ragdollActive = true;
-  r.ragdollTimer = 0.5;
+  r.ragdollTimer = r === player ? 0.5 : 0.15;
 
   const headshot = hitResult === -2;
   const isCrit = Math.random() < playerCritChance && a.team === 0;
@@ -827,8 +827,8 @@ function handleArrowHit(a: Arrow, r: Ragdoll, hitResult: number): void {
   let closest = headshot ? HEAD : hitResult;
   if (closest < 0) closest = HEAD;
 
-  // Apply impact force
-  const force = 4;
+  // Apply impact force (lighter on trolls so they keep charging)
+  const force = r === player ? 4 : 2;
   const spd = Math.sqrt(a.vx * a.vx + a.vy * a.vy);
   r.pts[closest].ox -= (a.vx / spd) * force;
   r.pts[closest].oy -= (a.vy / spd) * force;
@@ -1122,25 +1122,25 @@ function startNextWave(): void {
 }
 
 function spawnWaveEnemies(): void {
-  const baseHp = 40 + wave * 15;
-  const baseDmg = 15 + wave * 5;
+  const baseHp = 30 + wave * 3;
+  const baseDmg = 10 + wave * 3;
   const isBoss = wave % 5 === 0;
 
   let count: number;
   if (isBoss) {
-    count = 1;
-  } else if (wave <= 3) {
-    count = 1;
-  } else if (wave <= 7) {
-    count = 2;
+    count = 2 + Math.floor(wave / 5);
+  } else if (wave <= 2) {
+    count = 3;
+  } else if (wave <= 5) {
+    count = 4 + Math.floor(wave / 2);
   } else {
-    count = Math.min(3, 1 + Math.floor(wave / 4));
+    count = Math.min(12, 5 + wave);
   }
 
   for (let i = 0; i < count; i++) {
-    const spawnX = w + 60 + i * 120;
-    const targetX = towerX + TOWER_W / 2 + 15 + i * 25;
-    const hp = isBoss ? baseHp * 3 : baseHp + i * 10;
+    const spawnX = w + 60 + i * 80 + Math.random() * 40;
+    const targetX = towerX + TOWER_W / 2 + 10 + i * 15;
+    const hp = isBoss ? baseHp * 4 : baseHp;
     const scale = isBoss ? 1.7 : TROLL_SCALE;
     const headColor = isBoss ? "#2a4a2a" : "#3a5a3a";
     const bodyColor = isBoss ? "#4a6a4a" : "#5a7a5a";
@@ -1636,90 +1636,24 @@ function drawFlyingArrows(): void {
   }
 }
 
-function drawTrajectory(): void {
-  if (!aiming || aimPower < 0.05 || !player.alive) return;
-
-  const speed =
-    (MIN_ARROW_SPD + aimPower * (MAX_ARROW_SPD - MIN_ARROW_SPD)) *
-    playerSpdMult;
-  let tx = player.pts[R_HAND].x;
-  let ty = player.pts[R_HAND].y;
-  let tvx = Math.cos(aimAngle) * speed;
-  let tvy = Math.sin(aimAngle) * speed;
-
-  ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
-  for (let i = 0; i < 40; i++) {
-    tx += tvx;
-    ty += tvy;
-    tvy += GRAVITY;
-    if (ty > groundY) break;
-    if (i % 3 === 0) {
-      ctx.beginPath();
-      ctx.arc(tx, ty, 1.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-}
-
 function drawPullIndicator(): void {
-  if (!player || !player.alive || playState !== "WAVE_ACTIVE") return;
+  if (!player || !player.alive || playState !== "WAVE_ACTIVE" || aiming) return;
 
   const bowHand = player.pts[R_HAND];
   const f = player.facing;
+  const pullZoneX = bowHand.x - f * 20;
+  const pullZoneY = bowHand.y;
+  const t = performance.now() * 0.003;
+  const pulse = 1 + Math.sin(t) * 0.08;
+  const alpha = 0.25 + Math.sin(t) * 0.1;
 
-  if (!aiming) {
-    // Idle: pulsing ring at pull zone
-    const pullZoneX = bowHand.x - f * 20;
-    const pullZoneY = bowHand.y;
-    const t = performance.now() * 0.003;
-    const pulse = 1 + Math.sin(t) * 0.15;
-    const alpha = 0.3 + Math.sin(t) * 0.15;
-    const radius = 18 * pulse;
-
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = "#88ccff";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(pullZoneX, pullZoneY, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // 4 tick marks
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + t * 0.5;
-      const inner = radius - 4;
-      const outer = radius + 4;
-      ctx.beginPath();
-      ctx.moveTo(pullZoneX + Math.cos(a) * inner, pullZoneY + Math.sin(a) * inner);
-      ctx.lineTo(pullZoneX + Math.cos(a) * outer, pullZoneY + Math.sin(a) * outer);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  } else {
-    // Pulling: energy rays behind bow
-    const behindAngle = aimAngle + Math.PI;
-
-    for (let i = 0; i < 8; i++) {
-      const spread = ((i - 3.5) / 3.5) * 0.8;
-      const rayAngle = behindAngle + spread;
-      const rayLen = 15 + aimPower * 40 + Math.sin(performance.now() * 0.005 + i * 1.2) * 8;
-
-      let color: string;
-      if (aimPower < 0.4) {
-        color = `rgba(100, 150, 255, ${(0.3 + aimPower * 0.5).toFixed(2)})`;
-      } else if (aimPower < 0.75) {
-        color = `rgba(255, 180, 50, ${(0.4 + aimPower * 0.4).toFixed(2)})`;
-      } else {
-        color = `rgba(255, 80, 50, ${(0.5 + aimPower * 0.4).toFixed(2)})`;
-      }
-
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(bowHand.x, bowHand.y);
-      ctx.lineTo(bowHand.x + Math.cos(rayAngle) * rayLen, bowHand.y + Math.sin(rayAngle) * rayLen);
-      ctx.stroke();
-    }
-  }
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = "#88ccff";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(pullZoneX, pullZoneY, PULL_CLICK_RADIUS * pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
 function drawParticles(): void {
@@ -1938,7 +1872,6 @@ function render(): void {
   if (player) {
     if (aiming && player.alive && playState === "WAVE_ACTIVE") {
       drawRagdoll(player, aimAngle, aimPower);
-      drawTrajectory();
     } else {
       drawRagdoll(player, null, 0);
     }
