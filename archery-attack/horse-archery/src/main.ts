@@ -83,7 +83,7 @@ const CONFIG = {
   HORSE_SPEED: 0.22,
 
   WORLD_WIDTH: 1500,
-  TARGETS_PER_LAP: 6,
+  TARGETS_PER_LAP: 3,
 
   DRAW_DURATION_MS: 1000,
   WOBBLE_START_MS: 300,
@@ -288,8 +288,8 @@ function fireArrow(): void {
   const speed = CONFIG.ARROW_SPEED * drawProgress;
   const angle45 = Math.PI / 4;
 
-  // True 45-degree launch: equal horizontal and vertical components
-  const vx = speed * Math.cos(angle45);
+  // 45-degree launch relative to screen (compensate for horse/camera movement)
+  const vx = world.speed + speed * Math.cos(angle45);
   const vyBase = speed * Math.sin(angle45);
 
   // Wobble adds random spread
