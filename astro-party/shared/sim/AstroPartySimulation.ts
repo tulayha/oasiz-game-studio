@@ -25,15 +25,13 @@ import type {
   PlayerListMeta,
   RoundResultPayload,
   ShipState,
-  ActiveConfig,
-  DebugPhysicsMaterials,
   DebugPhysicsTuningPayload,
   DebugPhysicsTuningSnapshot,
   SimState,
 } from "./types.js";
 import Matter from "matter-js";
 import { SeededRNG } from "./SeededRNG.js";
-import { clamp, getModeBaseConfig, normalizeAngle, resolveConfigValue } from "./utils.js";
+import { clamp, normalizeAngle } from "./utils.js";
 import { Physics } from "./Physics.js";
 import { setupCollisions } from "./Collision.js";
 import { PlayerIdentityAllocator } from "./PlayerIdentityAllocator.js";
@@ -52,25 +50,14 @@ import {
   HOMING_MISSILE_LIFETIME_MS,
   ASTEROID_RESTITUTION,
   ASTEROID_FRICTION,
-  PILOT_FRICTION_AIR,
-  PILOT_ANGULAR_DAMPING,
   POWERUP_SHIELD_HITS,
   POWERUP_MAGNETIC_RADIUS,
   POWERUP_MAGNETIC_SPEED,
   LASER_BEAM_LENGTH,
   JOUST_SWORD_LENGTH,
   ASTEROID_DAMAGE_SHIPS,
-  SHIP_FRICTION_BY_PRESET,
-  SHIP_ANGULAR_DAMPING_BY_PRESET,
   WALL_RESTITUTION_BY_PRESET,
   WALL_FRICTION_BY_PRESET,
-  SHIP_RESTITUTION_BY_PRESET,
-  SHIP_FRICTION_AIR_BY_PRESET,
-  STANDARD_CONFIG,
-  SANE_CONFIG,
-  CHAOTIC_CONFIG,
-  SHIP_SPEED_PRESET_OVERRIDES,
-  DASH_POWER_PRESET_OVERRIDES,
 } from "./constants.js";
 import {
   getMapDefinition,
@@ -84,7 +71,23 @@ import {
   VORTEX_TUNING,
   sampleMapField,
 } from "./mapFeatureTuning.js";
-import { SHIP_CENTER_OF_GRAVITY_LOCAL } from "../geometry/EntityShapes.js";
+import {
+  applyModeTemplate,
+  isCustomComparedToTemplate,
+  sanitizeAdvancedSettings,
+  sanitizeBaseMode,
+} from "./simulationSettings.js";
+import {
+  getActiveConfigFromSettings,
+  resolveMaterialValuesFromSettings,
+  sanitizeDebugPhysicsTuningPayload,
+} from "./simulationPhysicsTuning.js";
+import {
+  shipBodyPositionFromCenter,
+  shipBodyVelocityFromCenterVelocity,
+  shipCenterFromBodyPosition,
+  shipCenterVelocityFromBodyVelocity,
+} from "./shipTransform.js";
 
 // System imports
 import { updateBots } from "./AISystem.js";
@@ -128,231 +131,14 @@ import {
 
 const { Body } = Matter;
 
-const MODE_PRESETS = ["STANDARD", "SANE", "CHAOTIC"] as const;
-const SPEED_PRESETS = ["SLOW", "NORMAL", "FAST"] as const;
-const DASH_PRESETS = ["LOW", "NORMAL", "HIGH"] as const;
-const ASTEROID_DENSITIES = ["NONE", "SOME", "MANY", "SPAWN"] as const;
 const LAG_COMP_HISTORY_MS = 500;
 const LAG_COMP_MAX_REWIND_MS = 200;
-const SHIP_COG_LOCAL_X = SHIP_CENTER_OF_GRAVITY_LOCAL.x;
-const SHIP_COG_LOCAL_Y = SHIP_CENTER_OF_GRAVITY_LOCAL.y;
-
-function rotateShipCogOffset(angle: number): { x: number; y: number } {
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  return {
-    x: SHIP_COG_LOCAL_X * cos - SHIP_COG_LOCAL_Y * sin,
-    y: SHIP_COG_LOCAL_X * sin + SHIP_COG_LOCAL_Y * cos,
-  };
-}
-
-function shipBodyPositionFromCenter(
-  centerX: number,
-  centerY: number,
-  angle: number,
-): { x: number; y: number } {
-  const offset = rotateShipCogOffset(angle);
-  return {
-    x: centerX + offset.x,
-    y: centerY + offset.y,
-  };
-}
-
-function shipCenterFromBodyPosition(
-  bodyX: number,
-  bodyY: number,
-  angle: number,
-): { x: number; y: number } {
-  const offset = rotateShipCogOffset(angle);
-  return {
-    x: bodyX - offset.x,
-    y: bodyY - offset.y,
-  };
-}
-
-function shipBodyVelocityFromCenterVelocity(
-  centerVx: number,
-  centerVy: number,
-  angle: number,
-  angularVelocity: number,
-): { x: number; y: number } {
-  const offset = rotateShipCogOffset(angle);
-  return {
-    x: centerVx - angularVelocity * offset.y,
-    y: centerVy + angularVelocity * offset.x,
-  };
-}
-
-function shipCenterVelocityFromBodyVelocity(
-  bodyVx: number,
-  bodyVy: number,
-  angle: number,
-  angularVelocity: number,
-): { x: number; y: number } {
-  const offset = rotateShipCogOffset(angle);
-  return {
-    x: bodyVx + angularVelocity * offset.y,
-    y: bodyVy - angularVelocity * offset.x,
-  };
-}
-const DEBUG_CONFIG_KEYS: ReadonlyArray<keyof ActiveConfig> = [
-  "BASE_THRUST",
-  "ROTATION_SPEED",
-  "SHIP_ROTATION_RESPONSE",
-  "SHIP_ROTATION_RELEASE_RESPONSE",
-  "SHIP_ROTATION_DRIFT_RESPONSE_FACTOR",
-  "ROTATION_THRUST_BONUS",
-  "RECOIL_FORCE",
-  "DASH_FORCE",
-  "SHIP_FRICTION_AIR",
-  "SHIP_RESTITUTION",
-  "SHIP_TARGET_SPEED",
-  "SHIP_SPEED_RESPONSE",
-  "SHIP_DASH_BOOST",
-  "SHIP_DASH_DURATION",
-  "SHIP_RECOIL_SLOWDOWN",
-  "SHIP_RECOIL_DURATION",
-  "PROJECTILE_SPEED",
-  "PILOT_ROTATION_SPEED",
-  "PILOT_DASH_FORCE",
-];
-const DEBUG_MATERIAL_KEYS: ReadonlyArray<keyof DebugPhysicsMaterials> = [
-  "SHIP_RESTITUTION",
-  "SHIP_FRICTION_AIR",
-  "SHIP_FRICTION",
-  "SHIP_ANGULAR_DAMPING",
-  "WALL_RESTITUTION",
-  "WALL_FRICTION",
-  "PILOT_FRICTION_AIR",
-  "PILOT_ANGULAR_DAMPING",
-];
 
 interface ShipTransformHistoryEntry {
   atMs: number;
   x: number;
   y: number;
   angle: number;
-}
-
-function isInList<T extends string>(value: string, values: readonly T[]): value is T {
-  return (values as readonly string[]).includes(value);
-}
-
-function sanitizeBaseMode(value: string, fallback: BaseGameMode): BaseGameMode {
-  return isInList(value, MODE_PRESETS) ? value : fallback;
-}
-
-function sanitizeAdvancedSettings(input: AdvancedSettings): AdvancedSettings {
-  const settings: AdvancedSettings = {
-    ...DEFAULT_ADVANCED_SETTINGS,
-    ...input,
-  };
-
-  if (!isInList(settings.asteroidDensity, ASTEROID_DENSITIES)) {
-    settings.asteroidDensity = DEFAULT_ADVANCED_SETTINGS.asteroidDensity;
-  }
-  settings.startPowerups = Boolean(settings.startPowerups);
-  if (!Number.isFinite(settings.roundsToWin)) {
-    settings.roundsToWin = DEFAULT_ADVANCED_SETTINGS.roundsToWin;
-  } else {
-    settings.roundsToWin = clamp(Math.round(settings.roundsToWin), 3, 6);
-  }
-
-  if (!isInList(settings.shipSpeed, SPEED_PRESETS)) {
-    settings.shipSpeed = DEFAULT_ADVANCED_SETTINGS.shipSpeed;
-  }
-  if (!isInList(settings.dashPower, DASH_PRESETS)) {
-    settings.dashPower = DEFAULT_ADVANCED_SETTINGS.dashPower;
-  }
-  if (!isInList(settings.rotationPreset, MODE_PRESETS)) {
-    settings.rotationPreset = DEFAULT_ADVANCED_SETTINGS.rotationPreset;
-  }
-  // Rotation is treated as one combined preset; keep boost in lockstep.
-  settings.rotationBoostPreset = settings.rotationPreset;
-  if (!isInList(settings.recoilPreset, MODE_PRESETS)) {
-    settings.recoilPreset = DEFAULT_ADVANCED_SETTINGS.recoilPreset;
-  }
-  if (!isInList(settings.shipRestitutionPreset, MODE_PRESETS)) {
-    settings.shipRestitutionPreset = DEFAULT_ADVANCED_SETTINGS.shipRestitutionPreset;
-  }
-  if (!isInList(settings.shipFrictionAirPreset, MODE_PRESETS)) {
-    settings.shipFrictionAirPreset = DEFAULT_ADVANCED_SETTINGS.shipFrictionAirPreset;
-  }
-  if (!isInList(settings.wallRestitutionPreset, MODE_PRESETS)) {
-    settings.wallRestitutionPreset = DEFAULT_ADVANCED_SETTINGS.wallRestitutionPreset;
-  }
-  if (!isInList(settings.wallFrictionPreset, MODE_PRESETS)) {
-    settings.wallFrictionPreset = DEFAULT_ADVANCED_SETTINGS.wallFrictionPreset;
-  }
-  if (!isInList(settings.shipFrictionPreset, MODE_PRESETS)) {
-    settings.shipFrictionPreset = DEFAULT_ADVANCED_SETTINGS.shipFrictionPreset;
-  }
-  if (!isInList(settings.angularDampingPreset, MODE_PRESETS)) {
-    settings.angularDampingPreset = DEFAULT_ADVANCED_SETTINGS.angularDampingPreset;
-  }
-
-  return settings;
-}
-
-function applyModeTemplate(baseMode: BaseGameMode, roundsToWin: number): AdvancedSettings {
-  if (baseMode === "SANE") {
-    return {
-      ...DEFAULT_ADVANCED_SETTINGS,
-      roundsToWin: clamp(Math.round(roundsToWin), 3, 6),
-      asteroidDensity: "MANY",
-      startPowerups: true,
-      rotationPreset: "SANE",
-      rotationBoostPreset: "SANE",
-      recoilPreset: "SANE",
-      shipRestitutionPreset: "SANE",
-      shipFrictionAirPreset: "SANE",
-      wallRestitutionPreset: "SANE",
-      wallFrictionPreset: "SANE",
-      shipFrictionPreset: "SANE",
-      angularDampingPreset: "SANE",
-    };
-  }
-  if (baseMode === "CHAOTIC") {
-    return {
-      ...DEFAULT_ADVANCED_SETTINGS,
-      roundsToWin: clamp(Math.round(roundsToWin), 3, 6),
-      asteroidDensity: "SPAWN",
-      startPowerups: true,
-      rotationPreset: "CHAOTIC",
-      rotationBoostPreset: "CHAOTIC",
-      recoilPreset: "CHAOTIC",
-      shipRestitutionPreset: "CHAOTIC",
-      shipFrictionAirPreset: "CHAOTIC",
-      wallRestitutionPreset: "CHAOTIC",
-      wallFrictionPreset: "CHAOTIC",
-      shipFrictionPreset: "CHAOTIC",
-      angularDampingPreset: "CHAOTIC",
-    };
-  }
-  return {
-    ...DEFAULT_ADVANCED_SETTINGS,
-    roundsToWin: clamp(Math.round(roundsToWin), 3, 6),
-  };
-}
-
-function isCustomComparedToTemplate(
-  settings: AdvancedSettings,
-  template: AdvancedSettings,
-): boolean {
-  return (
-    settings.asteroidDensity !== template.asteroidDensity ||
-    settings.startPowerups !== template.startPowerups ||
-    settings.shipSpeed !== template.shipSpeed ||
-    settings.dashPower !== template.dashPower ||
-    settings.rotationPreset !== template.rotationPreset ||
-    settings.recoilPreset !== template.recoilPreset ||
-    settings.shipRestitutionPreset !== template.shipRestitutionPreset ||
-    settings.shipFrictionAirPreset !== template.shipFrictionAirPreset ||
-    settings.wallRestitutionPreset !== template.wallRestitutionPreset ||
-    settings.wallFrictionPreset !== template.wallFrictionPreset ||
-    settings.shipFrictionPreset !== template.shipFrictionPreset ||
-    settings.angularDampingPreset !== template.angularDampingPreset
-  );
 }
 
 interface RuntimeYellowBlock {
@@ -1017,137 +803,25 @@ export class AstroPartySimulation implements SimState {
     return prefix + "_" + this.idRng.nextUint32().toString(16);
   }
 
-  getActiveConfig(): ActiveConfig {
-    const cfg = getModeBaseConfig(this.baseMode);
-
-    const shipSpeedOverride = SHIP_SPEED_PRESET_OVERRIDES[this.settings.shipSpeed];
-    if (shipSpeedOverride) {
-      cfg.SHIP_TARGET_SPEED = shipSpeedOverride.SHIP_TARGET_SPEED;
-      cfg.BASE_THRUST = shipSpeedOverride.BASE_THRUST;
-    }
-
-    const dashPowerOverride = DASH_POWER_PRESET_OVERRIDES[this.settings.dashPower];
-    if (dashPowerOverride) {
-      cfg.SHIP_DASH_BOOST = dashPowerOverride.SHIP_DASH_BOOST;
-      cfg.DASH_FORCE = dashPowerOverride.DASH_FORCE;
-    }
-
-    cfg.ROTATION_SPEED = resolveConfigValue(
-      this.settings.rotationPreset,
-      STANDARD_CONFIG.ROTATION_SPEED,
-      SANE_CONFIG.ROTATION_SPEED,
-      CHAOTIC_CONFIG.ROTATION_SPEED,
+  getActiveConfig() {
+    return getActiveConfigFromSettings(
+      this.baseMode,
+      this.settings,
+      this.debugPhysicsTuning,
     );
-    cfg.SHIP_ROTATION_RESPONSE = resolveConfigValue(
-      this.settings.rotationPreset,
-      STANDARD_CONFIG.SHIP_ROTATION_RESPONSE,
-      SANE_CONFIG.SHIP_ROTATION_RESPONSE,
-      CHAOTIC_CONFIG.SHIP_ROTATION_RESPONSE,
-    );
-    cfg.SHIP_ROTATION_RELEASE_RESPONSE = resolveConfigValue(
-      this.settings.rotationPreset,
-      STANDARD_CONFIG.SHIP_ROTATION_RELEASE_RESPONSE,
-      SANE_CONFIG.SHIP_ROTATION_RELEASE_RESPONSE,
-      CHAOTIC_CONFIG.SHIP_ROTATION_RELEASE_RESPONSE,
-    );
-    cfg.SHIP_ROTATION_DRIFT_RESPONSE_FACTOR = resolveConfigValue(
-      this.settings.rotationPreset,
-      STANDARD_CONFIG.SHIP_ROTATION_DRIFT_RESPONSE_FACTOR,
-      SANE_CONFIG.SHIP_ROTATION_DRIFT_RESPONSE_FACTOR,
-      CHAOTIC_CONFIG.SHIP_ROTATION_DRIFT_RESPONSE_FACTOR,
-    );
-    cfg.ROTATION_THRUST_BONUS = resolveConfigValue(
-      this.settings.rotationPreset,
-      STANDARD_CONFIG.ROTATION_THRUST_BONUS,
-      SANE_CONFIG.ROTATION_THRUST_BONUS,
-      CHAOTIC_CONFIG.ROTATION_THRUST_BONUS,
-    );
-    cfg.RECOIL_FORCE = resolveConfigValue(
-      this.settings.recoilPreset,
-      STANDARD_CONFIG.RECOIL_FORCE,
-      SANE_CONFIG.RECOIL_FORCE,
-      CHAOTIC_CONFIG.RECOIL_FORCE,
-    );
-    cfg.SHIP_RESTITUTION = SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset];
-    cfg.SHIP_FRICTION_AIR = SHIP_FRICTION_AIR_BY_PRESET[this.settings.shipFrictionAirPreset];
-    const configOverrides = this.debugPhysicsTuning?.configOverrides;
-    if (configOverrides) {
-      for (const key of DEBUG_CONFIG_KEYS) {
-        const value = configOverrides[key];
-        if (typeof value === "number" && Number.isFinite(value)) {
-          cfg[key] = value;
-        }
-      }
-    }
-
-    return cfg;
   }
 
-  private resolveMaterialValues(): DebugPhysicsMaterials {
-    const materials: DebugPhysicsMaterials = {
-      SHIP_RESTITUTION:
-        SHIP_RESTITUTION_BY_PRESET[this.settings.shipRestitutionPreset] ?? 0,
-      SHIP_FRICTION:
-        SHIP_FRICTION_BY_PRESET[this.settings.shipFrictionPreset] ?? 0,
-      SHIP_FRICTION_AIR:
-        SHIP_FRICTION_AIR_BY_PRESET[this.settings.shipFrictionAirPreset] ?? 0,
-      SHIP_ANGULAR_DAMPING:
-        SHIP_ANGULAR_DAMPING_BY_PRESET[this.settings.angularDampingPreset] ?? 0,
-      WALL_RESTITUTION:
-        WALL_RESTITUTION_BY_PRESET[this.settings.wallRestitutionPreset] ?? 0,
-      WALL_FRICTION: WALL_FRICTION_BY_PRESET[this.settings.wallFrictionPreset] ?? 0,
-      PILOT_FRICTION_AIR: PILOT_FRICTION_AIR,
-      PILOT_ANGULAR_DAMPING: PILOT_ANGULAR_DAMPING,
-    };
-
-    const materialOverrides = this.debugPhysicsTuning?.materialOverrides;
-    if (materialOverrides) {
-      for (const key of DEBUG_MATERIAL_KEYS) {
-        const value = materialOverrides[key];
-        if (typeof value === "number" && Number.isFinite(value)) {
-          materials[key] = value;
-        }
-      }
-    }
-    return materials;
+  private resolveMaterialValues() {
+    return resolveMaterialValuesFromSettings(
+      this.settings,
+      this.debugPhysicsTuning,
+    );
   }
 
   private sanitizeDebugPhysicsTuning(
     payload: DebugPhysicsTuningPayload | null,
   ): DebugPhysicsTuningPayload | null {
-    if (!payload) return null;
-
-    const configOverrides: Partial<ActiveConfig> = {};
-    const sourceConfigOverrides = payload.configOverrides;
-    if (sourceConfigOverrides) {
-      for (const key of DEBUG_CONFIG_KEYS) {
-        const value = sourceConfigOverrides[key];
-        if (typeof value === "number" && Number.isFinite(value)) {
-          configOverrides[key] = value;
-        }
-      }
-    }
-
-    const materialOverrides: Partial<DebugPhysicsMaterials> = {};
-    const sourceMaterialOverrides = payload.materialOverrides;
-    if (sourceMaterialOverrides) {
-      for (const key of DEBUG_MATERIAL_KEYS) {
-        const value = sourceMaterialOverrides[key];
-        if (typeof value === "number" && Number.isFinite(value)) {
-          materialOverrides[key] = value;
-        }
-      }
-    }
-
-    const hasConfigOverrides = Object.keys(configOverrides).length > 0;
-    const hasMaterialOverrides = Object.keys(materialOverrides).length > 0;
-    if (!hasConfigOverrides && !hasMaterialOverrides) {
-      return null;
-    }
-    return {
-      configOverrides: hasConfigOverrides ? configOverrides : undefined,
-      materialOverrides: hasMaterialOverrides ? materialOverrides : undefined,
-    };
+    return sanitizeDebugPhysicsTuningPayload(payload);
   }
 
   triggerScreenShake(intensity: number, duration: number): void {
