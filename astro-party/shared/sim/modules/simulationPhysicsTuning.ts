@@ -4,7 +4,7 @@ import type {
   BaseGameMode,
   DebugPhysicsMaterials,
   DebugPhysicsTuningPayload,
-} from "./types.js";
+} from "../types.js";
 import {
   CHAOTIC_CONFIG,
   DASH_POWER_PRESET_OVERRIDES,
@@ -19,8 +19,8 @@ import {
   STANDARD_CONFIG,
   WALL_FRICTION_BY_PRESET,
   WALL_RESTITUTION_BY_PRESET,
-} from "./constants.js";
-import { getModeBaseConfig, resolveConfigValue } from "./utils.js";
+} from "../constants.js";
+import { getModeBaseConfig, resolveConfigValue } from "../utils.js";
 import { DEBUG_CONFIG_KEYS, DEBUG_MATERIAL_KEYS } from "./simulationSettings.js";
 
 export function getActiveConfigFromSettings(

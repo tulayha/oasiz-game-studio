@@ -1,5 +1,5 @@
-import type { SimState, RuntimeProjectile } from "./types.js";
-import { ARENA_WIDTH, ARENA_HEIGHT } from "./constants.js";
+import type { SimState, RuntimeProjectile } from "../types.js";
+import { ARENA_WIDTH, ARENA_HEIGHT } from "../constants.js";
 
 export function updateProjectiles(sim: SimState, _dtSec: number): void {
   const outOfBoundsMargin = 60;

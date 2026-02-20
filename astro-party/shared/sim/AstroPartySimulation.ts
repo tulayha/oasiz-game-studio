@@ -31,8 +31,8 @@ import type {
 import Matter from "matter-js";
 import { SeededRNG } from "./SeededRNG.js";
 import { clamp, normalizeAngle } from "./utils.js";
-import { Physics } from "./Physics.js";
-import { setupCollisions } from "./Collision.js";
+import { Physics } from "./physics/Physics.js";
+import { setupCollisions } from "./physics/Collision.js";
 import { PlayerIdentityAllocator } from "./PlayerIdentityAllocator.js";
 import {
   ARENA_WIDTH,
@@ -58,28 +58,28 @@ import {
   isCustomComparedToTemplate,
   sanitizeAdvancedSettings,
   sanitizeBaseMode,
-} from "./simulationSettings.js";
+} from "./modules/simulationSettings.js";
 import {
   getActiveConfigFromSettings,
   resolveMaterialValuesFromSettings,
   sanitizeDebugPhysicsTuningPayload,
-} from "./simulationPhysicsTuning.js";
+} from "./modules/simulationPhysicsTuning.js";
 import {
   buildPlayerListPayload,
   buildSimulationSnapshot,
-} from "./simulationSnapshot.js";
+} from "./modules/simulationSnapshot.js";
 import {
   shipBodyPositionFromCenter,
   shipBodyVelocityFromCenterVelocity,
   shipCenterFromBodyPosition,
   shipCenterVelocityFromBodyVelocity,
-} from "./shipTransform.js";
+} from "./physics/shipTransform.js";
 import {
   recordShipTransformHistory as syncRecordShipTransformHistory,
   syncPhysicsFromSim as syncPhysicsFromSimState,
   syncSimFromPhysics as syncSimFromPhysicsState,
   type ShipTransformHistoryEntry,
-} from "./simulationStateSync.js";
+} from "./modules/simulationStateSync.js";
 import {
   checkJoustYellowBlockCollisions as checkJoustYellowBlockCollisionsState,
   checkLaserBeamBlockCollisions as checkLaserBeamBlockCollisionsState,
@@ -93,14 +93,14 @@ import {
   handleShipHitPowerUpCollision,
   removeProjectileByBodyCollision,
   type SimulationCollisionHandlersContext,
-} from "./simulationCollisionHandlers.js";
+} from "./modules/simulationCollisionHandlers.js";
 import {
   clearMapFeatures as clearMapFeaturesState,
   spawnMapFeatures as spawnMapFeaturesState,
   updateMapFeatures as updateMapFeaturesState,
   type RuntimeYellowBlockState,
   type SimulationMapFeaturesContext,
-} from "./simulationMapFeatures.js";
+} from "./modules/simulationMapFeatures.js";
 import {
   ensureRoomLeader,
   getHumanBySession,
@@ -108,24 +108,24 @@ import {
   resolveLocalKeySlotForSession,
   sanitizePlayerName,
   type PlayerControlsContext,
-} from "./simulationPlayerControls.js";
+} from "./modules/simulationPlayerControls.js";
 
 // System imports
-import { updateBots } from "./AISystem.js";
-import { updateShips } from "./ShipSystem.js";
-import { updateProjectiles } from "./CollisionSystem.js";
+import { updateBots } from "./systems/AISystem.js";
+import { updateShips } from "./systems/ShipSystem.js";
+import { updateProjectiles } from "./systems/CollisionSystem.js";
 import {
   updateAsteroidSpawning,
   updateAsteroids,
   wrapAsteroids,
   destroyAsteroid as asteroidDestroyAsteroid,
   hitAsteroid,
-} from "./AsteroidSystem.js";
+} from "./systems/AsteroidSystem.js";
 import {
   updatePowerUps,
   grantPowerUp as powerUpGrantPowerUp,
   spawnRandomPowerUp,
-} from "./PowerUpSystem.js";
+} from "./systems/PowerUpSystem.js";
 import {
   updateLaserBeams,
   checkMineCollisions,
@@ -135,7 +135,7 @@ import {
   updateJoustCollisions,
   updateTurret,
   updateTurretBullets,
-} from "./WeaponSystem.js";
+} from "./systems/WeaponSystem.js";
 import {
   updatePilots,
   onShipHit as flowOnShipHit,
@@ -147,7 +147,7 @@ import {
   clearRoundEntities,
   syncRoomMeta,
   cleanupExpiredEntities,
-} from "./GameFlowSystem.js";
+} from "./systems/GameFlowSystem.js";
 
 const { Body } = Matter;
 
@@ -207,7 +207,6 @@ export class AstroPartySimulation implements SimState {
   private yellowBlockSwordHitCooldown = new Map<number, number>();
   private centerHoleBodies: Matter.Body[] = [];
   private mapPowerUpsSpawned = false;
-  private mapTimeSec = 0;
   private shipTransformHistory = new Map<string, ShipTransformHistoryEntry[]>();
 
   // ---- Counters ----
@@ -832,12 +831,13 @@ export class AstroPartySimulation implements SimState {
     updateProjectiles(this, dtSec);
     updatePowerUps(this, dtSec);
     updateLaserBeams(this);
-    checkLaserBeamBlockCollisionsState(this.createCollisionHandlersContext());
+    const collisionHandlersContext = this.createCollisionHandlersContext();
+    checkLaserBeamBlockCollisionsState(collisionHandlersContext);
     checkMineCollisions(this);
     updateHomingMissiles(this, dtSec);
     checkHomingMissileCollisions(this);
     updateJoustCollisions(this);
-    checkJoustYellowBlockCollisionsState(this.createCollisionHandlersContext());
+    checkJoustYellowBlockCollisionsState(collisionHandlersContext);
     updateTurret(this, dtSec);
     updateTurretBullets(this, dtSec);
     this.updateMapFeatures(dtSec);
@@ -1047,12 +1047,6 @@ export class AstroPartySimulation implements SimState {
       getMapPowerUpsSpawned: () => this.mapPowerUpsSpawned,
       setMapPowerUpsSpawned: (spawned: boolean) => {
         this.mapPowerUpsSpawned = spawned;
-      },
-      addMapTimeSec: (delta: number) => {
-        this.mapTimeSec += delta;
-      },
-      resetMapTimeSec: () => {
-        this.mapTimeSec = 0;
       },
       yellowBlocks: this.yellowBlocks,
       yellowBlockBodyIndex: this.yellowBlockBodyIndex,
@@ -1443,4 +1437,5 @@ export type {
   RoundResultPayload,
   SnapshotPayload,
 } from "./types.js";
+
 

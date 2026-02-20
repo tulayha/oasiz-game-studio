@@ -1,4 +1,4 @@
-import type { SimState, PowerUpType } from "./types.js";
+import type { SimState, PowerUpType } from "../types.js";
 import {
   POWERUP_DESPAWN_MS,
   POWERUP_MAGNETIC_RADIUS,
@@ -11,7 +11,7 @@ import {
   STARTING_POWERUP_TYPES,
   ARENA_WIDTH,
   ARENA_HEIGHT,
-} from "./constants.js";
+} from "../constants.js";
 
 export function updatePowerUps(sim: SimState, dtSec: number): void {
   for (const powerUp of sim.powerUps) {

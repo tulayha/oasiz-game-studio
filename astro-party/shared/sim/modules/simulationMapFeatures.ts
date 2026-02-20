@@ -1,18 +1,18 @@
 import Matter from "matter-js";
-import { clamp } from "./utils.js";
+import { clamp } from "../utils.js";
 import {
   ARENA_HEIGHT,
   ARENA_WIDTH,
   POWERUP_MAGNETIC_RADIUS,
   POWERUP_MAGNETIC_SPEED,
-} from "./constants.js";
+} from "../constants.js";
 import {
   REPULSION_TUNING,
   VORTEX_TUNING,
   sampleMapField,
-} from "./mapFeatureTuning.js";
-import type { YellowBlock, MapDefinition } from "./maps.js";
-import type { Physics } from "./Physics.js";
+} from "../mapFeatureTuning.js";
+import type { YellowBlock, MapDefinition } from "../maps.js";
+import type { Physics } from "../physics/Physics.js";
 import type {
   RuntimeAsteroid,
   RuntimeHomingMissile,
@@ -22,8 +22,8 @@ import type {
   RuntimePowerUp,
   RuntimeProjectile,
   RuntimeTurretBullet,
-} from "./types.js";
-import type { SeededRNG } from "./SeededRNG.js";
+} from "../types.js";
+import type { SeededRNG } from "../SeededRNG.js";
 
 const { Body } = Matter;
 
@@ -43,8 +43,6 @@ export interface SimulationMapFeaturesContext {
   getCurrentMap: () => MapDefinition;
   getMapPowerUpsSpawned: () => boolean;
   setMapPowerUpsSpawned: (spawned: boolean) => void;
-  addMapTimeSec: (delta: number) => void;
-  resetMapTimeSec: () => void;
   yellowBlocks: RuntimeYellowBlockState[];
   yellowBlockBodyIndex: Map<number, number>;
   yellowBlockSwordHitCooldown: Map<number, number>;
@@ -134,7 +132,6 @@ export function updateMapFeatures(
   ctx: SimulationMapFeaturesContext,
   dtSec: number,
 ): void {
-  ctx.addMapTimeSec(dtSec);
   const map = ctx.getCurrentMap();
 
   if (map.centerHoles.length > 0) {
@@ -421,6 +418,4 @@ export function clearMapFeatures(ctx: SimulationMapFeaturesContext): void {
     ctx.physics.removeBody(centerHoleBody);
   }
   ctx.centerHoleBodies.length = 0;
-
-  ctx.resetMapTimeSec();
 }

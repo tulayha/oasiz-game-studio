@@ -1,4 +1,4 @@
-import type { SimState, RuntimeMine, RuntimeAsteroid, ShipState } from "./types.js";
+import type { SimState, RuntimeMine, RuntimeAsteroid, ShipState } from "../types.js";
 import {
   SHIP_RADIUS,
   PILOT_RADIUS,
@@ -16,14 +16,14 @@ import {
   POWERUP_SHIELD_HITS,
   ARENA_WIDTH,
   ARENA_HEIGHT,
-} from "./constants.js";
-import { TURRET_TUNING } from "./mapFeatureTuning.js";
-import { normalizeAngle, clamp } from "./utils.js";
+} from "../constants.js";
+import { TURRET_TUNING } from "../mapFeatureTuning.js";
+import { normalizeAngle, clamp } from "../utils.js";
 import {
   distanceSqPointToSegment,
   getAsteroidWorldVertices,
   pointInPolygon,
-} from "./geometryMath.js";
+} from "../physics/geometryMath.js";
 
 export function updateLaserBeams(sim: SimState): void {
   for (const beam of sim.laserBeams) {

@@ -1,6 +1,6 @@
-import type { SimState, RuntimePlayer } from "./types.js";
-import { AI_CONFIG } from "./constants.js";
-import { normalizeAngle } from "./utils.js";
+import type { SimState, RuntimePlayer } from "../types.js";
+import { AI_CONFIG } from "../constants.js";
+import { normalizeAngle } from "../utils.js";
 
 export function updateBots(sim: SimState): void {
   for (const playerId of sim.playerOrder) {

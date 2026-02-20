@@ -1,4 +1,4 @@
-import type { SimState, RuntimeAsteroid } from "./types.js";
+import type { SimState, RuntimeAsteroid } from "../types.js";
 import {
   ARENA_WIDTH,
   ARENA_HEIGHT,
@@ -24,10 +24,10 @@ import {
   POWERUP_SPAWN_WEIGHTS,
   POWERUP_MAGNETIC_RADIUS,
   POWERUP_MAGNETIC_SPEED,
-} from "./constants.js";
-import type { PowerUpType } from "./types.js";
-import { clamp } from "./utils.js";
-import { getMapDefinition } from "./maps.js";
+} from "../constants.js";
+import type { PowerUpType } from "../types.js";
+import { clamp } from "../utils.js";
+import { getMapDefinition } from "../maps.js";
 
 export function spawnInitialAsteroids(sim: SimState): void {
   const map = getMapDefinition(sim.mapId);

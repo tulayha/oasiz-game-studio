@@ -5,7 +5,7 @@ import {
   SHIP_COLLIDER_VERTICES,
   cloneShapeVertices,
   type ShapePoint,
-} from "../geometry/EntityShapes.js";
+} from "../../geometry/EntityShapes.js";
 import { CollisionCategory } from "./CollisionCategories.js";
 
 const { Engine, Bodies, Body, Events, Composite } = Matter;
@@ -280,7 +280,7 @@ export class Physics {
   createPowerUp(
     x: number,
     y: number,
-    type: import("./types.js").PowerUpType,
+    type: import("../types.js").PowerUpType,
     powerUpId: string,
   ): Matter.Body {
     const size = 25;

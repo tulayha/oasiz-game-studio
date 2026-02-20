@@ -3,9 +3,9 @@ import type {
   AdvancedSettings,
   BaseGameMode,
   DebugPhysicsMaterials,
-} from "./types.js";
-import { DEFAULT_ADVANCED_SETTINGS } from "./constants.js";
-import { clamp } from "./utils.js";
+} from "../types.js";
+import { DEFAULT_ADVANCED_SETTINGS } from "../constants.js";
+import { clamp } from "../utils.js";
 
 const MODE_PRESETS = ["STANDARD", "SANE", "CHAOTIC"] as const;
 const SPEED_PRESETS = ["SLOW", "NORMAL", "FAST"] as const;

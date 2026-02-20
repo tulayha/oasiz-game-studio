@@ -1,4 +1,4 @@
-import type { SimState, RuntimePlayer, ActiveConfig } from "./types.js";
+import type { SimState, RuntimePlayer, ActiveConfig } from "../types.js";
 import {
   SHIP_HIT_RADIUS,
   FIRE_COOLDOWN_MS,
@@ -18,17 +18,17 @@ import {
   POWERUP_SHIELD_HITS,
   SHIP_DODGE_COOLDOWN_MS,
   SHIP_DODGE_ANGLE_DEG,
-} from "./constants.js";
-import { normalizeAngle, clamp } from "./utils.js";
+} from "../constants.js";
+import { normalizeAngle, clamp } from "../utils.js";
 import {
   getAsteroidWorldVertices,
   pointInPolygon,
   segmentsIntersect,
-} from "./geometryMath.js";
+} from "../physics/geometryMath.js";
 import {
   PILOT_COLLIDER_VERTICES,
   transformLocalVertices,
-} from "../geometry/EntityShapes.js";
+} from "../../geometry/EntityShapes.js";
 
 const STANDARD_DODGE_FORWARD_FACTOR = 0.35;
 const STANDARD_DODGE_SPEED_FACTOR = 1.65;

@@ -7,24 +7,24 @@ import type {
   RuntimeProjectile,
   RuntimeTurret,
   RuntimeTurretBullet,
-} from "./types.js";
+} from "../types.js";
 import Matter from "matter-js";
-import { clamp } from "./utils.js";
+import { clamp } from "../utils.js";
 import {
   ARENA_HEIGHT,
   ARENA_PADDING,
   ARENA_WIDTH,
   ASTEROID_FRICTION,
   ASTEROID_RESTITUTION,
-} from "./constants.js";
-import { TURRET_TUNING } from "./mapFeatureTuning.js";
+} from "../constants.js";
+import { TURRET_TUNING } from "../mapFeatureTuning.js";
 import {
   shipBodyPositionFromCenter,
   shipBodyVelocityFromCenterVelocity,
   shipCenterFromBodyPosition,
   shipCenterVelocityFromBodyVelocity,
-} from "./shipTransform.js";
-import type { Physics } from "./Physics.js";
+} from "../physics/shipTransform.js";
+import type { Physics } from "../physics/Physics.js";
 
 const { Body } = Matter;
 

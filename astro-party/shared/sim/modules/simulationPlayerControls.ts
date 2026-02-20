@@ -1,4 +1,4 @@
-import type { Hooks, RuntimePlayer } from "./types.js";
+import type { Hooks, RuntimePlayer } from "../types.js";
 
 export interface PlayerControlsContext {
   players: Map<string, RuntimePlayer>;

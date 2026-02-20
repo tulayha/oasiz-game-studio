@@ -1,4 +1,4 @@
-import { SHIP_CENTER_OF_GRAVITY_LOCAL } from "../geometry/EntityShapes.js";
+import { SHIP_CENTER_OF_GRAVITY_LOCAL } from "../../geometry/EntityShapes.js";
 
 const SHIP_COG_LOCAL_X = SHIP_CENTER_OF_GRAVITY_LOCAL.x;
 const SHIP_COG_LOCAL_Y = SHIP_CENTER_OF_GRAVITY_LOCAL.y;

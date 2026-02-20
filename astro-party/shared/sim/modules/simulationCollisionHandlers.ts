@@ -5,18 +5,18 @@ import type {
   RuntimePilot,
   RuntimePlayer,
   RuntimePowerUp,
-} from "./types.js";
-import type { Physics } from "./Physics.js";
+} from "../types.js";
+import type { Physics } from "../physics/Physics.js";
 import Matter from "matter-js";
-import { normalizeAngle } from "./utils.js";
+import { normalizeAngle } from "../utils.js";
 import {
   ASTEROID_DAMAGE_SHIPS,
   JOUST_SWORD_LENGTH,
   LASER_BEAM_LENGTH,
   POWERUP_SHIELD_HITS,
-} from "./constants.js";
-import { damageJoustSword } from "./WeaponSystem.js";
-import { lineIntersectsRect } from "./geometryMath.js";
+} from "../constants.js";
+import { damageJoustSword } from "../systems/WeaponSystem.js";
+import { lineIntersectsRect } from "../physics/geometryMath.js";
 
 interface RuntimeYellowBlockLike {
   block: {

@@ -1,4 +1,4 @@
-import type { SimState, RuntimePlayer, RuntimePilot, RuntimeAsteroid, RuntimePowerUp, RuntimeLaserBeam, RuntimeMine, RuntimeHomingMissile, RuntimeTurretBullet } from "./types.js";
+import type { SimState, RuntimePlayer, RuntimePilot, RuntimeAsteroid, RuntimePowerUp, RuntimeLaserBeam, RuntimeMine, RuntimeHomingMissile, RuntimeTurretBullet } from "../types.js";
 import {
   ARENA_WIDTH,
   ARENA_HEIGHT,
@@ -10,13 +10,13 @@ import {
   HOMING_MISSILE_LIFETIME_MS,
   MINE_POST_EXPIRY_MS,
   ROUND_RESULTS_DURATION_MS,
-} from "./constants.js";
-import { TURRET_TUNING } from "./mapFeatureTuning.js";
-import { normalizeAngle } from "./utils.js";
+} from "../constants.js";
+import { TURRET_TUNING } from "../mapFeatureTuning.js";
+import { normalizeAngle } from "../utils.js";
 import { spawnInitialAsteroids, scheduleAsteroidSpawn } from "./AsteroidSystem.js";
 import { grantStartingPowerups } from "./PowerUpSystem.js";
-import { getMapDefinition } from "./maps.js";
-import { getScoreAwardForEvent } from "./scoring.js";
+import { getMapDefinition } from "../maps.js";
+import { getScoreAwardForEvent } from "../scoring.js";
 
 function awardPlayerScore(
   player: RuntimePlayer | undefined,

@@ -1,7 +1,7 @@
 import {
   PILOT_SURVIVAL_MS,
   POWERUP_DESPAWN_MS,
-} from "./constants.js";
+} from "../constants.js";
 import type {
   MapId,
   PlayerPowerUp,
@@ -18,8 +18,8 @@ import type {
   RuntimeTurret,
   RuntimeTurretBullet,
   SnapshotPayload,
-} from "./types.js";
-import { clamp } from "./utils.js";
+} from "../types.js";
+import { clamp } from "../utils.js";
 
 export interface BuildPlayerListPayloadInput {
   playerOrder: string[];
