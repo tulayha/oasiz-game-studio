@@ -2,6 +2,7 @@ import type {
   ActiveConfig,
   AdvancedSettings,
   BaseGameMode,
+  DebugPhysicsGlobals,
   DebugPhysicsMaterials,
 } from "../types.js";
 import { DEFAULT_ADVANCED_SETTINGS } from "../constants.js";
@@ -43,6 +44,16 @@ export const DEBUG_MATERIAL_KEYS: ReadonlyArray<keyof DebugPhysicsMaterials> = [
   "WALL_FRICTION",
   "PILOT_FRICTION_AIR",
   "PILOT_ANGULAR_DAMPING",
+];
+
+export const DEBUG_GLOBAL_KEYS: ReadonlyArray<keyof DebugPhysicsGlobals> = [
+  "SHIP_DODGE_COOLDOWN_MS",
+  "SHIP_DODGE_ANGLE_DEG",
+  "FIRE_COOLDOWN_MS",
+  "FIRE_HOLD_REPEAT_DELAY_MS",
+  "RELOAD_MS",
+  "PROJECTILE_LIFETIME_MS",
+  "PILOT_DASH_COOLDOWN_MS",
 ];
 
 function isInList<T extends string>(

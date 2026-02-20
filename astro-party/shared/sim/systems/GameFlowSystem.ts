@@ -2,9 +2,7 @@ import type { SimState, RuntimePlayer, RuntimePilot, RuntimeAsteroid, RuntimePow
 import {
   ARENA_WIDTH,
   ARENA_HEIGHT,
-  FIRE_COOLDOWN_MS,
   MAX_AMMO,
-  PILOT_DASH_COOLDOWN_MS,
   PILOT_SURVIVAL_MS,
   POWERUP_DESPAWN_MS,
   HOMING_MISSILE_LIFETIME_MS,
@@ -31,6 +29,7 @@ function awardPlayerScore(
 
 export function updatePilots(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
+  const globals = sim.getGlobalConfig();
   for (const [playerId, pilot] of sim.pilots) {
     if (!pilot.alive) continue;
     const player = sim.players.get(playerId);
@@ -78,7 +77,10 @@ export function updatePilots(sim: SimState, dtSec: number): void {
     const dashPressedNow = dash && !pilot.dashInputHeld;
     pilot.dashInputHeld = dash;
     const dashRequested = PILOT_DASH_USE_EDGE_TRIGGER ? dashPressedNow : dash;
-    if (dashRequested && sim.nowMs - pilot.lastDashAtMs >= PILOT_DASH_COOLDOWN_MS) {
+    if (
+      dashRequested &&
+      sim.nowMs - pilot.lastDashAtMs >= globals.PILOT_DASH_COOLDOWN_MS
+    ) {
       pilot.lastDashAtMs = sim.nowMs;
       sim.applyPilotForce(
         playerId,
@@ -116,7 +118,7 @@ export function onShipHit(sim: SimState, owner: RuntimePlayer | undefined, targe
     survivalProgress: 0,
     alive: true,
     angularVelocity: target.angularVelocity * 0.6,
-    lastDashAtMs: sim.nowMs - PILOT_DASH_COOLDOWN_MS - 1,
+    lastDashAtMs: sim.nowMs - sim.getGlobalConfig().PILOT_DASH_COOLDOWN_MS - 1,
     dashInputHeld: false,
     controlMode,
     aiThinkAtMs: sim.nowMs + 300,
@@ -170,7 +172,7 @@ export function respawnFromPilot(sim: SimState, playerId: string, pilot: Runtime
   player.ship.invulnerableUntil = sim.nowMs + 2000;
   player.angularVelocity = 0;
   player.ship.ammo = MAX_AMMO;
-  player.ship.lastShotTime = sim.nowMs - FIRE_COOLDOWN_MS - 1;
+  player.ship.lastShotTime = sim.nowMs - sim.getGlobalConfig().FIRE_COOLDOWN_MS - 1;
   player.ship.reloadStartTime = sim.nowMs;
   player.ship.isReloading = false;
   player.state = "ACTIVE";
@@ -320,6 +322,7 @@ export function clearRoundEntities(sim: SimState): void {
 }
 
 export function spawnAllShips(sim: SimState): void {
+  const globals = sim.getGlobalConfig();
   const points = getSpawnPoints(sim.playerOrder.length);
   sim.playerOrder.forEach((playerId: string, index: number) => {
     const player = sim.players.get(playerId);
@@ -344,7 +347,7 @@ export function spawnAllShips(sim: SimState): void {
       invulnerableUntil: sim.nowMs + 2000,
       ammo: MAX_AMMO,
       maxAmmo: MAX_AMMO,
-      lastShotTime: sim.nowMs - FIRE_COOLDOWN_MS - 1,
+      lastShotTime: sim.nowMs - globals.FIRE_COOLDOWN_MS - 1,
       reloadStartTime: sim.nowMs,
       isReloading: false,
     };

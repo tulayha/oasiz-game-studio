@@ -423,14 +423,26 @@ export interface DebugPhysicsMaterials {
   PILOT_ANGULAR_DAMPING: number;
 }
 
+export interface DebugPhysicsGlobals {
+  SHIP_DODGE_COOLDOWN_MS: number;
+  SHIP_DODGE_ANGLE_DEG: number;
+  FIRE_COOLDOWN_MS: number;
+  FIRE_HOLD_REPEAT_DELAY_MS: number;
+  RELOAD_MS: number;
+  PROJECTILE_LIFETIME_MS: number;
+  PILOT_DASH_COOLDOWN_MS: number;
+}
+
 export interface DebugPhysicsTuningPayload {
   configOverrides?: Partial<ActiveConfig>;
   materialOverrides?: Partial<DebugPhysicsMaterials>;
+  globalOverrides?: Partial<DebugPhysicsGlobals>;
 }
 
 export interface DebugPhysicsTuningSnapshot {
   config: ActiveConfig;
   materials: DebugPhysicsMaterials;
+  globals: DebugPhysicsGlobals;
   overrides: DebugPhysicsTuningPayload | null;
 }
 
@@ -486,6 +498,7 @@ export interface SimState {
   // Helper methods systems may call
   nextEntityId(prefix: string): string;
   getActiveConfig(): ActiveConfig;
+  getGlobalConfig(): DebugPhysicsGlobals;
   triggerScreenShake(intensity: number, duration: number): void;
   syncPlayers(): void;
   grantPowerUp(playerId: string, type: PowerUpType): void;

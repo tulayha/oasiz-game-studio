@@ -2,15 +2,23 @@ import type {
   ActiveConfig,
   AdvancedSettings,
   BaseGameMode,
+  DebugPhysicsGlobals,
   DebugPhysicsMaterials,
   DebugPhysicsTuningPayload,
 } from "../types.js";
 import {
   CHAOTIC_CONFIG,
   DASH_POWER_PRESET_OVERRIDES,
+  FIRE_COOLDOWN_MS,
+  FIRE_HOLD_REPEAT_DELAY_MS,
   PILOT_ANGULAR_DAMPING,
+  PILOT_DASH_COOLDOWN_MS,
   PILOT_FRICTION_AIR,
+  PROJECTILE_LIFETIME_MS,
+  RELOAD_MS,
   SANE_CONFIG,
+  SHIP_DODGE_ANGLE_DEG,
+  SHIP_DODGE_COOLDOWN_MS,
   SHIP_ANGULAR_DAMPING_BY_PRESET,
   SHIP_FRICTION_AIR_BY_PRESET,
   SHIP_FRICTION_BY_PRESET,
@@ -21,7 +29,11 @@ import {
   WALL_RESTITUTION_BY_PRESET,
 } from "../constants.js";
 import { getModeBaseConfig, resolveConfigValue } from "../utils.js";
-import { DEBUG_CONFIG_KEYS, DEBUG_MATERIAL_KEYS } from "./simulationSettings.js";
+import {
+  DEBUG_CONFIG_KEYS,
+  DEBUG_GLOBAL_KEYS,
+  DEBUG_MATERIAL_KEYS,
+} from "./simulationSettings.js";
 
 export function getActiveConfigFromSettings(
   baseMode: BaseGameMode,
@@ -127,6 +139,32 @@ export function resolveMaterialValuesFromSettings(
   return materials;
 }
 
+export function resolveGlobalValues(
+  debugPhysicsTuning: DebugPhysicsTuningPayload | null,
+): DebugPhysicsGlobals {
+  const globals: DebugPhysicsGlobals = {
+    SHIP_DODGE_COOLDOWN_MS,
+    SHIP_DODGE_ANGLE_DEG,
+    FIRE_COOLDOWN_MS,
+    FIRE_HOLD_REPEAT_DELAY_MS,
+    RELOAD_MS,
+    PROJECTILE_LIFETIME_MS,
+    PILOT_DASH_COOLDOWN_MS,
+  };
+
+  const globalOverrides = debugPhysicsTuning?.globalOverrides;
+  if (globalOverrides) {
+    for (const key of DEBUG_GLOBAL_KEYS) {
+      const value = globalOverrides[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        globals[key] = value;
+      }
+    }
+  }
+
+  return globals;
+}
+
 export function sanitizeDebugPhysicsTuningPayload(
   payload: DebugPhysicsTuningPayload | null,
 ): DebugPhysicsTuningPayload | null {
@@ -154,13 +192,26 @@ export function sanitizeDebugPhysicsTuningPayload(
     }
   }
 
+  const globalOverrides: Partial<DebugPhysicsGlobals> = {};
+  const sourceGlobalOverrides = payload.globalOverrides;
+  if (sourceGlobalOverrides) {
+    for (const key of DEBUG_GLOBAL_KEYS) {
+      const value = sourceGlobalOverrides[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        globalOverrides[key] = value;
+      }
+    }
+  }
+
   const hasConfigOverrides = Object.keys(configOverrides).length > 0;
   const hasMaterialOverrides = Object.keys(materialOverrides).length > 0;
-  if (!hasConfigOverrides && !hasMaterialOverrides) {
+  const hasGlobalOverrides = Object.keys(globalOverrides).length > 0;
+  if (!hasConfigOverrides && !hasMaterialOverrides && !hasGlobalOverrides) {
     return null;
   }
   return {
     configOverrides: hasConfigOverrides ? configOverrides : undefined,
     materialOverrides: hasMaterialOverrides ? materialOverrides : undefined,
+    globalOverrides: hasGlobalOverrides ? globalOverrides : undefined,
   };
 }

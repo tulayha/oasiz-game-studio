@@ -16,6 +16,7 @@ interface SliderField<T extends string> {
 
 type ConfigKey = keyof DebugPhysicsTuningSnapshot["config"];
 type MaterialKey = keyof DebugPhysicsTuningSnapshot["materials"];
+type GlobalKey = keyof DebugPhysicsTuningSnapshot["globals"];
 
 const MODE_OPTIONS: BaseGameMode[] = ["STANDARD", "SANE", "CHAOTIC"];
 
@@ -217,6 +218,65 @@ const MATERIAL_FIELDS: ReadonlyArray<SliderField<MaterialKey>> = [
   },
 ];
 
+const GLOBAL_FIELDS: ReadonlyArray<SliderField<GlobalKey>> = [
+  {
+    key: "SHIP_DODGE_COOLDOWN_MS",
+    label: "Ship Dodge Cooldown",
+    min: 50,
+    max: 1000,
+    step: 5,
+    hint: "Higher: longer gap between ship dodges. Lower: more frequent dodging.",
+  },
+  {
+    key: "SHIP_DODGE_ANGLE_DEG",
+    label: "Ship Dodge Angle",
+    min: 0,
+    max: 180,
+    step: 1,
+    hint: "Higher: dodge turns further from current heading. Lower: dodge stays closer to forward.",
+  },
+  {
+    key: "FIRE_COOLDOWN_MS",
+    label: "Fire Cooldown",
+    min: 20,
+    max: 600,
+    step: 5,
+    hint: "Higher: slower firing cadence. Lower: faster repeated shots.",
+  },
+  {
+    key: "FIRE_HOLD_REPEAT_DELAY_MS",
+    label: "Hold Repeat Delay",
+    min: 20,
+    max: 800,
+    step: 5,
+    hint: "Higher: longer delay before hold-repeat starts. Lower: hold fire kicks in sooner.",
+  },
+  {
+    key: "RELOAD_MS",
+    label: "Reload Interval",
+    min: 100,
+    max: 3000,
+    step: 25,
+    hint: "Higher: ammo refills slower. Lower: ammo refills faster.",
+  },
+  {
+    key: "PROJECTILE_LIFETIME_MS",
+    label: "Projectile Lifetime",
+    min: 100,
+    max: 6000,
+    step: 25,
+    hint: "Higher: bullets persist longer. Lower: bullets expire sooner.",
+  },
+  {
+    key: "PILOT_DASH_COOLDOWN_MS",
+    label: "Pilot Dash Cooldown",
+    min: 20,
+    max: 1000,
+    step: 5,
+    hint: "Higher: longer delay between pilot dashes. Lower: pilots can dash more often.",
+  },
+];
+
 export interface PhysicsLabController {
   open: () => void;
   close: () => void;
@@ -236,12 +296,62 @@ export function createPhysicsLabController(
   let statusEl: HTMLDivElement | null = null;
   let configInputs: Record<ConfigKey, HTMLInputElement> | null = null;
   let materialInputs: Record<MaterialKey, HTMLInputElement> | null = null;
+  let globalInputs: Record<GlobalKey, HTMLInputElement> | null = null;
   let applyTimeout: ReturnType<typeof window.setTimeout> | null = null;
   let suppressApply = false;
 
   const setStatus = (message: string): void => {
     if (!statusEl) return;
     statusEl.textContent = message;
+  };
+
+  const isRecord = (value: unknown): value is Record<string, unknown> => {
+    return typeof value === "object" && value !== null;
+  };
+
+  const isModeOption = (value: unknown): value is BaseGameMode => {
+    return typeof value === "string" && MODE_OPTIONS.includes(value as BaseGameMode);
+  };
+
+  const extractPastedTuning = (
+    value: unknown,
+  ): {
+    baseMode?: BaseGameMode;
+    tuning?: DebugPhysicsTuningPayload | null;
+  } | null => {
+    if (!isRecord(value)) return null;
+
+    const baseModeValue = value.baseMode;
+    const tuningSource = "tuning" in value ? value.tuning : value;
+    const hasRootTuningKey = "tuning" in value;
+
+    let baseMode: BaseGameMode | undefined;
+    if (baseModeValue !== undefined) {
+      if (!isModeOption(baseModeValue)) {
+        return null;
+      }
+      baseMode = baseModeValue;
+    }
+
+    if (tuningSource === null) {
+      return { baseMode, tuning: null };
+    }
+    if (!isRecord(tuningSource)) {
+      return null;
+    }
+
+    const hasKnownTuningKey =
+      "configOverrides" in tuningSource ||
+      "materialOverrides" in tuningSource ||
+      "globalOverrides" in tuningSource;
+    if (!hasKnownTuningKey) {
+      return hasRootTuningKey ? { baseMode, tuning: null } : null;
+    }
+
+    return {
+      baseMode,
+      tuning: tuningSource as DebugPhysicsTuningPayload,
+    };
   };
 
   const getSnapshot = (): DebugPhysicsTuningSnapshot | null => {
@@ -294,7 +404,7 @@ export function createPhysicsLabController(
   };
 
   const writeSnapshotToInputs = (snapshot: DebugPhysicsTuningSnapshot): void => {
-    if (!configInputs || !materialInputs) return;
+    if (!configInputs || !materialInputs || !globalInputs) return;
     suppressApply = true;
     for (const field of CONFIG_FIELDS) {
       const input = configInputs[field.key];
@@ -306,12 +416,18 @@ export function createPhysicsLabController(
       input.value = String(snapshot.materials[field.key]);
       updateValueLabel(input);
     }
+    for (const field of GLOBAL_FIELDS) {
+      const input = globalInputs[field.key];
+      input.value = String(snapshot.globals[field.key]);
+      updateValueLabel(input);
+    }
     suppressApply = false;
   };
 
   const buildPayloadFromInputs = (): DebugPhysicsTuningPayload => {
     const configOverrides: DebugPhysicsTuningPayload["configOverrides"] = {};
     const materialOverrides: DebugPhysicsTuningPayload["materialOverrides"] = {};
+    const globalOverrides: DebugPhysicsTuningPayload["globalOverrides"] = {};
     if (configInputs) {
       for (const field of CONFIG_FIELDS) {
         const value = Number(configInputs[field.key].value);
@@ -328,7 +444,15 @@ export function createPhysicsLabController(
         }
       }
     }
-    return { configOverrides, materialOverrides };
+    if (globalInputs) {
+      for (const field of GLOBAL_FIELDS) {
+        const value = Number(globalInputs[field.key].value);
+        if (Number.isFinite(value)) {
+          globalOverrides[field.key] = value;
+        }
+      }
+    }
+    return { configOverrides, materialOverrides, globalOverrides };
   };
 
   const refreshFromSim = (): void => {
@@ -365,6 +489,55 @@ export function createPhysicsLabController(
       setStatus("Clipboard blocked. Copy from popup.");
       window.prompt("Copy physics tuning JSON", text);
     }
+  };
+
+  const pastePayload = async (): Promise<void> => {
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      setStatus("Clipboard read blocked. Allow clipboard access and try again.");
+      return;
+    }
+
+    if (!text || text.trim().length === 0) {
+      setStatus("Clipboard is empty.");
+      return;
+    }
+
+    let parsedRaw: unknown;
+    try {
+      parsedRaw = JSON.parse(text);
+    } catch {
+      setStatus("Clipboard does not contain valid JSON.");
+      return;
+    }
+
+    const parsed = extractPastedTuning(parsedRaw);
+    if (!parsed) {
+      setStatus("JSON shape not recognized. Expected { baseMode, tuning }.");
+      return;
+    }
+
+    if (parsed.baseMode) {
+      game.setGameMode(parsed.baseMode, "local");
+      if (modeSelect) {
+        modeSelect.value = parsed.baseMode;
+      }
+    }
+
+    if (parsed.tuning !== undefined) {
+      const ok = game.setDebugPhysicsTuning(parsed.tuning);
+      if (!ok) return;
+    } else if (parsed.baseMode) {
+      const ok = game.setDebugPhysicsTuning(null);
+      if (!ok) return;
+    }
+
+    window.setTimeout(() => {
+      refreshFromSim();
+    }, 0);
+    setStatus("Pasted and applied tuning JSON");
   };
 
   const ensureMounted = (): void => {
@@ -423,13 +596,26 @@ export function createPhysicsLabController(
       void copyPayload();
     });
 
+    const pasteBtn = document.createElement("button");
+    pasteBtn.type = "button";
+    pasteBtn.className = "qa-physics-lab-btn";
+    pasteBtn.textContent = "Paste JSON";
+    pasteBtn.addEventListener("click", () => {
+      void pastePayload();
+    });
+
     controls.appendChild(modeSelect);
     controls.appendChild(reloadBtn);
     controls.appendChild(resetBtn);
     controls.appendChild(copyBtn);
+    controls.appendChild(pasteBtn);
 
     const sections = document.createElement("div");
     sections.className = "qa-physics-lab-sections";
+    const leftColumn = document.createElement("div");
+    leftColumn.className = "qa-physics-lab-column";
+    const rightColumn = document.createElement("div");
+    rightColumn.className = "qa-physics-lab-column";
 
     const configSection = document.createElement("section");
     configSection.className = "qa-physics-lab-section";
@@ -463,8 +649,26 @@ export function createPhysicsLabController(
     });
     materialsSection.appendChild(materialsGrid);
 
-    sections.appendChild(configSection);
-    sections.appendChild(materialsSection);
+    const globalsSection = document.createElement("section");
+    globalsSection.className = "qa-physics-lab-section";
+    globalsSection.innerHTML = '<h4 class="qa-physics-lab-heading">Globals</h4>';
+
+    const globalsGrid = document.createElement("div");
+    globalsGrid.className = "qa-physics-lab-grid";
+    globalInputs = {} as Record<GlobalKey, HTMLInputElement>;
+
+    GLOBAL_FIELDS.forEach((field) => {
+      const row = buildSliderRow(field, "glob", queueApply);
+      globalInputs![field.key] = row.input;
+      globalsGrid.appendChild(row.container);
+    });
+    globalsSection.appendChild(globalsGrid);
+
+    leftColumn.appendChild(configSection);
+    rightColumn.appendChild(materialsSection);
+    rightColumn.appendChild(globalsSection);
+    sections.appendChild(leftColumn);
+    sections.appendChild(rightColumn);
 
     statusEl = document.createElement("div");
     statusEl.className = "qa-physics-lab-status";
@@ -609,7 +813,7 @@ function injectStyles(): void {
 
     .qa-physics-lab-controls {
       display: grid;
-      grid-template-columns: 1.15fr repeat(3, minmax(0, 1fr));
+      grid-template-columns: 1.15fr repeat(4, minmax(0, 1fr));
       gap: 8px;
       margin-bottom: 10px;
     }
@@ -618,6 +822,13 @@ function injectStyles(): void {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
+      align-items: start;
+    }
+
+    .qa-physics-lab-column {
+      display: grid;
+      gap: 12px;
+      align-content: start;
     }
 
     .qa-physics-lab-section {
@@ -625,6 +836,7 @@ function injectStyles(): void {
       border-radius: 10px;
       padding: 8px;
       background: rgba(255, 255, 255, 0.02);
+      align-self: start;
     }
 
     .qa-physics-lab-heading {

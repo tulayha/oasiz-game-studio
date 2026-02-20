@@ -1,10 +1,11 @@
-import type { SimState, RuntimePlayer, ActiveConfig } from "../types.js";
+import type {
+  SimState,
+  RuntimePlayer,
+  ActiveConfig,
+  DebugPhysicsGlobals,
+} from "../types.js";
 import {
   SHIP_HIT_RADIUS,
-  FIRE_COOLDOWN_MS,
-  FIRE_HOLD_REPEAT_DELAY_MS,
-  RELOAD_MS,
-  PROJECTILE_LIFETIME_MS,
   PLAYER_COLORS,
   JOUST_SPEED_MULTIPLIER,
   LASER_COOLDOWN_MS,
@@ -16,8 +17,6 @@ import {
   SCATTER_PROJECTILE_LIFETIME_MS,
   HOMING_MISSILE_SPEED,
   POWERUP_SHIELD_HITS,
-  SHIP_DODGE_COOLDOWN_MS,
-  SHIP_DODGE_ANGLE_DEG,
 } from "../constants.js";
 import { normalizeAngle, clamp } from "../utils.js";
 import {
@@ -36,6 +35,7 @@ const MATTER_BASE_STEPS_PER_SECOND = 60;
 
 export function updateShips(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
+  const globals = sim.getGlobalConfig();
   const isStandard = sim.baseMode === "STANDARD";
 
   for (const playerId of sim.playerOrder) {
@@ -47,11 +47,12 @@ export function updateShips(sim: SimState, dtSec: number): void {
 
     if (player.dashQueued) {
       player.dashQueued = false;
-      if (sim.nowMs - player.lastShipDashAtMs >= SHIP_DODGE_COOLDOWN_MS) {
+      if (sim.nowMs - player.lastShipDashAtMs >= globals.SHIP_DODGE_COOLDOWN_MS) {
         player.lastShipDashAtMs = sim.nowMs;
         const dodgeAngle = normalizeAngle(
           ship.angle +
-            ((SHIP_DODGE_ANGLE_DEG * Math.PI) / 180) * sim.rotationDirection,
+            ((globals.SHIP_DODGE_ANGLE_DEG * Math.PI) / 180) *
+              sim.rotationDirection,
         );
         ship.angle = dodgeAngle;
         sim.setShipAngle(player.id, ship.angle);
@@ -163,7 +164,7 @@ export function updateShips(sim: SimState, dtSec: number): void {
     }
 
     if (player.fireRequested) {
-      const didFire = tryFire(sim, player, cfg, isStandard);
+      const didFire = tryFire(sim, player, cfg, isStandard, globals);
       player.fireRequested = false;
       if (didFire && player.firePressStartMs <= 0) {
         player.firePressStartMs = sim.nowMs;
@@ -171,12 +172,12 @@ export function updateShips(sim: SimState, dtSec: number): void {
     } else if (
       player.input.buttonB &&
       player.firePressStartMs > 0 &&
-      sim.nowMs - player.firePressStartMs >= FIRE_HOLD_REPEAT_DELAY_MS
+      sim.nowMs - player.firePressStartMs >= globals.FIRE_HOLD_REPEAT_DELAY_MS
     ) {
-      tryFire(sim, player, cfg, isStandard);
+      tryFire(sim, player, cfg, isStandard, globals);
     }
 
-    updateReload(sim, ship);
+    updateReload(sim, ship, globals);
   }
 }
 
@@ -185,6 +186,7 @@ export function tryFire(
   player: RuntimePlayer,
   cfg: ActiveConfig,
   isStandard: boolean,
+  globals: DebugPhysicsGlobals,
 ): boolean {
   const ship = player.ship;
   // Spawn from ship center to avoid nose-side tunneling when ships are pressed together.
@@ -292,7 +294,7 @@ export function tryFire(
     return true;
   }
 
-  if (sim.nowMs - ship.lastShotTime < FIRE_COOLDOWN_MS) return false;
+  if (sim.nowMs - ship.lastShotTime < globals.FIRE_COOLDOWN_MS) return false;
   if (ship.ammo <= 0) return false;
 
   ship.lastShotTime = sim.nowMs;
@@ -321,19 +323,28 @@ export function tryFire(
     vx: Math.cos(ship.angle) * cfg.PROJECTILE_SPEED,
     vy: Math.sin(ship.angle) * cfg.PROJECTILE_SPEED,
     spawnTime: sim.nowMs,
-    lifetimeMs: PROJECTILE_LIFETIME_MS,
+    lifetimeMs: globals.PROJECTILE_LIFETIME_MS,
   });
   sim.hooks.onSound("fire", player.id);
   return true;
 }
 
-function updateReload(sim: SimState, ship: { ammo: number; maxAmmo: number; isReloading: boolean; reloadStartTime: number }): void {
+function updateReload(
+  sim: SimState,
+  ship: {
+    ammo: number;
+    maxAmmo: number;
+    isReloading: boolean;
+    reloadStartTime: number;
+  },
+  globals: DebugPhysicsGlobals,
+): void {
   if (!ship.isReloading) return;
   if (ship.ammo >= ship.maxAmmo) {
     ship.isReloading = false;
     return;
   }
-  if (sim.nowMs - ship.reloadStartTime < RELOAD_MS) return;
+  if (sim.nowMs - ship.reloadStartTime < globals.RELOAD_MS) return;
   ship.ammo += 1;
   ship.reloadStartTime = sim.nowMs;
   if (ship.ammo >= ship.maxAmmo) {

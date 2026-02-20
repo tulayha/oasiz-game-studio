@@ -24,6 +24,7 @@ import type {
   PlayerListPayload,
   PlayerListMeta,
   RoundResultPayload,
+  DebugPhysicsGlobals,
   DebugPhysicsTuningPayload,
   DebugPhysicsTuningSnapshot,
   SimState,
@@ -42,7 +43,6 @@ import {
   DEFAULT_ADVANCED_SETTINGS,
   COUNTDOWN_SECONDS,
   ROUND_RESULTS_DURATION_MS,
-  FIRE_COOLDOWN_MS,
   MAX_AMMO,
   HOMING_MISSILE_LIFETIME_MS,
   WALL_RESTITUTION_BY_PRESET,
@@ -61,6 +61,7 @@ import {
 } from "./modules/simulationSettings.js";
 import {
   getActiveConfigFromSettings,
+  resolveGlobalValues,
   resolveMaterialValuesFromSettings,
   sanitizeDebugPhysicsTuningPayload,
 } from "./modules/simulationPhysicsTuning.js";
@@ -618,6 +619,7 @@ export class AstroPartySimulation implements SimState {
         this.settings,
         this.debugPhysicsTuning,
       ),
+      globals: this.getGlobalConfig(),
       overrides: this.debugPhysicsTuning
         ? {
             configOverrides: this.debugPhysicsTuning.configOverrides
@@ -625,6 +627,9 @@ export class AstroPartySimulation implements SimState {
               : undefined,
             materialOverrides: this.debugPhysicsTuning.materialOverrides
               ? { ...this.debugPhysicsTuning.materialOverrides }
+              : undefined,
+            globalOverrides: this.debugPhysicsTuning.globalOverrides
+              ? { ...this.debugPhysicsTuning.globalOverrides }
               : undefined,
           }
         : null,
@@ -890,6 +895,10 @@ export class AstroPartySimulation implements SimState {
       this.settings,
       this.debugPhysicsTuning,
     );
+  }
+
+  getGlobalConfig(): DebugPhysicsGlobals {
+    return resolveGlobalValues(this.debugPhysicsTuning);
   }
 
   triggerScreenShake(intensity: number, duration: number): void {
@@ -1278,6 +1287,7 @@ export class AstroPartySimulation implements SimState {
 
   private resetScoreAndState(): void {
     clearRoundEntities(this);
+    const globals = this.getGlobalConfig();
     for (const playerId of this.playerOrder) {
       const player = this.players.get(playerId);
       if (!player) continue;
@@ -1319,7 +1329,7 @@ export class AstroPartySimulation implements SimState {
         alive: false,
         ammo: MAX_AMMO,
         maxAmmo: MAX_AMMO,
-        lastShotTime: this.nowMs - FIRE_COOLDOWN_MS - 1,
+        lastShotTime: this.nowMs - globals.FIRE_COOLDOWN_MS - 1,
         reloadStartTime: this.nowMs,
         isReloading: false,
       };
