@@ -338,6 +338,7 @@ export function checkSweptProjectileHitShipCollisions(
   ctx: SimulationCollisionHandlersContext,
   shipBodies: ReadonlyMap<string, Matter.Body>,
   previousProjectilePositions: ReadonlyMap<string, Vec2>,
+  previousProjectileVelocities: ReadonlyMap<string, Vec2>,
 ): void {
   if (ctx.projectileBodies.size <= 0 || shipBodies.size <= 0) return;
 
@@ -351,31 +352,104 @@ export function checkSweptProjectileHitShipCollisions(
 
     const start = previous;
     const end = projectileBody.position;
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    if (dx * dx + dy * dy <= 1e-9) continue;
-
     const sweepWidth = getBodySweepWidth(projectileBody);
-    const collisions = Matter.Query.ray(shipBodyList, start, end, sweepWidth);
-    if (collisions.length <= 0) continue;
-
-    const shipBodiesById = new Map<number, Matter.Body>();
-    for (const collision of collisions) {
-      const hitBody = collision.bodyA.parent ?? collision.bodyA;
-      shipBodiesById.set(hitBody.id, hitBody);
-    }
-
-    const orderedShipBodies = [...shipBodiesById.values()].sort(
-      (bodyA, bodyB) =>
-        projectPointOntoSegmentT(start, end, bodyA.position) -
-        projectPointOntoSegmentT(start, end, bodyB.position),
+    const preVelocity = previousProjectileVelocities.get(projectileId) ?? null;
+    const midpoint = getCurvedSweepMidpoint(
+      start,
+      end,
+      preVelocity,
+      projectileBody.velocity,
     );
+    const sweepSegments: [Vec2, Vec2][] = [
+      [start, midpoint],
+      [midpoint, end],
+    ];
 
-    for (const shipBody of orderedShipBodies) {
+    for (const [segmentStart, segmentEnd] of sweepSegments) {
       if (!ctx.projectileBodies.has(projectileId)) break;
-      handleProjectileHitShipCollision(ctx, projectileBody, shipBody);
+      const orderedShipBodies = queryOrderedShipBodiesAlongSegment(
+        shipBodyList,
+        segmentStart,
+        segmentEnd,
+        sweepWidth,
+      );
+      for (const shipBody of orderedShipBodies) {
+        if (!ctx.projectileBodies.has(projectileId)) break;
+        handleProjectileHitShipCollision(ctx, projectileBody, shipBody);
+      }
     }
   }
+}
+
+function queryOrderedShipBodiesAlongSegment(
+  shipBodyList: Matter.Body[],
+  start: Vec2,
+  end: Vec2,
+  sweepWidth: number,
+): Matter.Body[] {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx * dx + dy * dy <= 1e-9) return [];
+
+  const collisions = Matter.Query.ray(shipBodyList, start, end, sweepWidth);
+  if (collisions.length <= 0) return [];
+
+  const shipBodiesById = new Map<number, Matter.Body>();
+  for (const collision of collisions) {
+    const hitBody = collision.bodyA.parent ?? collision.bodyA;
+    shipBodiesById.set(hitBody.id, hitBody);
+  }
+
+  return [...shipBodiesById.values()].sort(
+    (bodyA, bodyB) =>
+      projectPointOntoSegmentT(start, end, bodyA.position) -
+      projectPointOntoSegmentT(start, end, bodyB.position),
+  );
+}
+
+function getCurvedSweepMidpoint(
+  start: Vec2,
+  end: Vec2,
+  preVelocity: Vec2 | null,
+  postVelocity: Vec2,
+): Vec2 {
+  const midpoint = {
+    x: (start.x + end.x) * 0.5,
+    y: (start.y + end.y) * 0.5,
+  };
+
+  if (!preVelocity) return midpoint;
+
+  const preLen = Math.hypot(preVelocity.x, preVelocity.y);
+  const postLen = Math.hypot(postVelocity.x, postVelocity.y);
+  if (preLen <= 1e-6 || postLen <= 1e-6) return midpoint;
+
+  const chordX = end.x - start.x;
+  const chordY = end.y - start.y;
+  const chordLen = Math.hypot(chordX, chordY);
+  if (chordLen <= 1e-6) return midpoint;
+
+  const preNX = preVelocity.x / preLen;
+  const preNY = preVelocity.y / preLen;
+  const postNX = postVelocity.x / postLen;
+  const postNY = postVelocity.y / postLen;
+
+  const turnCross = preNX * postNY - preNY * postNX;
+  const turnMagnitude = Math.abs(turnCross);
+  if (turnMagnitude <= 1e-3) return midpoint;
+
+  const chordNX = chordX / chordLen;
+  const chordNY = chordY / chordLen;
+  const chordNormalX = -chordNY;
+  const chordNormalY = chordNX;
+  const maxOffset = chordLen * 0.35;
+  const signedOffset =
+    Math.max(-maxOffset, Math.min(maxOffset, turnCross * chordLen * 0.25));
+
+  return {
+    x: midpoint.x + chordNormalX * signedOffset,
+    y: midpoint.y + chordNormalY * signedOffset,
+  };
 }
 
 function tryDamageYellowBlockWithSword(

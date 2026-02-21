@@ -98,6 +98,8 @@ import {
   type SimulationCollisionHandlersContext,
 } from "./modules/simulationCollisionHandlers.js";
 import {
+  applyMapFeatureForcesToBodies as applyMapFeatureForcesToBodiesState,
+  applyMapFeatureKinematics as applyMapFeatureKinematicsState,
   clearMapFeatures as clearMapFeaturesState,
   spawnMapFeatures as spawnMapFeaturesState,
   updateMapFeatures as updateMapFeaturesState,
@@ -839,7 +841,11 @@ export class AstroPartySimulation implements SimState {
       removePowerUpBody: this.removePowerUpBody.bind(this),
       removeTurretBulletBody: this.removeTurretBulletBody.bind(this),
     });
+    this.applyMapFeatureForcesToBodies();
     const previousProjectilePositions = this.captureBodyPositions(
+      this.projectileBodies,
+    );
+    const previousProjectileVelocities = this.captureBodyVelocities(
       this.projectileBodies,
     );
     this.physics.update(deltaMs);
@@ -848,6 +854,7 @@ export class AstroPartySimulation implements SimState {
       collisionHandlersContext,
       this.shipBodies,
       previousProjectilePositions,
+      previousProjectileVelocities,
     );
     syncSimFromPhysicsState({
       players: this.players,
@@ -873,7 +880,7 @@ export class AstroPartySimulation implements SimState {
     checkJoustYellowBlockCollisionsState(collisionHandlersContext);
     updateTurret(this, dtSec);
     updateTurretBullets(this, dtSec);
-    this.updateMapFeatures(dtSec);
+    this.applyMapFeatureKinematics(dtSec);
     cleanupExpiredEntities(this);
     updatePendingEliminationChecks(this);
     if (this.pendingEliminationCheckAtMs === null) {
@@ -1118,8 +1125,29 @@ export class AstroPartySimulation implements SimState {
     return out;
   }
 
+  private captureBodyVelocities(
+    bodies: ReadonlyMap<string, Matter.Body>,
+  ): Map<string, { x: number; y: number }> {
+    const out = new Map<string, { x: number; y: number }>();
+    for (const [entityId, body] of bodies) {
+      out.set(entityId, {
+        x: body.velocity.x,
+        y: body.velocity.y,
+      });
+    }
+    return out;
+  }
+
   spawnMapFeatures(): void {
     spawnMapFeaturesState(this.createMapFeaturesContext());
+  }
+
+  private applyMapFeatureForcesToBodies(): void {
+    applyMapFeatureForcesToBodiesState(this.createMapFeaturesContext());
+  }
+
+  private applyMapFeatureKinematics(dtSec: number): void {
+    applyMapFeatureKinematicsState(this.createMapFeaturesContext(), dtSec);
   }
 
   updateMapFeatures(dtSec: number): void {

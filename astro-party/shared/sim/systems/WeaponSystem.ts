@@ -21,7 +21,13 @@ import {
   SHIP_JOUST_LOCAL_POINTS,
   localPointToWorld,
 } from "../../geometry/ShipRenderAnchors.js";
-import { TURRET_TUNING } from "../mapFeatureTuning.js";
+import {
+  REPULSION_TUNING,
+  TURRET_TUNING,
+  VORTEX_TUNING,
+  sampleMapField,
+} from "../mapFeatureTuning.js";
+import { getMapDefinition } from "../maps.js";
 import { normalizeAngle, clamp } from "../utils.js";
 import {
   distanceSqPointToSegment,
@@ -166,8 +172,14 @@ export function updateHomingMissiles(sim: SimState, dtSec: number): void {
       }
     }
 
-    missile.vx = Math.cos(missile.angle) * HOMING_MISSILE_SPEED;
-    missile.vy = Math.sin(missile.angle) * HOMING_MISSILE_SPEED;
+    const mapVelocityOffset = getHomingMissileMapVelocityOffset(sim, missile, dtSec);
+    const guidedVx = Math.cos(missile.angle) * HOMING_MISSILE_SPEED;
+    const guidedVy = Math.sin(missile.angle) * HOMING_MISSILE_SPEED;
+    missile.vx = guidedVx + mapVelocityOffset.x;
+    missile.vy = guidedVy + mapVelocityOffset.y;
+    if (Math.abs(missile.vx) > 1e-6 || Math.abs(missile.vy) > 1e-6) {
+      missile.angle = Math.atan2(missile.vy, missile.vx);
+    }
     missile.x += missile.vx * dtSec * 60;
     missile.y += missile.vy * dtSec * 60;
 
@@ -182,6 +194,61 @@ export function updateHomingMissiles(sim: SimState, dtSec: number): void {
       sim.removeHomingMissileBody(missile.id);
     }
   }
+}
+
+function getHomingMissileMapVelocityOffset(
+  sim: SimState,
+  missile: { x: number; y: number },
+  dtSec: number,
+): { x: number; y: number } {
+  const map = getMapDefinition(sim.mapId);
+  let vx = 0;
+  let vy = 0;
+
+  for (const hole of map.centerHoles) {
+    const influenceRadius =
+      hole.radius * VORTEX_TUNING.profile.influenceRadiusMultiplier;
+    const dx = missile.x - hole.x;
+    const dy = missile.y - hole.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const sample = sampleMapField(
+      dist,
+      influenceRadius,
+      VORTEX_TUNING.profile,
+    );
+    if (!sample) continue;
+    const tx = (-dy / dist) * sim.rotationDirection;
+    const ty = (dx / dist) * sim.rotationDirection;
+    const drift =
+      VORTEX_TUNING.homingMissileTangentialBase +
+      sample.falloff * VORTEX_TUNING.homingMissileTangentialFalloff;
+    vx += tx * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
+    vy += ty * drift * dtSec * VORTEX_TUNING.kinematicStepScale;
+  }
+
+  for (const zone of map.repulsionZones) {
+    const influenceRadius =
+      zone.radius * REPULSION_TUNING.profile.influenceRadiusMultiplier;
+    const dx = missile.x - zone.x;
+    const dy = missile.y - zone.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const sample = sampleMapField(
+      dist,
+      influenceRadius,
+      REPULSION_TUNING.profile,
+    );
+    if (!sample) continue;
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const accel =
+      zone.strength *
+      (REPULSION_TUNING.homingMissileAccelBase +
+        sample.falloff * REPULSION_TUNING.homingMissileAccelFalloff);
+    vx += nx * accel * dtSec * REPULSION_TUNING.kinematicStepScale;
+    vy += ny * accel * dtSec * REPULSION_TUNING.kinematicStepScale;
+  }
+
+  return { x: vx, y: vy };
 }
 
 export function checkHomingMissileCollisions(sim: SimState): void {
