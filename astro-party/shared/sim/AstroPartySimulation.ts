@@ -94,7 +94,6 @@ import {
   handleShipHitAsteroidCollision,
   handleShipHitPilotCollision,
   handleShipHitPowerUpCollision,
-  removeProjectileByBodyCollision,
   type SimulationCollisionHandlersContext,
 } from "./modules/simulationCollisionHandlers.js";
 import {
@@ -213,6 +212,7 @@ export class AstroPartySimulation implements SimState {
   private centerHoleBodies: Matter.Body[] = [];
   private mapPowerUpsSpawned = false;
   private shipTransformHistory = new Map<string, ShipTransformHistoryEntry[]>();
+  private deferredProjectileWallHits = new Set<string>();
 
   // ---- Counters ----
   private revision = 0;
@@ -268,7 +268,9 @@ export class AstroPartySimulation implements SimState {
         handleShipHitPilotCollision(collisionContext(), shipBody, pilotBody);
       },
       onProjectileHitWall: (projectileBody) => {
-        removeProjectileByBodyCollision(collisionContext(), projectileBody);
+        const projectileId = this.getPluginString(projectileBody, "entityId");
+        if (!projectileId) return;
+        this.deferredProjectileWallHits.add(projectileId);
       },
       onProjectileHitYellowBlock: (projectileBody, blockBody) => {
         handleProjectileHitYellowBlockCollision(
@@ -856,6 +858,7 @@ export class AstroPartySimulation implements SimState {
       previousProjectilePositions,
       previousProjectileVelocities,
     );
+    this.flushDeferredProjectileWallHits(collisionHandlersContext);
     syncSimFromPhysicsState({
       players: this.players,
       shipBodies: this.shipBodies,
@@ -1138,6 +1141,18 @@ export class AstroPartySimulation implements SimState {
     return out;
   }
 
+  private flushDeferredProjectileWallHits(
+    collisionContext: SimulationCollisionHandlersContext,
+  ): void {
+    if (this.deferredProjectileWallHits.size <= 0) return;
+
+    for (const projectileId of this.deferredProjectileWallHits) {
+      if (!this.projectileBodies.has(projectileId)) continue;
+      collisionContext.removeProjectileEntity(projectileId);
+    }
+    this.deferredProjectileWallHits.clear();
+  }
+
   spawnMapFeatures(): void {
     spawnMapFeaturesState(this.createMapFeaturesContext());
   }
@@ -1242,6 +1257,7 @@ export class AstroPartySimulation implements SimState {
       this.physics.removeBody(this.turretBody);
       this.turretBody = null;
     }
+    this.deferredProjectileWallHits.clear();
     this.clearMapFeatures();
   }
 
