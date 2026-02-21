@@ -181,6 +181,14 @@ export class Game {
   private lastTransportErrorMessage: string | null = null;
   private stickyMatchPlayerOrder: string[] = [];
   private stickyDepartedPlayers = new Map<string, PlayerData>();
+  private lastCombatSnapshotByPlayerId = new Map<
+    string,
+    {
+      kills: number;
+      state: "ACTIVE" | "EJECTED" | "SPECTATING";
+      name: string;
+    }
+  >();
 
   private isStickyRosterPhase(phase: GamePhase = this.flowMgr.phase): boolean {
     return (
@@ -285,6 +293,7 @@ export class Game {
         }
         this.playerPowerUps.delete(playerId);
         this.controlledInputSequenceByPlayer.delete(playerId);
+        this.lastCombatSnapshotByPlayerId.delete(playerId);
         this.playerMgr.removePlayer(playerId, () => this.emitPlayersUpdate());
         if (shouldToastLeave) {
           this._onSystemMessage?.(
@@ -661,6 +670,7 @@ export class Game {
     this.lastPredictedDashAtMs = 0;
     this.controlledInputSequenceByPlayer.clear();
     this.clearStickyRoster();
+    this.lastCombatSnapshotByPlayerId.clear();
   }
 
   private seedRngForRound(): void {
@@ -959,6 +969,7 @@ export class Game {
 
   private syncPlayersFromMeta(meta?: PlayerMetaMap): void {
     if (!meta) return;
+    this.processCombatToastsFromMeta(meta);
     let changed = false;
     for (const [playerId, player] of this.playerMgr.players) {
       const networkMeta = meta.get(playerId);
@@ -992,6 +1003,84 @@ export class Game {
     }
     if (changed) {
       this.emitPlayersUpdate();
+    }
+  }
+
+  private processCombatToastsFromMeta(meta: PlayerMetaMap): void {
+    const isCombatPhase =
+      this.flowMgr.phase === "PLAYING" || this.flowMgr.phase === "ROUND_END";
+    const killerBudgetById = new Map<string, number>();
+    const spectatingVictimIds: string[] = [];
+    const nextKnownIds = new Set<string>();
+
+    for (const [playerId, networkMeta] of meta) {
+      nextKnownIds.add(playerId);
+      const nextKills = Number.isFinite(networkMeta.kills)
+        ? Math.floor(networkMeta.kills as number)
+        : 0;
+      const nextState =
+        networkMeta.playerState === "ACTIVE" ||
+        networkMeta.playerState === "EJECTED" ||
+        networkMeta.playerState === "SPECTATING"
+          ? networkMeta.playerState
+          : "ACTIVE";
+      const nextName =
+        networkMeta.customName ??
+        networkMeta.profileName ??
+        this.playerMgr.players.get(playerId)?.name ??
+        this.network.getPlayerName(playerId) ??
+        "Player";
+
+      const prev = this.lastCombatSnapshotByPlayerId.get(playerId);
+      if (isCombatPhase && prev) {
+        const killsDelta = nextKills - prev.kills;
+        if (killsDelta > 0) {
+          killerBudgetById.set(
+            playerId,
+            (killerBudgetById.get(playerId) ?? 0) + killsDelta,
+          );
+        }
+        if (prev.state !== "SPECTATING" && nextState === "SPECTATING") {
+          spectatingVictimIds.push(playerId);
+        }
+      }
+
+      this.lastCombatSnapshotByPlayerId.set(playerId, {
+        kills: nextKills,
+        state: nextState,
+        name: nextName,
+      });
+    }
+
+    for (const playerId of [...this.lastCombatSnapshotByPlayerId.keys()]) {
+      if (!nextKnownIds.has(playerId)) {
+        this.lastCombatSnapshotByPlayerId.delete(playerId);
+      }
+    }
+
+    if (!isCombatPhase || spectatingVictimIds.length <= 0) {
+      return;
+    }
+
+    for (const victimId of spectatingVictimIds) {
+      const victimName =
+        this.lastCombatSnapshotByPlayerId.get(victimId)?.name ?? "Player";
+      let killerId: string | null = null;
+      for (const [candidateId, budget] of killerBudgetById) {
+        if (budget <= 0) continue;
+        if (candidateId === victimId) continue;
+        killerId = candidateId;
+        killerBudgetById.set(candidateId, budget - 1);
+        break;
+      }
+
+      if (killerId) {
+        const killerName =
+          this.lastCombatSnapshotByPlayerId.get(killerId)?.name ?? "Player";
+        this._onSystemMessage?.(killerName + " > " + victimName, 1800);
+      } else {
+        this._onSystemMessage?.(victimName + " was eliminated", 1800);
+      }
     }
   }
 

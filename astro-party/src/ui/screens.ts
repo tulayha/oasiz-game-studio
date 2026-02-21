@@ -195,14 +195,24 @@ export function createScreenController(
     elements.scoreTrack.innerHTML = players
       .map((player) => {
         const isSelf = player.id === myPlayerId;
+        const isCombatPhase =
+          game.getPhase() === "PLAYING" || game.getPhase() === "ROUND_END";
         const isDeparted =
           player.presence === "LEFT" || player.presence === "KICKED";
-        const statusLabel =
-          player.presence === "KICKED"
-            ? " (Kicked)"
-            : player.presence === "LEFT"
-              ? " (Left)"
-              : "";
+        const isEliminated =
+          !isDeparted && isCombatPhase && player.state === "SPECTATING";
+        const isEjected =
+          !isDeparted && isCombatPhase && player.state === "EJECTED";
+        let statusLabel = "";
+        if (player.presence === "KICKED") {
+          statusLabel = " (Kicked)";
+        } else if (player.presence === "LEFT") {
+          statusLabel = " (Left)";
+        } else if (isEliminated) {
+          statusLabel = " (Out)";
+        } else if (isEjected) {
+          statusLabel = " (Ejected)";
+        }
         const dots = Array.from({ length: roundsToWin }, (_, i) => {
           const filled = i < player.roundWins;
           return (
@@ -218,6 +228,8 @@ export function createScreenController(
           '<div class="score-row' +
           (isSelf ? " self" : "") +
           (isDeparted ? " departed" : "") +
+          (isEliminated ? " eliminated" : "") +
+          (isEjected ? " ejected" : "") +
           '" style="color: ' +
           player.color.primary +
           '">' +
