@@ -268,6 +268,22 @@ const GLOBAL_FIELDS: ReadonlyArray<SliderField<GlobalKey>> = [
     hint: "Higher: bullets persist longer. Lower: bullets expire sooner.",
   },
   {
+    key: "PROJECTILE_RADIUS",
+    label: "Projectile Radius",
+    min: 1,
+    max: 20,
+    step: 0.25,
+    hint: "Higher: larger projectile collider. Lower: tighter projectile hitbox.",
+  },
+  {
+    key: "PROJECTILE_VISUAL_GLOW_RADIUS",
+    label: "Projectile Glow Radius",
+    min: 1,
+    max: 40,
+    step: 0.25,
+    hint: "Higher: larger glow halo. Lower: tighter glow around projectile.",
+  },
+  {
     key: "PILOT_DASH_COOLDOWN_MS",
     label: "Pilot Dash Cooldown",
     min: 20,

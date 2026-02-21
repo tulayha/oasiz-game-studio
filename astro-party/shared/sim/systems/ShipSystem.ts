@@ -34,6 +34,18 @@ const STANDARD_DODGE_FORWARD_FACTOR = 0.35;
 const STANDARD_DODGE_SPEED_FACTOR = 1.65;
 const MATTER_BASE_STEPS_PER_SECOND = 60;
 
+interface ProjectileSizing {
+  radius: number;
+  visualGlowRadius: number;
+}
+
+function resolveProjectileSizing(globals: DebugPhysicsGlobals): ProjectileSizing {
+  return {
+    radius: Math.max(0.1, globals.PROJECTILE_RADIUS),
+    visualGlowRadius: Math.max(0.1, globals.PROJECTILE_VISUAL_GLOW_RADIUS),
+  };
+}
+
 export function updateShips(sim: SimState, dtSec: number): void {
   const cfg = sim.getActiveConfig();
   const globals = sim.getGlobalConfig();
@@ -190,6 +202,7 @@ export function tryFire(
   globals: DebugPhysicsGlobals,
 ): boolean {
   const ship = player.ship;
+  const projectileSizing = resolveProjectileSizing(globals);
   // Spawn from ship center to avoid nose-side tunneling when ships are pressed together.
   const spawnX = ship.x;
   const spawnY = ship.y;
@@ -241,6 +254,8 @@ export function tryFire(
         vx: Math.cos(angle) * SCATTER_PROJECTILE_SPEED,
         vy: Math.sin(angle) * SCATTER_PROJECTILE_SPEED,
         spawnTime: sim.nowMs,
+        radius: projectileSizing.radius,
+        visualGlowRadius: projectileSizing.visualGlowRadius,
         lifetimeMs: SCATTER_PROJECTILE_LIFETIME_MS,
       });
     }
@@ -323,6 +338,8 @@ export function tryFire(
     vx: Math.cos(ship.angle) * cfg.PROJECTILE_SPEED,
     vy: Math.sin(ship.angle) * cfg.PROJECTILE_SPEED,
     spawnTime: sim.nowMs,
+    radius: projectileSizing.radius,
+    visualGlowRadius: projectileSizing.visualGlowRadius,
     lifetimeMs: globals.PROJECTILE_LIFETIME_MS,
   });
   sim.hooks.onSound("fire", player.id);

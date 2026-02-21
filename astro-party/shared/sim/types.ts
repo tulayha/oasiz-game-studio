@@ -102,6 +102,8 @@ export interface ProjectileState {
   vx: number;
   vy: number;
   spawnTime: number;
+  radius: number;
+  visualGlowRadius: number;
 }
 
 export interface AsteroidState {
@@ -441,6 +443,8 @@ export interface DebugPhysicsGlobals {
   FIRE_HOLD_REPEAT_DELAY_MS: number;
   RELOAD_MS: number;
   PROJECTILE_LIFETIME_MS: number;
+  PROJECTILE_RADIUS: number;
+  PROJECTILE_VISUAL_GLOW_RADIUS: number;
   PILOT_DASH_COOLDOWN_MS: number;
 }
 

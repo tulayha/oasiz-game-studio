@@ -130,6 +130,8 @@ export function buildSimulationSnapshot(
       vx: proj.vx,
       vy: proj.vy,
       spawnTime: proj.spawnTime,
+      radius: proj.radius,
+      visualGlowRadius: proj.visualGlowRadius,
     })),
     asteroids: input.asteroids
       .filter((asteroid) => asteroid.alive)

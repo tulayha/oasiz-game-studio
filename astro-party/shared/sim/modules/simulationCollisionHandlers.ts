@@ -16,7 +16,7 @@ import {
   POWERUP_SHIELD_HITS,
 } from "../constants.js";
 import { damageJoustSword } from "../systems/WeaponSystem.js";
-import { lineIntersectsRect } from "../physics/geometryMath.js";
+import { type Vec2, lineIntersectsRect } from "../physics/geometryMath.js";
 
 interface RuntimeYellowBlockLike {
   block: {
@@ -334,6 +334,50 @@ export function removeProjectileByBodyCollision(
   ctx.removeProjectileEntity(projectileId);
 }
 
+export function checkSweptProjectileHitShipCollisions(
+  ctx: SimulationCollisionHandlersContext,
+  shipBodies: ReadonlyMap<string, Matter.Body>,
+  previousProjectilePositions: ReadonlyMap<string, Vec2>,
+): void {
+  if (ctx.projectileBodies.size <= 0 || shipBodies.size <= 0) return;
+
+  const shipBodyList = [...shipBodies.values()];
+  const projectileEntries = [...ctx.projectileBodies.entries()];
+
+  for (const [projectileId, projectileBody] of projectileEntries) {
+    if (!ctx.projectileBodies.has(projectileId)) continue;
+    const previous = previousProjectilePositions.get(projectileId);
+    if (!previous) continue;
+
+    const start = previous;
+    const end = projectileBody.position;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    if (dx * dx + dy * dy <= 1e-9) continue;
+
+    const sweepWidth = getBodySweepWidth(projectileBody);
+    const collisions = Matter.Query.ray(shipBodyList, start, end, sweepWidth);
+    if (collisions.length <= 0) continue;
+
+    const shipBodiesById = new Map<number, Matter.Body>();
+    for (const collision of collisions) {
+      const hitBody = collision.bodyA.parent ?? collision.bodyA;
+      shipBodiesById.set(hitBody.id, hitBody);
+    }
+
+    const orderedShipBodies = [...shipBodiesById.values()].sort(
+      (bodyA, bodyB) =>
+        projectPointOntoSegmentT(start, end, bodyA.position) -
+        projectPointOntoSegmentT(start, end, bodyB.position),
+    );
+
+    for (const shipBody of orderedShipBodies) {
+      if (!ctx.projectileBodies.has(projectileId)) break;
+      handleProjectileHitShipCollision(ctx, projectileBody, shipBody);
+    }
+  }
+}
+
 function tryDamageYellowBlockWithSword(
   ctx: SimulationCollisionHandlersContext,
   blockIndex: number,
@@ -363,4 +407,25 @@ function isPointInCone(
   const pointAngle = Math.atan2(dy, dx);
   const angleDiff = normalizeAngle(pointAngle - coneAngle);
   return Math.abs(angleDiff) <= coneWidth * 0.5;
+}
+
+function projectPointOntoSegmentT(start: Vec2, end: Vec2, point: Vec2): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq <= 1e-9) return 0;
+  return ((point.x - start.x) * dx + (point.y - start.y) * dy) / lenSq;
+}
+
+function getBodySweepWidth(body: Matter.Body): number {
+  const circleRadius =
+    typeof body.circleRadius === "number" ? body.circleRadius : undefined;
+  if (circleRadius && circleRadius > 0) {
+    return circleRadius * 2;
+  }
+
+  const width = Math.max(0, body.bounds.max.x - body.bounds.min.x);
+  const height = Math.max(0, body.bounds.max.y - body.bounds.min.y);
+  const diameter = Math.max(width, height);
+  return Math.max(1e-4, diameter);
 }

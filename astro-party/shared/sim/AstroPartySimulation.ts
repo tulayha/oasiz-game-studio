@@ -83,6 +83,7 @@ import {
   type ShipTransformHistoryEntry,
 } from "./modules/simulationStateSync.js";
 import {
+  checkSweptProjectileHitShipCollisions,
   checkJoustYellowBlockCollisions as checkJoustYellowBlockCollisionsState,
   checkLaserBeamBlockCollisions as checkLaserBeamBlockCollisionsState,
   handlePilotHitAsteroidCollision,
@@ -838,7 +839,16 @@ export class AstroPartySimulation implements SimState {
       removePowerUpBody: this.removePowerUpBody.bind(this),
       removeTurretBulletBody: this.removeTurretBulletBody.bind(this),
     });
+    const previousProjectilePositions = this.captureBodyPositions(
+      this.projectileBodies,
+    );
     this.physics.update(deltaMs);
+    const collisionHandlersContext = this.createCollisionHandlersContext();
+    checkSweptProjectileHitShipCollisions(
+      collisionHandlersContext,
+      this.shipBodies,
+      previousProjectilePositions,
+    );
     syncSimFromPhysicsState({
       players: this.players,
       shipBodies: this.shipBodies,
@@ -855,7 +865,6 @@ export class AstroPartySimulation implements SimState {
     updateProjectiles(this, dtSec);
     updatePowerUps(this, dtSec);
     updateLaserBeams(this);
-    const collisionHandlersContext = this.createCollisionHandlersContext();
     checkLaserBeamBlockCollisionsState(collisionHandlersContext);
     checkMineCollisions(this);
     updateHomingMissiles(this, dtSec);
@@ -1094,6 +1103,19 @@ export class AstroPartySimulation implements SimState {
       projectileBodies: this.projectileBodies,
       turretBulletBodies: this.turretBulletBodies,
     };
+  }
+
+  private captureBodyPositions(
+    bodies: ReadonlyMap<string, Matter.Body>,
+  ): Map<string, { x: number; y: number }> {
+    const out = new Map<string, { x: number; y: number }>();
+    for (const [entityId, body] of bodies) {
+      out.set(entityId, {
+        x: body.position.x,
+        y: body.position.y,
+      });
+    }
+    return out;
   }
 
   spawnMapFeatures(): void {

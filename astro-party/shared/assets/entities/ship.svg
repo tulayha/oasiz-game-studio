@@ -48,6 +48,57 @@
 }
   </metadata>
 
+  <!-- Editor-only guide layer. generate-entity-assets strips this from runtime SVG. -->
+  <g id="editor-hardpoints" opacity="0.9">
+    <ellipse
+      id="hardpoint-shield"
+      cx="0"
+      cy="0"
+      rx="24.948"
+      ry="17.974"
+      fill="none"
+      stroke="#00ff99"
+      stroke-width="0.45"
+      stroke-dasharray="1.2 1.2"
+    />
+    <circle
+      id="hardpoint-muzzle"
+      cx="17.973"
+      cy="0"
+      r="0.95"
+      fill="#ff3366"
+      stroke="#ffffff"
+      stroke-width="0.25"
+    />
+    <circle
+      id="hardpoint-trail"
+      cx="-17.978"
+      cy="0"
+      r="0.95"
+      fill="#33ddff"
+      stroke="#ffffff"
+      stroke-width="0.25"
+    />
+    <circle
+      id="hardpoint-joust-left"
+      cx="-18.41"
+      cy="-8.987"
+      r="0.95"
+      fill="#ffd966"
+      stroke="#ffffff"
+      stroke-width="0.25"
+    />
+    <circle
+      id="hardpoint-joust-right"
+      cx="-18.41"
+      cy="8.987"
+      r="0.95"
+      fill="#ffd966"
+      stroke="#ffffff"
+      stroke-width="0.25"
+    />
+  </g>
+
   <!-- scale(1 0.8) is applied AFTER rotate => squashes screen-vertical -->
   <g id="visual" filter="url(#softGlow)" transform="scale(1 0.8) rotate(90) scale(0.35) translate(-0.25 -4.5)">
     <circle cx="0" cy="30" r="28" fill="url(#coreGlow)"/>

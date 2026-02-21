@@ -34,6 +34,7 @@ export const RELOAD_MS = 1200;
 export const PROJECTILE_LIFETIME_MS = 2500;
 export const PROJECTILE_SPEED = 14;
 export const PROJECTILE_RADIUS = 4;
+export const PROJECTILE_VISUAL_GLOW_RADIUS = PROJECTILE_RADIUS * 3;
 
 // ============= GAME FLOW =============
 

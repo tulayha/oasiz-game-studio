@@ -34,9 +34,27 @@ interface EntityTrailMeta {
   minSampleDistance: number;
 }
 
+interface EntityHardpointsMeta {
+  muzzle?: ShapePoint;
+  trail?: ShapePoint;
+  joustLeft?: ShapePoint;
+  joustRight?: ShapePoint;
+  shieldRadii?: ShapePoint;
+}
+
 interface EntityRenderMeta {
   trail?: EntityTrailMeta;
+  hardpoints?: EntityHardpointsMeta;
 }
+
+const HARDPOINT_GUIDE_GROUP_ID = "editor-hardpoints";
+const HARDPOINT_GUIDE_IDS = Object.freeze({
+  muzzle: "hardpoint-muzzle",
+  trail: "hardpoint-trail",
+  joustLeft: "hardpoint-joust-left",
+  joustRight: "hardpoint-joust-right",
+  shield: "hardpoint-shield",
+});
 
 function deriveCenterOfGravity(vertices: ReadonlyArray<ShapePoint>): ShapePoint {
   // Use the collider path's first vertex as the nose reference. This lets SVG edits
@@ -181,6 +199,67 @@ function parseFiniteNumber(
   return value;
 }
 
+function parsePointRecord(
+  value: unknown,
+  fieldPath: string,
+  fileName: string,
+): ShapePoint {
+  if (!value || typeof value !== "object") {
+    throw new Error(
+      `[generate-entity-assets] Invalid ${fieldPath} in ${fileName}: expected object`,
+    );
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    x: parseFiniteNumber(record.x, `${fieldPath}.x`, fileName),
+    y: parseFiniteNumber(record.y, `${fieldPath}.y`, fileName),
+  };
+}
+
+function parseHardpointsRecord(
+  value: unknown,
+  fieldPath: string,
+  fileName: string,
+): EntityHardpointsMeta {
+  if (!value || typeof value !== "object") {
+    throw new Error(
+      `[generate-entity-assets] Invalid ${fieldPath} in ${fileName}: expected object`,
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const out: EntityHardpointsMeta = {};
+
+  if (record.muzzle !== undefined) {
+    out.muzzle = parsePointRecord(record.muzzle, `${fieldPath}.muzzle`, fileName);
+  }
+  if (record.trail !== undefined) {
+    out.trail = parsePointRecord(record.trail, `${fieldPath}.trail`, fileName);
+  }
+  if (record.joustLeft !== undefined) {
+    out.joustLeft = parsePointRecord(
+      record.joustLeft,
+      `${fieldPath}.joustLeft`,
+      fileName,
+    );
+  }
+  if (record.joustRight !== undefined) {
+    out.joustRight = parsePointRecord(
+      record.joustRight,
+      `${fieldPath}.joustRight`,
+      fileName,
+    );
+  }
+  if (record.shieldRadii !== undefined) {
+    out.shieldRadii = parsePointRecord(
+      record.shieldRadii,
+      `${fieldPath}.shieldRadii`,
+      fileName,
+    );
+  }
+
+  return out;
+}
+
 function parseRenderMeta(svg: string, fileName: string): EntityRenderMeta | undefined {
   const metadataMatch = svg.match(
     /<metadata\b[^>]*\bid=(["'])render-meta\1[^>]*>([\s\S]*?)<\/metadata>/i,
@@ -206,66 +285,188 @@ function parseRenderMeta(svg: string, fileName: string): EntityRenderMeta | unde
   }
 
   const parsedRecord = parsed as Record<string, unknown>;
+  const out: EntityRenderMeta = {};
+
   const trailRaw = parsedRecord.trail;
-  if (!trailRaw || typeof trailRaw !== "object") {
-    return undefined;
+  if (trailRaw !== undefined) {
+    if (!trailRaw || typeof trailRaw !== "object") {
+      throw new Error(`[generate-entity-assets] trail must be an object in ${fileName}`);
+    }
+    const trailRecord = trailRaw as Record<string, unknown>;
+    const anchor = parsePointRecord(trailRecord.anchor, "trail.anchor", fileName);
+    const trail: EntityTrailMeta = {
+      anchor,
+      maxAgeSec: parseFiniteNumber(trailRecord.maxAgeSec, "trail.maxAgeSec", fileName),
+      startRadius: parseFiniteNumber(
+        trailRecord.startRadius,
+        "trail.startRadius",
+        fileName,
+      ),
+      endRadius: parseFiniteNumber(trailRecord.endRadius, "trail.endRadius", fileName),
+      alpha: parseFiniteNumber(trailRecord.alpha, "trail.alpha", fileName),
+      blur: parseFiniteNumber(trailRecord.blur, "trail.blur", fileName),
+      sampleIntervalSec: parseFiniteNumber(
+        trailRecord.sampleIntervalSec,
+        "trail.sampleIntervalSec",
+        fileName,
+      ),
+      minSampleDistance: parseFiniteNumber(
+        trailRecord.minSampleDistance,
+        "trail.minSampleDistance",
+        fileName,
+      ),
+    };
+
+    if (trail.maxAgeSec <= 0) {
+      throw new Error(`[generate-entity-assets] trail.maxAgeSec must be > 0 in ${fileName}`);
+    }
+    if (trail.startRadius <= 0 || trail.endRadius < 0) {
+      throw new Error(
+        `[generate-entity-assets] trail radii must be non-negative (start > 0) in ${fileName}`,
+      );
+    }
+    if (trail.alpha < 0 || trail.alpha > 1) {
+      throw new Error(`[generate-entity-assets] trail.alpha must be in [0, 1] in ${fileName}`);
+    }
+    if (trail.blur < 0) {
+      throw new Error(`[generate-entity-assets] trail.blur must be >= 0 in ${fileName}`);
+    }
+    if (trail.sampleIntervalSec <= 0) {
+      throw new Error(
+        `[generate-entity-assets] trail.sampleIntervalSec must be > 0 in ${fileName}`,
+      );
+    }
+    if (trail.minSampleDistance < 0) {
+      throw new Error(
+        `[generate-entity-assets] trail.minSampleDistance must be >= 0 in ${fileName}`,
+      );
+    }
+    out.trail = trail;
   }
 
-  const trailRecord = trailRaw as Record<string, unknown>;
-  const anchorRaw = trailRecord.anchor;
-  if (!anchorRaw || typeof anchorRaw !== "object") {
-    throw new Error(`[generate-entity-assets] trail.anchor missing in ${fileName}`);
+  const hardpointsRaw = parsedRecord.hardpoints;
+  if (hardpointsRaw !== undefined) {
+    out.hardpoints = parseHardpointsRecord(hardpointsRaw, "hardpoints", fileName);
   }
 
-  const anchorRecord = anchorRaw as Record<string, unknown>;
-  const trail: EntityTrailMeta = {
-    anchor: {
-      x: parseFiniteNumber(anchorRecord.x, "trail.anchor.x", fileName),
-      y: parseFiniteNumber(anchorRecord.y, "trail.anchor.y", fileName),
-    },
-    maxAgeSec: parseFiniteNumber(trailRecord.maxAgeSec, "trail.maxAgeSec", fileName),
-    startRadius: parseFiniteNumber(trailRecord.startRadius, "trail.startRadius", fileName),
-    endRadius: parseFiniteNumber(trailRecord.endRadius, "trail.endRadius", fileName),
-    alpha: parseFiniteNumber(trailRecord.alpha, "trail.alpha", fileName),
-    blur: parseFiniteNumber(trailRecord.blur, "trail.blur", fileName),
-    sampleIntervalSec: parseFiniteNumber(
-      trailRecord.sampleIntervalSec,
-      "trail.sampleIntervalSec",
-      fileName,
-    ),
-    minSampleDistance: parseFiniteNumber(
-      trailRecord.minSampleDistance,
-      "trail.minSampleDistance",
-      fileName,
-    ),
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function parseFiniteAttributeNumber(
+  attrs: Record<string, string>,
+  attrName: string,
+  fieldPath: string,
+  fileName: string,
+): number {
+  const raw = attrs[attrName];
+  if (typeof raw !== "string" || raw.trim().length <= 0) {
+    throw new Error(
+      `[generate-entity-assets] Missing ${fieldPath} in ${fileName}: expected ${attrName}`,
+    );
+  }
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(
+      `[generate-entity-assets] Invalid ${fieldPath} in ${fileName}: expected finite number`,
+    );
+  }
+  return value;
+}
+
+function extractHardpointsFromGuideGroup(
+  groupMarkup: string,
+  fileName: string,
+): EntityHardpointsMeta | undefined {
+  const out: EntityHardpointsMeta = {};
+  const tagRegex = /<(circle|ellipse)\b[^>]*>/gi;
+  let match: RegExpExecArray | null = tagRegex.exec(groupMarkup);
+
+  while (match) {
+    const attrs = parseAttributes(match[0]);
+    const tagName = match[1].toLowerCase();
+    const id = attrs.id;
+    if (!id) {
+      match = tagRegex.exec(groupMarkup);
+      continue;
+    }
+
+    if (id === HARDPOINT_GUIDE_IDS.muzzle) {
+      out.muzzle = {
+        x: parseFiniteAttributeNumber(attrs, "cx", "hardpoint-muzzle.x", fileName),
+        y: parseFiniteAttributeNumber(attrs, "cy", "hardpoint-muzzle.y", fileName),
+      };
+    } else if (id === HARDPOINT_GUIDE_IDS.trail) {
+      out.trail = {
+        x: parseFiniteAttributeNumber(attrs, "cx", "hardpoint-trail.x", fileName),
+        y: parseFiniteAttributeNumber(attrs, "cy", "hardpoint-trail.y", fileName),
+      };
+    } else if (id === HARDPOINT_GUIDE_IDS.joustLeft) {
+      out.joustLeft = {
+        x: parseFiniteAttributeNumber(attrs, "cx", "hardpoint-joust-left.x", fileName),
+        y: parseFiniteAttributeNumber(attrs, "cy", "hardpoint-joust-left.y", fileName),
+      };
+    } else if (id === HARDPOINT_GUIDE_IDS.joustRight) {
+      out.joustRight = {
+        x: parseFiniteAttributeNumber(attrs, "cx", "hardpoint-joust-right.x", fileName),
+        y: parseFiniteAttributeNumber(attrs, "cy", "hardpoint-joust-right.y", fileName),
+      };
+    } else if (id === HARDPOINT_GUIDE_IDS.shield) {
+      if (tagName !== "ellipse") {
+        throw new Error(
+          `[generate-entity-assets] hardpoint-shield must be an ellipse in ${fileName}`,
+        );
+      }
+      out.shieldRadii = {
+        x: parseFiniteAttributeNumber(attrs, "rx", "hardpoint-shield.rx", fileName),
+        y: parseFiniteAttributeNumber(attrs, "ry", "hardpoint-shield.ry", fileName),
+      };
+    }
+
+    match = tagRegex.exec(groupMarkup);
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function stripHardpointGuideLayer(
+  svg: string,
+  fileName: string,
+): { cleanSvg: string; hardpoints?: EntityHardpointsMeta } {
+  const groupRegex = new RegExp(
+    `<g\\b[^>]*\\bid=(["'])${HARDPOINT_GUIDE_GROUP_ID}\\1[^>]*>[\\s\\S]*?<\\/g>`,
+    "i",
+  );
+  const groupMatch = svg.match(groupRegex);
+  if (!groupMatch) {
+    return { cleanSvg: svg };
+  }
+
+  const hardpoints = extractHardpointsFromGuideGroup(groupMatch[0], fileName);
+  const cleanSvg = svg
+    .replace(groupMatch[0], "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { cleanSvg, hardpoints };
+}
+
+function mergeRenderMetaHardpoints(
+  renderMeta: EntityRenderMeta | undefined,
+  hardpoints: EntityHardpointsMeta | undefined,
+): EntityRenderMeta | undefined {
+  if (!hardpoints) {
+    return renderMeta;
+  }
+
+  const existing = renderMeta?.hardpoints;
+  const mergedHardpoints: EntityHardpointsMeta = {
+    ...(existing ?? {}),
+    ...hardpoints,
   };
 
-  if (trail.maxAgeSec <= 0) {
-    throw new Error(`[generate-entity-assets] trail.maxAgeSec must be > 0 in ${fileName}`);
-  }
-  if (trail.startRadius <= 0 || trail.endRadius < 0) {
-    throw new Error(
-      `[generate-entity-assets] trail radii must be non-negative (start > 0) in ${fileName}`,
-    );
-  }
-  if (trail.alpha < 0 || trail.alpha > 1) {
-    throw new Error(`[generate-entity-assets] trail.alpha must be in [0, 1] in ${fileName}`);
-  }
-  if (trail.blur < 0) {
-    throw new Error(`[generate-entity-assets] trail.blur must be >= 0 in ${fileName}`);
-  }
-  if (trail.sampleIntervalSec <= 0) {
-    throw new Error(
-      `[generate-entity-assets] trail.sampleIntervalSec must be > 0 in ${fileName}`,
-    );
-  }
-  if (trail.minSampleDistance < 0) {
-    throw new Error(
-      `[generate-entity-assets] trail.minSampleDistance must be >= 0 in ${fileName}`,
-    );
-  }
-
-  return { trail };
+  return {
+    ...(renderMeta ?? {}),
+    hardpoints: mergedHardpoints,
+  };
 }
 
 function main(): void {
@@ -286,12 +487,17 @@ function main(): void {
   for (const entityId of entityIds) {
     const entry = manifest[entityId];
     const filePath = join(entitiesDir, entry.file);
-    const svg = readFileSync(filePath, "utf8").replace(/\r\n/g, "\n").trim();
+    const sourceSvg = readFileSync(filePath, "utf8").replace(/\r\n/g, "\n").trim();
+    const { cleanSvg, hardpoints } = stripHardpointGuideLayer(sourceSvg, entry.file);
+    const svg = cleanSvg;
     const viewBox = parseViewBox(svg, entry.file);
     const colliderPath = extractPathById(svg, entry.colliderPathId, entry.file);
     const colliderVertices = parseSimplePathVertices(colliderPath, entityId);
     const centerOfGravityLocal = deriveCenterOfGravity(colliderVertices);
-    const renderMeta = parseRenderMeta(svg, entry.file);
+    const renderMeta = mergeRenderMetaHardpoints(
+      parseRenderMeta(svg, entry.file),
+      hardpoints,
+    );
 
     outEntries.push({
       id: entityId,
@@ -328,8 +534,16 @@ function main(): void {
     "  sampleIntervalSec: number;\n" +
     "  minSampleDistance: number;\n" +
     "}\n\n" +
+    "export interface GeneratedEntityHardpointsMeta {\n" +
+    "  muzzle?: ShapePoint;\n" +
+    "  trail?: ShapePoint;\n" +
+    "  joustLeft?: ShapePoint;\n" +
+    "  joustRight?: ShapePoint;\n" +
+    "  shieldRadii?: ShapePoint;\n" +
+    "}\n\n" +
     "export interface GeneratedEntityRenderMeta {\n" +
     "  trail?: GeneratedEntityTrailMeta;\n" +
+    "  hardpoints?: GeneratedEntityHardpointsMeta;\n" +
     "}\n\n" +
     "export interface GeneratedEntitySvgData {\n" +
     "  id: string;\n" +

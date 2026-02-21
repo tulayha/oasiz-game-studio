@@ -235,6 +235,7 @@ export function syncPhysicsFromSim(ctx: SyncPhysicsFromSimContext): void {
         projectile.y,
         projectile.vx,
         projectile.vy,
+        projectile.radius,
         projectile.ownerId,
         projectile.id,
       );

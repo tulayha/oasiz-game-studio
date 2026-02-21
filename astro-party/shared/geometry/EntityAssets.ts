@@ -1,5 +1,6 @@
 import {
   GENERATED_ENTITY_SVG_DATA,
+  type GeneratedEntityHardpointsMeta,
   type GeneratedEntityRenderMeta,
   type GeneratedEntityTrailMeta,
   type GeneratedEntitySvgData,
@@ -38,8 +39,17 @@ export interface EntityTrailMeta {
   minSampleDistance: number;
 }
 
+export interface EntityHardpointsMeta {
+  muzzle?: Readonly<ShapePoint>;
+  trail?: Readonly<ShapePoint>;
+  joustLeft?: Readonly<ShapePoint>;
+  joustRight?: Readonly<ShapePoint>;
+  shieldRadii?: Readonly<ShapePoint>;
+}
+
 export interface EntityRenderMeta {
   trail?: Readonly<EntityTrailMeta>;
+  hardpoints?: Readonly<EntityHardpointsMeta>;
 }
 
 function scaleVertices(
@@ -84,6 +94,29 @@ function scaleTrailMeta(
   });
 }
 
+function scaleHardpointsMeta(
+  hardpoints: GeneratedEntityHardpointsMeta,
+  renderScale: number,
+): Readonly<EntityHardpointsMeta> {
+  const out: EntityHardpointsMeta = {};
+  if (hardpoints.muzzle) {
+    out.muzzle = scalePoint(hardpoints.muzzle, renderScale);
+  }
+  if (hardpoints.trail) {
+    out.trail = scalePoint(hardpoints.trail, renderScale);
+  }
+  if (hardpoints.joustLeft) {
+    out.joustLeft = scalePoint(hardpoints.joustLeft, renderScale);
+  }
+  if (hardpoints.joustRight) {
+    out.joustRight = scalePoint(hardpoints.joustRight, renderScale);
+  }
+  if (hardpoints.shieldRadii) {
+    out.shieldRadii = scalePoint(hardpoints.shieldRadii, renderScale);
+  }
+  return Object.freeze(out);
+}
+
 function scaleRenderMeta(
   renderMeta: GeneratedEntityRenderMeta | undefined,
   renderScale: number,
@@ -92,6 +125,9 @@ function scaleRenderMeta(
   const out: EntityRenderMeta = {};
   if (renderMeta.trail) {
     out.trail = scaleTrailMeta(renderMeta.trail, renderScale);
+  }
+  if (renderMeta.hardpoints) {
+    out.hardpoints = scaleHardpointsMeta(renderMeta.hardpoints, renderScale);
   }
   return Object.freeze(out);
 }

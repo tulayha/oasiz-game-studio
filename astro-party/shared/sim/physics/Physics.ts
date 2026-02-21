@@ -6,7 +6,7 @@ import {
   cloneShapeVertices,
   type ShapePoint,
 } from "../../geometry/EntityShapes.js";
-import { POWERUP_PICKUP_SIZE } from "../constants.js";
+import { POWERUP_PICKUP_SIZE, PROJECTILE_RADIUS } from "../constants.js";
 import { CollisionCategory } from "./CollisionCategories.js";
 
 const { Engine, Bodies, Body, Events, Composite } = Matter;
@@ -207,10 +207,14 @@ export class Physics {
     y: number,
     vx: number,
     vy: number,
+    radius: number,
     ownerId: string,
     projectileId: string,
   ): Matter.Body {
-    const body = Bodies.circle(x, y, 4, {
+    const resolvedRadius = Number.isFinite(radius)
+      ? Math.max(0.1, radius)
+      : PROJECTILE_RADIUS;
+    const body = Bodies.circle(x, y, resolvedRadius, {
       label: "projectile",
       frictionAir: 0,
       restitution: 0.8,
@@ -417,7 +421,8 @@ export class Physics {
   }
 
   update(dtMs: number): void {
-    Engine.update(this.engine, Math.min(dtMs, FIXED_STEP_MS));
+    const clampedDtMs = Math.min(dtMs, FIXED_STEP_MS);
+    Engine.update(this.engine, clampedDtMs);
   }
 
   onCollision(

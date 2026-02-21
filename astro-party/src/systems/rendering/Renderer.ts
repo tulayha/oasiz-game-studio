@@ -938,18 +938,26 @@ export class Renderer {
   drawAsteroid(state: AsteroidState): void {
     const { ctx } = this;
     const { x, y, angle, vertices } = state;
+    const isGrey = state.variant === "GREY";
+    const glowColor = isGrey
+      ? GAME_CONFIG.GREY_ASTEROID_GLOW
+      : GAME_CONFIG.ASTEROID_GLOW;
+    const bodyColor = isGrey
+      ? GAME_CONFIG.GREY_ASTEROID_COLOR
+      : GAME_CONFIG.ASTEROID_COLOR;
+    const strokeColor = isGrey ? "#b9c0d4" : "#ffaa00";
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
 
     // Glow effect
-    ctx.shadowColor = GAME_CONFIG.ASTEROID_GLOW;
+    ctx.shadowColor = glowColor;
     ctx.shadowBlur = 15;
 
     // Asteroid body
-    ctx.fillStyle = GAME_CONFIG.ASTEROID_COLOR;
-    ctx.strokeStyle = "#ffaa00";
+    ctx.fillStyle = bodyColor;
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 2;
 
     ctx.beginPath();
@@ -988,26 +996,47 @@ export class Renderer {
     const { ctx } = this;
     const { x, y, vx, vy } = state;
     const angle = Math.atan2(vy, vx);
+    const glowRadius = Math.max(
+      0.1,
+      state.visualGlowRadius ?? GAME_CONFIG.PROJECTILE_VISUAL_GLOW_RADIUS,
+    );
+    const coreRadius = Math.max(0.1, state.radius ?? GAME_CONFIG.PROJECTILE_RADIUS);
+    const tailRadiusX = coreRadius * 1.9;
+    const tailRadiusY = coreRadius * 0.62;
+    // Keep the visible front edge locked to the collider front (+coreRadius).
+    const tailCenterX = coreRadius - tailRadiusX;
+    const tailBackX = tailCenterX - tailRadiusX;
 
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
 
     // Glow
-    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 12);
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, glowRadius);
     gradient.addColorStop(0, "#ffffff");
     gradient.addColorStop(1, "transparent");
     ctx.fillStyle = gradient;
     ctx.globalAlpha = 0.5;
     ctx.beginPath();
-    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Core
+    // Trailing visual only (does not affect hit area).
+    const tailGradient = ctx.createLinearGradient(tailBackX, 0, coreRadius, 0);
+    tailGradient.addColorStop(0, "rgba(255,255,255,0)");
+    tailGradient.addColorStop(0.65, "rgba(255,255,255,0.45)");
+    tailGradient.addColorStop(1, "rgba(255,255,255,0.9)");
+    ctx.fillStyle = tailGradient;
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.ellipse(tailCenterX, 0, tailRadiusX, tailRadiusY, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Damaging core (matches physics radius 1:1).
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    ctx.ellipse(0, 0, 6, 3, 0, 0, Math.PI * 2);
+    ctx.arc(0, 0, coreRadius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
