@@ -2,8 +2,8 @@
   "ship": {
     "file": "ship.svg",
     "colliderPathId": "collider",
-    "renderScale": 1,
-    "physicsScale": 1,
+    "renderScale": 1.5,
+    "physicsScale": 1.5,
     "slotDefaults": {
       "slot-primary": "#00f0ff",
       "slot-secondary": "#ffffff",

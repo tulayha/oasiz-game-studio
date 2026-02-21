@@ -11,11 +11,11 @@ export type ShapePoint = GeneratedShapePoint;
  *
  * Source of truth is SVG + manifest:
  * - shared/assets/entities/<entity>.svg
- * - shared/geometry/entityAssets.manifest.json
+ * - shared/assets/entities/manifest.json
  *
  * When adding a new entity:
  * 1) Add/replace SVG with a <path id="collider" d="..."> path.
- * 2) Add entry in shared/geometry/entityAssets.manifest.json.
+ * 2) Add entry in shared/assets/entities/manifest.json.
  * 3) Run `bun run generate:entities` (or `bun run build`, which runs prebuild).
  */
 export const SHIP_COLLIDER_VERTICES: ReadonlyArray<ShapePoint> =

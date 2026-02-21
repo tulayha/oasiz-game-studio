@@ -20,7 +20,6 @@ import {
   ASTEROID_SPAWN_BATCH_MAX,
   GREY_ASTEROID_MIN,
   GREY_ASTEROID_MAX,
-  SHIP_HIT_RADIUS,
   POWERUP_SPAWN_WEIGHTS,
   POWERUP_MAGNETIC_RADIUS,
   POWERUP_MAGNETIC_SPEED,
@@ -28,6 +27,9 @@ import {
 import type { PowerUpType } from "../types.js";
 import { clamp } from "../utils.js";
 import { getMapDefinition } from "../maps.js";
+import { SHIP_SHIELD_RADII } from "../../geometry/ShipRenderAnchors.js";
+
+const SHIP_SPAWN_CLEARANCE_RADIUS = Math.max(SHIP_SHIELD_RADII.x, SHIP_SHIELD_RADII.y);
 
 export function spawnInitialAsteroids(sim: SimState): void {
   const map = getMapDefinition(sim.mapId);
@@ -350,7 +352,7 @@ function isAsteroidSpawnClear(sim: SimState, x: number, y: number, size: number)
     }
   }
 
-  const shipClearance = size + SHIP_HIT_RADIUS + 10;
+  const shipClearance = size + SHIP_SPAWN_CLEARANCE_RADIUS + 10;
   const shipClearanceSq = shipClearance * shipClearance;
   for (const player of sim.players.values()) {
     if (!player.ship.alive) continue;

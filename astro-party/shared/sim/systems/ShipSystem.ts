@@ -5,7 +5,6 @@ import type {
   DebugPhysicsGlobals,
 } from "../types.js";
 import {
-  SHIP_HIT_RADIUS,
   PLAYER_COLORS,
   JOUST_SPEED_MULTIPLIER,
   LASER_COOLDOWN_MS,
@@ -19,13 +18,13 @@ import {
   POWERUP_SHIELD_HITS,
   MINE_DEPLOY_OFFSET,
 } from "../constants.js";
-import { normalizeAngle, clamp } from "../utils.js";
+import { normalizeAngle } from "../utils.js";
 import {
   getAsteroidWorldVertices,
-  pointInPolygon,
-  segmentsIntersect,
+  lineIntersectsPolygon,
 } from "../physics/geometryMath.js";
 import {
+  SHIP_COLLIDER_VERTICES,
   PILOT_COLLIDER_VERTICES,
   transformLocalVertices,
 } from "../../geometry/EntityShapes.js";
@@ -389,11 +388,18 @@ function applyLaserDamage(
     const lagCompPose = sim.getLagCompensatedShipPose(playerId, rewindMs);
     const targetX = lagCompPose?.x ?? shipOwner.ship.x;
     const targetY = lagCompPose?.y ?? shipOwner.ship.y;
+    const targetAngle = lagCompPose?.angle ?? shipOwner.ship.angle;
+    const shipVertices = transformLocalVertices(
+      SHIP_COLLIDER_VERTICES,
+      targetX,
+      targetY,
+      targetAngle,
+    );
     if (
-      !checkLineCircleCollision(
-        startX, startY, endX, endY,
-        targetX, targetY,
-        SHIP_HIT_RADIUS,
+      !lineIntersectsPolygon(
+        { x: startX, y: startY },
+        { x: endX, y: endY },
+        shipVertices,
       )
     ) {
       continue;
@@ -449,21 +455,11 @@ function checkLineAsteroidCollision(
   },
 ): boolean {
   const vertices = getAsteroidWorldVertices(asteroid);
-  if (vertices.length < 3) return false;
-
-  if (pointInPolygon(x1, y1, vertices) || pointInPolygon(x2, y2, vertices)) {
-    return true;
-  }
-
-  for (let i = 0; i < vertices.length; i++) {
-    const a = vertices[i];
-    const b = vertices[(i + 1) % vertices.length];
-    if (segmentsIntersect(x1, y1, x2, y2, a.x, a.y, b.x, b.y)) {
-      return true;
-    }
-  }
-
-  return false;
+  return lineIntersectsPolygon(
+    { x: x1, y: y1 },
+    { x: x2, y: y2 },
+    vertices,
+  );
 }
 
 function checkLinePilotCollision(
@@ -476,41 +472,10 @@ function checkLinePilotCollision(
   pilotAngle: number,
 ): boolean {
   const vertices = transformLocalVertices(PILOT_COLLIDER_VERTICES, pilotX, pilotY, pilotAngle);
-  if (vertices.length < 3) return false;
-
-  if (pointInPolygon(x1, y1, vertices) || pointInPolygon(x2, y2, vertices)) {
-    return true;
-  }
-
-  for (let i = 0; i < vertices.length; i++) {
-    const a = vertices[i];
-    const b = vertices[(i + 1) % vertices.length];
-    if (segmentsIntersect(x1, y1, x2, y2, a.x, a.y, b.x, b.y)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-export function checkLineCircleCollision(
-  x1: number, y1: number,
-  x2: number, y2: number,
-  cx: number, cy: number,
-  radius: number,
-): boolean {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) {
-    const distSq = (cx - x1) ** 2 + (cy - y1) ** 2;
-    return distSq <= radius * radius;
-  }
-  let t = ((cx - x1) * dx + (cy - y1) * dy) / lenSq;
-  t = clamp(t, 0, 1);
-  const px = x1 + t * dx;
-  const py = y1 + t * dy;
-  const distSq = (cx - px) ** 2 + (cy - py) ** 2;
-  return distSq <= radius * radius;
+  return lineIntersectsPolygon(
+    { x: x1, y: y1 },
+    { x: x2, y: y2 },
+    vertices,
+  );
 }
 

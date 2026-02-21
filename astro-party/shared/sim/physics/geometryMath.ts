@@ -144,3 +144,61 @@ export function lineIntersectsRect(
     segmentsIntersect(start.x, start.y, end.x, end.y, left, bottom, left, top)
   );
 }
+
+export function lineIntersectsPolygon(
+  start: Vec2,
+  end: Vec2,
+  vertices: ReadonlyArray<Vec2>,
+): boolean {
+  if (vertices.length < 3) return false;
+
+  if (
+    pointInPolygon(start.x, start.y, vertices) ||
+    pointInPolygon(end.x, end.y, vertices)
+  ) {
+    return true;
+  }
+
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    if (segmentsIntersect(start.x, start.y, end.x, end.y, a.x, a.y, b.x, b.y)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function circleIntersectsPolygon(
+  cx: number,
+  cy: number,
+  radius: number,
+  vertices: ReadonlyArray<Vec2>,
+): boolean {
+  if (vertices.length < 3) return false;
+
+  if (pointInPolygon(cx, cy, vertices)) {
+    return true;
+  }
+
+  const radiusSq = radius * radius;
+  for (let i = 0; i < vertices.length; i++) {
+    const vertex = vertices[i];
+    const dx = vertex.x - cx;
+    const dy = vertex.y - cy;
+    if (dx * dx + dy * dy <= radiusSq) {
+      return true;
+    }
+  }
+
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    if (distanceSqPointToSegment(cx, cy, a.x, a.y, b.x, b.y) <= radiusSq) {
+      return true;
+    }
+  }
+
+  return false;
+}

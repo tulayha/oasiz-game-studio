@@ -1,6 +1,5 @@
 import type { SimState, RuntimeMine, RuntimeAsteroid, ShipState } from "../types.js";
 import {
-  SHIP_RADIUS,
   PILOT_RADIUS,
   MINE_EXPLOSION_RADIUS,
   MINE_ARMING_DELAY_MS,
@@ -22,6 +21,10 @@ import {
   localPointToWorld,
 } from "../../geometry/ShipRenderAnchors.js";
 import {
+  SHIP_COLLIDER_VERTICES,
+  transformLocalVertices,
+} from "../../geometry/EntityShapes.js";
+import {
   REPULSION_TUNING,
   TURRET_TUNING,
   VORTEX_TUNING,
@@ -30,10 +33,16 @@ import {
 import { getMapDefinition } from "../maps.js";
 import { normalizeAngle, clamp } from "../utils.js";
 import {
+  circleIntersectsPolygon,
   distanceSqPointToSegment,
   getAsteroidWorldVertices,
   pointInPolygon,
 } from "../physics/geometryMath.js";
+
+const SHIP_COLLIDER_CULL_RADIUS = Math.max(
+  1,
+  ...SHIP_COLLIDER_VERTICES.map((vertex) => Math.hypot(vertex.x, vertex.y)),
+);
 
 export function updateLaserBeams(sim: SimState): void {
   for (const beam of sim.laserBeams) {
@@ -261,8 +270,16 @@ export function checkHomingMissileCollisions(sim: SimState): void {
       if (!player || !player.ship.alive) continue;
       const dx = player.ship.x - missile.x;
       const dy = player.ship.y - missile.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > SHIP_RADIUS + HOMING_MISSILE_RADIUS + 7) continue;
+      if (
+        !checkCircleShipCollision(
+          missile.x,
+          missile.y,
+          HOMING_MISSILE_RADIUS,
+          player.ship,
+        )
+      ) {
+        continue;
+      }
 
       const powerUp = sim.playerPowerUps.get(playerId);
       if (powerUp?.type === "SHIELD") {
@@ -397,7 +414,14 @@ export function updateJoustCollisions(sim: SimState): void {
       if (powerUp.leftSwordActive) {
         const dx = other.ship.x - swords.left.centerX;
         const dy = other.ship.y - swords.left.centerY;
-        if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + 20) ** 2) {
+        if (
+          checkCircleShipCollision(
+            swords.left.centerX,
+            swords.left.centerY,
+            JOUST_COLLISION_RADIUS,
+            other.ship,
+          )
+        ) {
           hitSide = "left";
           hitDx = dx;
           hitDy = dy;
@@ -407,7 +431,14 @@ export function updateJoustCollisions(sim: SimState): void {
       if (!hitSide && powerUp.rightSwordActive) {
         const dx = other.ship.x - swords.right.centerX;
         const dy = other.ship.y - swords.right.centerY;
-        if (dx * dx + dy * dy <= (JOUST_COLLISION_RADIUS + 20) ** 2) {
+        if (
+          checkCircleShipCollision(
+            swords.right.centerX,
+            swords.right.centerY,
+            JOUST_COLLISION_RADIUS,
+            other.ship,
+          )
+        ) {
           hitSide = "right";
           hitDx = dx;
           hitDy = dy;
@@ -591,6 +622,28 @@ function checkCircleAsteroidCollision(
   }
 
   return false;
+}
+
+function checkCircleShipCollision(
+  cx: number,
+  cy: number,
+  radius: number,
+  ship: Pick<ShipState, "x" | "y" | "angle">,
+): boolean {
+  const dx = ship.x - cx;
+  const dy = ship.y - cy;
+  const cullRadius = SHIP_COLLIDER_CULL_RADIUS + radius;
+  if (dx * dx + dy * dy > cullRadius * cullRadius) {
+    return false;
+  }
+
+  const vertices = transformLocalVertices(
+    SHIP_COLLIDER_VERTICES,
+    ship.x,
+    ship.y,
+    ship.angle,
+  );
+  return circleIntersectsPolygon(cx, cy, radius, vertices);
 }
 
 export function getJoustSwordGeometry(ship: ShipState): {

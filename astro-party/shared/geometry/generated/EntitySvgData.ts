@@ -1,5 +1,5 @@
 // AUTO-GENERATED FILE. DO NOT EDIT.
-// Source: shared/assets/entities/*.svg + shared/geometry/entityAssets.manifest.json
+// Source: shared/assets/entities/*.svg + shared/assets/entities/manifest.json
 // Run: bun run generate:entities
 
 export interface ShapePoint {
@@ -124,8 +124,8 @@ export const GENERATED_ENTITY_SVG_DATA = [
         }
       }
     },
-    "renderScale": 1,
-    "physicsScale": 1,
+    "renderScale": 1.5,
+    "physicsScale": 1.5,
     "slotDefaults": {
       "slot-primary": "#00f0ff",
       "slot-secondary": "#ffffff",

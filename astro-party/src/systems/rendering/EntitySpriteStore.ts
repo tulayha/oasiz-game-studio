@@ -9,7 +9,7 @@ import { renderAssetStore } from "./RenderAssetStore";
  *
  * To add a new entity:
  * 1) Add the SVG in shared/assets/entities/.
- * 2) Add the manifest entry in shared/geometry/entityAssets.manifest.json.
+ * 2) Add the manifest entry in shared/assets/entities/manifest.json.
  * 3) Run `bun run build` (prebuild regenerates shared geometry metadata).
  * 4) Draw with drawEntity(...) and pass any slot overrides.
  *

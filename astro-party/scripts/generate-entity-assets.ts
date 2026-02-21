@@ -472,7 +472,7 @@ function mergeRenderMetaHardpoints(
 function main(): void {
   const projectRoot = resolve(import.meta.dirname, "..");
   const entitiesDir = join(projectRoot, "shared", "assets", "entities");
-  const manifestPath = join(projectRoot, "shared", "geometry", "entityAssets.manifest.json");
+  const manifestPath = join(projectRoot, "shared", "assets", "entities", "manifest.json");
   const outPath = join(projectRoot, "shared", "geometry", "generated", "EntitySvgData.ts");
 
   const manifestText = readFileSync(manifestPath, "utf8");
@@ -516,7 +516,7 @@ function main(): void {
 
   const header =
     "// AUTO-GENERATED FILE. DO NOT EDIT.\n" +
-    "// Source: shared/assets/entities/*.svg + shared/geometry/entityAssets.manifest.json\n" +
+    "// Source: shared/assets/entities/*.svg + shared/assets/entities/manifest.json\n" +
     "// Run: bun run generate:entities\n\n";
 
   const body =
