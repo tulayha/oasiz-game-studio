@@ -54,6 +54,8 @@
       --hud-bottom-gap: 0px;
       --hud-top-pad: 6px;
       --back-btn-shift-x: 14px;
+      --leave-btn-size: 44px;
+      --mobile-landscape-left-offset: 0px;
     }
 
     #game-wrapper {
@@ -940,9 +942,9 @@
     .leave-btn {
       position: absolute;
       top: var(--hud-top-pad);
-      left: calc(var(--hud-side-gap) + var(--back-btn-shift-x));
-      width: 44px;
-      height: 44px;
+      left: calc(var(--hud-side-gap) + var(--back-btn-shift-x) + var(--mobile-landscape-left-offset));
+      width: var(--leave-btn-size);
+      height: var(--leave-btn-size);
       border-radius: 12px;
       background: rgba(255, 80, 80, 0.12);
       border: 1px solid rgba(255, 120, 120, 0.45);
@@ -1664,7 +1666,7 @@
       justify-content: center;
       cursor: pointer;
       color: #fff;
-      margin-left: var(--back-btn-shift-x);
+      margin-left: calc(var(--back-btn-shift-x) + var(--mobile-landscape-left-offset));
     }
 
     .back-btn svg {
@@ -2145,15 +2147,14 @@
 
     /* ============= MOBILE OVERRIDES ============= */
     @media (pointer: coarse) {
+      :root {
+        --leave-btn-size: 48px;
+      }
+
       .settings-btn {
         width: 48px;
         height: 48px;
         padding: 8px;
-      }
-
-      .leave-btn {
-        width: 48px;
-        height: 48px;
       }
 
       .start-body {
@@ -2705,6 +2706,12 @@
         min-width: 128px;
         font-size: 0.68rem;
         padding: 0.5rem 0.72rem;
+      }
+    }
+
+    @media (pointer: coarse) and (orientation: landscape) {
+      :root {
+        --mobile-landscape-left-offset: var(--leave-btn-size);
       }
     }
   </style>

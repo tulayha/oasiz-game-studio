@@ -79,7 +79,35 @@ export interface AdvancedSettingsUI {
 export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
   const feedback = createUIFeedback("advancedSettings");
   const HOST_ONLY_ACTION_MESSAGE = "Only the room leader can do that";
+  const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const tapGuardUntilByElement = new WeakMap<EventTarget, number>();
+  const TAP_GUARD_MS = 340;
   let activeTab: SettingsTab = "elements";
+
+  function shouldHandleTap(
+    target: EventTarget | null,
+    guardMs: number = TAP_GUARD_MS,
+  ): boolean {
+    if (!isCoarsePointer || !target) return true;
+    const now = performance.now();
+    const guardUntil = tapGuardUntilByElement.get(target) ?? 0;
+    if (now < guardUntil) {
+      return false;
+    }
+    tapGuardUntilByElement.set(target, now + guardMs);
+    return true;
+  }
+
+  function bindTap(
+    button: HTMLButtonElement | HTMLElement,
+    handler: () => void,
+    guardMs: number = TAP_GUARD_MS,
+  ): void {
+    button.addEventListener("click", (event) => {
+      if (!shouldHandleTap(event.currentTarget, guardMs)) return;
+      handler();
+    });
+  }
 
   function setActiveTab(tab: SettingsTab): void {
     activeTab = tab;
@@ -161,7 +189,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     updateAdvancedSettingsUI(next);
   }
 
-  elements.advancedSettingsBtn.addEventListener("click", () => {
+  bindTap(elements.advancedSettingsBtn, () => {
     if (!game.isLeader()) {
       feedback.error();
       game.showSystemMessage(HOST_ONLY_ACTION_MESSAGE, 2500);
@@ -171,74 +199,75 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     openModal();
   });
 
-  elements.advancedSettingsBackdrop.addEventListener("click", () => {
+  elements.advancedSettingsBackdrop.addEventListener("click", (event) => {
+    if (!shouldHandleTap(event.currentTarget)) return;
     closeModal();
   });
 
-  elements.advancedSettingsClose.addEventListener("click", () => {
+  bindTap(elements.advancedSettingsClose, () => {
     feedback.button();
     closeModal();
   });
 
-  elements.advancedSettingsDone.addEventListener("click", () => {
+  bindTap(elements.advancedSettingsDone, () => {
     feedback.button();
     closeModal();
   });
 
-  elements.advancedTabElements.addEventListener("click", () => {
+  bindTap(elements.advancedTabElements, () => {
     feedback.button();
     setActiveTab("elements");
   });
 
-  elements.advancedTabPhysics.addEventListener("click", () => {
+  bindTap(elements.advancedTabPhysics, () => {
     feedback.button();
     setActiveTab("physics");
   });
 
-  elements.asteroidsCycle.addEventListener("click", () => {
+  bindTap(elements.asteroidsCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().asteroidDensity;
     applySettings({ asteroidDensity: nextInCycle(ASTEROID_ORDER, current) });
   });
 
-  elements.startPowerupsToggle.addEventListener("click", () => {
+  bindTap(elements.startPowerupsToggle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().startPowerups;
     applySettings({ startPowerups: !current });
   });
 
-  elements.roundsCycle.addEventListener("click", () => {
+  bindTap(elements.roundsCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().roundsToWin;
     const next = current >= 6 ? 3 : current + 1;
     applySettings({ roundsToWin: next });
   });
 
-  elements.shipSpeedCycle.addEventListener("click", () => {
+  bindTap(elements.shipSpeedCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().shipSpeed;
     applySettings({ shipSpeed: nextInCycle(SPEED_ORDER, current) });
   });
 
-  elements.dashPowerCycle.addEventListener("click", () => {
+  bindTap(elements.dashPowerCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().dashPower;
     applySettings({ dashPower: nextInCycle(DASH_ORDER, current) });
   });
 
-  elements.rotationPresetCycle.addEventListener("click", () => {
+  bindTap(elements.rotationPresetCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().rotationPreset;
     applySettings({ rotationPreset: nextInCycle(MODE_PRESET_ORDER, current) });
   });
 
-  elements.recoilPresetCycle.addEventListener("click", () => {
+  bindTap(elements.recoilPresetCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().recoilPreset;
     applySettings({ recoilPreset: nextInCycle(MODE_PRESET_ORDER, current) });
   });
 
-  elements.shipRestitutionCycle.addEventListener("click", () => {
+  bindTap(elements.shipRestitutionCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().shipRestitutionPreset;
     applySettings({
@@ -246,7 +275,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     });
   });
 
-  elements.shipFrictionAirCycle.addEventListener("click", () => {
+  bindTap(elements.shipFrictionAirCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().shipFrictionAirPreset;
     applySettings({
@@ -254,7 +283,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     });
   });
 
-  elements.wallRestitutionCycle.addEventListener("click", () => {
+  bindTap(elements.wallRestitutionCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().wallRestitutionPreset;
     applySettings({
@@ -262,7 +291,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     });
   });
 
-  elements.wallFrictionCycle.addEventListener("click", () => {
+  bindTap(elements.wallFrictionCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().wallFrictionPreset;
     applySettings({
@@ -270,7 +299,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     });
   });
 
-  elements.shipFrictionCycle.addEventListener("click", () => {
+  bindTap(elements.shipFrictionCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().shipFrictionPreset;
     applySettings({
@@ -278,7 +307,7 @@ export function createAdvancedSettingsUI(game: Game): AdvancedSettingsUI {
     });
   });
 
-  elements.angularDampingCycle.addEventListener("click", () => {
+  bindTap(elements.angularDampingCycle, () => {
     feedback.button();
     const current = game.getAdvancedSettings().angularDampingPreset;
     applySettings({

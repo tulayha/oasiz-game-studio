@@ -21,8 +21,13 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   let addingBot = false;
   let addButtonGuardUntilMs = 0;
   let startButtonGuardUntilMs = 0;
+  let modeCycleGuardUntilMs = 0;
+  const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const kickButtonGuardUntilByPlayer = new Map<string, number>();
   const ADD_BUTTON_TAP_GUARD_MS = 450;
   const START_BUTTON_TAP_GUARD_MS = 650;
+  const KICK_BUTTON_TAP_GUARD_MS = 450;
+  const MODE_CYCLE_TAP_GUARD_MS = 340;
   const MAP_PICKER_ORDER: MapId[] = [0, 5, 1, 2, 3, 4];
   const MODE_CYCLE_ORDER: BaseGameMode[] = ["STANDARD", "SANE", "CHAOTIC"];
   const mapPickerCards = new Map<MapId, HTMLButtonElement>();
@@ -125,6 +130,17 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
         }
         const playerId = (btn as HTMLElement).dataset.playerId;
         if (!playerId) return;
+        if (isCoarsePointer) {
+          const now = performance.now();
+          const guardUntil = kickButtonGuardUntilByPlayer.get(playerId) ?? 0;
+          if (now < guardUntil) {
+            return;
+          }
+          kickButtonGuardUntilByPlayer.set(
+            playerId,
+            now + KICK_BUTTON_TAP_GUARD_MS,
+          );
+        }
         feedback.button();
         (btn as HTMLButtonElement).disabled = true;
         try {
@@ -532,6 +548,13 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   });
 
   elements.modeCycleBtn.addEventListener("click", () => {
+    if (isCoarsePointer) {
+      const now = performance.now();
+      if (now < modeCycleGuardUntilMs) {
+        return;
+      }
+      modeCycleGuardUntilMs = now + MODE_CYCLE_TAP_GUARD_MS;
+    }
     if (!game.isLeader()) {
       showHostOnlyActionToast();
       return;

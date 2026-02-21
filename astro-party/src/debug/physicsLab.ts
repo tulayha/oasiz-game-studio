@@ -405,6 +405,22 @@ export function createPhysicsLabController(
   game: Game,
   options: PhysicsLabControllerOptions = {},
 ): PhysicsLabController {
+  const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const tapGuardUntilByElement = new WeakMap<EventTarget, number>();
+  const shouldHandleTap = (
+    target: EventTarget | null,
+    guardMs: number = 340,
+  ): boolean => {
+    if (!isCoarsePointer || !target) return true;
+    const now = performance.now();
+    const guardUntil = tapGuardUntilByElement.get(target) ?? 0;
+    if (now < guardUntil) {
+      return false;
+    }
+    tapGuardUntilByElement.set(target, now + guardMs);
+    return true;
+  };
+
   let root: HTMLDivElement | null = null;
   let modeSelect: HTMLSelectElement | null = null;
   let statusEl: HTMLDivElement | null = null;
@@ -783,7 +799,8 @@ export function createPhysicsLabController(
     reloadBtn.type = "button";
     reloadBtn.className = "qa-physics-lab-btn";
     reloadBtn.textContent = "Reload";
-    reloadBtn.addEventListener("click", () => {
+    reloadBtn.addEventListener("click", (event) => {
+      if (!shouldHandleTap(event.currentTarget)) return;
       refreshFromSim();
     });
 
@@ -791,7 +808,8 @@ export function createPhysicsLabController(
     resetBtn.type = "button";
     resetBtn.className = "qa-physics-lab-btn";
     resetBtn.textContent = "Reset";
-    resetBtn.addEventListener("click", () => {
+    resetBtn.addEventListener("click", (event) => {
+      if (!shouldHandleTap(event.currentTarget)) return;
       game.resetShipTrailVisualTuning();
       const ok = game.setDebugPhysicsTuning(null);
       if (!ok) return;
@@ -803,7 +821,8 @@ export function createPhysicsLabController(
     copyBtn.type = "button";
     copyBtn.className = "qa-physics-lab-btn";
     copyBtn.textContent = "Copy JSON";
-    copyBtn.addEventListener("click", () => {
+    copyBtn.addEventListener("click", (event) => {
+      if (!shouldHandleTap(event.currentTarget)) return;
       void copyPayload();
     });
 
@@ -811,7 +830,8 @@ export function createPhysicsLabController(
     pasteBtn.type = "button";
     pasteBtn.className = "qa-physics-lab-btn";
     pasteBtn.textContent = "Paste JSON";
-    pasteBtn.addEventListener("click", () => {
+    pasteBtn.addEventListener("click", (event) => {
+      if (!shouldHandleTap(event.currentTarget)) return;
       void pastePayload();
     });
 
@@ -911,7 +931,8 @@ export function createPhysicsLabController(
     const closeBtn = panel.querySelector(
       ".qa-physics-lab-close",
     ) as HTMLButtonElement | null;
-    closeBtn?.addEventListener("click", () => {
+    closeBtn?.addEventListener("click", (event) => {
+      if (!shouldHandleTap(event.currentTarget)) return;
       close();
     });
   };

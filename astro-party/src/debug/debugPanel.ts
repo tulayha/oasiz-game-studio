@@ -14,6 +14,7 @@ const PANEL_ID = "qaDebugPanel";
 const TOGGLE_ID = "qaDebugToggle";
 const LAB_TOGGLE_ID = "qaLabToggle";
 const STATUS_ID = "qaDebugStatus";
+const COARSE_TAP_GUARD_MS = 340;
 
 const POWERUP_ACTIONS: Array<{
   label: string;
@@ -28,6 +29,22 @@ const POWERUP_ACTIONS: Array<{
 
 export function mountDebugPanel(options: DebugPanelOptions): void {
   if (document.getElementById(PANEL_ID)) return;
+  const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const tapGuardUntilByElement = new WeakMap<EventTarget, number>();
+  const shouldHandleTap = (
+    target: EventTarget | null,
+    guardMs: number = COARSE_TAP_GUARD_MS,
+  ): boolean => {
+    if (!isCoarsePointer || !target) return true;
+    const now = performance.now();
+    const guardUntil = tapGuardUntilByElement.get(target) ?? 0;
+    if (now < guardUntil) {
+      return false;
+    }
+    tapGuardUntilByElement.set(target, now + guardMs);
+    return true;
+  };
+
   const physicsLab = createPhysicsLabController(options.game, {
     onVisibilityChange: (visible) => {
       const labToggle = document.getElementById(
@@ -96,70 +113,78 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
     physicsLab.open();
   };
 
-  panel.appendChild(buildHeader(closeDebugPanel));
+  panel.appendChild(buildHeader(closeDebugPanel, shouldHandleTap));
   panel.appendChild(buildStatusBlock());
   panel.appendChild(
-    buildSection("Screens", [
-      {
-        label: "Live",
-        onClick: () => {
-          options.restoreLiveUi();
+    buildSection(
+      "Screens",
+      [
+        {
+          label: "Live",
+          onClick: () => {
+            options.restoreLiveUi();
+          },
         },
-      },
-      {
-        label: "Start",
-        onClick: () => {
-          options.screenController.showScreen("start");
+        {
+          label: "Start",
+          onClick: () => {
+            options.screenController.showScreen("start");
+          },
         },
-      },
-      {
-        label: "Lobby",
-        onClick: () => {
-          options.screenController.showScreen("lobby");
+        {
+          label: "Lobby",
+          onClick: () => {
+            options.screenController.showScreen("lobby");
+          },
         },
-      },
-      {
-        label: "Game HUD",
-        onClick: () => {
-          options.screenController.showScreen("game");
-          options.screenController.setRoundResultVisible(false);
+        {
+          label: "Game HUD",
+          onClick: () => {
+            options.screenController.showScreen("game");
+            options.screenController.setRoundResultVisible(false);
+          },
         },
-      },
-      {
-        label: "Round End Mock",
-        onClick: () => {
-          showRoundEndPreview(options.game, options.screenController);
+        {
+          label: "Round End Mock",
+          onClick: () => {
+            showRoundEndPreview(options.game, options.screenController);
+          },
         },
-      },
-      {
-        label: "Match End Mock",
-        onClick: () => {
-          showGameEndPreview(options.game, options.screenController);
+        {
+          label: "Match End Mock",
+          onClick: () => {
+            showGameEndPreview(options.game, options.screenController);
+          },
         },
-      },
-    ]),
+      ],
+      shouldHandleTap,
+    ),
   );
   panel.appendChild(
-    buildSection("Debug", [
-      {
-        label: "Toggle Dev Viz",
-        onClick: () => {
-          options.game.toggleDevMode();
+    buildSection(
+      "Debug",
+      [
+        {
+          label: "Toggle Dev Viz",
+          onClick: () => {
+            options.game.toggleDevMode();
+          },
         },
-      },
-      {
-        label: "Physics Lab",
-        onClick: () => {
-          openPhysicsLab();
+        {
+          label: "Physics Lab",
+          onClick: () => {
+            openPhysicsLab();
+          },
         },
-      },
-      {
-        label: "Eject Pilot",
-        onClick: () => {
-          options.game.requestDebugEjectPilot();
+        {
+          label: "Eject Pilot",
+          onClick: () => {
+            options.game.requestDebugEjectPilot();
+          },
         },
-      },
-    ]),
+      ],
+      shouldHandleTap,
+    ),
   );
   panel.appendChild(
     buildSection(
@@ -170,6 +195,7 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
           options.game.requestDebugPowerUp(action.type);
         },
       })),
+      shouldHandleTap,
     ),
   );
 
@@ -179,14 +205,16 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
   root.appendChild(panel);
   document.body.appendChild(root);
 
-  toggle.addEventListener("click", () => {
+  toggle.addEventListener("click", (event) => {
+    if (!shouldHandleTap(event.currentTarget)) return;
     if (panel.classList.contains("active")) {
       closeDebugPanel();
       return;
     }
     openDebugPanel();
   });
-  labToggle.addEventListener("click", () => {
+  labToggle.addEventListener("click", (event) => {
+    if (!shouldHandleTap(event.currentTarget)) return;
     if (physicsLab.isOpen()) {
       closePhysicsLab();
       return;
@@ -204,7 +232,10 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
   updateStatus(options.game);
 }
 
-function buildHeader(onClose: () => void): HTMLElement {
+function buildHeader(
+  onClose: () => void,
+  shouldHandleTap: (target: EventTarget | null) => boolean,
+): HTMLElement {
   const header = document.createElement("div");
   header.className = "qa-debug-header";
 
@@ -216,7 +247,8 @@ function buildHeader(onClose: () => void): HTMLElement {
   close.className = "qa-debug-close";
   close.type = "button";
   close.textContent = "Close";
-  close.addEventListener("click", () => {
+  close.addEventListener("click", (event) => {
+    if (!shouldHandleTap(event.currentTarget)) return;
     onClose();
   });
 
@@ -236,6 +268,7 @@ function buildStatusBlock(): HTMLElement {
 function buildSection(
   title: string,
   actions: Array<{ label: string; onClick: () => void }>,
+  shouldHandleTap: (target: EventTarget | null) => boolean,
 ): HTMLElement {
   const section = document.createElement("section");
   section.className = "qa-debug-section";
@@ -252,7 +285,10 @@ function buildSection(
     button.className = "qa-debug-btn";
     button.type = "button";
     button.textContent = action.label;
-    button.addEventListener("click", action.onClick);
+    button.addEventListener("click", (event) => {
+      if (!shouldHandleTap(event.currentTarget)) return;
+      action.onClick();
+    });
     grid.appendChild(button);
   }
 
@@ -372,7 +408,7 @@ function injectStyles(): void {
   style.textContent = `
     .qa-debug-root {
       position: fixed;
-      left: calc(var(--box-left) + var(--hud-side-gap) + 52px + var(--back-btn-shift-x, 0px));
+      left: calc(var(--box-left) + var(--hud-side-gap) + 52px + var(--back-btn-shift-x, 0px) + var(--mobile-landscape-left-offset, 0px));
       top: calc(var(--box-top) + var(--hud-top-pad));
       z-index: 250;
       pointer-events: none;
@@ -505,7 +541,7 @@ function injectStyles(): void {
 
     @media (pointer: coarse) {
       .qa-debug-root {
-        left: calc(var(--box-left) + var(--hud-side-gap) + 58px + var(--back-btn-shift-x, 0px));
+        left: calc(var(--box-left) + var(--hud-side-gap) + 58px + var(--back-btn-shift-x, 0px) + var(--mobile-landscape-left-offset, 0px));
         top: calc(var(--box-top) + var(--hud-top-pad));
       }
 
