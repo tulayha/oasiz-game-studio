@@ -261,6 +261,11 @@ export class ColyseusTransport implements NetworkTransport {
     this.room.send("cmd:start_match", {});
   }
 
+  continueMatchSequence(): void {
+    if (!this.room) return;
+    this.room.send("cmd:continue_sequence", {});
+  }
+
   restartGame(): void {
     if (!this.room) return;
     this.room.send("cmd:restart_match", {});

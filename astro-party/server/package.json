@@ -15,7 +15,8 @@
     "colyseus": "^0.16.5",
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "matter-js": "^0.20.0"
+    "matter-js": "^0.20.0",
+    "poly-decomp": "^0.3.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

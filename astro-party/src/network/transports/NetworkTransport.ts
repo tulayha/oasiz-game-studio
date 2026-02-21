@@ -93,6 +93,7 @@ export interface NetworkTransport {
   pollHostInputs(): void;
   broadcastGameState(state: GameStateSync): void;
   startGame(): void;
+  continueMatchSequence(): void;
   restartGame(): void;
   setMode(mode: GameMode): void;
   setMap(mapId: number): void;

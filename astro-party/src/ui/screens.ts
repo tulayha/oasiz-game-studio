@@ -306,12 +306,19 @@ export function createScreenController(
     elements.finalScores.innerHTML = header + rows;
 
     if (game.didHostLeave()) {
+      elements.continueBtn.style.display = "none";
       elements.playAgainBtn.style.display = "none";
     } else if (game.isLeader()) {
+      elements.continueBtn.style.display = "block";
+      elements.continueBtn.textContent = "Continue";
+      elements.continueBtn.disabled = false;
       elements.playAgainBtn.style.display = "block";
       elements.playAgainBtn.textContent = "Play Again";
       elements.playAgainBtn.disabled = false;
     } else {
+      elements.continueBtn.style.display = "block";
+      elements.continueBtn.textContent = "Waiting for leader";
+      elements.continueBtn.disabled = true;
       elements.playAgainBtn.style.display = "block";
       elements.playAgainBtn.textContent = "Waiting for leader";
       elements.playAgainBtn.disabled = true;
@@ -322,6 +329,9 @@ export function createScreenController(
   }
 
   function resetEndScreenButtons(): void {
+    elements.continueBtn.style.display = "block";
+    elements.continueBtn.disabled = false;
+    elements.continueBtn.textContent = "Continue";
     elements.playAgainBtn.disabled = false;
     elements.playAgainBtn.textContent = "Play Again";
     elements.leaveEndBtn.disabled = false;
@@ -349,9 +359,23 @@ export function createScreenController(
 export function bindEndScreenUI(game: Game): void {
   const feedback = createUIFeedback("endScreen");
 
+  elements.continueBtn.addEventListener("click", async () => {
+    feedback.subtle();
+    if (game.isLeader()) {
+      elements.continueBtn.disabled = true;
+      elements.playAgainBtn.disabled = true;
+      elements.continueBtn.textContent = "Continuing...";
+      await game.continueMatchSequence();
+    } else {
+      elements.continueBtn.textContent = "Waiting for leader";
+      elements.continueBtn.disabled = true;
+    }
+  });
+
   elements.playAgainBtn.addEventListener("click", async () => {
     feedback.subtle();
     if (game.isLeader()) {
+      elements.continueBtn.disabled = true;
       elements.playAgainBtn.disabled = true;
       elements.playAgainBtn.textContent = "Restarting...";
       await game.restartGame();

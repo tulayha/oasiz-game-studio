@@ -30,6 +30,7 @@ export const elements = {
   // Game end screen
   winnerName: getElement<HTMLElement>("winnerName"),
   finalScores: getElement<HTMLElement>("finalScores"),
+  continueBtn: getElement<HTMLButtonElement>("continueBtn"),
   playAgainBtn: getElement<HTMLButtonElement>("playAgainBtn"),
   leaveEndBtn: getElement<HTMLButtonElement>("leaveEndBtn"),
 

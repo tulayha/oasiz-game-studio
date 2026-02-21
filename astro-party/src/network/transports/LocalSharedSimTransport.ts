@@ -208,6 +208,11 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.simulation.startMatch(this.mySessionId);
   }
 
+  continueMatchSequence(): void {
+    if (!this.simulation || !this.mySessionId) return;
+    this.simulation.continueMatchSequence(this.mySessionId);
+  }
+
   restartGame(): void {
     if (!this.simulation || !this.mySessionId) return;
     this.simulation.restartToLobby(this.mySessionId);

@@ -111,7 +111,7 @@ export class NetworkSyncSystem {
   private hasProjectileBaseline = false;
   private clientShipPositions: Map<
     string,
-    { x: number; y: number; color: string }
+    { x: number; y: number; color: string; alive: boolean }
   > = new Map();
   private clientAsteroidStates: Map<
     string,
@@ -611,23 +611,29 @@ export class NetworkSyncSystem {
     const incomingShips = state.ships || [];
     const shipById = new Map(incomingShips.map((ship) => [ship.playerId, ship]));
     const currentShipIds = new Set(incomingShips.map((ship) => ship.playerId));
-    for (const [playerId, shipData] of this.clientShipPositions) {
-      if (!currentShipIds.has(playerId)) {
-        this.renderer.spawnExplosion(shipData.x, shipData.y, shipData.color);
-        this.renderer.spawnShipDebris(shipData.x, shipData.y, shipData.color);
-        this.clientShipPositions.delete(playerId);
-      }
-    }
     for (const shipState of incomingShips) {
-      if (!shipState.alive) continue;
       const color =
         this.playerMgr.players.get(shipState.playerId)?.color.primary ||
         "#ffffff";
+      const previousShip = this.clientShipPositions.get(shipState.playerId);
+      if (previousShip?.alive && !shipState.alive) {
+        this.renderer.spawnShipDestroyedBurst(
+          previousShip.x,
+          previousShip.y,
+          color,
+        );
+      }
       this.clientShipPositions.set(shipState.playerId, {
         x: shipState.x,
         y: shipState.y,
         color,
+        alive: shipState.alive,
       });
+    }
+    for (const [playerId] of this.clientShipPositions) {
+      if (!currentShipIds.has(playerId)) {
+        this.clientShipPositions.delete(playerId);
+      }
     }
 
     const incomingPilots = state.pilots || [];
@@ -637,10 +643,10 @@ export class NetworkSyncSystem {
     for (const [playerId, pilotData] of this.clientPilotPositions) {
       if (!currentPilotIds.has(playerId)) {
         const ownerShip = shipById.get(playerId);
-        if (!ownerShip || !ownerShip.alive) {
+        if (ownerShip && !ownerShip.alive) {
           const pilotColor =
             this.playerMgr.players.get(playerId)?.color.primary ?? "#00f0ff";
-          this.renderer.spawnPilotDeathBurst(
+          this.renderer.spawnPilotKillBurst(
             pilotData.x,
             pilotData.y,
             pilotColor,

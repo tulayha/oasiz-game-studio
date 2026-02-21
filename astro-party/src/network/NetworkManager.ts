@@ -83,6 +83,10 @@ export class NetworkManager {
     this.transport.startGame();
   }
 
+  continueMatchSequence(): void {
+    this.transport.continueMatchSequence();
+  }
+
   restartGame(): void {
     this.transport.restartGame();
   }

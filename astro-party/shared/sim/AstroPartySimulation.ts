@@ -425,6 +425,28 @@ export class AstroPartySimulation implements SimState {
       return;
     }
 
+    this.beginMatchSequence(this.phase === "GAME_END");
+  }
+
+  continueMatchSequence(sessionId: string): void {
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
+    if (this.phase !== "GAME_END") {
+      this.hooks.onError(
+        sessionId,
+        "INVALID_PHASE",
+        "Can only continue from game end",
+      );
+      return;
+    }
+    if (this.playerOrder.length < 2) {
+      this.hooks.onError(sessionId, "NOT_ENOUGH_PLAYERS", "Need at least 2 players");
+      return;
+    }
+
+    this.beginMatchSequence(true);
+  }
+
+  private beginMatchSequence(preserveScoreAndKills: boolean): void {
     this.winnerId = null;
     this.winnerName = null;
     this.mapPowerUpsSpawned = false;
@@ -436,7 +458,7 @@ export class AstroPartySimulation implements SimState {
     this.countdownMs = COUNTDOWN_SECONDS * 1000;
     this.countdownValue = COUNTDOWN_SECONDS;
     this.roundEndMs = 0;
-    this.resetScoreAndState();
+    this.resetPlayersForNewSequence(preserveScoreAndKills);
     // Publish map/room meta before phase/countdown callbacks so clients
     // can swap visuals before entering the next phase.
     syncRoomMeta(this);
@@ -456,9 +478,8 @@ export class AstroPartySimulation implements SimState {
       this.mapId = 0;
     }
     this.mapPowerUpsSpawned = false;
-    clearRoundEntities(this);
     this.devModeEnabled = false;
-    this.resetScoreAndState();
+    this.resetPlayersForNewSequence(false);
     this.hooks.onPhase("LOBBY");
     syncRoomMeta(this);
     this.syncPlayers();
@@ -1385,15 +1406,17 @@ export class AstroPartySimulation implements SimState {
     syncRoomMeta(this);
   }
 
-  private resetScoreAndState(): void {
+  private resetPlayersForNewSequence(preserveScoreAndKills: boolean): void {
     clearRoundEntities(this);
     const globals = this.getGlobalConfig();
     for (const playerId of this.playerOrder) {
       const player = this.players.get(playerId);
       if (!player) continue;
-      player.kills = 0;
+      if (!preserveScoreAndKills) {
+        player.kills = 0;
+        player.score = 0;
+      }
       player.roundWins = 0;
-      player.score = 0;
       player.state = "ACTIVE";
       player.input = {
         buttonA: false,

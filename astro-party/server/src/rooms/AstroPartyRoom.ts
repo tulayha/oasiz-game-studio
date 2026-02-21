@@ -241,6 +241,10 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       this.simulation.startMatch(client.sessionId);
     });
 
+    this.onMessage("cmd:continue_sequence", (client) => {
+      this.simulation.continueMatchSequence(client.sessionId);
+    });
+
     this.onMessage("cmd:restart_match", (client) => {
       this.simulation.restartToLobby(client.sessionId);
     });

@@ -1561,6 +1561,64 @@ export class Renderer {
     }
   }
 
+  spawnShipDestroyedBurst(x: number, y: number, color: string): void {
+    const hullColor = color || "#6ed6ff";
+
+    const flashCount = 18;
+    for (let i = 0; i < flashCount; i++) {
+      const angle = (i / flashCount) * Math.PI * 2 + this.random() * 0.28;
+      const speed = 95 + this.random() * 105;
+      const life = 0.16 + this.random() * 0.1;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 3.4 + this.random() * 3.6,
+        color: this.random() > 0.45 ? "#fff4d8" : "#ffc47a",
+      });
+    }
+
+    const blastRingCount = 24;
+    for (let i = 0; i < blastRingCount; i++) {
+      const angle = (i / blastRingCount) * Math.PI * 2 + this.random() * 0.24;
+      const spawnRadius = 11 + this.random() * 6;
+      const speed = 40 + this.random() * 55;
+      const life = 0.24 + this.random() * 0.16;
+      this.particles.push({
+        x: x + Math.cos(angle) * spawnRadius,
+        y: y + Math.sin(angle) * spawnRadius,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 2.6 + this.random() * 3.4,
+        color: this.random() > 0.4 ? "#ff7c3c" : "#ffb55f",
+      });
+    }
+
+    const plasmaShardCount = 12;
+    for (let i = 0; i < plasmaShardCount; i++) {
+      const angle = this.random() * Math.PI * 2;
+      const speed = 75 + this.random() * 95;
+      const life = 0.32 + this.random() * 0.2;
+      this.particles.push({
+        x: x + (this.random() - 0.5) * 9,
+        y: y + (this.random() - 0.5) * 9,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 2 + this.random() * 2.6,
+        color: this.random() > 0.3 ? hullColor : "#d8f4ff",
+      });
+    }
+
+    this.spawnShipDebris(x, y, hullColor);
+  }
+
   spawnNitroParticle(x: number, y: number, color: string): void {
     // Larger, faster particles for nitro boost effect
     const angle = this.random() * Math.PI * 2;
@@ -1815,6 +1873,46 @@ export class Renderer {
         maxLife: life,
         size: 1.5 + this.random() * 2,
         color: "#ffdd00",
+      });
+    }
+  }
+
+  spawnPilotKillBurst(x: number, y: number, color: string): void {
+    const burstColor = color || "#00f0ff";
+    this.spawnPilotDeathBurst(x, y, burstColor);
+
+    const haloCount = 12;
+    for (let i = 0; i < haloCount; i++) {
+      const angle = (i / haloCount) * Math.PI * 2 + this.random() * 0.18;
+      const spawnRadius = 5.5 + this.random() * 2.5;
+      const speed = 25 + this.random() * 35;
+      const life = 0.11 + this.random() * 0.08;
+      this.particles.push({
+        x: x + Math.cos(angle) * spawnRadius,
+        y: y + Math.sin(angle) * spawnRadius,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 1.2 + this.random() * 1.4,
+        color: this.random() > 0.35 ? "#ffffff" : "#c8f4ff",
+      });
+    }
+
+    const ventCount = 8;
+    for (let i = 0; i < ventCount; i++) {
+      const angle = this.random() * Math.PI * 2;
+      const speed = 42 + this.random() * 34;
+      const life = 0.12 + this.random() * 0.1;
+      this.particles.push({
+        x: x + (this.random() - 0.5) * 4,
+        y: y + (this.random() - 0.5) * 4,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life,
+        maxLife: life,
+        size: 1 + this.random() * 1.1,
+        color: this.random() > 0.55 ? burstColor : "#dff8ff",
       });
     }
   }

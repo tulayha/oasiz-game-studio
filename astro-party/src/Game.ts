@@ -409,15 +409,22 @@ export class Game {
 
           if (
             phase === "COUNTDOWN" &&
-            (oldPhase === "ROUND_END" || oldPhase === "LOBBY")
+            (oldPhase === "ROUND_END" ||
+              oldPhase === "LOBBY" ||
+              oldPhase === "GAME_END")
           ) {
             console.log(
               "[Game] Non-host: new round starting, clearing old state",
             );
             this.finalScoreSubmittedForMatch = false;
+            if (oldPhase === "GAME_END") {
+              this.flowMgr.winnerId = null;
+              this.flowMgr.winnerName = null;
+              this.resetPlayersForNewSequence();
+              this.clearStickyRoster();
+            }
             this.resetForNextRound();
             this.networkSync.clearNetworkEntities();
-            this.roundResult = null;
           }
           if (phase === "COUNTDOWN") {
             this.syncStickyRosterFromLivePlayers();
@@ -758,6 +765,23 @@ export class Game {
     this.wasLocalFireHeld = false;
     this.lastPredictedFireAtMs = 0;
     this.lastPredictedDashAtMs = 0;
+  }
+
+  private resetPlayersForNewSequence(): void {
+    let changed = false;
+    for (const player of this.playerMgr.players.values()) {
+      if (player.roundWins !== 0) {
+        player.roundWins = 0;
+        changed = true;
+      }
+      if (player.state !== "ACTIVE") {
+        player.state = "ACTIVE";
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.emitPlayersUpdate();
+    }
   }
 
   start(): void {
@@ -1504,6 +1528,16 @@ export class Game {
     }
     this.finalScoreSubmittedForMatch = false;
     this.network.restartGame();
+  }
+
+  async continueMatchSequence(): Promise<void> {
+    if (!this.isLeader()) {
+      console.log(
+        "[Game] Non-leader cannot continue sequence, waiting for leader",
+      );
+      return;
+    }
+    this.network.continueMatchSequence();
   }
 
   setPlayerName(name: string): void {
