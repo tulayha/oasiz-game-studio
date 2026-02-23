@@ -33,11 +33,19 @@ npm run start
 
 Default port is `2567`.
 
+## Validation snapshot (February 23, 2026)
+
+- `cd astro-party/server && npm run typecheck`: passes.
+- `cd astro-party/server && npm run build`: passes.
+- `cd astro-party/server && npm run start`: uses compiled entry `dist/server/src/index.js`.
+
 ## Environment variables
 
 These are read from `process.env`.
 
 `npm run dev` and `npm run start` load `.env` from `astro-party/server/.env` via Node's `--env-file-if-exists=.env`.
+
+There is currently no `astro-party/server/.env.example`; create `.env` manually if you want file-based local overrides.
 
 Shell-provided environment variables still work and take precedence over `.env`.
 
@@ -104,7 +112,9 @@ Client debug tools are enabled in either case:
   - returns: `{ roomCode, roomId, seatReservation }`
 - `POST /match/join`
   - body: `{ "roomCode": string, "playerName"?: string }`
-  - returns success payload with `seatReservation`, or `{ ok: false, error, message }`
+  - returns success payload: `{ ok: true, roomCode, roomId, seatReservation }`
+  - invalid/missing/locked room code cases return `{ ok: false, error, message }`
+  - unexpected join failures return HTTP `409` with `{ error: "JOIN_FAILED", message }`
 
 ## Deploy note
 

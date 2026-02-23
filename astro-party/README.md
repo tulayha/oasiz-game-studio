@@ -35,10 +35,23 @@ Defaults:
 
 ## Build and typecheck
 
+Validated on February 23, 2026:
+
+- `astro-party`: `bun run build` passes.
+- `astro-party`: `bun run typecheck` passes.
+- `astro-party/server`: `npm run typecheck` passes.
+- `astro-party/server`: `npm run build` passes.
+
 ```bash
 cd astro-party
 bun run typecheck
 bun run build
+```
+
+Note: `bun run build` triggers `prebuild`, which runs:
+
+```bash
+bun run generate:entities
 ```
 
 ```bash
@@ -72,7 +85,8 @@ If unset, the client falls back to `window.location` with port `2567`.
 ## Runtime/platform integration
 
 - Room auto-join can be injected via `window.__ROOM_CODE__`.
-- Player identity can be injected via `window.__PLAYER_NAME__` / `window.__PLAYER_AVATAR__`.
+- Player identity can be injected via `window.__PLAYER_NAME__`.
+- Transport URL overrides can be injected via `window.__MATCH_HTTP_URL__` / `window.__COLYSEUS_WS_URL__`.
 - The game shares active room code with host platforms via `window.shareRoomCode(...)` when available.
 - Final session score is submitted at game end via `window.submitScore(...)` when available.
 

@@ -101,7 +101,7 @@ export class NetworkSyncSystem {
   private networkTurretBullets: TurretBulletState[] = [];
   private networkRotationDirection = 1;
   private networkYellowBlockHp: number[] = [];
-  private networkLaserBeamWidth = GAME_CONFIG.POWERUP_BEAM_WIDTH;
+  private networkLaserBeamWidth: number = GAME_CONFIG.POWERUP_BEAM_WIDTH;
 
   hostSimTimeMs = 0;
 

@@ -8,9 +8,11 @@ This is the source of truth for deterministic simulation behavior so multiplayer
 
 ## Folder layout
 
-- `sim/`: simulation state, systems, constants, maps, collision, AI, weapons, flow.
-- `geometry/`: shared shape data used by simulation/rendering/prediction.
-- `game/types.ts`: shared game-level type definitions.
+- `sim/`: deterministic simulation core (state, systems, maps, physics, AI, scoring).
+- `geometry/`: shared render geometry + generated entity SVG payloads.
+- `assets/`: source SVG assets used by runtime renderers and generation scripts.
+- `game/`: shared game-level type definitions.
+- `types/`: ambient declarations used by shared code (for example `poly-decomp`).
 
 ## Where it is used
 
@@ -20,7 +22,15 @@ This is the source of truth for deterministic simulation behavior so multiplayer
 ## Working with shared code
 
 - Keep updates deterministic and platform-agnostic (avoid browser-only or Node-only APIs here).
-- If you change simulation behavior, validate both:
-  - `cd astro-party && bun run typecheck && bun run build`
+- If you update entity SVG inputs in `shared/assets/entities`, regenerate geometry payloads:
+  - `cd astro-party && bun run generate:entities`
+- If you change simulation behavior, validate both runtimes:
+  - `cd astro-party && bun run build`
   - `cd astro-party/server && npm run typecheck && npm run build`
 - NodeNext server imports shared files with `.js` extensions in import paths.
+
+## Validation snapshot (February 23, 2026)
+
+- `cd astro-party && bun run build`: passes.
+- `cd astro-party/server && npm run typecheck && npm run build`: passes.
+- `cd astro-party && bun run typecheck`: passes.
