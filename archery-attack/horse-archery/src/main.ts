@@ -141,6 +141,7 @@ const CONFIG = {
   MIN_DRAW_TO_FIRE: 0.15,
 
   ARROW_SPEED: 0.5,
+  ARROW_MAX_STRENGTH_BONUS: 0.45,
   ARROW_GRAVITY: 0.0004,
   ARROW_COLLISION_FORWARD: 24,
 
@@ -806,13 +807,19 @@ function getWobbleMultiplier(): number {
   return upgradeLevels.wobbleControl > 0 ? 0.5 : 1;
 }
 
+function getArrowLaunchSpeed(drawAmount: number): number {
+  const drawFactor = Math.max(0, Math.min(1, drawAmount));
+  // Scale top-end pull force more than low draw amounts to extend max-range shots.
+  return CONFIG.ARROW_SPEED * drawFactor * (1 + CONFIG.ARROW_MAX_STRENGTH_BONUS * drawFactor);
+}
+
 function getTargetSpacingFactor(): number {
   return Math.min(1 + (waveNumber - 1) * 0.2, 3);
 }
 
 function getMaxReachableArrowApexHeight(): number {
   const spawnPoint = getArrowSpawnPointWorld();
-  const maxLaunchSpeed = CONFIG.ARROW_SPEED;
+  const maxLaunchSpeed = getArrowLaunchSpeed(1);
   const maxAimAngle = Math.PI / 4;
   const maxVy = maxLaunchSpeed * Math.sin(maxAimAngle);
   const apexDelta = (maxVy * maxVy) / (2 * CONFIG.ARROW_GRAVITY);
@@ -823,12 +830,17 @@ function getMaxTargetSpawnHeight(): number {
   // Keep target center slightly below theoretical arrow apex to avoid edge-case misses.
   const apex = getMaxReachableArrowApexHeight();
   const safetyMargin = Math.max(10, CONFIG.TARGET_RADIUS * 0.35);
-  return Math.max(130, apex - safetyMargin);
+  const apexLimitedHeight = apex - safetyMargin;
+  const topSafeY = h * 0.1;
+  const topSafeHeight = (groundY - topSafeY) / Math.max(0.001, pxPerUnit);
+  const topSafeRadiusPad = CONFIG.TARGET_RADIUS * 1.1;
+  const viewportLimitedHeight = topSafeHeight - topSafeRadiusPad;
+  return Math.max(130, Math.min(apexLimitedHeight, viewportLimitedHeight));
 }
 
 function getRandomTargetPostHeight(): number {
   const minHeight = 150;
-  const capHeight = Math.min(400, getMaxTargetSpawnHeight());
+  const capHeight = getMaxTargetSpawnHeight();
   if (capHeight <= minHeight + 1) return minHeight;
   return minHeight + Math.random() * (capHeight - minHeight);
 }
@@ -1153,7 +1165,7 @@ function fireArrow(): void {
   const steadiness = getSteadiness();
   const isPerfect = steadiness >= CONFIG.PERFECT_THRESHOLD && wobbleAmount < 0.1;
 
-  const speed = CONFIG.ARROW_SPEED * drawProgress;
+  const speed = getArrowLaunchSpeed(drawProgress);
   const baseAngle = Math.PI / 4; // 45 degrees
 
   // Stability spread: poor timing on horse bob = arrow deviates from 45°
@@ -1186,13 +1198,15 @@ function fireArrow(): void {
     });
   };
 
-  if (upgradeLevels.doubleShot > 0) {
+  const arrowsToShoot = upgradeLevels.doubleShot > 0 ? Math.min(2, ammoCount) : 1;
+  if (arrowsToShoot === 2) {
     spawnArrow(finalAngle - 0.045);
     spawnArrow(finalAngle + 0.045);
   } else {
     spawnArrow(finalAngle);
   }
-  ammoCount = Math.max(0, ammoCount - 1);
+
+  ammoCount = Math.max(0, ammoCount - arrowsToShoot);
   if (ammoCount === 0) {
     isReloading = true;
     reloadRemaining = CONFIG.RELOAD_MS;
@@ -2260,7 +2274,7 @@ function drawWindReaderPreview(): void {
   if (!isDrawing) return;
 
   const baseAngle = Math.PI / 4;
-  const speed = CONFIG.ARROW_SPEED * Math.max(drawProgress, CONFIG.MIN_DRAW_TO_FIRE);
+  const speed = getArrowLaunchSpeed(Math.max(drawProgress, CONFIG.MIN_DRAW_TO_FIRE));
   const spawnPoint = getArrowSpawnPointWorld();
   let simX = spawnPoint.worldX;
   let simY = spawnPoint.height;
