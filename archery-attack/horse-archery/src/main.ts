@@ -727,8 +727,8 @@ function getArrowTipNormInBounds(img: HTMLImageElement, bounds: SpriteBounds): {
 
 function getRiderPlacement(): RiderPlacement | null {
   const horseScale = MOUNTED_CHARACTER_SCALE * gameScale;
-  const riderBaseX = horse.screenX + 6 * horseScale;
-  const riderBaseY = horse.screenY - 60 * horseScale;
+  const riderBaseX = horse.screenX - 8 * horseScale;
+  const riderBaseY = horse.screenY - 66 * horseScale;
   const bowCenterX = riderBaseX + 18 * horseScale;
   const bowCenterY = riderBaseY - 18 * horseScale;
   const bowAngle = -Math.PI * 0.25;
@@ -2073,7 +2073,6 @@ function drawHorseAndArcher(): void {
   const horseColor = "#D8D8DF";
   const horseDarkColor = "#A0A0AA";
   const horseLightColor = "#F0F0F5";
-  const tackColor = "#5D3C1F";
   const metalColor = "#9DA5AF";
 
   // Ground shadow - more dynamic
@@ -2082,137 +2081,259 @@ function drawHorseAndArcher(): void {
   ctx.ellipse(2, 4 + stomp * 1.5, 62 + stomp * 8, 12, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // HORSE LEGS - BACK (further from camera)
+  // HORSE LEGS - asymmetrical gallop cycle
   ctx.strokeStyle = horseDarkColor;
-  ctx.lineWidth = 6.2;
+  ctx.lineWidth = 6.6;
   ctx.lineCap = "round";
+  const gallopCycle = ((phase / (Math.PI * 2)) % 1 + 1) % 1;
+  const suspensionStart = 0.72;
+  const suspensionEnd = 0.88;
+  const inSuspension = gallopCycle >= suspensionStart && gallopCycle <= suspensionEnd;
   const legPositions = [
-    { base: -30, offset: 0, isFore: false, isFar: true },
-    { base: 30, offset: Math.PI * 1.5, isFore: true, isFar: true },
-    { base: -12, offset: Math.PI * 0.5, isFore: false, isFar: false },
-    { base: 12, offset: Math.PI, isFore: true, isFar: false },
+    // Order for a right-lead gallop: LH -> RH -> LF -> RF -> suspension
+    { base: -28, strike: 0.0 },   // left hind
+    { base: -10, strike: 0.16 },  // right hind
+    { base: 10, strike: 0.34 },   // left fore
+    { base: 28, strike: 0.52 },   // right fore (lead)
   ];
 
+  const getLegPose = (leg: typeof legPositions[0]) => {
+    const local = ((gallopCycle - leg.strike) % 1 + 1) % 1;
+    const stanceDur = 0.22;
+    const travel = 18;
+    let hoofX = leg.base;
+    let hoofY = 8;
+    let kneeX = leg.base;
+    let kneeY = -14;
+    let liftAmount = 0;
+
+    if (local < stanceDur) {
+      // Stance: hoof on/near ground while body passes over it.
+      const t = local / stanceDur;
+      hoofX = leg.base + (0.5 - t) * travel;
+      hoofY = 8 + Math.sin(t * Math.PI) * 0.8;
+      kneeX = leg.base + (0.35 - t * 0.7) * travel * 0.44;
+      kneeY = -14 + Math.sin(t * Math.PI) * 2.6;
+    } else {
+      // Swing: hoof travels forward with clear lift.
+      const t = (local - stanceDur) / (1 - stanceDur);
+      liftAmount = Math.sin(t * Math.PI) * 15;
+      hoofX = leg.base + (-0.5 + t) * travel;
+      hoofY = 8 - liftAmount;
+      kneeX = leg.base + (-0.25 + t * 0.55) * travel * 0.58;
+      kneeY = -14 - liftAmount * 0.33;
+    }
+
+    // Gallop suspension: brief airborne window for all four hooves.
+    if (inSuspension) {
+      const suspT = (gallopCycle - suspensionStart) / (suspensionEnd - suspensionStart);
+      const suspLift = 7 + Math.sin(suspT * Math.PI) * 3;
+      hoofY -= suspLift;
+      kneeY -= suspLift * 0.45;
+    }
+
+    return {
+      hoofX,
+      hoofY,
+      kneeX,
+      kneeY,
+      liftFrac: Math.max(0, Math.min(1, liftAmount / 15)),
+    };
+  };
+
   const drawLeg = (leg: typeof legPositions[0]) => {
-    const s = Math.sin(phase + leg.offset);
-    const swing = s * 16;
-    const lift = Math.max(0, -Math.sin(phase + leg.offset)) * 12;
-    
-    // Joint logic
-    const kneeX = leg.base + swing * 0.4;
-    const kneeY = -14 + lift * 0.3;
-    const hoofX = leg.base + swing;
-    const hoofY = 8 - lift;
+    const pose = getLegPose(leg);
 
     ctx.strokeStyle = horseDarkColor;
+    ctx.lineWidth = 6.6;
     ctx.beginPath();
     ctx.moveTo(leg.base, -24);
-    ctx.lineTo(kneeX, kneeY);
-    ctx.lineTo(hoofX, hoofY);
+    ctx.lineTo(pose.kneeX, pose.kneeY);
+    ctx.lineTo(pose.hoofX, pose.hoofY);
     ctx.stroke();
 
     // Hoof
     ctx.fillStyle = "#333336";
     ctx.beginPath();
-    ctx.ellipse(hoofX, hoofY + 2, 4.5, 3.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(pose.hoofX, pose.hoofY + 2, 4.5, 3.5, 0, 0, Math.PI * 2);
     ctx.fill();
   };
 
-  // Draw far legs first
-  drawLeg(legPositions[0]);
-  drawLeg(legPositions[1]);
+  const hindFlex = (getLegPose(legPositions[0]).liftFrac + getLegPose(legPositions[1]).liftFrac) * 0.5;
+  const foreFlex = (getLegPose(legPositions[2]).liftFrac + getLegPose(legPositions[3]).liftFrac) * 0.5;
+  const hindMuscleShiftY = -hindFlex * 1.8;
+  const foreMuscleShiftY = -foreFlex * 1.6;
+  const hindMuscleScale = 1 + hindFlex * 0.14;
+  const foreMuscleScale = 1 + foreFlex * 0.12;
 
-  // HORSE BODY
-  const bodyGrad = ctx.createRadialGradient(0, -40, 10, 0, -40, 55);
-  bodyGrad.addColorStop(0, horseLightColor);
-  bodyGrad.addColorStop(0.6, horseColor);
-  bodyGrad.addColorStop(1, horseDarkColor);
-  
-  ctx.fillStyle = bodyGrad;
+  // Draw rear pair first
+  drawLeg(legPositions[0]);
+  drawLeg(legPositions[2]);
+
+  // HORSE BODY - layered muscle volumes (hindquarter, barrel, shoulder, chest)
+  const hindGrad = ctx.createRadialGradient(-22, -41, 6, -18, -39, 30);
+  hindGrad.addColorStop(0, horseLightColor);
+  hindGrad.addColorStop(1, horseDarkColor);
+  ctx.fillStyle = hindGrad;
   ctx.beginPath();
-  ctx.ellipse(0, -40, 52, 24, 0, 0, Math.PI * 2);
+  ctx.ellipse(-20, -40 + hindMuscleShiftY, 30 * hindMuscleScale, 21, -0.08, 0, Math.PI * 2);
   ctx.fill();
 
-  // Muscle definition
-  ctx.strokeStyle = "rgba(0,0,0,0.08)";
-  ctx.lineWidth = 2;
+  const barrelGrad = ctx.createRadialGradient(-2, -39, 10, 0, -38, 45);
+  barrelGrad.addColorStop(0, horseLightColor);
+  barrelGrad.addColorStop(0.62, horseColor);
+  barrelGrad.addColorStop(1, horseDarkColor);
+  ctx.fillStyle = barrelGrad;
   ctx.beginPath();
-  ctx.arc(-25, -42, 15, Math.PI * 0.8, Math.PI * 1.5); // Rear muscle
-  ctx.stroke();
+  ctx.ellipse(-1, -39, 33, 23, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const shoulderGrad = ctx.createRadialGradient(19, -41, 5, 20, -40, 24);
+  shoulderGrad.addColorStop(0, horseLightColor);
+  shoulderGrad.addColorStop(1, horseDarkColor);
+  ctx.fillStyle = shoulderGrad;
   ctx.beginPath();
-  ctx.arc(20, -42, 12, Math.PI * 1.5, Math.PI * 2.1); // Shoulder muscle
-  ctx.stroke();
+  ctx.ellipse(20, -40 + foreMuscleShiftY, 23 * foreMuscleScale, 18, 0.1, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Draw near legs
-  drawLeg(legPositions[2]);
-  drawLeg(legPositions[3]);
-
-  // NECK
   ctx.fillStyle = horseColor;
   ctx.beginPath();
-  ctx.moveTo(38, -54);
-  ctx.quadraticCurveTo(58, -75, 54, -88);
-  ctx.quadraticCurveTo(42, -75, 36, -54);
+  ctx.ellipse(31, -43 + foreMuscleShiftY * 0.85, 12 * (1 + foreFlex * 0.08), 10, 0.18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Surface muscle cues
+  ctx.strokeStyle = "rgba(0,0,0,0.1)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(-24, -41 + hindMuscleShiftY * 0.8, 12 * (1 + hindFlex * 0.08), Math.PI * 0.7, Math.PI * 1.55);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(15, -41 + foreMuscleShiftY * 0.75, 11 * (1 + foreFlex * 0.08), Math.PI * 1.42, Math.PI * 2.14);
+  ctx.stroke();
+
+  // Draw front pair after body
+  drawLeg(legPositions[1]);
+  drawLeg(legPositions[3]);
+
+  // NECK - rebuilt from scratch with a broad shoulder root.
+  const neckGrad = ctx.createLinearGradient(22, -56, 64, -98);
+  neckGrad.addColorStop(0, horseColor);
+  neckGrad.addColorStop(1, horseLightColor);
+  ctx.fillStyle = neckGrad;
+  ctx.beginPath();
+  ctx.moveTo(19, -47);
+  ctx.quadraticCurveTo(34, -56, 49, -62);
+  ctx.quadraticCurveTo(59, -66, 64, -69);
+  ctx.quadraticCurveTo(56, -72, 45, -69);
+  ctx.quadraticCurveTo(31, -64, 18, -56);
+  ctx.quadraticCurveTo(12, -52, 9, -49);
   ctx.closePath();
   ctx.fill();
 
-  // HEAD
+  // Shoulder blend for a clear neck-to-body connection.
+  ctx.fillStyle = horseDarkColor;
+  ctx.beginPath();
+  ctx.moveTo(9, -49);
+  ctx.quadraticCurveTo(4, -44, 1, -40);
+  ctx.quadraticCurveTo(11, -38, 22, -41);
+  ctx.quadraticCurveTo(27, -44, 23, -48);
+  ctx.closePath();
+  ctx.fill();
+
+  // HEAD - rebuilt from scratch with a horse profile silhouette.
   ctx.save();
-  ctx.translate(60, -90);
-  ctx.rotate(0.35 + Math.sin(phase) * 0.05);
-  
-  // Head shape
-  const headGrad = ctx.createLinearGradient(0, -10, 0, 10);
+  ctx.translate(64, -71);
+  ctx.rotate(0.12 + Math.sin(phase) * 0.03);
+
+  const headGrad = ctx.createLinearGradient(-24, -15, 22, 12);
   headGrad.addColorStop(0, horseLightColor);
   headGrad.addColorStop(1, horseColor);
   ctx.fillStyle = headGrad;
   ctx.beginPath();
-  ctx.ellipse(0, 0, 20, 11, 0, 0, Math.PI * 2);
+  ctx.moveTo(-18, -4);
+  ctx.quadraticCurveTo(-10, -13, 1, -13);
+  ctx.quadraticCurveTo(13, -13, 22, -4);
+  ctx.quadraticCurveTo(27, 2, 22, 8);
+  ctx.quadraticCurveTo(11, 12, -2, 11);
+  ctx.quadraticCurveTo(-14, 10, -22, 3);
+  ctx.closePath();
   ctx.fill();
 
-  // Ears
+  // Poll/jowl bridge to tuck head into neck.
+  ctx.fillStyle = horseColor;
+  ctx.beginPath();
+  ctx.moveTo(-21, -4);
+  ctx.quadraticCurveTo(-29, 2, -28, 10);
+  ctx.quadraticCurveTo(-20, 13, -11, 7);
+  ctx.quadraticCurveTo(-15, 1, -19, -3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Pointed ears attached to skull line.
   ctx.fillStyle = horseDarkColor;
   ctx.beginPath();
-  ctx.ellipse(-12, -8, 6, 3, -0.8, 0, Math.PI * 2); // Far ear
+  ctx.moveTo(-11, -13);
+  ctx.lineTo(-17, -27);
+  ctx.lineTo(-8, -18);
+  ctx.closePath();
   ctx.fill();
   ctx.fillStyle = horseColor;
   ctx.beginPath();
-  ctx.ellipse(-10, -10, 7, 3.5, -0.6, 0, Math.PI * 2); // Near ear
+  ctx.moveTo(-5, -13);
+  ctx.lineTo(-9, -28);
+  ctx.lineTo(1, -17);
+  ctx.closePath();
   ctx.fill();
 
   // Eye
   ctx.fillStyle = "#111";
   ctx.beginPath();
-  ctx.arc(4, -3, 2.5, 0, Math.PI * 2);
+  ctx.arc(6, -1.8, 2.1, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#FFF";
   ctx.beginPath();
-  ctx.arc(5, -4, 0.8, 0, Math.PI * 2);
+  ctx.arc(6.7, -2.5, 0.65, 0, Math.PI * 2);
   ctx.fill();
 
-  // Muzzle/Nostril
-  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  // Muzzle / nostril
+  ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
   ctx.beginPath();
-  ctx.arc(16, 2, 2, 0, Math.PI * 2);
+  ctx.arc(18, 3.2, 1.8, 0, Math.PI * 2);
   ctx.fill();
-  
+
   ctx.restore();
 
-  // TAIL
-  ctx.strokeStyle = "#444";
-  ctx.lineWidth = 4.5;
-  const tailSwing = Math.sin(phase * 0.5) * 12;
+  // TAIL - fuller horse tail with layered hair strands
+  const tailSwing = Math.sin(phase * 0.5) * 10;
+  ctx.fillStyle = "#55555F";
   ctx.beginPath();
-  ctx.moveTo(-48, -45);
-  ctx.quadraticCurveTo(-75 + tailSwing, -40, -85 + tailSwing * 1.5, -20);
-  ctx.stroke();
+  ctx.moveTo(-44, -50);
+  ctx.quadraticCurveTo(-62 + tailSwing * 0.6, -42, -74 + tailSwing, -27);
+  ctx.quadraticCurveTo(-88 + tailSwing, -10, -75 + tailSwing * 0.7, -4);
+  ctx.quadraticCurveTo(-60 + tailSwing * 0.35, -14, -50, -30);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "#44444E";
+  ctx.lineWidth = 2.2;
+  for (let i = 0; i < 6; i++) {
+    const t = i / 5;
+    const rootX = -46 + t * 7;
+    const rootY = -48 + t * 2;
+    const strandEndX = -72 + tailSwing * (0.8 + t * 0.5) - t * 6;
+    const strandEndY = -10 + t * 5;
+    ctx.beginPath();
+    ctx.moveTo(rootX, rootY);
+    ctx.quadraticCurveTo(rootX - 12 + tailSwing * 0.35, rootY + 8, strandEndX, strandEndY);
+    ctx.stroke();
+  }
 
   // MANE - more fluid
   ctx.strokeStyle = "#555";
   ctx.lineWidth = 2.8;
   for (let i = 0; i < 5; i++) {
-    const mx = 40 + i * 3.5;
-    const my = -58 - i * 6.5;
+    const mx = 45 + i * 2.7;
+    const my = -66 - i * 2.5;
     const windOffset = Math.sin(phase * 0.7 + i * 0.8) * 5;
     ctx.beginPath();
     ctx.moveTo(mx, my);
@@ -2220,62 +2341,73 @@ function drawHorseAndArcher(): void {
     ctx.stroke();
   }
 
-  // TACK (Bridle/Saddle)
-  ctx.strokeStyle = tackColor;
-  ctx.lineWidth = 1.8;
-  // Reins
+  // SADDLE CLOTH - simple draped blanket
+  const clothX = -20;
+  const clothY = -61;
+  const clothW = 44;
+  const clothH = 16;
+  const clothGrad = ctx.createLinearGradient(clothX, clothY, clothX, clothY + clothH);
+  clothGrad.addColorStop(0, "#A13A24");
+  clothGrad.addColorStop(1, "#6E2518");
+  ctx.fillStyle = clothGrad;
   ctx.beginPath();
-  ctx.moveTo(75, -85);
-  ctx.lineTo(15, -65);
-  ctx.stroke();
-  // Bridle
+  ctx.moveTo(clothX, clothY + 2);
+  ctx.quadraticCurveTo(clothX + clothW * 0.5, clothY - 4, clothX + clothW, clothY + 1);
+  ctx.lineTo(clothX + clothW - 1, clothY + clothH - 2);
+  ctx.quadraticCurveTo(clothX + clothW * 0.5, clothY + clothH + 4, clothX + 1, clothY + clothH - 1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(240, 198, 132, 0.35)";
+  ctx.lineWidth = 1.1;
   ctx.beginPath();
-  ctx.moveTo(45, -88);
-  ctx.lineTo(65, -84);
-  ctx.lineTo(78, -87);
+  ctx.moveTo(clothX + 3, clothY + clothH - 2);
+  ctx.quadraticCurveTo(clothX + clothW * 0.5, clothY + clothH + 3, clothX + clothW - 3, clothY + clothH - 2);
   ctx.stroke();
 
   // RIDER / ARCHER
-  const riderBaseX = 6;
-  const riderBaseY = -60;
+  const riderBaseX = -8;
+  const riderBaseY = -66;
 
-  // LEGS / BOOTS (Draped over horse)
-  ctx.fillStyle = "#332211"; // Dark leather boots
+  // Riding legs: near leg visible, far leg mostly hidden by horse body.
+  ctx.fillStyle = "rgba(50, 33, 19, 0.55)";
   ctx.beginPath();
-  ctx.moveTo(riderBaseX - 14, riderBaseY + 12);
-  ctx.lineTo(riderBaseX - 22, riderBaseY + 30);
-  ctx.lineTo(riderBaseX - 10, riderBaseY + 30);
-  ctx.lineTo(riderBaseX - 6, riderBaseY + 12);
-  ctx.closePath();
-  ctx.fill();
-  
-  ctx.beginPath();
-  ctx.moveTo(riderBaseX + 6, riderBaseY + 12);
-  ctx.lineTo(riderBaseX + 14, riderBaseY + 30);
-  ctx.lineTo(riderBaseX + 22, riderBaseY + 30);
-  ctx.lineTo(riderBaseX + 12, riderBaseY + 12);
+  ctx.moveTo(riderBaseX - 10, riderBaseY + 10);
+  ctx.lineTo(riderBaseX - 4, riderBaseY + 16);
+  ctx.lineTo(riderBaseX + 3, riderBaseY + 8);
+  ctx.lineTo(riderBaseX - 6, riderBaseY + 4);
   ctx.closePath();
   ctx.fill();
 
-  // DEEL (Traditional Robe)
-  const deelColor = "#7A2E1A"; // Deep red/maroon
-  const deelLight = "#9A4E3A";
-  const deelGrad = ctx.createLinearGradient(riderBaseX, riderBaseY - 20, riderBaseX, riderBaseY + 15);
+  ctx.fillStyle = "#332211";
+  ctx.beginPath();
+  ctx.moveTo(riderBaseX + 8, riderBaseY + 8);
+  ctx.lineTo(riderBaseX + 20, riderBaseY + 26);
+  ctx.lineTo(riderBaseX + 30, riderBaseY + 25);
+  ctx.lineTo(riderBaseX + 16, riderBaseY + 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#2A1B10";
+  ctx.beginPath();
+  ctx.ellipse(riderBaseX + 29, riderBaseY + 27, 5, 2.8, 0.08, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Capsule torso (mounted posture)
+  const deelColor = "#2F4F7A";
+  const deelLight = "#4F76A3";
+  const deelGrad = ctx.createLinearGradient(riderBaseX, riderBaseY - 24, riderBaseX, riderBaseY + 16);
   deelGrad.addColorStop(0, deelLight);
   deelGrad.addColorStop(1, deelColor);
-  
   ctx.fillStyle = deelGrad;
   ctx.beginPath();
-  ctx.moveTo(riderBaseX - 14, riderBaseY + 15);
-  ctx.lineTo(riderBaseX - 12, riderBaseY - 22);
-  ctx.lineTo(riderBaseX + 13, riderBaseY - 22);
-  ctx.lineTo(riderBaseX + 15, riderBaseY + 15);
-  ctx.closePath();
+  ctx.roundRect(riderBaseX - 13, riderBaseY - 24, 28, 42, 14);
   ctx.fill();
 
   // Belt/Sash (Buse)
   ctx.fillStyle = "#D4AF37"; // Golden sash
-  ctx.fillRect(riderBaseX - 14, riderBaseY - 2, 29, 6);
+  ctx.beginPath();
+  ctx.roundRect(riderBaseX - 13, riderBaseY - 2, 28, 6, 3);
+  ctx.fill();
 
   // FACE / HEAD
   ctx.fillStyle = "#E5C298"; // Skin tone
@@ -2370,33 +2502,45 @@ function drawHorseAndArcher(): void {
   const stringBotY = botTipY + Math.sin(bowAngle + 1.5) * 5;
   
   ctx.moveTo(stringTopX, stringTopY);
-  if (isDrawing && drawProgress > 0.05) {
+  if (isDrawing && drawProgress > 0.01) {
     ctx.lineTo(stringPullX, stringPullY);
   }
   ctx.lineTo(stringBotX, stringBotY);
   ctx.stroke();
 
-  // Draw Arm
-  const drawArmEndX = isDrawing ? stringPullX : riderBaseX - 5;
-  const drawArmEndY = isDrawing ? stringPullY : riderBaseY - 10;
+  // Draw Arm - smooth two-joint motion (no elbow snap/pop)
+  const shoulderX = riderBaseX + 2;
+  const shoulderY = riderBaseY - 18;
+  const pullT = isDrawing ? Math.max(0, Math.min(1, drawProgress)) : 0;
+  const easedPullT = pullT * pullT * (3 - 2 * pullT);
+  const restHandX = riderBaseX - 5;
+  const restHandY = riderBaseY - 10;
+  const handX = restHandX + (stringPullX - restHandX) * easedPullT;
+  const handY = restHandY + (stringPullY - restHandY) * easedPullT;
+  const restElbowX = riderBaseX - 2;
+  const restElbowY = riderBaseY - 20;
+  const pullElbowX = riderBaseX - 9;
+  const pullElbowY = riderBaseY - 23;
+  let elbowX = restElbowX + (pullElbowX - restElbowX) * easedPullT;
+  let elbowY = restElbowY + (pullElbowY - restElbowY) * easedPullT;
+  const upperToHandX = handX - shoulderX;
+  const upperToHandY = handY - shoulderY;
+  const dist = Math.sqrt(upperToHandX * upperToHandX + upperToHandY * upperToHandY);
+  if (dist > 0.001) {
+    const nx = -upperToHandY / dist;
+    const ny = upperToHandX / dist;
+    const bend = 3.2 + easedPullT * 4.8;
+    elbowX += nx * bend;
+    elbowY += ny * bend;
+  }
+
   ctx.strokeStyle = "#E5C298";
   ctx.lineWidth = 3.5;
   ctx.beginPath();
-  ctx.moveTo(riderBaseX + 2, riderBaseY - 18);
-  if (isDrawing) {
-    // Elbow
-    const elbowX = riderBaseX - 8;
-    const elbowY = riderBaseY - 22;
-    ctx.lineTo(elbowX, elbowY);
-  }
-  ctx.lineTo(drawArmEndX, drawArmEndY);
+  ctx.moveTo(shoulderX, shoulderY);
+  ctx.lineTo(elbowX, elbowY);
+  ctx.lineTo(handX, handY);
   ctx.stroke();
-
-  // Quiver on back (peek)
-  ctx.fillStyle = "#5D3C1F";
-  ctx.beginPath();
-  ctx.rect(riderBaseX - 16, riderBaseY - 25, 6, 15);
-  ctx.fill();
 
   // Arrow while drawing
   if (isDrawing && drawProgress > 0.05) {
