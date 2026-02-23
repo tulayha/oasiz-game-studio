@@ -120,4 +120,9 @@ export const elements = {
 
   // Mobile controls
   mobileControls: getElement<HTMLElement>("mobileControls"),
+
+  // Starfield background
+  starsContainer: getElement<HTMLElement>("starsContainer"),
+  starsBg: getElement<HTMLElement>("starsBg"),
+  starsLayer: getElement<HTMLElement>("starsLayer"),
 } as const;

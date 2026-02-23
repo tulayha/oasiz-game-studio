@@ -141,6 +141,7 @@ async function init(): Promise<void> {
       lobbyUI.setMapUI(mapId, "remote");
       lobbyUI.updateMapSelector();
       mapPreviewUI.updateMapPreview(mapId);
+      screenController.updateStarfieldForMap(mapId);
     },
   });
 

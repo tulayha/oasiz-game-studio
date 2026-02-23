@@ -57,7 +57,7 @@ export class GameRenderer {
       ctx.phase === "ROUND_END";
     this.renderer.setGameTimeMs(useSimTime ? ctx.nowMs : null);
 
-    this.renderer.drawStars();
+    // Stars are now rendered via CSS starfield, not canvas
     const map = getMapDefinition(ctx.mapId);
     const mapTheme = this.getMapTheme(ctx.mapId);
     // Keep map FX phase on a monotonic local clock to avoid

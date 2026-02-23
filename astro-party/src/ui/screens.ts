@@ -7,6 +7,74 @@ import { createUIFeedback } from "../feedback/uiFeedback";
 
 type Screen = "start" | "lobby" | "game" | "end";
 
+interface StarfieldGradient {
+  inner: string;
+  mid: string;
+  outer: string;
+}
+
+const MAP_THEME_GRADIENTS: Record<number, StarfieldGradient> = {
+  0: { inner: "#05080d", mid: "#1a0f28", outer: "#3a1a30" },
+  1: { inner: "#050508", mid: "#10101c", outer: "#303015" },
+  2: { inner: "#050202", mid: "#1c0505", outer: "#3a101a" },
+  3: { inner: "#050202", mid: "#1c0505", outer: "#3a101a" },
+  4: { inner: "#020502", mid: "#081c0a", outer: "#103015" },
+  5: { inner: "#020505", mid: "#081c1c", outer: "#103030" },
+};
+
+function getGradientForMap(mapId: number): StarfieldGradient {
+  return MAP_THEME_GRADIENTS[mapId] ?? MAP_THEME_GRADIENTS[0];
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16),
+      }
+    : null;
+}
+
+function updateStarfieldGradient(mapId: number): void {
+  const gradient = getGradientForMap(mapId);
+  const bg = elements.starsBg;
+  bg.style.background = `radial-gradient(220% 105% at top center, ${gradient.inner} 10%, ${gradient.mid} 40%, ${gradient.outer})`;
+}
+
+function initStarfield(): void {
+  const layer = elements.starsLayer;
+  const starCount = 800;
+  const r = 800;
+
+  for (let i = 0; i < starCount; i++) {
+    const star = document.createElement("div");
+    star.className = "star-node";
+
+    const s = 0.2 + Math.random() * 1;
+    const curR = r + Math.random() * 300;
+
+    const starColor = Math.random() > 0.7 ? "#F7F7B6" : "#ffffff";
+    const rgb = hexToRgb(starColor);
+    if (rgb) {
+      const brightness = 0.5 + Math.random() * 0.5;
+      star.style.background = `rgb(${Math.round(rgb.r * brightness)}, ${Math.round(rgb.g * brightness)}, ${Math.round(rgb.b * brightness)})`;
+    }
+
+    const size = 1 + Math.random() * 2;
+    star.style.width = `${size}px`;
+    star.style.height = `${size}px`;
+
+    star.style.transform = `translate3d(0,0,-${curR}px) rotateY(${Math.random() * 360}deg) rotateX(${Math.random() * -50}deg) scale(${s},${s})`;
+    star.style.transformOrigin = `0 0 ${curR}px`;
+
+    layer.appendChild(star);
+  }
+}
+
+let starfieldInitialized = false;
+
 export interface ScreenController {
   showScreen: (screen: Screen) => void;
   updateHudControlsVisibility: () => void;
@@ -18,6 +86,7 @@ export interface ScreenController {
   updateScoreTrack: (players: PlayerData[]) => void;
   updateGameEnd: (players: PlayerData[]) => void;
   resetEndScreenButtons: () => void;
+  updateStarfieldForMap: (mapId: number) => void;
 }
 
 export function createScreenController(
@@ -97,6 +166,18 @@ export function createScreenController(
     }
 
     elements.netStats.style.display = screen === "game" ? "block" : "none";
+
+    if (screen === "game") {
+      if (!starfieldInitialized) {
+        initStarfield();
+        starfieldInitialized = true;
+      }
+      const currentMapId = game.getMapId();
+      updateStarfieldGradient(currentMapId);
+      elements.starsContainer.classList.add("active");
+    } else {
+      elements.starsContainer.classList.remove("active");
+    }
   }
 
   function updateNetworkStats(): void {
@@ -338,6 +419,12 @@ export function createScreenController(
     elements.leaveEndBtn.textContent = "Leave";
   }
 
+  function updateStarfieldForMap(mapId: number): void {
+    if (activeScreen === "game" && starfieldInitialized) {
+      updateStarfieldGradient(mapId);
+    }
+  }
+
   SettingsManager.subscribe(() => {
     updateControlHints();
   });
@@ -353,6 +440,7 @@ export function createScreenController(
     updateScoreTrack,
     updateGameEnd,
     resetEndScreenButtons,
+    updateStarfieldForMap,
   };
 }
 

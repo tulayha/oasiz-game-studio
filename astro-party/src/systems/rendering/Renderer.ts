@@ -657,8 +657,7 @@ export class Renderer {
   }
 
   clear(): void {
-    this.ctx.fillStyle = "#0a0a12";
-    this.ctx.fillRect(0, 0, this.viewportWidth, this.viewportHeight);
+    this.ctx.clearRect(0, 0, this.viewportWidth, this.viewportHeight);
   }
 
   beginFrame(): void {
