@@ -53,6 +53,7 @@ function initStarfield(seed: number): void {
   const starCount = resolveStarCount();
   const r = 800;
   const rng = new SeededRNG(seed >>> 0);
+  const fragment = document.createDocumentFragment();
 
   for (let i = 0; i < starCount; i++) {
     const star = document.createElement("div");
@@ -60,25 +61,14 @@ function initStarfield(seed: number): void {
 
     const s = 0.2 + rng.nextRange(0, 1);
     const curR = r + rng.nextRange(0, 300);
-
-    const starColor = rng.next() > 0.7 ? "#F7F7B6" : "#ffffff";
-    const rgb = hexToRgb(starColor);
-    if (rgb) {
-      const brightness = 0.5 + rng.nextRange(0, 0.5);
-      star.style.background = `rgb(${Math.round(rgb.r * brightness)}, ${Math.round(rgb.g * brightness)}, ${Math.round(rgb.b * brightness)})`;
-    }
-
-    const size = 1 + rng.nextRange(0, 2);
-    star.style.width = `${size}px`;
-    star.style.height = `${size}px`;
-
     const rotY = rng.nextRange(0, 360);
     const rotX = rng.nextRange(-50, 0);
     star.style.transform = `translate3d(0,0,-${curR}px) rotateY(${rotY}deg) rotateX(${rotX}deg) scale(${s},${s})`;
     star.style.transformOrigin = `0 0 ${curR}px`;
 
-    layer.appendChild(star);
+    fragment.appendChild(star);
   }
+  layer.appendChild(fragment);
 }
 
 let starfieldInitialized = false;
