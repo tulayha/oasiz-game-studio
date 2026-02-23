@@ -116,13 +116,10 @@ interface SpriteBounds {
 }
 
 interface RiderPlacement {
-  saddleTargetX: number;
-  saddleTargetY: number;
-  riderW: number;
-  riderH: number;
-  src: SpriteBounds;
   tipScreenX: number;
   tipScreenY: number;
+  headScreenX: number;
+  headScreenY: number;
 }
 
 // ============= CONFIG =============
@@ -168,19 +165,18 @@ const CONFIG = {
   RING_COLORS: ["#FFD700", "#FF4444", "#4488FF", "#333333", "#EEEEEE"],
 };
 
-const HORSE_TEMPLATE_ANCHOR = {
-  seatBoxX: 0.4759233225551644,
-  seatBoxY: 0.31104651402259254,
+const MOUNTED_SPRITE_ANCHOR = {
+  x: 0.5,
+  y: 0.78,
 };
 
-const RIDER_SPRITE_ANCHOR = {
-  // Rider-local anchor in archer sprite space (seat contact point).
-  seatX: 0.5,
-  seatY: 0.62,
+const MOUNTED_SPRITE_HEAD = {
+  x: 0.44,
+  y: 0.33,
 };
 
-const RIDER_BOW_ROTATION_RAD = -Math.PI * 0.25;
-const RIDER_SCREEN_NUDGE_X = 15;
+const MOUNTED_CHARACTER_SCALE = 2.2;
+const HORSE_RUN_CYCLE_RATE = 0.0105;
 
 // ============= GLOBALS =============
 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
@@ -264,7 +260,7 @@ let characterFrameReady = false;
 let archerImage: HTMLImageElement | null = null;
 let archerImageLoaded = false;
 let archerBounds: SpriteBounds | null = null;
-let archerArrowTipNorm = { x: 0.975, y: 0.29 };
+let archerArrowTipNorm = { x: 0.66, y: 0.14 };
 let riderAnchorBaseTopY: number | null = null;
 let riderAnchorOffsetPx = 0;
 let riderAnchorLastSampleTime = 0;
@@ -459,7 +455,7 @@ function loadAudio(): void {
   sfxTracks.bowRelease = createAudio("/bow_release.mp3", 0.8);
   sfxTracks.targetHit = createAudio("/target_hit.mp3", 0.88);
   sfxTracks.perfectHit = createAudio("/perfect_hit.mp3", 0.7);
-  sfxTracks.reloadReady = createAudio("/reload_ready.mp3", 0.62);
+  sfxTracks.reloadReady = createAudio("/reload_ready.mp3", 0.92);
 }
 
 function playSfx(trackKey: keyof typeof sfxTracks): void {
@@ -568,18 +564,19 @@ function maintainCharacterVideoLoop(): void {
 
 function loadArcherImage(): void {
   const img = new Image();
-  img.src = "/mongolarcher2.png";
+  img.src = "/hose-removebg-preview.png";
   img.onload = () => {
     archerImage = img;
     archerImageLoaded = true;
     archerBounds = getOpaqueSpriteBounds(img);
-    archerArrowTipNorm = getArrowTipNormInBounds(img, archerBounds);
-    console.log("[loadArcherImage]", "Loaded /mongolarcher2.png");
+    // Manual arrow-tip anchor for the mounted composite sprite.
+    archerArrowTipNorm = { x: 0.66, y: 0.14 };
+    console.log("[loadArcherImage]", "Loaded /hose-removebg-preview.png");
   };
   img.onerror = () => {
     archerImageLoaded = false;
     archerBounds = null;
-    console.log("[loadArcherImage]", "Could not load /mongolarcher2.png.");
+    console.log("[loadArcherImage]", "Could not load /hose-removebg-preview.png.");
   };
 }
 
@@ -657,36 +654,33 @@ function getArrowTipNormInBounds(img: HTMLImageElement, bounds: SpriteBounds): {
 }
 
 function getRiderPlacement(): RiderPlacement | null {
-  if (!characterFrameCanvas || !archerImageLoaded || !archerImage) return null;
-  if (!characterFrameReady) return null;
-
-  const drawW = 375 * gameScale;
-  const drawH = drawW * (characterFrameCanvas.height / characterFrameCanvas.width);
-  const drawX = horse.screenX - drawW * 0.42;
-  const drawY = horse.screenY - drawH * 0.66;
-  const src = archerBounds || { x: 0, y: 0, w: archerImage.width, h: archerImage.height };
-  const riderW = drawW * 0.48;
-  const riderH = riderW * (src.h / src.w);
-  const riderYOffsetRaw = riderAnchorOffsetPx * (drawH / characterFrameCanvas.height) * 2.6;
-  const riderYOffset = Math.max(-drawH * 0.10, Math.min(drawH * 0.12, riderYOffsetRaw));
-  const saddleTargetX = drawX + drawW * HORSE_TEMPLATE_ANCHOR.seatBoxX + RIDER_SCREEN_NUDGE_X;
-  const saddleTargetY = drawY + drawH * HORSE_TEMPLATE_ANCHOR.seatBoxY + riderYOffset;
-
-  const tipLocalX = riderW * (archerArrowTipNorm.x - RIDER_SPRITE_ANCHOR.seatX);
-  const tipLocalY = riderH * (archerArrowTipNorm.y - RIDER_SPRITE_ANCHOR.seatY);
-  const cosA = Math.cos(RIDER_BOW_ROTATION_RAD);
-  const sinA = Math.sin(RIDER_BOW_ROTATION_RAD);
-  const tipScreenX = saddleTargetX + tipLocalX * cosA - tipLocalY * sinA;
-  const tipScreenY = saddleTargetY + tipLocalX * sinA + tipLocalY * cosA;
+  const horseScale = MOUNTED_CHARACTER_SCALE * gameScale;
+  const riderBaseX = horse.screenX + 6 * horseScale;
+  const riderBaseY = horse.screenY - 60 * horseScale;
+  const bowCenterX = riderBaseX + 18 * horseScale;
+  const bowCenterY = riderBaseY - 18 * horseScale;
+  const bowAngle = -Math.PI * 0.25;
+  const maxPull = 20 * horseScale;
+  const pullBack = isDrawing ? drawProgress * maxPull : 0;
+  const pullDirX = -Math.cos(bowAngle);
+  const pullDirY = -Math.sin(bowAngle);
+  const stringPullX = bowCenterX + pullDirX * pullBack;
+  const stringPullY = bowCenterY + pullDirY * pullBack;
+  const nockX = isDrawing && drawProgress > 0.05 ? stringPullX : bowCenterX;
+  const nockY = isDrawing && drawProgress > 0.05 ? stringPullY : bowCenterY;
+  const arrowLen = 32 * horseScale;
+  const aDirX = Math.cos(bowAngle);
+  const aDirY = Math.sin(bowAngle);
+  const tipScreenX = nockX + aDirX * arrowLen;
+  const tipScreenY = nockY + aDirY * arrowLen;
+  const headScreenX = riderBaseX + 1 * horseScale;
+  const headScreenY = riderBaseY - 32 * horseScale;
 
   return {
-    saddleTargetX,
-    saddleTargetY,
-    riderW,
-    riderH,
-    src,
     tipScreenX,
     tipScreenY,
+    headScreenX,
+    headScreenY,
   };
 }
 
@@ -712,15 +706,15 @@ function getPlayerHeadScreenPosition(): { x: number; y: number } {
   const placement = getRiderPlacement();
   if (placement) {
     return {
-      x: placement.saddleTargetX + placement.riderW * 0.03,
-      y: placement.saddleTargetY - placement.riderH * 0.53,
+      x: placement.headScreenX,
+      y: placement.headScreenY,
     };
   }
 
-  const horseScale = 3 * gameScale;
+  const horseScale = MOUNTED_CHARACTER_SCALE * gameScale;
   return {
-    x: horse.screenX + 5 * horseScale,
-    y: horse.screenY - 86 * horseScale,
+    x: horse.screenX + 7 * horseScale,
+    y: horse.screenY - 92 * horseScale,
   };
 }
 
@@ -1454,7 +1448,7 @@ function drawLayerRidge(
 // ============= WORLD UPDATE =============
 function updateWorld(dt: number): void {
   world.cameraX += world.speed * dt;
-  horse.legPhase += dt * 0.015;
+  horse.legPhase += dt * HORSE_RUN_CYCLE_RATE;
 
   // Keep the horse at a fixed vertical position (no sine-wave bobbing).
   horse.screenY = horse.baseY;
@@ -1693,31 +1687,7 @@ function drawWorldTargets(): void {
 
       const fSize = 5 * gameScale * arrowRenderScale;
       const backAngle = angle + Math.PI;
-      ctx.fillStyle = "#CC3333";
-      ctx.beginPath();
-      ctx.moveTo(tailX, tailY);
-      ctx.lineTo(
-        tailX + Math.cos(backAngle - 0.5) * fSize,
-        tailY + Math.sin(backAngle - 0.5) * fSize,
-      );
-      ctx.lineTo(
-        tailX + Math.cos(backAngle) * fSize * 0.7,
-        tailY + Math.sin(backAngle) * fSize * 0.7,
-      );
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(tailX, tailY);
-      ctx.lineTo(
-        tailX + Math.cos(backAngle + 0.5) * fSize,
-        tailY + Math.sin(backAngle + 0.5) * fSize,
-      );
-      ctx.lineTo(
-        tailX + Math.cos(backAngle) * fSize * 0.7,
-        tailY + Math.sin(backAngle) * fSize * 0.7,
-      );
-      ctx.closePath();
-      ctx.fill();
+      drawArrowFletching(tailX, tailY, backAngle, fSize);
     }
 
     // Archetype cues for active targets.
@@ -1842,321 +1812,401 @@ function drawPerfectBursts(): void {
 }
 
 function drawHorseAndArcher(): void {
-  if (characterVideoLoaded && characterVideo && characterFrameCtx && characterFrameCanvas) {
-    if (characterVideo.readyState >= 2) {
-      characterFrameCtx.clearRect(0, 0, characterFrameCanvas.width, characterFrameCanvas.height);
-      characterFrameCtx.drawImage(characterVideo, 0, 0, characterFrameCanvas.width, characterFrameCanvas.height);
-      normalizeHorseFrameAlpha();
-      characterFrameReady = true;
-      sampleRiderAnchorFromHorseFrame();
-    }
-  }
-
-  if (characterFrameReady && characterFrameCanvas) {
-    const drawW = 375 * gameScale;
-    const drawH = drawW * (characterFrameCanvas.height / characterFrameCanvas.width);
-    const drawX = horse.screenX - drawW * 0.42;
-    const drawY = horse.screenY - drawH * 0.66;
-    ctx.drawImage(characterFrameCanvas, drawX, drawY, drawW, drawH);
-
-    const placement = getRiderPlacement();
-    if (placement && archerImageLoaded && archerImage) {
-      ctx.save();
-      ctx.translate(placement.saddleTargetX, placement.saddleTargetY);
-      ctx.rotate(RIDER_BOW_ROTATION_RAD);
-      ctx.drawImage(
-        archerImage,
-        placement.src.x,
-        placement.src.y,
-        placement.src.w,
-        placement.src.h,
-        -placement.riderW * RIDER_SPRITE_ANCHOR.seatX,
-        -placement.riderH * RIDER_SPRITE_ANCHOR.seatY,
-        placement.riderW,
-        placement.riderH,
-      );
-      ctx.restore();
-    }
-    return;
-  }
-
   const hx = horse.screenX;
   const hy = horse.screenY;
   const phase = horse.legPhase;
+  const horseScale = MOUNTED_CHARACTER_SCALE * gameScale;
+  const strideSwing = Math.sin(phase);
+  const stomp = Math.max(0, Math.sin(phase * 2.0));
+  const bob = strideSwing * 0.85 - stomp * 1.7;
 
-  // Scale relative to screen — draw everything in local coords centered on (0,0)
-  const horseScale = 3 * gameScale;
   ctx.save();
-  ctx.translate(hx, hy);
+  ctx.translate(hx, hy + bob);
   ctx.scale(horseScale, horseScale);
 
-  const horseColor = "#3D2810";
-  const horseLightColor = "#5A3A1E";
+  // Horse Colors - Steppe Dun / Grey
+  const horseColor = "#D8D8DF";
+  const horseDarkColor = "#A0A0AA";
+  const horseLightColor = "#F0F0F5";
+  const tackColor = "#5D3C1F";
+  const metalColor = "#9DA5AF";
 
-  // Body (local coords, horse centered at 0,0)
-  ctx.fillStyle = horseColor;
+  // Ground shadow - more dynamic
+  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
   ctx.beginPath();
-  ctx.ellipse(0, -40, 50, 22, 0, 0, Math.PI * 2);
+  ctx.ellipse(2, 4 + stomp * 1.5, 62 + stomp * 8, 12, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Underbelly highlight
-  ctx.fillStyle = horseLightColor;
-  ctx.beginPath();
-  ctx.ellipse(0, -35, 42, 14, 0, 0.2, Math.PI - 0.2);
-  ctx.fill();
-
-  // Legs
-  ctx.strokeStyle = horseColor;
-  ctx.lineWidth = 6;
+  // HORSE LEGS - BACK (further from camera)
+  ctx.strokeStyle = horseDarkColor;
+  ctx.lineWidth = 5.5;
   ctx.lineCap = "round";
-
   const legPositions = [
-    { base: -30, offset: 0 },
-    { base: -12, offset: Math.PI * 0.5 },
-    { base: 12, offset: Math.PI },
-    { base: 30, offset: Math.PI * 1.5 },
+    { base: -30, offset: 0, isFore: false, isFar: true },
+    { base: 30, offset: Math.PI * 1.5, isFore: true, isFar: true },
+    { base: -12, offset: Math.PI * 0.5, isFore: false, isFar: false },
+    { base: 12, offset: Math.PI, isFore: true, isFar: false },
   ];
 
-  for (const leg of legPositions) {
-    const swing = Math.sin(phase + leg.offset) * 18;
+  const drawLeg = (leg: typeof legPositions[0]) => {
+    const s = Math.sin(phase + leg.offset);
+    const swing = s * 16;
     const lift = Math.max(0, -Math.sin(phase + leg.offset)) * 12;
-
-    const kneeX = leg.base + swing * 0.3;
-    const kneeY = -12;
+    
+    // Joint logic
+    const kneeX = leg.base + swing * 0.4;
+    const kneeY = -14 + lift * 0.3;
     const hoofX = leg.base + swing;
     const hoofY = 8 - lift;
 
+    ctx.strokeStyle = leg.isFar ? horseDarkColor : horseColor;
     ctx.beginPath();
-    ctx.moveTo(leg.base, -22);
+    ctx.moveTo(leg.base, -24);
     ctx.lineTo(kneeX, kneeY);
     ctx.lineTo(hoofX, hoofY);
     ctx.stroke();
 
-    ctx.fillStyle = "#1A0E05";
+    // Hoof
+    ctx.fillStyle = "#333336";
     ctx.beginPath();
-    ctx.ellipse(hoofX, hoofY + 2, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(hoofX, hoofY + 2, 4.5, 3.5, 0, 0, Math.PI * 2);
     ctx.fill();
-  }
+  };
 
-  // Neck
+  // Draw far legs first
+  drawLeg(legPositions[0]);
+  drawLeg(legPositions[1]);
+
+  // HORSE BODY
+  const bodyGrad = ctx.createRadialGradient(0, -40, 10, 0, -40, 55);
+  bodyGrad.addColorStop(0, horseLightColor);
+  bodyGrad.addColorStop(0.6, horseColor);
+  bodyGrad.addColorStop(1, horseDarkColor);
+  
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.ellipse(0, -40, 52, 24, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Muscle definition
+  ctx.strokeStyle = "rgba(0,0,0,0.08)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(-25, -42, 15, Math.PI * 0.8, Math.PI * 1.5); // Rear muscle
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(20, -42, 12, Math.PI * 1.5, Math.PI * 2.1); // Shoulder muscle
+  ctx.stroke();
+
+  // Draw near legs
+  drawLeg(legPositions[2]);
+  drawLeg(legPositions[3]);
+
+  // NECK
   ctx.fillStyle = horseColor;
   ctx.beginPath();
-  ctx.moveTo(40, -52);
-  ctx.quadraticCurveTo(55, -70, 50, -82);
-  ctx.quadraticCurveTo(42, -72, 38, -52);
+  ctx.moveTo(38, -54);
+  ctx.quadraticCurveTo(58, -75, 54, -88);
+  ctx.quadraticCurveTo(42, -75, 36, -54);
   ctx.closePath();
   ctx.fill();
 
-  // Head
-  ctx.fillStyle = horseColor;
+  // HEAD
+  ctx.save();
+  ctx.translate(60, -90);
+  ctx.rotate(0.35 + Math.sin(phase) * 0.05);
+  
+  // Head shape
+  const headGrad = ctx.createLinearGradient(0, -10, 0, 10);
+  headGrad.addColorStop(0, horseLightColor);
+  headGrad.addColorStop(1, horseColor);
+  ctx.fillStyle = headGrad;
   ctx.beginPath();
-  ctx.ellipse(56, -84, 18, 10, 0.4, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 20, 11, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Muzzle
-  ctx.fillStyle = horseLightColor;
+  // Ears
+  ctx.fillStyle = horseDarkColor;
   ctx.beginPath();
-  ctx.ellipse(70, -80, 8, 6, 0.3, 0, Math.PI * 2);
+  ctx.ellipse(-12, -8, 6, 3, -0.8, 0, Math.PI * 2); // Far ear
+  ctx.fill();
+  ctx.fillStyle = horseColor;
+  ctx.beginPath();
+  ctx.ellipse(-10, -10, 7, 3.5, -0.6, 0, Math.PI * 2); // Near ear
   ctx.fill();
 
   // Eye
   ctx.fillStyle = "#111";
   ctx.beginPath();
-  ctx.arc(58, -88, 2.5, 0, Math.PI * 2);
+  ctx.arc(4, -3, 2.5, 0, Math.PI * 2);
   ctx.fill();
-
-  // Ear
-  ctx.fillStyle = horseColor;
+  ctx.fillStyle = "#FFF";
   ctx.beginPath();
-  ctx.moveTo(50, -92);
-  ctx.lineTo(46, -104);
-  ctx.lineTo(54, -94);
-  ctx.closePath();
+  ctx.arc(5, -4, 0.8, 0, Math.PI * 2);
   ctx.fill();
 
-  // Mane
-  ctx.strokeStyle = "#1A0E05";
-  ctx.lineWidth = 3;
+  // Muzzle/Nostril
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.arc(16, 2, 2, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.restore();
+
+  // TAIL
+  ctx.strokeStyle = "#444";
+  ctx.lineWidth = 4.5;
+  const tailSwing = Math.sin(phase * 0.5) * 12;
+  ctx.beginPath();
+  ctx.moveTo(-48, -45);
+  ctx.quadraticCurveTo(-75 + tailSwing, -40, -85 + tailSwing * 1.5, -20);
+  ctx.stroke();
+
+  // MANE - more fluid
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 2.8;
   for (let i = 0; i < 5; i++) {
-    const mx = 42 + i * 2;
-    const my = -55 - i * 6;
+    const mx = 40 + i * 3.5;
+    const my = -58 - i * 6.5;
     const windOffset = Math.sin(phase * 0.7 + i * 0.8) * 5;
     ctx.beginPath();
     ctx.moveTo(mx, my);
-    ctx.quadraticCurveTo(mx - 10 + windOffset, my - 5, mx - 15 + windOffset, my + 3);
+    ctx.quadraticCurveTo(mx - 10 + windOffset, my - 5, mx - 15 + windOffset, my + 4);
     ctx.stroke();
   }
 
-  // Tail
-  ctx.strokeStyle = "#1A0E05";
-  ctx.lineWidth = 4;
-  const tailSwing = Math.sin(phase * 0.5) * 12;
+  // TACK (Bridle/Saddle)
+  ctx.strokeStyle = tackColor;
+  ctx.lineWidth = 1.8;
+  // Reins
   ctx.beginPath();
-  ctx.moveTo(-48, -42);
-  ctx.quadraticCurveTo(-70 + tailSwing, -35, -80 + tailSwing * 1.5, -20);
+  ctx.moveTo(75, -85);
+  ctx.lineTo(15, -65);
+  ctx.stroke();
+  // Bridle
+  ctx.beginPath();
+  ctx.moveTo(45, -88);
+  ctx.lineTo(65, -84);
+  ctx.lineTo(78, -87);
   ctx.stroke();
 
-  // ---- RIDER ----
-  const riderBaseX = 5;
-  const riderBaseY = -58;
+  // RIDER / ARCHER
+  const riderBaseX = 6;
+  const riderBaseY = -60;
 
-  // Legs on horse
-  ctx.fillStyle = "#8B2500";
+  // LEGS / BOOTS (Draped over horse)
+  ctx.fillStyle = "#332211"; // Dark leather boots
   ctx.beginPath();
-  ctx.moveTo(riderBaseX - 12, riderBaseY + 10);
-  ctx.lineTo(riderBaseX - 18, riderBaseY + 25);
-  ctx.lineTo(riderBaseX - 8, riderBaseY + 25);
-  ctx.lineTo(riderBaseX - 5, riderBaseY + 10);
+  ctx.moveTo(riderBaseX - 14, riderBaseY + 12);
+  ctx.lineTo(riderBaseX - 22, riderBaseY + 30);
+  ctx.lineTo(riderBaseX - 10, riderBaseY + 30);
+  ctx.lineTo(riderBaseX - 6, riderBaseY + 12);
   ctx.closePath();
   ctx.fill();
+  
   ctx.beginPath();
-  ctx.moveTo(riderBaseX + 5, riderBaseY + 10);
-  ctx.lineTo(riderBaseX + 12, riderBaseY + 25);
-  ctx.lineTo(riderBaseX + 20, riderBaseY + 25);
-  ctx.lineTo(riderBaseX + 10, riderBaseY + 10);
-  ctx.closePath();
-  ctx.fill();
-
-  // Torso
-  ctx.fillStyle = "#B22222";
-  ctx.beginPath();
-  ctx.moveTo(riderBaseX - 12, riderBaseY + 12);
-  ctx.lineTo(riderBaseX - 10, riderBaseY - 20);
-  ctx.lineTo(riderBaseX + 10, riderBaseY - 20);
+  ctx.moveTo(riderBaseX + 6, riderBaseY + 12);
+  ctx.lineTo(riderBaseX + 14, riderBaseY + 30);
+  ctx.lineTo(riderBaseX + 22, riderBaseY + 30);
   ctx.lineTo(riderBaseX + 12, riderBaseY + 12);
   ctx.closePath();
   ctx.fill();
 
-  // Sash
-  ctx.strokeStyle = "#FFD700";
-  ctx.lineWidth = 2;
+  // DEEL (Traditional Robe)
+  const deelColor = "#7A2E1A"; // Deep red/maroon
+  const deelLight = "#9A4E3A";
+  const deelGrad = ctx.createLinearGradient(riderBaseX, riderBaseY - 20, riderBaseX, riderBaseY + 15);
+  deelGrad.addColorStop(0, deelLight);
+  deelGrad.addColorStop(1, deelColor);
+  
+  ctx.fillStyle = deelGrad;
   ctx.beginPath();
-  ctx.moveTo(riderBaseX - 11, riderBaseY + 2);
-  ctx.lineTo(riderBaseX + 11, riderBaseY + 2);
-  ctx.stroke();
-
-  // Head
-  ctx.fillStyle = "#D2A679";
-  ctx.beginPath();
-  ctx.arc(riderBaseX, riderBaseY - 28, 8, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Hat
-  ctx.fillStyle = "#8B4513";
-  ctx.beginPath();
-  ctx.moveTo(riderBaseX - 10, riderBaseY - 30);
-  ctx.lineTo(riderBaseX, riderBaseY - 48);
-  ctx.lineTo(riderBaseX + 10, riderBaseY - 30);
+  ctx.moveTo(riderBaseX - 14, riderBaseY + 15);
+  ctx.lineTo(riderBaseX - 12, riderBaseY - 22);
+  ctx.lineTo(riderBaseX + 13, riderBaseY - 22);
+  ctx.lineTo(riderBaseX + 15, riderBaseY + 15);
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = "#A0522D";
+  // Belt/Sash (Buse)
+  ctx.fillStyle = "#D4AF37"; // Golden sash
+  ctx.fillRect(riderBaseX - 14, riderBaseY - 2, 29, 6);
+
+  // FACE / HEAD
+  ctx.fillStyle = "#E5C298"; // Skin tone
   ctx.beginPath();
-  ctx.ellipse(riderBaseX, riderBaseY - 30, 12, 4, 0, 0, Math.PI * 2);
+  ctx.arc(riderBaseX + 1, riderBaseY - 32, 9, 0, Math.PI * 2);
   ctx.fill();
 
-  // ---- BOW (45-degree angle, always aiming top-right) ----
-  const bowCenterX = riderBaseX + 16;
-  const bowCenterY = riderBaseY - 18;
-
-  // Wobble shake
-  let shakeX = 0;
-  let shakeY = 0;
-  if (isDrawing && wobbleAmount > 0) {
-    const wobbleTime = performance.now() * 0.03;
-    const wobbleMagnitude = wobbleAmount * 6;
-    shakeX = Math.sin(wobbleTime * 1.3) * wobbleMagnitude;
-    shakeY = Math.cos(wobbleTime * 1.7) * wobbleMagnitude;
-  }
-
-  const drawBowX = bowCenterX + shakeX;
-  const drawBowY = bowCenterY + shakeY;
-
-  // Bow arm (reaches up-right to hold bow)
-  ctx.strokeStyle = "#D2A679";
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
+  // Features
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(riderBaseX + 4, riderBaseY - 34, 3, 1.5); // Eye
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.moveTo(riderBaseX + 8, riderBaseY - 14);
-  ctx.lineTo(drawBowX, drawBowY);
+  ctx.moveTo(riderBaseX + 3, riderBaseY - 28);
+  ctx.quadraticCurveTo(riderBaseX + 7, riderBaseY - 28, riderBaseX + 9, riderBaseY - 26); // Mustache
   ctx.stroke();
 
-  // Bow arc — 45 degrees top-right
-  const bowR = 22;
-  const bowAngle = -Math.PI * 0.25; // 45 deg top-right
-  ctx.strokeStyle = "#8B4513";
-  ctx.lineWidth = 3;
+  // HAT (Malgais)
+  ctx.fillStyle = "#333";
   ctx.beginPath();
-  ctx.arc(drawBowX, drawBowY, bowR, bowAngle - 0.9, bowAngle + 0.9, false);
-  ctx.stroke();
-
-  // Bow tip positions (the two ends of the arc)
-  const topTipX = drawBowX + Math.cos(bowAngle - 0.9) * bowR;
-  const topTipY = drawBowY + Math.sin(bowAngle - 0.9) * bowR;
-  const botTipX = drawBowX + Math.cos(bowAngle + 0.9) * bowR;
-  const botTipY = drawBowY + Math.sin(bowAngle + 0.9) * bowR;
-
-  // String pullback — pulls opposite to aim (bottom-left)
-  const maxPull = 18;
-  const pullBack = isDrawing ? drawProgress * maxPull : 0;
-  const pullDirX = -Math.cos(bowAngle); // opposite of aim direction
-  const pullDirY = -Math.sin(bowAngle);
-  const stringPullX = drawBowX + pullDirX * pullBack;
-  const stringPullY = drawBowY + pullDirY * pullBack;
-
-  // Bowstring
-  ctx.strokeStyle = "#C4A058";
+  ctx.moveTo(riderBaseX - 11, riderBaseY - 35);
+  ctx.lineTo(riderBaseX + 1, riderBaseY - 55);
+  ctx.lineTo(riderBaseX + 13, riderBaseY - 35);
+  ctx.closePath();
+  ctx.fill();
+  // Hat trim (fur)
+  ctx.fillStyle = "#CDBA8F";
+  ctx.beginPath();
+  ctx.roundRect(riderBaseX - 13, riderBaseY - 40, 27, 8, 4);
+  ctx.fill();
+  // Tassel
+  ctx.strokeStyle = "#FF0000";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
+  ctx.moveTo(riderBaseX + 1, riderBaseY - 55);
+  ctx.lineTo(riderBaseX - 4, riderBaseY - 52);
+  ctx.stroke();
+
+  // BOW
+  const bowCenterX = riderBaseX + 18;
+  const bowCenterY = riderBaseY - 18;
+  const bowAngle = -Math.PI * 0.25;
+  const bowR = 24;
+  const maxPull = 20;
+  const pullBack = isDrawing ? drawProgress * maxPull : 0;
+  const pullDirX = -Math.cos(bowAngle);
+  const pullDirY = -Math.sin(bowAngle);
+  const stringPullX = bowCenterX + pullDirX * pullBack;
+  const stringPullY = bowCenterY + pullDirY * pullBack;
+
+  // Bow Arm
+  ctx.strokeStyle = "#E5C298";
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(riderBaseX + 8, riderBaseY - 16);
+  ctx.lineTo(bowCenterX - 2, bowCenterY + 2);
+  ctx.stroke();
+
+  // Recurve Bow Body
+  ctx.strokeStyle = "#4D2E1D";
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  // Drawing a simplified recurve shape with two arcs
+  ctx.arc(bowCenterX, bowCenterY, bowR, bowAngle - 1.1, bowAngle + 1.1, false);
+  ctx.stroke();
+  
+  // Horn/Sinew tips (recurve ends)
+  ctx.strokeStyle = "#221100";
+  ctx.lineWidth = 4;
+  const topTipX = bowCenterX + Math.cos(bowAngle - 1.1) * bowR;
+  const topTipY = bowCenterY + Math.sin(bowAngle - 1.1) * bowR;
+  const botTipX = bowCenterX + Math.cos(bowAngle + 1.1) * bowR;
+  const botTipY = bowCenterY + Math.sin(bowAngle + 1.1) * bowR;
+  
+  // Small recurve flicks at ends
+  ctx.beginPath();
   ctx.moveTo(topTipX, topTipY);
+  ctx.lineTo(topTipX + Math.cos(bowAngle - 1.5) * 6, topTipY + Math.sin(bowAngle - 1.5) * 6);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(botTipX, botTipY);
+  ctx.lineTo(botTipX + Math.cos(bowAngle + 1.5) * 6, botTipY + Math.sin(bowAngle + 1.5) * 6);
+  ctx.stroke();
+
+  // String
+  ctx.strokeStyle = "#EEE";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  const stringTopX = topTipX + Math.cos(bowAngle - 1.5) * 5;
+  const stringTopY = topTipY + Math.sin(bowAngle - 1.5) * 5;
+  const stringBotX = botTipX + Math.cos(bowAngle + 1.5) * 5;
+  const stringBotY = botTipY + Math.sin(bowAngle + 1.5) * 5;
+  
+  ctx.moveTo(stringTopX, stringTopY);
   if (isDrawing && drawProgress > 0.05) {
     ctx.lineTo(stringPullX, stringPullY);
   }
-  ctx.lineTo(botTipX, botTipY);
+  ctx.lineTo(stringBotX, stringBotY);
   ctx.stroke();
 
-  // Draw arm (reaches to string nock point)
-  const drawArmEndX = isDrawing ? stringPullX : riderBaseX;
-  const drawArmEndY = isDrawing ? stringPullY : riderBaseY - 8;
-
-  ctx.strokeStyle = "#D2A679";
-  ctx.lineWidth = 3;
+  // Draw Arm
+  const drawArmEndX = isDrawing ? stringPullX : riderBaseX - 5;
+  const drawArmEndY = isDrawing ? stringPullY : riderBaseY - 10;
+  ctx.strokeStyle = "#E5C298";
+  ctx.lineWidth = 3.5;
   ctx.beginPath();
-  ctx.moveTo(riderBaseX + 5, riderBaseY - 14);
+  ctx.moveTo(riderBaseX + 2, riderBaseY - 18);
+  if (isDrawing) {
+    // Elbow
+    const elbowX = riderBaseX - 8;
+    const elbowY = riderBaseY - 22;
+    ctx.lineTo(elbowX, elbowY);
+  }
   ctx.lineTo(drawArmEndX, drawArmEndY);
   ctx.stroke();
 
-  // Nocked arrow while drawing — points top-right at 45 degrees
+  // Quiver on back (peek)
+  ctx.fillStyle = "#5D3C1F";
+  ctx.beginPath();
+  ctx.rect(riderBaseX - 16, riderBaseY - 25, 6, 15);
+  ctx.fill();
+
+  // Arrow while drawing
   if (isDrawing && drawProgress > 0.05) {
     const nockX = stringPullX;
     const nockY = stringPullY;
-    const arrowLen = 30;
-
-    // Arrow points in aim direction (top-right, 45 deg)
-    const aDirX = Math.cos(bowAngle);  // 0.707
-    const aDirY = Math.sin(bowAngle);  // -0.707
-
+    const arrowLen = 32;
+    const aDirX = Math.cos(bowAngle);
+    const aDirY = Math.sin(bowAngle);
     const tipX = nockX + aDirX * arrowLen;
     const tipY = nockY + aDirY * arrowLen;
 
-    ctx.strokeStyle = "#5C3A1E";
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#3D2616";
+    ctx.lineWidth = 2.2;
     ctx.beginPath();
     ctx.moveTo(nockX, nockY);
     ctx.lineTo(tipX, tipY);
     ctx.stroke();
 
     // Arrowhead
-    ctx.fillStyle = "#888";
+    ctx.fillStyle = metalColor;
     ctx.beginPath();
-    ctx.moveTo(tipX + aDirX * 4, tipY + aDirY * 4);
-    ctx.lineTo(tipX + aDirY * 4 - aDirX * 3, tipY - aDirX * 4 - aDirY * 3);
-    ctx.lineTo(tipX - aDirY * 4 - aDirX * 3, tipY + aDirX * 4 - aDirY * 3);
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - Math.cos(bowAngle - 0.35) * 7, tipY - Math.sin(bowAngle - 0.35) * 7);
+    ctx.lineTo(tipX - Math.cos(bowAngle + 0.35) * 7, tipY - Math.sin(bowAngle + 0.35) * 7);
     ctx.closePath();
     ctx.fill();
+
+    const backAngle = bowAngle + Math.PI;
+    drawArrowFletching(nockX, nockY, backAngle, 4.5);
   }
 
   ctx.restore();
+}
+
+function drawArrowFletching(tailX: number, tailY: number, backAngle: number, fSize: number): void {
+  const spread = 0.6;
+  const featherWidth = fSize * 0.9;
+  const featherLen = fSize * 0.7;
+  ctx.fillStyle = "rgba(240, 245, 255, 0.9)";
+
+  for (const side of [-1, 1]) {
+    const sideSpread = spread * side;
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(
+      tailX + Math.cos(backAngle + sideSpread) * featherWidth,
+      tailY + Math.sin(backAngle + sideSpread) * featherWidth,
+    );
+    ctx.lineTo(
+      tailX + Math.cos(backAngle + sideSpread * 0.45) * featherLen,
+      tailY + Math.sin(backAngle + sideSpread * 0.45) * featherLen,
+    );
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 function drawArrows(): void {
@@ -2234,31 +2284,7 @@ function drawArrows(): void {
     // Fletching
     const fSize = 5 * gameScale * arrowRenderScale;
     const backAngle = angle + Math.PI;
-    ctx.fillStyle = "#CC3333";
-    ctx.beginPath();
-    ctx.moveTo(tailX, tailY);
-    ctx.lineTo(
-      tailX + Math.cos(backAngle - 0.5) * fSize,
-      tailY + Math.sin(backAngle - 0.5) * fSize,
-    );
-    ctx.lineTo(
-      tailX + Math.cos(backAngle) * fSize * 0.7,
-      tailY + Math.sin(backAngle) * fSize * 0.7,
-    );
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(tailX, tailY);
-    ctx.lineTo(
-      tailX + Math.cos(backAngle + 0.5) * fSize,
-      tailY + Math.sin(backAngle + 0.5) * fSize,
-    );
-    ctx.lineTo(
-      tailX + Math.cos(backAngle) * fSize * 0.7,
-      tailY + Math.sin(backAngle) * fSize * 0.7,
-    );
-    ctx.closePath();
-    ctx.fill();
+    drawArrowFletching(tailX, tailY, backAngle, fSize);
 
     if (arrow.stuckInGround) {
       ctx.restore();
@@ -2580,7 +2606,6 @@ function update(dt: number): void {
   updateClouds(dt);
   updateWorld(dt);
   updateDraw(dt);
-  maintainCharacterVideoLoop();
   updateFireButton();
   if (isReloading) {
     reloadRemaining -= dt;
@@ -2613,6 +2638,29 @@ function update(dt: number): void {
       arrow.vy += crosswindAccel * 0.18 * dt;
       arrow.worldX += arrow.vx * dt;
       arrow.height += arrow.vy * dt;
+
+      arrow.trailSpawnCooldown -= dt;
+      while (arrow.trailSpawnCooldown <= 0) {
+        const speedMag = Math.sqrt(arrow.vx * arrow.vx + arrow.vy * arrow.vy);
+        const dirX = speedMag > 0.0001 ? arrow.vx / speedMag : 1;
+        const dirY = speedMag > 0.0001 ? arrow.vy / speedMag : 0;
+        const trailBackUnits = Math.max(7, (18 * gameScale) / Math.max(0.001, pxPerUnit));
+        arrow.trailPoints.push({
+          worldX: arrow.worldX - dirX * trailBackUnits,
+          height: arrow.height - dirY * trailBackUnits,
+          life: 260,
+          maxLife: 260,
+        });
+        arrow.trailSpawnCooldown += 14;
+      }
+    }
+
+    for (let i = arrow.trailPoints.length - 1; i >= 0; i--) {
+      const tp = arrow.trailPoints[i];
+      tp.life -= dt;
+      if (tp.life <= 0) {
+        arrow.trailPoints.splice(i, 1);
+      }
     }
 
     // Hit ground and stick in place so the rider passes by it.
@@ -3050,8 +3098,6 @@ function init(): void {
   loadAudio();
   setupInputHandlers();
   setupUpgradeButtons();
-  loadCharacterVideo();
-  loadArcherImage();
   initClouds();
   generateTargets();
   updateOrientationState();
