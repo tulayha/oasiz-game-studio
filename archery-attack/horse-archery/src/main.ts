@@ -235,6 +235,7 @@ let environmentTime = 0;
 let ammoCount = CONFIG.QUIVER_SIZE;
 let isReloading = false;
 let reloadRemaining = 0;
+let lastCountdownCueSecond = 0;
 
 // Bow draw state
 let isDrawing = false;
@@ -286,6 +287,8 @@ const sfxTracks: Record<string, HTMLAudioElement | null> = {
   targetHit: null,
   perfectHit: null,
   reloadReady: null,
+  countdownTick: null,
+  gameOverFail: null,
 };
 
 const upgradeDefs: UpgradeDef[] = [
@@ -459,7 +462,7 @@ function createAudio(path: string, volume: number, loop = false): HTMLAudioEleme
 }
 
 function loadAudio(): void {
-  musicTrack = createAudio("/Steppe_Gallop.mp3", 0.18, true);
+  musicTrack = createAudio("/Steppe_Gallop.mp3", 0.1, true);
   bowPullTrack = createAudio("/bow_pull_loop.mp3", 0.48, true);
 
   sfxTracks.uiTap = createAudio("/ui_tap.mp3", 0.65);
@@ -467,9 +470,14 @@ function loadAudio(): void {
   sfxTracks.targetHit = createAudio("/target_hit.mp3", 0.88);
   sfxTracks.perfectHit = createAudio("/perfect_hit.mp3", 0.7);
   sfxTracks.reloadReady = createAudio("/reload_ready.mp3", 0.92);
+  sfxTracks.countdownTick = createAudio("/countdown_tick.mp3", 0.3);
+  sfxTracks.gameOverFail = createAudio("/game_over_fail.mp3", 0.3);
 }
 
-function playSfx(trackKey: keyof typeof sfxTracks): void {
+function playSfx(
+  trackKey: keyof typeof sfxTracks,
+  fallbackKey: keyof typeof sfxTracks | null = null,
+): void {
   if (!settings.fx) return;
   const base = sfxTracks[trackKey];
   if (!base) return;
@@ -477,10 +485,63 @@ function playSfx(trackKey: keyof typeof sfxTracks): void {
   try {
     const oneShot = base.cloneNode(true) as HTMLAudioElement;
     oneShot.volume = base.volume;
-    void oneShot.play();
+    const playPromise = oneShot.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => {
+        console.log("[playSfx]", "SFX playback failed.");
+        if (fallbackKey) {
+          playSfx(fallbackKey, null);
+        }
+      });
+    }
   } catch {
     console.log("[playSfx]", "SFX playback failed.");
+    if (fallbackKey) {
+      playSfx(fallbackKey, null);
+    }
   }
+}
+
+function playSfxAtVolume(
+  trackKey: keyof typeof sfxTracks,
+  volumeScale: number,
+  fallbackKey: keyof typeof sfxTracks | null = null,
+): void {
+  if (!settings.fx) return;
+  const defaultFallbackKey: keyof typeof sfxTracks = trackKey === "countdownTick" ? "uiTap" : "perfectHit";
+  const resolvedFallback = fallbackKey || defaultFallbackKey;
+  const base = sfxTracks[trackKey] || sfxTracks[resolvedFallback];
+  if (!base) return;
+  const clampedScale = Math.max(0, Math.min(2, volumeScale));
+  try {
+    const oneShot = base.cloneNode(true) as HTMLAudioElement;
+    oneShot.volume = Math.max(0, Math.min(1, base.volume * clampedScale));
+    const playPromise = oneShot.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => {
+        console.log("[playSfxAtVolume]", "SFX playback failed.");
+        if (resolvedFallback) {
+          playSfx(resolvedFallback, null);
+        }
+      });
+    }
+  } catch {
+    console.log("[playSfxAtVolume]", "SFX playback failed.");
+    if (resolvedFallback) {
+      playSfx(resolvedFallback, null);
+    }
+  }
+}
+
+function playCountdownBeep(secondRemaining: number): void {
+  if (secondRemaining < 1 || secondRemaining > 5) return;
+  const urgency = (6 - secondRemaining) / 5;
+  const volumeScale = 0.9 + urgency * 0.3;
+  playSfxAtVolume("countdownTick", volumeScale, "uiTap");
+}
+
+function playGameOverSfx(): void {
+  playSfx("gameOverFail", "perfectHit");
 }
 
 function playMusicIfAllowed(): void {
@@ -988,6 +1049,7 @@ function beginWave(nextWave: number): void {
   waveHits = 0;
   waveHitMarkProgress = new Array(CONFIG.WAVE_HIT_GOAL).fill(0);
   timeRemaining = CONFIG.ROUND_TIME_MS;
+  lastCountdownCueSecond = Math.ceil(timeRemaining / 1000);
   setWorldSpeedForWave();
 
   isDrawing = false;
@@ -1366,6 +1428,7 @@ function gameOver(): void {
   }
 
   triggerHaptic("error");
+  playGameOverSfx();
 
   finalScoreEl.textContent = score.toString();
   pauseBtn.classList.add("hidden");
@@ -1386,6 +1449,7 @@ function startGame(): void {
   waveHits = 0;
   resetUpgrades();
   timeRemaining = CONFIG.ROUND_TIME_MS;
+  lastCountdownCueSecond = Math.ceil(timeRemaining / 1000);
   ammoCount = getMaxQuiverArrows();
   isReloading = false;
   reloadRemaining = 0;
@@ -3189,6 +3253,15 @@ function update(dt: number): void {
   if (timeRemaining <= 0) {
     timeRemaining = 0;
     gameOver();
+    return;
+  }
+
+  const countdownSecond = Math.ceil(timeRemaining / 1000);
+  if (countdownSecond !== lastCountdownCueSecond) {
+    if (countdownSecond >= 1 && countdownSecond <= 5) {
+      playCountdownBeep(countdownSecond);
+    }
+    lastCountdownCueSecond = countdownSecond;
   }
 }
 
@@ -3389,12 +3462,6 @@ function gameLoop(timestamp: number): void {
   if (gameState === "PLAYING") {
     drawHUD();
   }
-
-  ctx.fillStyle = "rgba(255,255,255,0.3)";
-  ctx.font = `${Math.round(11 * gameScale)}px monospace`;
-  ctx.textAlign = "right";
-  ctx.fillText("build 17", w - 10, h - 10);
-  ctx.textAlign = "left";
 
   animationFrameId = requestAnimationFrame(gameLoop);
 }
