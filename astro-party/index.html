@@ -64,14 +64,6 @@
       align-items: center;
       justify-content: center;
       gap: 1.5rem;
-      opacity: 0;
-      transform: scale(0.95);
-      transition: opacity 0.8s ease, transform 0.8s ease;
-    }
-
-    .splash-screen.show-content .splash-content {
-      opacity: 1;
-      transform: scale(1);
     }
 
     .splash-logo {
@@ -80,6 +72,14 @@
       width: 40vw;
       height: auto;
       object-fit: contain;
+      opacity: 0;
+      transform: scale(0.9);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .splash-screen.show-logo .splash-logo {
+      opacity: 1;
+      transform: scale(1);
     }
 
     .splash-tagline {
@@ -89,11 +89,24 @@
       color: rgba(255, 255, 255, 0.7);
       letter-spacing: 0.25em;
       text-transform: uppercase;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
     }
 
-    .splash-screen.fade-content .splash-content {
+    .splash-screen.show-tagline .splash-tagline {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .splash-screen.fade-tagline .splash-tagline {
       opacity: 0;
-      transform: scale(0.95);
+      transform: translateY(-10px);
+    }
+
+    .splash-screen.fade-logo .splash-logo {
+      opacity: 0;
+      transform: scale(0.9);
     }
 
     .splash-screen.fade-out .splash-black {

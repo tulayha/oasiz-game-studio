@@ -48,26 +48,32 @@ function runSplashScreen(): Promise<void> {
       return;
     }
 
-    const fadeOutContent = (): void => {
-      splash.classList.add("fade-content");
+    const showLogo = (): void => {
+      splash.classList.add("show-logo");
 
       setTimeout(() => {
-        splash.classList.add("fade-out");
+        splash.classList.add("show-tagline");
 
         setTimeout(() => {
-          splash.classList.add("done");
-          resolve();
-        }, 500);
-      }, 500);
+          splash.classList.add("fade-tagline");
+
+          setTimeout(() => {
+            splash.classList.add("fade-logo");
+
+            setTimeout(() => {
+              splash.classList.add("fade-out");
+
+              setTimeout(() => {
+                splash.classList.add("done");
+                resolve();
+              }, 500);
+            }, 400);
+          }, 400);
+        }, 1200);
+      }, 300);
     };
 
-    const showContent = (): void => {
-      splash.classList.add("show-content");
-
-      setTimeout(fadeOutContent, 1200);
-    };
-
-    setTimeout(showContent, 100);
+    setTimeout(showLogo, 100);
   });
 }
 
