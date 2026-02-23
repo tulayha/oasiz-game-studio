@@ -112,9 +112,9 @@ const DEFAULT_SHIP_TRAIL_VISUAL_TUNING: Readonly<ShipTrailVisualTuning> =
     outerWidth: 12,
     midWidth: 7,
     coreWidth: 3.3,
-    outerAlpha: 0.06,
-    midAlpha: 0.12,
-    coreAlpha: 0.2,
+    outerAlpha: 0.048,
+    midAlpha: 0.096,
+    coreAlpha: 0.16,
   });
 
 const SHIP_TRAIL_MAX_AGE_MS = 1400;
