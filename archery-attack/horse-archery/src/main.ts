@@ -30,6 +30,7 @@ interface Arrow {
   magnetFxStrength: number;
   magnetTargetWorldX: number;
   magnetTargetHeight: number;
+  magnetTargetRadius: number;
 }
 
 interface WorldTarget {
@@ -1211,6 +1212,7 @@ function fireArrow(): void {
       magnetFxStrength: 0,
       magnetTargetWorldX: 0,
       magnetTargetHeight: 0,
+      magnetTargetRadius: 0,
     });
   };
 
@@ -2269,11 +2271,32 @@ function drawArrows(): void {
       const targetScreenX = horse.screenX + fxDx * pxPerUnit;
       const targetScreenY = groundY - arrow.magnetTargetHeight * pxPerUnit;
       const fxAlpha = Math.min(0.5, 0.16 + arrow.magnetFxStrength * 0.5);
+      const lineDx = targetScreenX - screenX;
+      const lineDy = targetScreenY - screenY;
+      const lineLen = Math.sqrt(lineDx * lineDx + lineDy * lineDy);
+      const targetRadiusPx = Math.max(0, arrow.magnetTargetRadius * pxPerUnit);
+      const activationLenPx = Math.max(
+        CONFIG.MAGNET_RADIUS * pxPerUnit * 2.2,
+        targetRadiusPx + CONFIG.MAGNET_RADIUS * pxPerUnit * 1.6,
+      ) * 2;
+      const redZoneStartRatio = lineLen > 0.001
+        ? Math.max(0, Math.min(1, (lineLen - activationLenPx) / lineLen))
+        : 0;
+      const splitX = screenX + lineDx * redZoneStartRatio;
+      const splitY = screenY + lineDy * redZoneStartRatio;
 
-      ctx.strokeStyle = "rgba(120, 230, 255, " + fxAlpha.toFixed(3) + ")";
       ctx.lineWidth = Math.max(1.2, 2.2 * gameScale * arrow.magnetFxStrength);
+      if (redZoneStartRatio > 0.001) {
+        ctx.strokeStyle = "rgba(120, 230, 255, " + fxAlpha.toFixed(3) + ")";
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY);
+        ctx.lineTo(splitX, splitY);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "rgba(255, 90, 90, " + Math.min(0.8, fxAlpha + 0.15).toFixed(3) + ")";
       ctx.beginPath();
-      ctx.moveTo(screenX, screenY);
+      ctx.moveTo(splitX, splitY);
       ctx.lineTo(targetScreenX, targetScreenY);
       ctx.stroke();
 
@@ -2605,7 +2628,8 @@ function update(dt: number): void {
     let arrowDx = arrow.worldX - world.cameraX;
     if (arrowDx > world.width / 2) arrowDx -= world.width;
     if (arrowDx < -world.width / 2) arrowDx += world.width;
-    if (!arrow.stuckInGround && (arrowDx > 1200 || arrowDx < -100)) {
+    // Keep airborne arrows alive while ahead of camera so they can land and stick.
+    if (!arrow.stuckInGround && arrowDx < -100) {
       arrow.active = false;
       continue;
     }
@@ -2637,24 +2661,38 @@ function update(dt: number): void {
         closestDy = dy;
       }
       const hitRadius = getTargetHitRadius(t);
-      const isMagnetHit = upgradeLevels.magnetArrows > 0 && dist <= CONFIG.MAGNET_RADIUS;
+      const isMagnetLockHit = upgradeLevels.magnetArrows > 0 && dist <= CONFIG.MAGNET_RADIUS;
+      const isDirectHit = dist < hitRadius;
 
-      if (isMagnetHit || dist < hitRadius) {
+      if (isMagnetLockHit || isDirectHit) {
         // Slight 3D target behavior: score by where the arrow is projected
         // toward the target's center plane instead of first edge contact.
         let scoreDx = tdx;
         let scoreDy = dy;
-        if (Math.abs(arrow.vx) > 0.00001) {
+        let scoreDist = Math.sqrt(scoreDx * scoreDx + scoreDy * scoreDy);
+        let impactAngle = collisionPoint.angle;
+        let magnetAssistedEdgeHit = false;
+
+        if (isMagnetLockHit) {
+          const safeDist = Math.max(0.0001, dist);
+          const edgeNx = tdx / safeDist;
+          const edgeNy = dy / safeDist;
+          // Magnet lock turns the arrow toward center but only grants an edge impact.
+          scoreDx = edgeNx * t.radius;
+          scoreDy = edgeNy * t.radius;
+          scoreDist = t.radius;
+          impactAngle = Math.atan2(dy, -tdx);
+          magnetAssistedEdgeHit = true;
+        } else if (Math.abs(arrow.vx) > 0.00001) {
           const tToCenter = -tdx / arrow.vx;
           if (tToCenter >= 0 && tToCenter <= CONFIG.TARGET_PENETRATION_WINDOW_MS) {
             scoreDx = 0;
             scoreDy = dy + arrow.vy * tToCenter;
           }
+          scoreDist = Math.sqrt(scoreDx * scoreDx + scoreDy * scoreDy);
         }
-        const scoreDist = Math.sqrt(scoreDx * scoreDx + scoreDy * scoreDy);
 
         arrow.active = false;
-        const impactAngle = collisionPoint.angle;
         t.embeddedArrow = {
           offsetX: scoreDx,
           offsetY: scoreDy,
@@ -2664,18 +2702,20 @@ function update(dt: number): void {
 
         let points = 2;
         let isBullseye = false;
-        const scoringBias = t.radius * 0.08;
-        const adjustedDist = Math.max(0, scoreDist - scoringBias);
-        const ringFrac = adjustedDist / t.radius;
-        if (ringFrac < 0.25) {
-          points = 10;
-          isBullseye = true;
-        } else if (ringFrac < 0.4) {
-          points = 8;
-        } else if (ringFrac < 0.6) {
-          points = 6;
-        } else if (ringFrac < 0.8) {
-          points = 4;
+        if (!magnetAssistedEdgeHit) {
+          const scoringBias = t.radius * 0.08;
+          const adjustedDist = Math.max(0, scoreDist - scoringBias);
+          const ringFrac = adjustedDist / t.radius;
+          if (ringFrac < 0.25) {
+            points = 10;
+            isBullseye = true;
+          } else if (ringFrac < 0.4) {
+            points = 8;
+          } else if (ringFrac < 0.6) {
+            points = 6;
+          } else if (ringFrac < 0.8) {
+            points = 4;
+          }
         }
         if (t.kind === "tiny") points += 2;
         if (t.kind === "decoy") {
@@ -2728,6 +2768,7 @@ function update(dt: number): void {
       arrow.magnetFxStrength = pullRatio;
       arrow.magnetTargetWorldX = closestTarget.worldX;
       arrow.magnetTargetHeight = closestTarget.postHeight;
+      arrow.magnetTargetRadius = closestTarget.radius;
     }
     if (waveClearedThisFrame) break arrowLoop;
   }
