@@ -27,6 +27,83 @@
       user-select: none;
     }
 
+    /* ============= SPLASH SCREEN ============= */
+    .splash-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    .splash-black {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #0a0a12;
+      opacity: 1;
+      transition: opacity 0.5s ease;
+    }
+
+    .splash-screen.fade-out .splash-black {
+      opacity: 0;
+    }
+
+    .splash-content {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      opacity: 0;
+      transform: scale(0.95);
+      transition: opacity 0.8s ease, transform 0.8s ease;
+    }
+
+    .splash-screen.show-content .splash-content {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .splash-logo {
+      max-width: 180px;
+      max-height: 180px;
+      width: 40vw;
+      height: auto;
+      object-fit: contain;
+    }
+
+    .splash-tagline {
+      font-family: 'Exo 2', sans-serif;
+      font-size: clamp(0.9rem, 3vw, 1.4rem);
+      font-weight: 300;
+      color: rgba(255, 255, 255, 0.7);
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+    }
+
+    .splash-screen.fade-content .splash-content {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+
+    .splash-screen.fade-out .splash-black {
+      opacity: 0;
+    }
+
+    .splash-screen.done {
+      display: none;
+    }
+
     :root {
       --cyan: #00f0ff;
       --magenta: #ff00aa;
@@ -2835,6 +2912,15 @@
   </style>
 </head>
 <body>
+  <!-- Splash Screen -->
+  <div id="splashScreen" class="splash-screen">
+    <div class="splash-black"></div>
+    <div class="splash-content">
+      <img src="assets/Oasiz-logo-transparent.png" alt="Oasiz" class="splash-logo">
+      <div class="splash-tagline">An Oasiz Original</div>
+    </div>
+  </div>
+
   <!-- 3D Starfield Background (only shown during gameplay) -->
   <div class="stars-container" id="starsContainer">
     <div class="stars-bg" id="starsBg"></div>

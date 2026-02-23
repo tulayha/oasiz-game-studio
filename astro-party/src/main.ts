@@ -40,8 +40,41 @@ window.setNextSeed = (seed: number): void => {
   game.setNextRngSeed(seed);
 };
 
+function runSplashScreen(): Promise<void> {
+  return new Promise((resolve) => {
+    const splash = document.getElementById("splashScreen");
+    if (!splash) {
+      resolve();
+      return;
+    }
+
+    const fadeOutContent = (): void => {
+      splash.classList.add("fade-content");
+
+      setTimeout(() => {
+        splash.classList.add("fade-out");
+
+        setTimeout(() => {
+          splash.classList.add("done");
+          resolve();
+        }, 500);
+      }, 500);
+    };
+
+    const showContent = (): void => {
+      splash.classList.add("show-content");
+
+      setTimeout(fadeOutContent, 1200);
+    };
+
+    setTimeout(showContent, 100);
+  });
+}
+
 async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
+
+  await runSplashScreen();
 
   const viewport = createViewportController(game);
   await tryLockOrientation(viewport.isMobile);
