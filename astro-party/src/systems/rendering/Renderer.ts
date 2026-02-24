@@ -228,7 +228,6 @@ export class Renderer {
   private entitySprites = new EntitySpriteStore();
   private mapOverlays = new MapOverlayStore();
   private powerUpSprites = new PowerUpSpriteStore();
-  private previousProjectilePositions = new Map<string, { x: number; y: number }>();
   private projectileDebugHistory = new Map<
     string,
     Array<{ x: number; y: number; atMs: number }>
@@ -340,133 +339,90 @@ export class Renderer {
   setDevMode(enabled: boolean): void {
     this.devModeEnabled = enabled;
     if (!enabled) {
-      this.previousProjectilePositions.clear();
       this.projectileDebugHistory.clear();
     }
   }
 
-  // Draw homing missile detection radius (dev mode only)
-  drawHomingMissileDetectionRadius(x: number, y: number, radius: number): void {
+  private drawDebugRadius(
+    x: number,
+    y: number,
+    radius: number,
+    options: {
+      strokeStyle: string;
+      fillStyle: string;
+      label: string;
+      labelColor: string;
+      lineDash: number[];
+      lineWidth?: number;
+      secondaryLabel?: string;
+    },
+  ): void {
     if (!this.devModeEnabled) return;
 
     const { ctx } = this;
     ctx.save();
     ctx.translate(x, y);
-
-    // Green dashed circle for detection radius
-    ctx.strokeStyle = "rgba(0, 255, 0, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([10, 5]);
+    ctx.strokeStyle = options.strokeStyle;
+    ctx.lineWidth = options.lineWidth ?? 2;
+    ctx.setLineDash(options.lineDash);
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Fill with transparent green
-    ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
+    ctx.fillStyle = options.fillStyle;
     ctx.fill();
 
-    // Label
     ctx.setLineDash([]);
-    ctx.fillStyle = "#00ff00";
+    ctx.fillStyle = options.labelColor;
     ctx.font = "12px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("DETECT", 0, radius + 15);
-    ctx.fillText(`${radius}px`, 0, radius + 28);
-
+    ctx.fillText(options.label, 0, radius + 15);
+    ctx.fillText(options.secondaryLabel ?? `${radius}px`, 0, radius + 28);
     ctx.restore();
+  }
+
+  // Draw homing missile detection radius (dev mode only)
+  drawHomingMissileDetectionRadius(x: number, y: number, radius: number): void {
+    this.drawDebugRadius(x, y, radius, {
+      strokeStyle: "rgba(0, 255, 0, 0.8)",
+      fillStyle: "rgba(0, 255, 0, 0.1)",
+      label: "DETECT",
+      labelColor: "#00ff00",
+      lineDash: [10, 5],
+    });
   }
 
   // Draw mine detection radius (dev mode only)
   drawMineDetectionRadius(x: number, y: number, radius: number): void {
-    if (!this.devModeEnabled) return;
-
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Green dashed circle for detection radius
-    ctx.strokeStyle = "rgba(0, 255, 0, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([10, 5]);
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Fill with transparent green
-    ctx.fillStyle = "rgba(0, 255, 0, 0.1)";
-    ctx.fill();
-
-    // Label
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#00ff00";
-    ctx.font = "12px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("MINE", 0, radius + 15);
-    ctx.fillText(`${radius}px`, 0, radius + 28);
-
-    ctx.restore();
+    this.drawDebugRadius(x, y, radius, {
+      strokeStyle: "rgba(0, 255, 0, 0.8)",
+      fillStyle: "rgba(0, 255, 0, 0.1)",
+      label: "MINE",
+      labelColor: "#00ff00",
+      lineDash: [10, 5],
+    });
   }
 
   // Draw turret detection radius (dev mode only)
   drawTurretDetectionRadius(x: number, y: number, radius: number): void {
-    if (!this.devModeEnabled) return;
-
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Red dashed circle for turret detection radius
-    ctx.strokeStyle = "rgba(255, 50, 50, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([10, 5]);
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Fill with transparent red
-    ctx.fillStyle = "rgba(255, 50, 50, 0.1)";
-    ctx.fill();
-
-    // Label
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#ff3333";
-    ctx.font = "12px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("TURRET", 0, radius + 15);
-    ctx.fillText(`${radius}px`, 0, radius + 28);
-
-    ctx.restore();
+    this.drawDebugRadius(x, y, radius, {
+      strokeStyle: "rgba(255, 50, 50, 0.8)",
+      fillStyle: "rgba(255, 50, 50, 0.1)",
+      label: "TURRET",
+      labelColor: "#ff3333",
+      lineDash: [10, 5],
+    });
   }
 
   // Draw turret bullet explosion radius (dev mode only)
   drawTurretBulletRadius(x: number, y: number, radius: number): void {
-    if (!this.devModeEnabled) return;
-
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Orange dashed circle for bullet explosion radius
-    ctx.strokeStyle = "rgba(255, 150, 0, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([10, 5]);
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Fill with transparent orange
-    ctx.fillStyle = "rgba(255, 150, 0, 0.1)";
-    ctx.fill();
-
-    // Label
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#ff9900";
-    ctx.font = "12px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("BULLET", 0, radius + 15);
-    ctx.fillText(`${radius}px`, 0, radius + 28);
-
-    ctx.restore();
+    this.drawDebugRadius(x, y, radius, {
+      strokeStyle: "rgba(255, 150, 0, 0.8)",
+      fillStyle: "rgba(255, 150, 0, 0.1)",
+      label: "BULLET",
+      labelColor: "#ff9900",
+      lineDash: [10, 5],
+    });
   }
 
   // Draw power-up magnetic radius (dev mode only)
@@ -476,37 +432,17 @@ export class Renderer {
     radius: number,
     isActive: boolean,
   ): void {
-    if (!this.devModeEnabled) return;
-
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Purple dashed circle for magnetic radius
-    ctx.strokeStyle = isActive
-      ? "rgba(200, 100, 255, 0.9)"
-      : "rgba(150, 80, 200, 0.7)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([8, 4]);
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Fill with transparent purple
-    ctx.fillStyle = isActive
-      ? "rgba(200, 100, 255, 0.15)"
-      : "rgba(150, 80, 200, 0.08)";
-    ctx.fill();
-
-    // Label
-    ctx.setLineDash([]);
-    ctx.fillStyle = isActive ? "#cc66ff" : "#9966cc";
-    ctx.font = "12px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("MAGNET", 0, radius + 15);
-    ctx.fillText(`${radius}px`, 0, radius + 28);
-
-    ctx.restore();
+    this.drawDebugRadius(x, y, radius, {
+      strokeStyle: isActive
+        ? "rgba(200, 100, 255, 0.9)"
+        : "rgba(150, 80, 200, 0.7)",
+      fillStyle: isActive
+        ? "rgba(200, 100, 255, 0.15)"
+        : "rgba(150, 80, 200, 0.08)",
+      label: "MAGNET",
+      labelColor: isActive ? "#cc66ff" : "#9966cc",
+      lineDash: [8, 4],
+    });
   }
 
   // ============= TURRET RENDERING =============
@@ -688,7 +624,7 @@ export class Renderer {
 
       // Calculate deterministic shake offsets using time-based sin/cos
       // This avoids Math.random() in the render loop while still giving chaotic motion
-      const time = performance.now() * 0.05;
+      const time = this.getNowMs() * 0.05;
       const decay = this.screenShake.duration > 0 ? 1 : 0;
       this.screenShake.offsetX =
         Math.sin(time * 1.1) *
@@ -731,7 +667,6 @@ export class Renderer {
     this.pilotDebrisPieces = [];
     this.pilotDeathBursts = [];
     this.shipTrails.clear();
-    this.previousProjectilePositions.clear();
     this.projectileDebugHistory.clear();
     this.screenShake.intensity = 0;
     this.screenShake.duration = 0;
@@ -1573,15 +1508,6 @@ export class Renderer {
         ctx.restore();
       }
 
-      this.previousProjectilePositions.set(projectile.id, {
-        x: projectile.x,
-        y: projectile.y,
-      });
-    }
-
-    for (const projectileId of [...this.previousProjectilePositions.keys()]) {
-      if (activeProjectileIds.has(projectileId)) continue;
-      this.previousProjectilePositions.delete(projectileId);
     }
     for (const projectileId of [...this.projectileDebugHistory.keys()]) {
       if (activeProjectileIds.has(projectileId)) continue;
@@ -2773,7 +2699,7 @@ export class Renderer {
 
   drawStars(): void {
     const { ctx } = this;
-    const time = performance.now() / 1000;
+    const time = this.getNowMs() / 1000;
 
     // Stars are drawn in arena coordinates (already transformed)
     for (const star of this.stars) {
@@ -3222,148 +3148,37 @@ export class Renderer {
 
   // ============= MINE RENDERING =============
 
-  drawMine(mine: {
-    x: number;
-    y: number;
-    exploded: boolean;
-    explosionTime: number;
-  }): void {
+  private drawMineExplosionEffect(
+    x: number,
+    y: number,
+    radius: number,
+    alpha: number,
+  ): void {
     const { ctx } = this;
-    const { x, y, exploded, explosionTime } = mine;
-    const nowMs = this.getNowMs();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
 
-    if (exploded && explosionTime > 0) {
-      // Draw explosion effect - lasts 500ms
-      const elapsed = nowMs - explosionTime;
-      const progress = this.clamp01(elapsed / 500);
-      const radius =
-        GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
-      const alpha = 1 - progress;
+    ctx.fillStyle = `rgba(255, 255, 200, ${alpha * 0.8})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
+    ctx.fill();
 
-      ctx.save();
-      ctx.translate(x, y);
-
-      // Outer white flash
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Middle bright ring
-      ctx.fillStyle = `rgba(255, 255, 200, ${alpha * 0.8})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Inner bright core
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    } else {
-      // Draw pointy ball mine with pulsing animation
-      ctx.save();
-      ctx.translate(x, y);
-
-      // Pulsing animation - scale shrinks and grows
-      const pulseSpeed = 0.008;
-      const pulseAmount = 0.15;
-      const pulseScale = 1 + Math.sin(nowMs * pulseSpeed) * pulseAmount;
-      ctx.scale(pulseScale, pulseScale);
-
-      const mineSize = GAME_CONFIG.POWERUP_MINE_SIZE;
-      const spikeCount = 8;
-      const innerRadius = mineSize * 0.6;
-      const outerRadius = mineSize;
-
-      // Glow effect - orange
-      ctx.shadowColor = "#ff8800";
-      ctx.shadowBlur = 15;
-
-      // Draw spiky ball shape - grey spikes
-      ctx.fillStyle = "#888888";
-      ctx.strokeStyle = "#aaaaaa";
-      ctx.lineWidth = 2;
-
-      ctx.beginPath();
-      for (let i = 0; i < spikeCount * 2; i++) {
-        const angle = (i / (spikeCount * 2)) * Math.PI * 2;
-        const radius = i % 2 === 0 ? outerRadius : innerRadius;
-        const px = Math.cos(angle) * radius;
-        const py = Math.sin(angle) * radius;
-        if (i === 0) {
-          ctx.moveTo(px, py);
-        } else {
-          ctx.lineTo(px, py);
-        }
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Center glow - orange center
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#ff8800";
-      ctx.beginPath();
-      ctx.arc(0, 0, mineSize * 0.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Inner bright core
-      ctx.fillStyle = "#ffaa44";
-      ctx.beginPath();
-      ctx.arc(0, 0, mineSize * 0.25, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    }
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
-  drawMineState(state: import("../../types").MineState): void {
+  private drawMineBody(x: number, y: number, nowMs: number): void {
     const { ctx } = this;
-    const { x, y, exploded, explosionTime } = state;
-    const nowMs = this.getNowMs();
-
-    // Check if mine has exploded
-    if (exploded && explosionTime > 0) {
-      // Draw explosion effect on client - lasts 500ms
-      const elapsed = nowMs - explosionTime;
-      const progress = this.clamp01(elapsed / 500);
-      const radius =
-        GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
-      const alpha = 1 - progress;
-
-      ctx.save();
-      ctx.translate(x, y);
-
-      // Outer white flash
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Middle bright ring
-      ctx.fillStyle = `rgba(255, 255, 200, ${alpha * 0.8})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Inner bright core
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-      return;
-    }
-
-    // Normal mine rendering with pulse
     ctx.save();
     ctx.translate(x, y);
 
-    // Pulsing animation
     const pulseSpeed = 0.008;
     const pulseAmount = 0.15;
     const pulseScale = 1 + Math.sin(nowMs * pulseSpeed) * pulseAmount;
@@ -3374,11 +3189,9 @@ export class Renderer {
     const innerRadius = mineSize * 0.6;
     const outerRadius = mineSize;
 
-    // Grey spikes
     ctx.fillStyle = "#888888";
     ctx.strokeStyle = "#aaaaaa";
     ctx.lineWidth = 2;
-
     ctx.beginPath();
     for (let i = 0; i < spikeCount * 2; i++) {
       const angle = (i / (spikeCount * 2)) * Math.PI * 2;
@@ -3395,13 +3208,11 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
-    // Orange center
     ctx.fillStyle = "#ff8800";
     ctx.beginPath();
     ctx.arc(0, 0, mineSize * 0.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Inner bright core
     ctx.fillStyle = "#ffaa44";
     ctx.beginPath();
     ctx.arc(0, 0, mineSize * 0.25, 0, Math.PI * 2);
@@ -3410,9 +3221,27 @@ export class Renderer {
     ctx.restore();
   }
 
-  spawnMineExplosion(x: number, y: number, radius: number): void {
-    const { ctx } = this;
+  drawMineState(state: import("../../types").MineState): void {
+    const { x, y, exploded, explosionTime } = state;
+    const nowMs = this.getNowMs();
 
+    // Check if mine has exploded
+    if (exploded && explosionTime > 0) {
+      // Draw explosion effect on client - lasts 500ms
+      const elapsed = nowMs - explosionTime;
+      const progress = this.clamp01(elapsed / 500);
+      const radius =
+        GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
+      const alpha = 1 - progress;
+
+      this.drawMineExplosionEffect(x, y, radius, alpha);
+      return;
+    }
+
+    this.drawMineBody(x, y, nowMs);
+  }
+
+  spawnMineExplosion(x: number, y: number, radius: number): void {
     // Create a bright flash particle
     this.particles.push({
       x,
@@ -3508,7 +3337,7 @@ export class Renderer {
 
     // Fire and smoke particles at the tail
     const tailX = -10;
-    const time = Date.now() * 0.02;
+    const time = this.getNowMs() * 0.02;
 
     // Fire (orange/yellow)
     ctx.fillStyle = "#ff8800";

@@ -1,0 +1,661 @@
+Original prompt: On the client, never queue snapshots blindly. Always render the newest. This prevents latency buildup right? ... proceed with implementing it. clear out all redundant network code.
+
+## 2026-02-21
+- Mobile ship clarity fix:
+  - Removed embedded SVG Gaussian blur filter (`softGlow`) from `shared/assets/entities/ship.svg`.
+  - Removed `filter="url(#softGlow)"` from the ship `#visual` group so the ship silhouette renders sharper when zoomed.
+- Validation:
+  - `astro-party`: `bun run build` passed and regenerated `shared/geometry/generated/EntitySvgData.ts`.
+- Notes:
+  - Attempted Playwright smoke run using the `develop-web-game` skill client, but process-spawn command was blocked by policy in this environment.
+
+## 2026-02-16
+- Audited astro-party networking stack.
+- Identified latency sources in code:
+  - Server snapshot timer decoupled from sim tick (`snapshotHz` interval).
+  - Client `NetworkSyncSystem` buffering + interpolation + self-prediction pipeline.
+  - Input send path rate-limited by interval-only condition instead of immediate send on input edges.
+- Next: implement strict server-authoritative newest-snapshot flow with tiny capped extrapolation and remove redundant client prediction/buffering paths.
+- Implemented server tick-aligned snapshot delivery:
+  - Removed separate snapshot timer path in `server/src/rooms/AstroPartyRoom.ts`.
+  - Broadcast snapshots directly from simulation `onSnapshot` callback (per sim tick).
+  - Added per-client outbound buffer guard to drop stale sends when socket backlog grows.
+- Updated server transport setup in `server/src/index.ts`:
+  - Explicit `perMessageDeflate: false`.
+  - Increased configurable websocket max payload (`WS_MAX_PAYLOAD_BYTES`, default 262144).
+  - Enabled TCP no-delay on accepted sockets.
+- Replaced `src/network/NetworkSyncSystem.ts` with newest-snapshot authoritative sync:
+  - Removed snapshot buffering/interpolation pipeline and self-physics prediction path.
+  - Keep only latest authoritative snapshot by host tick.
+  - Added tiny client extrapolation cap using velocity fields (`remoteSmoothing.extrapolationCapBaseMs`).
+  - Kept asteroid collider hydration + authoritative FX/event handling.
+- Updated `src/systems/PlayerInputResolver.ts`:
+  - Inputs now send immediately on button edge changes.
+  - Still sends periodic keepalive at configured interval.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `bun run build` passed.
+
+TODO / Follow-ups:
+- Verify runtime behavior against real server with packet loss simulation to tune `extrapolationCapBaseMs` (20-40ms target).
+- If desired, remove unused legacy files (`SelfShipPredictor`) in a separate cleanup-only pass.
+- Ran Playwright smoke automation via `web_game_playwright_client.js` against local Vite server.
+  - Artifacts: `output/web-game-network-smoke/shot-0.png`.
+  - No automated console error artifact emitted by the script for this run.
+- Simplified `src/network/gameFeel/NetworkGameFeelTuning.ts` to match new architecture:
+  - Removed interpolation/prediction tuning knobs no longer used.
+  - Set `remoteSmoothing.extrapolationCapBaseMs` to 32ms (small visual-only cap).
+  - Disabled self-prediction flag while keeping immediate input send cadence config.
+- Re-ran `astro-party` build after tuning cleanup: passed.
+- Final verification rerun:
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `bun run build` passed.
+- Re-ran Playwright smoke script after tuning cleanup; script completed successfully (module-type warning from script package only).
+- Removed unused dead file `src/network/gameFeel/SelfShipPredictor.ts` after authoritative-sync rewrite.
+- Re-ran `astro-party` build after deletion: passed.
+## 2026-02-17
+- Implemented centralized scoring policy in `shared/sim/scoring.ts`:
+  - Point awards configurable in one place: `SHIP_DESTROY=5`, `PILOT_KILL=20`, `ROUND_WIN=50`, `GAME_WIN=100`.
+  - Score submission policy centralized: requires eligible lobby bot and currently treats `ai` bots as eligible.
+- Server/simulation is now authoritative for session score:
+  - Added `score` to runtime player model and player-list metadata.
+  - Awarded score in `shared/sim/GameFlowSystem.ts` for ship destroys, pilot kills, round wins, and game wins.
+  - Added `scoresById` to `RoundResultPayload` so round/game-end always include authoritative per-player session scores.
+- Propagated score through network stack:
+  - Updated room schema/state sync (`server/src/rooms/AstroPartyRoomState.ts`, `server/src/rooms/AstroPartyRoom.ts`).
+  - Updated transports/player meta mapping (`src/network/transports/*`).
+  - Updated client sync (`src/network/NetworkSyncSystem.ts`) to consume authoritative `score`.
+- Client score submission changes (`src/Game.ts`):
+  - Submits only local player's own authoritative score (`scoresById[myId]` fallback to synced player `score`).
+  - Submission is gated by centralized policy and lobby bot eligibility tracking.
+  - Prevents repeated submits with `finalScoreSubmittedForMatch` guard.
+- UI updates (`src/ui/screens.ts`):
+  - HUD rows now show session points.
+  - End-game leaderboard now sorts by session points and displays points/rounds/kills.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `bun run build` passed.
+
+TODO / Follow-ups:
+- Optionally render `scoresById` in round-end overlay list (not just winner text) to expose full per-round session standings mid-match.
+- If desired, expand eligible submission bot types in `shared/sim/scoring.ts` (e.g., include `local`) without touching scoring flow code.
+- Updated in-game leave UX and single-leave entry behavior:
+  - Restyled HUD leave button to lobby back-button shape with contextual red theme (`index.html`).
+  - Leave action in settings is now mutually exclusive with HUD leave:
+    - HUD leave visible in normal gameplay views.
+    - Settings leave shown only when HUD leave is hidden (mobile with >=2 local players).
+  - Added compact settings state class when HUD leave is active.
+- Fixed mobile dodge inconsistency:
+  - Root cause: when host uses touch-zone controls (`useTouchForHost`), dash for slot 0 was detected but never consumed/sent.
+  - Added host touch dash consumption path in `Game` loop (`consumeHostTouchDash`) to route slot 0 dash events through existing `handleLocalDash()` logic.
+  - This aligns dash action + dash particles behavior between desktop and mobile host controls.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Follow-up UI polish pass based on review:
+  - Removed points text from in-game score track so HUD reflects only round progress state.
+  - Reworked game-end scoreboard into a column layout with a single header row (`Pilot | Pts | Rounds | Kills`) and per-row numeric values only.
+  - Added responsive column widths for narrow/mobile layouts.
+  - Tuned settings leave button sizing/styling for mobile-local flow and removed inline styling.
+- End-screen UX polish pass:
+  - Reworked game-end shell/panel hierarchy to anchor scoreboard beneath winner block.
+  - Final scoreboard now uses explicit grid-cell markup (header + numeric columns) to prevent collapsed inline label rendering.
+  - Improved readability: higher-contrast header, sticky header while scrolling, row dividers + subtle striping, tabular numeric alignment.
+  - Kept narrow/mobile column overrides aligned with new grid.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- UI alignment/width polish pass (match-end + settings modal):
+  - Introduced `.settings-actions` container in `index.html` so settings `Leave Game` and `Done` buttons share identical width/margins and stay aligned in mobile-only leave flow.
+  - Replaced ad-hoc `#settingsClose` top-margin behavior with container-level spacing (`#settingsModal.main-leave-active .settings-actions`).
+  - Constrained match-end scoreboard panel width to content-focused bounds:
+    - Desktop: `min-width` up to `520px`, capped at `620px`.
+    - Mobile: capped to `min(var(--box-width)-24px, 430px)`.
+  - Unified header/row column geometry via shared CSS vars (`--final-col-*`) to guarantee alignment for `Pilot/Pts/Rounds/Kills` cells.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Debug tooling hardening and score-protection wiring:
+  - Added client debug gate module: `src/debug/debugTools.ts`.
+    - Build gate: `import.meta.env.DEV || VITE_QA_DEBUG_TOOLS`.
+    - Runtime unlock: always in DEV, or `window.__ASTRO_DEBUG__ === true`, or `?debug=1` in QA builds.
+  - Existing in-game dev key path now follows gate end-to-end:
+    - `Game.setDevKeysEnabled()` now applies UI intent + room debug capability gate.
+    - `Input` no longer allows `Digit0` dev-mode toggle outside debug-enabled flow.
+    - `Game.processDevPowerUpRequests()` exits early unless debug is allowed for current session.
+  - Added authoritative debug-state propagation through network:
+    - New callbacks path `onDebugStateReceived({ enabled, tainted })`.
+    - Colyseus + Local transports now emit this from state/room meta.
+  - Server/sim authoritative gating:
+    - `AstroPartySimulation` now accepts `debugToolsEnabled` option.
+    - `setDevMode` and `devGrantPowerUp` reject with `DEBUG_TOOLS_DISABLED` when unavailable.
+    - Any accepted debug action marks session as debug-tainted.
+  - New room/state fields for debug policy visibility:
+    - `debugToolsEnabled`, `debugSessionTainted` in room schema/state and room-meta sync.
+    - Server default policy: `ASTRO_DEBUG_TOOLS_ENABLED` env overrides, otherwise enabled only when `NODE_ENV !== production`.
+  - Score submission policy updated:
+    - Centralized in `shared/sim/scoring.ts` with `blockWhenDebugSessionTainted`.
+    - Client submit path now calls `shouldSubmitScoreToPlatform(hasEligibleBot, debugSessionTainted)`.
+    - Logs explicit reason when blocked due to debug-tainted session.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `bun run build` passed.
+- Implemented QA/dev mobile debug sheet (build-gated only):
+  - Added `src/debug/debugPanel.ts` with touch-friendly floating `DBG` button + panel.
+  - Panel actions include UI preview shortcuts: `Live`, `Start`, `Lobby`, `Game HUD`, `Round End Mock`, `Match End Mock`.
+  - Added core debug actions in panel: `Toggle Dev Viz` + power-up grants.
+- Simplified client debug gate behavior per request:
+  - `isClientDebugToolsRequested()` now follows build gate only (`DEV` or `VITE_QA_DEBUG_TOOLS=true`).
+- Main wiring:
+  - `src/main.ts` now mounts debug panel only when `CLIENT_DEBUG_BUILD_ENABLED` is true.
+  - Refactored phase->screen sync into reusable `syncScreenToPhase(...)` and used it for panel `Live` restore.
+- Game API additions for panel:
+  - `requestDebugPowerUp(...)` and `getDebugStatus()` in `src/Game.ts`.
+- Docs updated:
+  - Added QA/debug panel + env/docs details to `astro-party/README.md`.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `bun run build` passed.
+- UI consistency pass for grouped buttons across contexts:
+  - Added shared grouped-button sizing contract for `start`, `join`, `lobby bottom`, `end`, `settings`, and `leave modal` action buttons.
+  - Enforced centered alignment + consistent min-height across desktop and coarse/mobile.
+  - End screen actions now use a fixed 2-column grid (1-column on narrow) with no text wrapping drift.
+  - Leave modal action row switched to equal 2-column grid for consistent widths.
+  - Prevented settings modal Done button from inheriting extra top margin in mobile (`.settings-actions .settings-close`).
+  - Shortened waiting label to `Waiting for leader` to reduce width pressure in end-screen disabled state.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Lobby map selection update:
+  - Added `Classic` as rotation selection mode (id `0`) and new fixed `Turret` option (id `5`) in second position.
+  - Map selector now renders 6 options and uses 3-column grid layout.
+  - Added `mapBtn5` wiring in UI elements/lobby logic (active/disabled/click handling).
+- Preview update:
+  - Map preview now draws a question-mark/`ROTATES` visual when `Classic` is selected.
+  - `Turret` preview shows the original turret map layout (old Classic preview).
+- Simulation behavior update:
+  - Added classic-rotation mode tracking (`useClassicMapRotation`) in simulation.
+  - Classic selection (`mapId=0`) rotates maps each round from fixed pool `[1,2,3,4,5]`.
+  - Non-classic selections keep the same map across rounds.
+  - Range validation updated to allow map id `5`.
+  - Restarting to lobby resets displayed map back to `Classic` when rotation mode is active.
+- Shared types/maps updated:
+  - `MapId` expanded to `0 | 1 | 2 | 3 | 4 | 5`.
+  - Added map definition `5: Turret`; `0` now acts as Classic Rotation selection definition.
+- Validation:
+  - `astro-party`: `bun run format` + `bun run build` passed.
+  - `astro-party/server`: `bun run build` passed.
+
+## 2026-02-18
+- Mobile rotated-portrait lobby and map-picker responsiveness pass (`index.html`):
+  - Prevented map picker overflow by sizing against `min(--box-width, --box-height)` and using `--box-top`/`--box-height` for vertical fit.
+  - Increased touch target sizes for mode/map controls (`.mode-option`, `.map-change-btn`).
+  - Added coarse+portrait override to compact lobby columns, reduce row density, and reserve right-edge space to avoid platform HUD overlap with CTA controls.
+  - Added compact map-picker card/canvas sizing in coarse+portrait to avoid clipped right-most content.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Follow-up mobile-only lobby fit pass for rotated portrait constraints:
+  - Changed base `.lobby-body` from `height: 100%` to `height: auto` to reduce body/footer competition.
+  - Added higher-specificity `html[data-layout="narrow"] .lobby-body` override under coarse+portrait to preserve intended two-column lobby in forced-rotation mode.
+  - Enabled controlled scrolling for `.lobby-side` and reduced short-phone (max-width 460) vertical density in lobby/map summary/footer CTA sizing.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-18
+- Lobby mode controls UX update for tighter mobile fit:
+  - Replaced 4-button mode segmented control with a single cycle pill in `index.html` (`#modeCycleBtn`, `#modeCycleValue`).
+  - Moved `#advancedSettingsBtn` inline with the mode pill in one row so actions consume less vertical space before the map summary.
+  - Added responsive CSS for the new inline row across base/mobile/very-narrow portrait breakpoints.
+- Updated UI wiring:
+  - `src/ui/elements.ts`: removed `modeStandard/modeSane/modeChaotic/modeCustom`; added `modeCycleBtn` + `modeCycleValue`.
+  - `src/ui/lobby.ts`: mode tap now cycles `STANDARD -> SANE -> CHAOTIC -> ...`.
+  - `CUSTOM` is display-only (shown when advanced settings diverge), and is not part of the cycle order.
+- Added `Game.getBaseMode()` in `src/Game.ts` so cycling from `CUSTOM` anchors to base mode progression.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Test tooling note:
+  - Attempted to run the `develop-web-game` Playwright client smoke test, but launching the local dev server process was blocked by environment policy in this session.
+- Lobby controls polish follow-up:
+  - Simplified mode cycle pill to value-only text (removed MODE label + chevron icon) and reduced visual weight/height.
+  - Tightened inline `Advanced` button sizing to match compact mode control.
+- Arena summary simplification:
+  - Removed lobby-only map description + fixed/rotation behavior text.
+  - Reworked summary to preview-first layout with only map name + `Change Map` action below preview.
+  - Updated responsive rules to preserve readability/tap targets on coarse pointer + portrait-rotated narrow layouts.
+- Cleaned corresponding TS wiring:
+  - Removed `mapCurrentDesc` / `mapCurrentBehavior` element references from `src/ui/elements.ts`.
+  - Removed `mapBehaviorLabel` and desc/behavior writes from `src/ui/lobby.ts`.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Follow-up UX/layout fix based on review:
+  - Mode/Advanced row is now true 50/50 (`grid-template-columns: repeat(2, minmax(0,1fr))`).
+  - Both controls are equal-width pills/buttons with matched compact sizing.
+- Right-side overflow regression fix (lobby/map):
+  - Reworked arena summary to `meta row + preview row` with `minmax(0,1fr)` and strict `min-height:0` behavior.
+  - Portrait coarse mode no longer uses side-column `overflow-y:auto`; side stays non-scrolling with resized content.
+  - Added portrait-specific constraints for preview/button sizing so the map section stays inside available height.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Requested rollback/tuning of stretched lobby map preview:
+  - Restored arena summary to compact side-by-side layout (preview left, name/button right), instead of stretch-to-fill block.
+  - Kept map description/behavior removed from lobby.
+  - Preview sizing now uses constrained widths per breakpoint (desktop/coarse/portrait narrow) rather than fill-growth.
+- Layout fit fixes retained:
+  - Mode + Advanced remain 50/50 split.
+  - Portrait coarse `lobby-side` remains non-scrolling (`overflow: hidden`) to prevent right-column scrollbar regression.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Further lobby map-layout correction per feedback:
+  - Kept compact, non-stretched preview model; adjusted preview sizing only.
+  - Increased map summary preview widths in portrait/phone breakpoints to avoid over-compression.
+  - Changed portrait coarse lobby body columns from fixed px minima to flexible fractions to stop crushing the right-side panel.
+  - Result: map panel keeps prior compact shape while avoiding the narrow/vertical-clipped look.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Reworked lobby responsiveness as one coherent system (not incremental tweaks):
+  - `lobby-side` switched to grid rows (`actions`, `arena`) with bounded `minmax(0,1fr)` behavior.
+  - `lobby-summary` switched to grid + overflow constraints, with explicit preview/meta proportional sizing.
+  - `map-summary-content` now uses ratio-based clamp sizing for preview column and fixed meta row model.
+  - `map-change-btn` now enforces nowrap/ellipsis to prevent vertical character wrapping.
+- Portrait coarse strategy reset:
+  - Removed conflicting fixed two-column portrait override and normalized to single-column lobby body in portrait.
+  - Explicit side/players ordering for portrait to avoid column-crush artifacts.
+  - Narrow portrait now adjusts preview column via clamp sizes rather than hard tiny pixel caps.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-20
+- Added visual bullet casings for Astro Party firing events.
+- Implementation details:
+  - `src/network/NetworkSyncSystem.ts`: detect newly seen projectile IDs in authoritative snapshots and spawn one casing per shot.
+  - `src/systems/rendering/Renderer.ts`: added casing pool with capped size (`MAX_BULLET_CASINGS = 96`), drift/spin update, bounds bounce, fade-out, and draw pass.
+  - `src/systems/rendering/GameRenderer.ts`: render casings during gameplay before projectile pass.
+- Performance guardrails:
+  - Casings are visual-only (no physics/collision bodies).
+  - Oldest casings are evicted when cap is exceeded.
+- Validation:
+  - Ran `bun run build` in `astro-party` (passed).
+- Follow-up: Added projectile baseline gating so clients do not spawn casings for bullets already in-flight when a snapshot stream starts (e.g., mid-round join).
+- Re-ran `bun run build` in `astro-party` after baseline gating (passed).
+- Adjusted bullet casings per feedback:
+  - Removed time-based casing expiration (casings now persist until cap eviction).
+  - Increased casing dimensions by 1.8x.
+- Re-ran `bun run build` in `astro-party` (passed).
+- Pilot dash behavior updated to hold-repeat with cooldown while preserving old edge-trigger path behind a local toggle:
+  - `shared/sim/systems/GameFlowSystem.ts`: `PILOT_DASH_USE_EDGE_TRIGGER = false`.
+  - Switch back to previous behavior by setting that constant to `true`.
+- Bullet casing scale adjusted from 1.8x to 1.5x in `src/systems/rendering/Renderer.ts`.
+- Re-ran `bun run build` in `astro-party` (passed).
+- Updated STANDARD physics defaults to match requested tuning JSON:
+  - `SHIP_SPEED_RESPONSE`: 7
+  - `SHIP_DASH_BOOST`: 1.4
+  - `SHIP_DASH_DURATION`: 0.13
+- Confirmed requested material override values already matched existing defaults/presets.
+- Re-ran `bun run build` in `astro-party` (passed).
+- Promoted gameplay-physics constants into debug tuning `globalOverrides` and surfaced them in Physics Lab.
+- Added new global tuning schema:
+  - `SHIP_DODGE_COOLDOWN_MS`, `SHIP_DODGE_ANGLE_DEG`
+  - `FIRE_COOLDOWN_MS`, `FIRE_HOLD_REPEAT_DELAY_MS`
+  - `RELOAD_MS`, `PROJECTILE_LIFETIME_MS`
+  - `PILOT_DASH_COOLDOWN_MS`
+- Wired through:
+  - `shared/sim/types.ts` (`DebugPhysicsGlobals`, payload/snapshot updates, `SimState.getGlobalConfig()`)
+  - `shared/sim/modules/simulationSettings.ts` (`DEBUG_GLOBAL_KEYS`)
+  - `shared/sim/modules/simulationPhysicsTuning.ts` (resolve/sanitize global overrides)
+  - `shared/sim/AstroPartySimulation.ts` (global snapshot + getter + reset usages)
+  - `shared/sim/systems/ShipSystem.ts` and `shared/sim/systems/GameFlowSystem.ts` (runtime usage of global overrides)
+  - `src/debug/physicsLab.ts` (new Globals section sliders + copy/apply path includes `globalOverrides`)
+- Result: "Copy JSON" from Physics Lab now includes a dedicated global section under `tuning.globalOverrides`.
+- Validation: ran `bun run build` in `astro-party` (passed).
+- Added Physics Lab `Paste JSON` action (clipboard-driven, no text field):
+  - Reads `navigator.clipboard.readText()` on button click.
+  - Accepts `{ baseMode, tuning }` and direct tuning payload shapes.
+  - Applies base mode + tuning immediately and refreshes sliders.
+  - Reports clear status for empty clipboard, invalid JSON, blocked clipboard, or unknown schema.
+- Updated Physics Lab controls layout to include the new button.
+- Re-ran `bun run build` in `astro-party` (passed).
+- Applied requested global tuning defaults in constants:
+  - `SHIP_DODGE_COOLDOWN_MS = 270`
+  - `SHIP_DODGE_ANGLE_DEG = 65`
+- Physics Lab layout update:
+  - `Globals` now appears directly beneath `Materials` (stacked in right column).
+  - Material/global cards no longer stretch to match config panel height; they size to content.
+- Re-ran `bun run build` in `astro-party` (passed).
+- Improved debug panel + physics lab mobile portrait usability (scenario-specific only):
+  - Added `@media (pointer: coarse) and (orientation: portrait)` rules in:
+    - `src/debug/debugPanel.ts`
+    - `src/debug/physicsLab.ts`
+- Debug panel portrait adjustments:
+  - Larger DBG/LAB toggle buttons.
+  - Wider/taller panel fit for narrow portrait view.
+  - Single-column action button grid and larger tap targets.
+- Physics Lab portrait adjustments:
+  - Better anchored position in portrait.
+  - Panel width/height tuned for narrow portrait and scrolling.
+  - 2-column controls and larger buttons/select tap targets.
+  - Sections collapse to one column in this scenario.
+- Re-ran `bun run build` in `astro-party` (passed).
+## 2026-02-21 (Pilot Death Debris)
+- Added client-side pilot death burst system with 4 debris bodies (visor, shell left, shell right, core).
+- Debris pieces now have per-piece circle colliders, wall bounce, inter-piece collision response, and fast damping.
+- Debris is bumpable by live ships and pilots via renderer-side impulse transfer.
+- Pilot death detection now triggers this effect only when pilot disappears and the owner ship is not alive (avoids firing on normal pilot->ship respawn).
+- Added `pilot_death_burst` to entity manifest and render it as part of the implosion/explosion phase.
+- Render integration:
+  - New `Renderer.spawnPilotDeathBurst(...)`
+  - New `Renderer.drawPilotDeathDebris()` called from `GameRenderer` during gameplay.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-21 (Continue Sequence Mode)
+- Implemented new end-screen continue flow for match sequencing without lobby reset:
+  - Added `continueMatchSequence()` command path across client/network/server:
+    - `src/network/transports/NetworkTransport.ts`
+    - `src/network/NetworkManager.ts`
+    - `src/network/transports/LocalSharedSimTransport.ts`
+    - `src/network/transports/ColyseusTransport.ts` (`cmd:continue_sequence`)
+    - `server/src/rooms/AstroPartyRoom.ts` (`cmd:continue_sequence` handler)
+- Simulation sequence reset behavior updated in `shared/sim/AstroPartySimulation.ts`:
+  - Added `continueMatchSequence(sessionId)` leader-only entry.
+  - Split sequence reset path into `beginMatchSequence(preserveScoreAndKills)` + `resetPlayersForNewSequence(...)`.
+  - `GAME_END -> COUNTDOWN` now preserves cumulative `kills` and `score`, while resetting `roundWins`, round counter (`currentRound=1`), and round/match runtime entities/state.
+  - `restartToLobby()` remains full reset (Play Again behavior unchanged).
+- Client phase transition handling updated in `src/Game.ts`:
+  - Non-authority `GAME_END -> COUNTDOWN` now runs cleanup/reset path (same entity/network cleanup as round transitions).
+  - Added sequence-specific reset for local player view state (`roundWins`/`state`) and cleared stale winner/sticky roster state for new sequence.
+  - Resets per-match score submission guard on countdown so score still submits at every `GAME_END` with cumulative value.
+- End-screen UI updated for leader/non-leader flow:
+  - Added `Continue` button in `index.html` and `src/ui/elements.ts`.
+  - Updated `src/ui/screens.ts` states:
+    - Leader: `Continue` + `Play Again` enabled.
+    - Non-leader: both show `Waiting for leader` and are disabled.
+    - Host-left flow keeps leader actions hidden.
+  - `Continue` triggers `game.continueMatchSequence()`; `Play Again` still triggers full lobby reset path.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Additional check:
+  - `astro-party/server`: `bun run build` currently fails with existing ambient type issue:
+    - `TS7016` missing declaration for `poly-decomp` in `shared/sim/physics/Physics.ts`.
+  - This appears pre-existing and unrelated to continue-sequence changes.
+## 2026-02-21 (Ship Destroy + Pilot Kill FX wiring)
+- Fixed authoritative FX trigger logic in `src/network/NetworkSyncSystem.ts`:
+  - Ship destruction now triggers on `alive -> dead` transition per player instead of waiting for ship-id removal from snapshots.
+  - Player disconnect/remove no longer produces false ship explosion FX.
+  - Pilot kill burst trigger tightened to require owner ship present and `alive === false` to avoid false FX on disconnect/removal.
+- Added distinct renderer bursts in `src/systems/rendering/Renderer.ts`:
+  - `spawnShipDestroyedBurst(...)`: heavy hot-core blast ring + hull-plasma shards + ship debris.
+  - `spawnPilotKillBurst(...)`: compact suit/plasma pop layered over existing pilot debris burst.
+- Wiring changes:
+  - Ship death path now calls `renderer.spawnShipDestroyedBurst(...)`.
+  - Pilot death path now calls `renderer.spawnPilotKillBurst(...)`.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Playwright smoke run executed via `web_game_playwright_client.js`; screenshots generated in `output/web-game/` (starfield-only capture, no kill event reached in this automated burst).
+## 2026-02-21 (Server poly-decomp typing)
+- Fixed `astro-party/server` TypeScript build failure (`TS7016` for `poly-decomp`) by adding shared ambient module types:
+  - Added `shared/types/poly-decomp.d.ts` with default-exported poly-decomp interface used by Matter `Common.setDecomp(...)`.
+- Also added explicit server runtime dependency:
+  - `astro-party/server/package.json`: added `poly-decomp` to `dependencies`.
+- Validation:
+  - `astro-party/server`: `bun run build` passed.
+  - `astro-party`: `bun run build` passed.
+## 2026-02-21 (Mobile landscape left-rail offset)
+- Adjusted mobile-landscape left rail spacing so leave/back controls are nudged right by one leave-button width, and adjacent UI follows.
+- `index.html` changes:
+  - Added CSS vars: `--leave-btn-size`, `--mobile-landscape-left-offset`.
+  - `leave-btn` now uses `--leave-btn-size` and includes `--mobile-landscape-left-offset` in `left` calculation.
+  - `back-btn` margin-left now includes `--mobile-landscape-left-offset` so lobby title position shifts with it.
+  - In coarse pointer mode, `--leave-btn-size` set to `48px`.
+  - In coarse + landscape, `--mobile-landscape-left-offset` set to `var(--leave-btn-size)`.
+- Debug overlay alignment:
+  - Updated `src/debug/debugPanel.ts` (`.qa-debug-root` base + coarse rules) to include `--mobile-landscape-left-offset` so DBG/LAB buttons shift with leave button.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-21 (Mobile touch button SVGs + click wiring)
+- Added SVG icons to adaptive touch zones in `src/systems/input/touchZones.ts`:
+  - Rotate button (`A`) now shows a curved-arrow glyph.
+  - Fire button (`B`) now shows a crosshair glyph.
+- Input wiring update:
+  - Switched touch-zone interaction handling to pointer events (`pointerdown/up/cancel` + capture), so both touch taps and mouse clicks route through the same press/release path.
+  - This keeps hold behavior for rotate/fire and supports click-based interaction paths.
+- Added styling for icons in `index.html`:
+  - `.touch-zone-icon` sizing and pressed-state scale feedback.
+  - Touch-zone layout now supports icon + label stack.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-21 (Single-player triangular SVG touch buttons)
+- Added reusable triangle button SVG asset at `public/touch-buttons/triangle_corner.svg`.
+- Updated `src/systems/input/touchZones.ts` single-player layout:
+  - Replaced bottom rectangular buttons with corner triangles using the shared SVG mask.
+  - Left (rotate) uses player color; right (fire) uses a darker shade of player color.
+  - Kept existing pointer-based press/release wiring.
+  - Reused one SVG for both sides by horizontal mirroring.
+  - Initial sizing: `width: 35%`, `height: 50%`, anchored to bottom corners.
+- Updated `index.html` touch-zone CSS:
+  - Added triangle shape/mask classes and mirrored variant.
+  - Added triangle-specific label styling and pressed-state brightness response.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-21 (Mobile tap debounce for duplicate clicks)
+- Added coarse-pointer tap guards to prevent duplicate actions from single taps:
+  - Lobby kick buttons in `src/ui/lobby.ts` (per-player guard, 450ms).
+  - Debug panel toggles and section buttons in `src/debug/debugPanel.ts` (per-element guard, 340ms).
+  - Physics Lab action buttons (`Reload`, `Reset`, `Copy JSON`, `Paste JSON`, `Close`) in `src/debug/physicsLab.ts` (per-element guard, 340ms).
+- Scope: guards only activate on coarse-pointer devices.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Follow-up debounce pass (coarse-pointer only):
+  - Added mode cycle tap guard in `src/ui/lobby.ts`.
+  - Added shared tap-guard wrapper for advanced settings modal actions in `src/ui/advancedSettings.ts`:
+    - open/close/done, tabs, and all element/physics cycle/toggle controls.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Added mobile-only debounce to end-screen action buttons in `src/ui/screens.ts` (`bindEndScreenUI`):
+  - `Continue`, `Play Again`, `Leave` now use coarse-pointer tap guard (450ms, per-element).
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-23 (Pilot Swim Arms Animation)
+- Added procedural pilot arm-stroke animation in `src/systems/rendering/Renderer.ts` to make pilots look like they are frantically swimming.
+- Animation is deterministic (sin/cos time functions), velocity-reactive (faster pilot movement increases intensity), and layered behind the existing pilot sprite.
+- Added helper methods:
+  - `getPilotSwimArmIntensity(...)`
+  - `drawPilotSwimArms(...)`
+  - `drawSinglePilotSwimArm(...)`
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Pilot swim-arm visibility follow-up:
+  - Shifted arm anchor points outward on the pilot body (`y: +/-5.8`, `x: -0.8`) so strokes emerge from sides.
+  - Updated arm curve math to emphasize lateral extension over behind-body reach.
+  - Render order changed so arm strokes draw after pilot sprite for readability.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Pilot dash FX origin guide added in `shared/assets/entities/pilot.svg`:
+  - Added editor-only `#editor-hardpoints` marker at local `(0,0)` for dash burst spawn point.
+  - Added backward direction arrow toward local `-X` to represent release fan direction (`pilotAngle + PI`).
+  - Guide layer is stripped from runtime SVG by `generate-entity-assets`.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Pilot dash guide placement tweak:
+  - Moved editor-only dash guide marker/arrow in `shared/assets/entities/pilot.svg` from local center to bottom-of-pilot (`cy=5.8`) for easier visual inspection.
+  - Runtime dash FX origin logic is unchanged.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Corrected pilot dash guide placement semantics in `shared/assets/entities/pilot.svg`:
+  - Previous marker used screen-bottom (`+Y`) and was misleading for "pilot bottom when upright".
+  - Moved editor-only marker to aft/thruster side (`-X`, around `x=-11.8,y=0`) to match upright-bottom interpretation.
+  - Kept note that runtime dash origin logic remains unchanged at local `(0,0)`.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Minor pilot dash guide position tweak in `shared/assets/entities/pilot.svg`:
+  - Shifted aft guide marker/arrow +1.2 on X axis (rightward) from `x=-11.8` to `x=-10.6`.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-23 (Pilot hardpoint wiring, ship-style)
+- Audited ship hardpoint pipeline and mirrored it for pilot:
+  - SVG `#editor-hardpoints` ids -> `generate-entity-assets` extraction -> generated geometry -> runtime anchor use.
+- Added pilot hardpoint support in generator + schema:
+  - New hardpoint fields: `pilotDash`, `pilotArmLeft`, `pilotArmRight`.
+  - New editor ids recognized: `hardpoint-pilot-dash`, `hardpoint-pilot-arm-left`, `hardpoint-pilot-arm-right`.
+- Added pilot anchor module:
+  - New `shared/geometry/PilotRenderAnchors.ts`.
+  - Exposes `PILOT_EFFECT_LOCAL_POINTS` and `getPilotDashWorldPoint(...)`.
+- Removed pilot anchor hardcoding from runtime call sites:
+  - `shared/sim/systems/GameFlowSystem.ts` now spawns pilot dash particles from `getPilotDashWorldPoint(pilot)` instead of raw `pilot.x/pilot.y`.
+  - `src/systems/rendering/Renderer.ts` swim-arm anchor points now read from `PILOT_EFFECT_LOCAL_POINTS.armLeft/armRight` instead of inline literals.
+- Updated pilot SVG guide markers:
+  - Added extractable dots in `shared/assets/entities/pilot.svg` for dash + both arm anchors.
+- Updated docs in `shared/assets/entities/README.md` for new hardpoint keys/ids.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+
+## 2026-02-23
+- Main menu title update:
+  - Replaced the text `ASTRO PARTY` with layered SVG title rendering using `space_force_exact_split_v2.svg`.
+  - Added staged intro animation: `SPACE` crashes in from the left with a ship/trail effect, followed immediately by `FORCE` settling beneath it.
+  - Added mobile-responsive sizing for the new title block.
+- Wiring:
+  - Added `playTitleIntro()` to `src/ui/startScreen.ts` and call sites in start reset + initial app boot (`src/main.ts`) so the animation triggers after splash and when returning to start.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Playwright skill script run completed; no console/page error artifact emitted (`output/web-game-title/shot-0.png`).
+  - Additional full-page verification screenshots captured:
+    - Desktop: `output/web-game-title/title-full.png`
+    - Mobile viewport: `output/web-game-title/title-mobile.png`
+- Tweaked title intro for debugging:
+  - Slowed `SPACE` animation to 1900ms and `FORCE` to 1600ms with 1200ms delay.
+  - Removed the added ship/star crash element and its related keyframes from start-screen title.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Fixed title split mismatch:
+  - Removed CSS hard split (`clip-path` 50/50) from `index.html`.
+  - Generated and added layer-specific SVGs from your source asset:
+    - `public/assets/space_force_exact_split_v2_space.svg`
+    - `public/assets/space_force_exact_split_v2_force.svg`
+  - Updated title layer image sources in start screen to use the two files directly.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Visual check screenshots:
+    - `output/web-game-title/title-anim-cutfix.png`
+    - `output/web-game-title/title-anim-cutfix-final.png`
+## 2026-02-24 (Start-screen spacing/button placement follow-up)
+- Addressed start-screen layout regressions in `index.html`:
+  - Reduced title block footprint so the `SPACE FORCE` art no longer consumes most of the vertical budget on 16:9.
+  - Added max-height constraints to `.game-title-wrap` and tuned spacing (`start-shell` gaps/padding, subtitle/body margins).
+  - Removed mobile-only downward offsets (`translateY`) that were pushing CTA buttons too low.
+  - Tightened start CTA button sizing/typography to keep labels single-line and avoid clipping at the bottom edge.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Playwright run (skill client): `output/web-game-title-layout/shot-0.png` ... `shot-6.png`.
+  - Full-page verification screenshots:
+    - Desktop: `output/web-game-title-layout/title-layout-desktop.png`
+    - Generic mobile landscape viewport: `output/web-game-title-layout/title-layout-mobile-landscape.png`
+    - iPhone 12 landscape: `output/web-game-title-layout/title-layout-iphone-landscape.png`
+    - iPhone 12 portrait (forced-rotation layout): `output/web-game-title-layout/title-layout-iphone-portrait.png`
+## 2026-02-24 (Title intro replay + motion cleanup)
+- Fixed duplicate title intro trigger that caused: title visible/final, then hidden/replayed.
+  - `src/ui/startScreen.ts`: `resetStartButtons` now accepts `replayTitleIntro` flag (default `true`).
+  - `src/main.ts`:
+    - Added tracked `currentPhase`.
+    - `onPhaseChange` now passes previous phase into `syncScreenToPhase`.
+    - `START` screen reset only replays intro when previous phase is not `START`.
+    - Initial boot now uses a single explicit `resetStartButtons(true)` after splash.
+- Retuned title animation in `index.html`:
+  - Hidden/offscreen base state for both layers (prevents pre-animation static flash).
+  - `FORCE` animation now moves on X axis only (removed diagonal Y offset).
+  - Shorter, non-overlapping timings to avoid `SPACE` jitter while `FORCE` enters.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Transition screenshots:
+    - `output/web-game-title-layout/title-transition-fix-2400ms.png` (splash fade state)
+    - `output/web-game-title-layout/title-transition-fix-3200ms.png` (mid intro, no diagonal force path)
+    - `output/web-game-title-layout/title-transition-fix-3600ms.png` (settled state)
+## 2026-02-24 (Percussive title pass: whoosh > bang x2)
+- Retuned title animation feel in `index.html` to avoid soft glide:
+  - `SPACE` now uses faster entry + stronger overshoot/recoil keyframes.
+  - `FORCE` now follows with its own independent impact/recoil beat (still X-axis only).
+  - Updated timing/easing:
+    - `SPACE`: `780ms` with aggressive decel curve.
+    - `FORCE`: `700ms` delayed by `620ms`.
+- Kept prior fixes intact:
+  - No diagonal `FORCE` motion.
+  - No startup double intro replay.
+  - No pre-animation static title flash.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Timed capture sequence:
+    - `output/web-game-title-layout/title-impact-3150ms.png` (mid-force impact phase)
+    - `output/web-game-title-layout/title-impact-3450ms.png` (post-impact settle)
+    - `output/web-game-title-layout/title-impact-3800ms.png` (final state)
+## 2026-02-24 (Pre-recoil stall removal)
+- Removed the noticeable pre-impact slowdown/hang before recoil in title animation:
+  - Simplified each word motion to a direct pass-through into overshoot, then recoil, then settle.
+  - Reduced keyframe count and removed intermediate near-stop points that caused the visual stall.
+  - Updated timings/easing:
+    - `SPACE`: `740ms`, delay `0ms`
+    - `FORCE`: `660ms`, delay `560ms`
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-24 (Staged start UI reveal after logo)
+- Added post-logo reveal sequence for start-screen UI elements:
+  - Subtitle, hints, helper text, and main button row now fade/lift in after the logo intro.
+  - Reveal uses blur+brightness recovery so elements feel like they emerge from the background.
+- Wiring:
+  - CSS in `index.html` under `.start-shell.ui-intro-active` with staggered delays.
+  - `src/ui/startScreen.ts` now toggles `.ui-intro-active` in the same replay path as title intro.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-24 (UI pre-flash fix for subtitle/hints/buttons)
+- Fixed initial flash for non-logo start UI (subtitle, hints, helper, and main buttons):
+  - Added hidden base state under `.start-shell` so these elements are not visible before intro class is applied.
+  - Intro now reveals from hidden state only via `.start-shell.ui-intro-active ...`.
+  - `#mainButtons` interaction is disabled while hidden (`pointer-events: none`) and re-enabled during reveal.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-24 (Splash forced-landscape parity on mobile portrait)
+- Added splash-screen portrait/coarse rotation rule to match main app forced-landscape behavior.
+- In `@media (orientation: portrait) and (pointer: coarse)`, `.splash-screen` now uses the same rotated geometry as `#game-wrapper`:
+  - `width: var(--vh)`, `height: var(--vw)`, `transform: rotate(-90deg)`, top/left based on viewport offsets.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-24 (Build-only CDN asset URL rewrite)
+- Added a Vite build-only HTML rewrite plugin in `vite.config.js`:
+  - During `bun run build`, `src/href/url(...)` references to `assets/...` are rewritten to absolute CDN URLs.
+  - Default CDN base: `https://assets.oasiz.ai`.
+  - Optional override via env var: `OASIZ_ASSET_CDN_BASE`.
+- Dev behavior unchanged:
+  - `index.html` remains local asset paths for local development.
+  - Rewrite runs only with `apply: "build"`.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Verified in `dist/index.html`:
+    - `https://assets.oasiz.ai/assets/Oasiz-logo-transparent.png`
+    - `https://assets.oasiz.ai/assets/space_force_exact_split_v2_space.svg`
+    - `https://assets.oasiz.ai/assets/space_force_exact_split_v2_force.svg`
+## 2026-02-24 (Splash build/version label)
+- Added splash version label under the tagline for build verification on platform:
+  - New element: `#splashVersionLabel` in `index.html`.
+  - Styled with `.splash-version` and shown with splash tagline timing.
+- Wired build metadata injection:
+  - `vite.config.js` now defines:
+    - `__APP_VERSION__` (from `npm_package_version`)
+    - `__APP_BUILD_TAG__` (UTC timestamp `YYYYMMDD-HHmm`)
+  - Optional build-tag override via env: `OASIZ_BUILD_TAG`.
+- Runtime wiring:
+  - `src/main.ts` sets splash label text to `v<version> (<buildTag>)` before splash animation starts.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+  - Dist bundle contains the version-label wiring and injected values.
+- Gating update:
+  - Splash version label is now gated behind the same client QA/dev gate as debug tools (`CLIENT_DEBUG_BUILD_ENABLED`).
+  - Non-QA/non-dev builds hide the splash version label.
+
+## 2026-02-24
+- Gameplay tuning updates:
+  - Increased `SHIP_TARGET_SPEED` from `2.8` to `3.2` in `shared/sim/constants.ts`.
+  - Increased `SHIP_DASH_BOOST` from `1.4` to `2` in `shared/sim/constants.ts`.
+  - Updated scatter shot travel length by deriving `SCATTER_PROJECTILE_LIFETIME_MS` from arena width:
+    - `((ARENA_WIDTH * 0.48) / (SCATTER_PROJECTILE_SPEED * 60)) * 1000`
+    - This targets roughly 48% of arena width (almost half-map travel).
+- Validation:
+  - `astro-party`: `bun run build` passed.
+## 2026-02-24
+- Renderer cleanup pass (`src/systems/rendering/Renderer.ts`):
+  - Removed unused projectile debug cache `previousProjectilePositions` and related cleanup paths.
+  - Consolidated repeated dev-radius drawing into `drawDebugRadius(...)` and routed homing/mine/turret/bullet/magnet overlays through it.
+  - Deduplicated mine visuals by removing the unused `drawMine(...)` path and introducing shared helpers `drawMineExplosionEffect(...)` + `drawMineBody(...)` used by `drawMineState(...)`.
+  - Unified remaining visual animation clocks to renderer time source (`getNowMs()`) for screen shake phase, stars twinkle, and homing missile flame/smoke.
+- Validation:
+  - `astro-party`: `bun run build` passed.
