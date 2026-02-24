@@ -698,3 +698,23 @@ TODO / Follow-ups:
   - `astro-party`: `bun run build` passed.
 - Size impact:
   - `Renderer.ts` reduced to 1598 lines after this pass (from 1955 at start of pass).
+- Renderer decomposition follow-up pass:
+  - Added `src/systems/rendering/CombatVisualsRenderer.ts` and moved combat/hazard visuals out of `Renderer`:
+    - turret, turret bullet, power-up, laser beam, shield, mine, homing missile drawing.
+  - `Renderer` now delegates combat methods to `CombatVisualsRenderer` and only keeps thin wrapper APIs.
+  - Fixed extraction issues in `CombatVisualsRenderer`:
+    - corrected `drawMineState` signature to use `MineState` import.
+    - removed trailing extra closing brace so module compiles cleanly.
+- Renderer debug split pass:
+  - Added `src/systems/rendering/RenderDebugSystem.ts` and moved all dev-only debug visuals out of `Renderer`:
+    - homing/mine/turret/turret-bullet/magnet radius overlays
+    - ship collider debug draw
+    - projectile swept-collider history/visualization
+  - `Renderer` now gates by `devModeEnabled` and delegates actual debug drawing/state to `RenderDebugSystem`.
+  - Removed debug history state ownership from `Renderer` (`projectileDebugHistory` moved).
+  - `setDevMode(false)` and `clearEffects()` now clear debug state through `RenderDebugSystem.clear()`.
+- Validation:
+  - `astro-party`: `bun run build` passed after combat split.
+  - `astro-party`: `bun run build` passed after debug split.
+- Size impact:
+  - `Renderer.ts` reduced to 1076 lines after these follow-up passes.
