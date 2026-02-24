@@ -31,6 +31,11 @@ import { EntitySpriteStore } from "./EntitySpriteStore";
 import { MapOverlayStore } from "./MapOverlayStore";
 import { PowerUpSpriteStore } from "./PowerUpSpriteStore";
 import {
+  drawDebugRadius,
+  drawMineBody,
+  drawMineExplosionEffect,
+} from "./RendererVisualPrimitives";
+import {
   CAMERA_DEFAULT_ZOOM,
   CAMERA_EDGE_SLACK_RATIO,
   CAMERA_MAX_ZOOM,
@@ -343,47 +348,10 @@ export class Renderer {
     }
   }
 
-  private drawDebugRadius(
-    x: number,
-    y: number,
-    radius: number,
-    options: {
-      strokeStyle: string;
-      fillStyle: string;
-      label: string;
-      labelColor: string;
-      lineDash: number[];
-      lineWidth?: number;
-      secondaryLabel?: string;
-    },
-  ): void {
-    if (!this.devModeEnabled) return;
-
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.strokeStyle = options.strokeStyle;
-    ctx.lineWidth = options.lineWidth ?? 2;
-    ctx.setLineDash(options.lineDash);
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = options.fillStyle;
-    ctx.fill();
-
-    ctx.setLineDash([]);
-    ctx.fillStyle = options.labelColor;
-    ctx.font = "12px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(options.label, 0, radius + 15);
-    ctx.fillText(options.secondaryLabel ?? `${radius}px`, 0, radius + 28);
-    ctx.restore();
-  }
-
   // Draw homing missile detection radius (dev mode only)
   drawHomingMissileDetectionRadius(x: number, y: number, radius: number): void {
-    this.drawDebugRadius(x, y, radius, {
+    if (!this.devModeEnabled) return;
+    drawDebugRadius(this.ctx, x, y, radius, {
       strokeStyle: "rgba(0, 255, 0, 0.8)",
       fillStyle: "rgba(0, 255, 0, 0.1)",
       label: "DETECT",
@@ -394,7 +362,8 @@ export class Renderer {
 
   // Draw mine detection radius (dev mode only)
   drawMineDetectionRadius(x: number, y: number, radius: number): void {
-    this.drawDebugRadius(x, y, radius, {
+    if (!this.devModeEnabled) return;
+    drawDebugRadius(this.ctx, x, y, radius, {
       strokeStyle: "rgba(0, 255, 0, 0.8)",
       fillStyle: "rgba(0, 255, 0, 0.1)",
       label: "MINE",
@@ -405,7 +374,8 @@ export class Renderer {
 
   // Draw turret detection radius (dev mode only)
   drawTurretDetectionRadius(x: number, y: number, radius: number): void {
-    this.drawDebugRadius(x, y, radius, {
+    if (!this.devModeEnabled) return;
+    drawDebugRadius(this.ctx, x, y, radius, {
       strokeStyle: "rgba(255, 50, 50, 0.8)",
       fillStyle: "rgba(255, 50, 50, 0.1)",
       label: "TURRET",
@@ -416,7 +386,8 @@ export class Renderer {
 
   // Draw turret bullet explosion radius (dev mode only)
   drawTurretBulletRadius(x: number, y: number, radius: number): void {
-    this.drawDebugRadius(x, y, radius, {
+    if (!this.devModeEnabled) return;
+    drawDebugRadius(this.ctx, x, y, radius, {
       strokeStyle: "rgba(255, 150, 0, 0.8)",
       fillStyle: "rgba(255, 150, 0, 0.1)",
       label: "BULLET",
@@ -432,7 +403,8 @@ export class Renderer {
     radius: number,
     isActive: boolean,
   ): void {
-    this.drawDebugRadius(x, y, radius, {
+    if (!this.devModeEnabled) return;
+    drawDebugRadius(this.ctx, x, y, radius, {
       strokeStyle: isActive
         ? "rgba(200, 100, 255, 0.9)"
         : "rgba(150, 80, 200, 0.7)",
@@ -643,14 +615,6 @@ export class Renderer {
         this.screenShake.offsetY = 0;
       }
     }
-  }
-
-  getScreenShakeIntensity(): number {
-    return this.screenShake.intensity;
-  }
-
-  getScreenShakeDuration(): number {
-    return this.screenShake.duration;
   }
 
   addScreenShake(intensity: number, duration: number): void {
@@ -3148,79 +3112,6 @@ export class Renderer {
 
   // ============= MINE RENDERING =============
 
-  private drawMineExplosionEffect(
-    x: number,
-    y: number,
-    radius: number,
-    alpha: number,
-  ): void {
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = `rgba(255, 255, 200, ${alpha * 0.8})`;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  private drawMineBody(x: number, y: number, nowMs: number): void {
-    const { ctx } = this;
-    ctx.save();
-    ctx.translate(x, y);
-
-    const pulseSpeed = 0.008;
-    const pulseAmount = 0.15;
-    const pulseScale = 1 + Math.sin(nowMs * pulseSpeed) * pulseAmount;
-    ctx.scale(pulseScale, pulseScale);
-
-    const mineSize = GAME_CONFIG.POWERUP_MINE_SIZE;
-    const spikeCount = 8;
-    const innerRadius = mineSize * 0.6;
-    const outerRadius = mineSize;
-
-    ctx.fillStyle = "#888888";
-    ctx.strokeStyle = "#aaaaaa";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i < spikeCount * 2; i++) {
-      const angle = (i / (spikeCount * 2)) * Math.PI * 2;
-      const radius = i % 2 === 0 ? outerRadius : innerRadius;
-      const px = Math.cos(angle) * radius;
-      const py = Math.sin(angle) * radius;
-      if (i === 0) {
-        ctx.moveTo(px, py);
-      } else {
-        ctx.lineTo(px, py);
-      }
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = "#ff8800";
-    ctx.beginPath();
-    ctx.arc(0, 0, mineSize * 0.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#ffaa44";
-    ctx.beginPath();
-    ctx.arc(0, 0, mineSize * 0.25, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-  }
-
   drawMineState(state: import("../../types").MineState): void {
     const { x, y, exploded, explosionTime } = state;
     const nowMs = this.getNowMs();
@@ -3234,11 +3125,11 @@ export class Renderer {
         GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
       const alpha = 1 - progress;
 
-      this.drawMineExplosionEffect(x, y, radius, alpha);
+      drawMineExplosionEffect(this.ctx, x, y, radius, alpha);
       return;
     }
 
-    this.drawMineBody(x, y, nowMs);
+    drawMineBody(this.ctx, x, y, nowMs, GAME_CONFIG.POWERUP_MINE_SIZE);
   }
 
   spawnMineExplosion(x: number, y: number, radius: number): void {
