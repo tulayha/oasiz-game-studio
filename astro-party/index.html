@@ -94,7 +94,24 @@
       transition: opacity 0.5s ease, transform 0.5s ease;
     }
 
+    .splash-version {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(0.56rem, 1.55vw, 0.78rem);
+      color: rgba(200, 220, 255, 0.68);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      opacity: 0;
+      transform: translateY(8px);
+      margin-top: -0.75rem;
+      transition: opacity 0.45s ease, transform 0.45s ease;
+    }
+
     .splash-screen.show-tagline .splash-tagline {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .splash-screen.show-tagline .splash-version {
       opacity: 1;
       transform: translateY(0);
     }
@@ -102,6 +119,11 @@
     .splash-screen.fade-tagline .splash-tagline {
       opacity: 0;
       transform: translateY(-10px);
+    }
+
+    .splash-screen.fade-tagline .splash-version {
+      opacity: 0.2;
+      transform: translateY(-6px);
     }
 
     .splash-screen.fade-logo .splash-logo {
@@ -3058,8 +3080,9 @@
   <div id="splashScreen" class="splash-screen">
     <div class="splash-black"></div>
     <div class="splash-content">
-      <img src="assets/Oasiz-logo-transparent.png" alt="Oasiz" class="splash-logo">
+      <img id="splashLogoImage" src="./assets/Oasiz-logo-transparent.png" alt="Oasiz" class="splash-logo">
       <div class="splash-tagline">AN OASIZ ORIGINAL</div>
+      <div class="splash-version" id="splashVersionLabel"></div>
     </div>
   </div>
 
@@ -3081,10 +3104,10 @@
           <div>
             <div class="game-title-wrap" id="gameTitleWrap" role="img" aria-label="Space Force title">
               <div class="title-layer space">
-                <img src="/assets/space_force_exact_split_v2_space.svg" alt="">
+                <img id="titleSpaceImage" src="./assets/space_force_exact_split_v2_space.svg" alt="">
               </div>
               <div class="title-layer force">
-                <img src="/assets/space_force_exact_split_v2_force.svg" alt="">
+                <img id="titleForceImage" src="./assets/space_force_exact_split_v2_force.svg" alt="">
               </div>
             </div>
             <p class="subtitle">Multiplayer Arena</p>

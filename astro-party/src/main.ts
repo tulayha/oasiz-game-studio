@@ -14,6 +14,9 @@ import {
   playGameEndFeedback,
 } from "./feedback/mainFlowFeedback";
 
+declare const __APP_VERSION__: string;
+declare const __APP_BUILD_TAG__: string;
+
 // Declare platform-injected variables
 declare global {
   interface Window {
@@ -39,6 +42,28 @@ window.getCurrentSeed = (): number | null => {
 window.setNextSeed = (seed: number): void => {
   game.setNextRngSeed(seed);
 };
+
+function setSplashVersionLabel(): void {
+  const splashVersion = document.getElementById("splashVersionLabel");
+  if (!splashVersion) {
+    return;
+  }
+  if (!CLIENT_DEBUG_BUILD_ENABLED) {
+    splashVersion.style.display = "none";
+    return;
+  }
+
+  const appVersion =
+    typeof __APP_VERSION__ === "string" && __APP_VERSION__.length > 0
+      ? __APP_VERSION__
+      : "dev";
+  const buildTag =
+    typeof __APP_BUILD_TAG__ === "string" && __APP_BUILD_TAG__.length > 0
+      ? __APP_BUILD_TAG__
+      : "local";
+
+  splashVersion.textContent = `v${appVersion} (${buildTag})`;
+}
 
 function runSplashScreen(): Promise<void> {
   return new Promise((resolve) => {
@@ -79,6 +104,7 @@ function runSplashScreen(): Promise<void> {
 
 async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
+  setSplashVersionLabel();
 
   await runSplashScreen();
 
