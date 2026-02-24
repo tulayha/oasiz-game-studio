@@ -103,7 +103,7 @@ export const POWERUP_CONSTANTS = {
 export const POWERUP_INFO: Record<PowerUpType, { name: string; description: string; color: string; glowColor: string }> = {
   BLAST: {
     name: "BLAST",
-    description: "Every 3rd shot explodes on impact",
+    description: "Every shot explodes on impact",
     color: "#ff6633",
     glowColor: "rgba(255, 102, 51, 0.6)",
   },
@@ -121,7 +121,7 @@ export const POWERUP_INFO: Record<PowerUpType, { name: string; description: stri
   },
   LIGHTNING: {
     name: "LIGHTNING",
-    description: "Every 4th shot chains to enemies",
+    description: "Every shot chains to enemies",
     color: "#ffee33",
     glowColor: "rgba(255, 238, 51, 0.6)",
   },
@@ -138,6 +138,8 @@ export class PowerUpManager {
   private orbs: PowerUpOrb[] = [];
   private activePowerUps: ActivePowerUp[] = [];
   private satellites: SatelliteOrb[] = [];
+  private visibleOrbsScratch: PowerUpOrb[] = [];
+  private satellitePositionsScratch: { x: number; y: number }[] = [];
   
   // Visual effects
   private blastExplosions: BlastExplosion[] = [];
@@ -177,6 +179,8 @@ export class PowerUpManager {
     this.announceFrame = 0;
     this.spawnedMilestones.clear();
     this.typeIndex = 0;
+    this.visibleOrbsScratch.length = 0;
+    this.satellitePositionsScratch.length = 0;
   }
   
   // ============= ORB SPAWNING =============
@@ -398,8 +402,8 @@ export class PowerUpManager {
     const hasLaser = this.hasPowerUp("LASER");
     
     return {
-      triggerBlast: hasBlast && (this.shotCounter % POWERUP_CONSTANTS.BLAST_EVERY_N_SHOTS === 0),
-      triggerLightning: hasLightning && (this.shotCounter % POWERUP_CONSTANTS.LIGHTNING_EVERY_N_SHOTS === 0),
+      triggerBlast: hasBlast,
+      triggerLightning: hasLightning,
       triggerLaser: hasLaser,
     };
   }
@@ -469,11 +473,14 @@ export class PowerUpManager {
   
   getVisibleOrbs(cameraY: number, viewportHeight: number): PowerUpOrb[] {
     const buffer = viewportHeight;
-    return this.orbs.filter(orb => 
-      !orb.collected && 
-      orb.y > cameraY - buffer && 
-      orb.y < cameraY + viewportHeight + buffer
-    );
+    this.visibleOrbsScratch.length = 0;
+    for (const orb of this.orbs) {
+      if (orb.collected) continue;
+      if (orb.y <= cameraY - buffer) continue;
+      if (orb.y >= cameraY + viewportHeight + buffer) continue;
+      this.visibleOrbsScratch.push(orb);
+    }
+    return this.visibleOrbsScratch;
   }
   
   // ============= ANNOUNCEMENT STATE =============
@@ -498,9 +505,19 @@ export class PowerUpManager {
   
   // Get satellite world positions given player position
   getSatellitePositions(playerX: number, playerY: number): { x: number; y: number }[] {
-    return this.satellites.map(sat => ({
-      x: playerX + Math.cos(sat.angle) * sat.radius,
-      y: playerY + Math.sin(sat.angle) * sat.radius,
-    }));
+    if (this.satellitePositionsScratch.length < this.satellites.length) {
+      const needed = this.satellites.length - this.satellitePositionsScratch.length;
+      for (let i = 0; i < needed; i++) {
+        this.satellitePositionsScratch.push({ x: 0, y: 0 });
+      }
+    }
+    this.satellitePositionsScratch.length = this.satellites.length;
+    for (let i = 0; i < this.satellites.length; i++) {
+      const sat = this.satellites[i];
+      const pos = this.satellitePositionsScratch[i];
+      pos.x = playerX + Math.cos(sat.angle) * sat.radius;
+      pos.y = playerY + Math.sin(sat.angle) * sat.radius;
+    }
+    return this.satellitePositionsScratch;
   }
 }

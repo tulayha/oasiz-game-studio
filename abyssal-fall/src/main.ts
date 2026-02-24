@@ -18,6 +18,23 @@ interface Settings {
   haptics: boolean;
 }
 
+interface HudRefs {
+  scoreEl: HTMLElement | null;
+  depthEl: HTMLElement | null;
+  ammoEl: HTMLElement | null;
+  comboEl: HTMLElement | null;
+  ammoSliderFill: HTMLElement | null;
+  hpBar: HTMLElement | null;
+  hpBubbles: HTMLElement[];
+  powerupBar: HTMLElement | null;
+}
+
+interface ChunkPlatformCache {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  dirty: boolean;
+}
+
 // ============= GAME STATE =============
 class Game {
   private canvas: HTMLCanvasElement;
@@ -33,10 +50,29 @@ class Game {
   private droppedGems: Gem[] = [];
   private droppedGemPool: Gem[] = [];
   private activePlatforms: Platform[] = [];
+  private activeWallPlatforms: Platform[] = [];
   private activeWeeds: Weed[] = [];
   private brokenWeeds: Set<string> = new Set();
   private stompedWeeds: Map<string, { weed: Weed; timer: number }> = new Map();
   private enemyBullets: EnemyBullet[] = [];
+  private platformBuckets: Map<string, Platform[]> = new Map();
+  private readonly PLATFORM_BUCKET_SIZE: number = 64;
+  private chunkPlatformCache: Map<number, ChunkPlatformCache> = new Map();
+  private hudRefs: HudRefs = {
+    scoreEl: null,
+    depthEl: null,
+    ammoEl: null,
+    comboEl: null,
+    ammoSliderFill: null,
+    hpBar: null,
+    hpBubbles: [],
+    powerupBar: null,
+  };
+  private prevHudScore: number = -1;
+  private prevHudDepth: number = -1;
+  private prevHudAmmo: string = "";
+  private prevHudAmmoPercent: number = -1;
+  private prevHudCombo: number = -1;
   
   // Powerup state
   private lastShotEffects: { triggerBlast: boolean; triggerLightning: boolean; triggerLaser: boolean } = { triggerBlast: false, triggerLightning: false, triggerLaser: false };
@@ -190,7 +226,8 @@ class Game {
   private blastBuffer: AudioBuffer | null = null;
   private lightningBuffer: AudioBuffer | null = null;
   private satelliteBuffer: AudioBuffer | null = null;
-  private readonly POWERUP_SFX_VOLUME: number = 0.6;
+  private readonly UNIFORM_SFX_VOLUME: number = 0.55;
+  private readonly UNIFORM_SYNTH_PEAK_GAIN: number = 0.14;
   private readonly MAGNET_RADIUS: number = 200;
   private magnetPullSfxCooldownFrames: number = 0;
   
@@ -223,6 +260,7 @@ class Game {
     
     // Ensure DOM is in correct initial state (handles WebView soft reloads)
     this.resetDOMState();
+    this.cacheHudRefs();
     
     // Start game loop
     this.gameLoop();
@@ -553,6 +591,95 @@ class Game {
       ammoSlider.style.transform = "translateY(-50%)";
     }
   }
+
+  private cacheHudRefs(): void {
+    this.hudRefs.scoreEl = document.getElementById("score");
+    this.hudRefs.depthEl = document.getElementById("depth");
+    this.hudRefs.ammoEl = document.getElementById("ammo");
+    this.hudRefs.comboEl = document.getElementById("combo");
+    this.hudRefs.ammoSliderFill = document.getElementById("ammo-slider-fill");
+    this.hudRefs.hpBar = document.getElementById("hp-bar");
+    this.hudRefs.powerupBar = document.getElementById("powerup-bar");
+    this.hudRefs.hpBubbles = this.hudRefs.hpBar
+      ? Array.from(this.hudRefs.hpBar.querySelectorAll(".hp-bubble")) as HTMLElement[]
+      : [];
+  }
+
+  private resetHudStateCache(): void {
+    this.prevHudScore = -1;
+    this.prevHudDepth = -1;
+    this.prevHudAmmo = "";
+    this.prevHudAmmoPercent = -1;
+    this.prevHudCombo = -1;
+  }
+
+  private getBucketKey(col: number, row: number): string {
+    return `${col}:${row}`;
+  }
+
+  private rebuildPlatformBuckets(): void {
+    this.platformBuckets.clear();
+    const size = this.PLATFORM_BUCKET_SIZE;
+    for (const platform of this.activePlatforms) {
+      const minCol = Math.floor(platform.x / size);
+      const maxCol = Math.floor((platform.x + platform.width) / size);
+      const minRow = Math.floor(platform.y / size);
+      const maxRow = Math.floor((platform.y + platform.height) / size);
+      for (let col = minCol; col <= maxCol; col++) {
+        for (let row = minRow; row <= maxRow; row++) {
+          const key = this.getBucketKey(col, row);
+          const list = this.platformBuckets.get(key);
+          if (list) {
+            list.push(platform);
+          } else {
+            this.platformBuckets.set(key, [platform]);
+          }
+        }
+      }
+    }
+  }
+
+  private getPlatformsNearRect(x: number, y: number, width: number, height: number, padding: number = 0): Platform[] {
+    const size = this.PLATFORM_BUCKET_SIZE;
+    const minCol = Math.floor((x - padding) / size);
+    const maxCol = Math.floor((x + width + padding) / size);
+    const minRow = Math.floor((y - padding) / size);
+    const maxRow = Math.floor((y + height + padding) / size);
+    const candidates: Platform[] = [];
+    const seen = new Set<Platform>();
+    for (let col = minCol; col <= maxCol; col++) {
+      for (let row = minRow; row <= maxRow; row++) {
+        const key = this.getBucketKey(col, row);
+        const bucket = this.platformBuckets.get(key);
+        if (!bucket) continue;
+        for (const platform of bucket) {
+          if (seen.has(platform)) continue;
+          seen.add(platform);
+          candidates.push(platform);
+        }
+      }
+    }
+    return candidates;
+  }
+
+  private clearPlatformChunkCache(): void {
+    this.chunkPlatformCache.clear();
+  }
+
+  private markChunkPlatformCacheDirty(chunkIndex: number): void {
+    const cache = this.chunkPlatformCache.get(chunkIndex);
+    if (cache) cache.dirty = true;
+  }
+
+  private cleanupChunkPlatformCache(cameraY: number): void {
+    const currentChunk = Math.floor(cameraY / CONFIG.CHUNK_HEIGHT);
+    const minChunk = currentChunk - 4;
+    for (const chunkIndex of this.chunkPlatformCache.keys()) {
+      if (chunkIndex < minChunk) {
+        this.chunkPlatformCache.delete(chunkIndex);
+      }
+    }
+  }
   
   private initDitherPattern(): void {
     // Create an offscreen canvas for processing
@@ -826,17 +953,17 @@ class Game {
   
   private playBulletSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.bulletBuffer, 0.5);
+    this.playSfx(this.bulletBuffer, this.UNIFORM_SFX_VOLUME);
   }
   
   private playLaserSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.laserBuffer, this.POWERUP_SFX_VOLUME);
+    this.playSfx(this.laserBuffer, this.UNIFORM_SFX_VOLUME);
   }
 
   private playGemSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.gemBuffer, 0.35);
+    this.playSfx(this.gemBuffer, this.UNIFORM_SFX_VOLUME);
   }
 
   private playHurtSound(): void {
@@ -852,7 +979,7 @@ class Game {
     osc.frequency.exponentialRampToValueAtTime(120, now + duration);
 
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.16, now + 0.01);
+    gain.gain.linearRampToValueAtTime(this.UNIFORM_SYNTH_PEAK_GAIN, now + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     osc.connect(gain);
@@ -874,7 +1001,7 @@ class Game {
     osc.frequency.exponentialRampToValueAtTime(52, now + duration);
 
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.2, now + 0.015);
+    gain.gain.linearRampToValueAtTime(this.UNIFORM_SYNTH_PEAK_GAIN, now + 0.015);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     osc.connect(gain);
@@ -916,7 +1043,7 @@ class Game {
 
   private playEnemyCrunchSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.enemyCrunchBuffer, 0.45);
+    this.playSfx(this.enemyCrunchBuffer, this.UNIFORM_SFX_VOLUME);
   }
 
   private playBlockBreakSound(): void {
@@ -932,7 +1059,7 @@ class Game {
     osc.frequency.exponentialRampToValueAtTime(110, now + duration);
 
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.32, now + 0.008);
+    gain.gain.linearRampToValueAtTime(this.UNIFORM_SYNTH_PEAK_GAIN, now + 0.008);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     osc.connect(gain);
@@ -943,17 +1070,17 @@ class Game {
 
   private playBlastSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.blastBuffer, this.POWERUP_SFX_VOLUME);
+    this.playSfx(this.blastBuffer, this.UNIFORM_SFX_VOLUME);
   }
 
   private playLightningSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.lightningBuffer, this.POWERUP_SFX_VOLUME);
+    this.playSfx(this.lightningBuffer, this.UNIFORM_SFX_VOLUME);
   }
 
   private playSatelliteSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.satelliteBuffer, this.POWERUP_SFX_VOLUME);
+    this.playSfx(this.satelliteBuffer, this.UNIFORM_SFX_VOLUME);
   }
 
   private playMagnetPullSound(): void {
@@ -969,7 +1096,7 @@ class Game {
     osc.frequency.exponentialRampToValueAtTime(680, now + duration);
 
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.08, now + 0.006);
+    gain.gain.linearRampToValueAtTime(this.UNIFORM_SYNTH_PEAK_GAIN, now + 0.006);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     osc.connect(gain);
@@ -1208,6 +1335,8 @@ class Game {
     this.damageTexts = [];
     this.deathFreezeFrames = 0;
     this.deathFreezeKiller = null;
+    this.clearPlatformChunkCache();
+    this.resetHudStateCache();
     
     // Reset level spawner
     this.levelSpawner.reset();
@@ -1224,8 +1353,8 @@ class Game {
     this.previousHp = CONFIG.PLAYER_MAX_HP;
     
     // Reset bubble states
-    const bubbles = document.querySelectorAll(".hp-bubble");
-    bubbles.forEach((bubble) => {
+    this.cacheHudRefs();
+    this.hudRefs.hpBubbles.forEach((bubble) => {
       bubble.classList.remove("popped", "empty");
     });
     
@@ -1345,6 +1474,7 @@ class Game {
     
     // 10. Cleanup
     this.levelSpawner.cleanupChunks(this.cameraY);
+    this.cleanupChunkPlatformCache(this.cameraY);
     
     // Update HUD
     this.updateHUD();
@@ -1361,8 +1491,15 @@ class Game {
     const visible = this.levelSpawner.getVisibleEntities(this.cameraY, CONFIG.INTERNAL_HEIGHT);
     this.activeEnemies = visible.enemies;
     this.activePlatforms = visible.platforms;
+    this.activeWallPlatforms = this.activePlatforms.filter((p) => p.isWall);
     this.activeGems = visible.gems;
-    this.activeWeeds = visible.weeds.filter((weed) => !this.brokenWeeds.has(this.getWeedKey(weed)));
+    this.activeWeeds = [];
+    for (const weed of visible.weeds) {
+      if (!this.brokenWeeds.has(this.getWeedKey(weed))) {
+        this.activeWeeds.push(weed);
+      }
+    }
+    this.rebuildPlatformBuckets();
     this.updateStompedWeeds();
     
     const player = this.playerController.getPlayer();
@@ -1402,8 +1539,7 @@ class Game {
     let leftBound = CONFIG.WALL_WIDTH;
     let rightBound = CONFIG.INTERNAL_WIDTH - CONFIG.WALL_WIDTH;
 
-    for (const platform of this.activePlatforms) {
-      if (!platform.isWall) continue;
+    for (const platform of this.activeWallPlatforms) {
       if (sampleY < platform.y || sampleY > platform.y + platform.height) continue;
       if (platform.x <= 0) {
         leftBound = Math.max(leftBound, platform.x + platform.width);
@@ -1573,7 +1709,8 @@ class Game {
         // If a gem ended up inside geometry, push it out along the shallowest overlap axis.
         const gemLeft = gem.x - halfW;
         const gemTop = gem.y - halfH;
-        for (const platform of this.activePlatforms) {
+        const nearbyPlatforms = this.getPlatformsNearRect(gemLeft, gemTop, gem.width, gem.height, 6);
+        for (const platform of nearbyPlatforms) {
           if (!overlapsRect(gemLeft, gemTop, gem.width, gem.height, platform.x, platform.y, platform.width, platform.height)) continue;
           const overlapLeft = gemLeft + gem.width - platform.x;
           const overlapRight = platform.x + platform.width - gemLeft;
@@ -1627,8 +1764,9 @@ class Game {
     // Check collision with platforms (destroy bullet on any contact)
     for (let i = bullets.length - 1; i >= 0; i--) {
       const bullet = bullets[i];
+      const nearbyPlatforms = this.getPlatformsNearRect(bullet.x, bullet.y, bullet.width, bullet.height, 4);
       
-      for (const platform of this.activePlatforms) {
+      for (const platform of nearbyPlatforms) {
         if (this.checkCollision(bullet, platform)) {
           if (platform.breakable) {
             // Damage breakable platform
@@ -1716,6 +1854,33 @@ class Game {
         width: bullet.size * 2,
         height: bullet.size * 2,
       };
+
+      // Enemy bullets should be blocked by any solid tile/wall.
+      // One-way platforms stay pass-through from below for consistency.
+      let hitSolid = false;
+      const nearbyPlatforms = this.getPlatformsNearRect(
+        bulletRect.x,
+        bulletRect.y,
+        bulletRect.width,
+        bulletRect.height,
+        2
+      );
+      for (const platform of nearbyPlatforms) {
+        if (platform.oneWay) continue;
+        const overlaps =
+          bulletRect.x < platform.x + platform.width &&
+          bulletRect.x + bulletRect.width > platform.x &&
+          bulletRect.y < platform.y + platform.height &&
+          bulletRect.y + bulletRect.height > platform.y;
+        if (overlaps) {
+          hitSolid = true;
+          break;
+        }
+      }
+      if (hitSolid) {
+        this.enemyBullets.splice(i, 1);
+        continue;
+      }
       
       if (this.checkCollision(bulletRect, playerRect)) {
         if (this.playerController.isInvulnerable()) {
@@ -1796,6 +1961,8 @@ class Game {
     const index = chunk.platforms.indexOf(platform);
     if (index !== -1) {
       chunk.platforms.splice(index, 1);
+      this.markChunkPlatformCacheDirty(platform.chunkIndex);
+      this.rebuildPlatformBuckets();
     }
     
     // Award some score for breaking blocks
@@ -1811,10 +1978,15 @@ class Game {
     const minLandingOverlap = player.width * 0.5;
     
     this.playerController.setGrounded(false);
+    const nearX = Math.min(prevX, player.x) - player.width;
+    const nearY = Math.min(prevY, player.y) - player.height;
+    const nearW = Math.abs(player.x - prevX) + player.width * 2;
+    const nearH = Math.abs(player.y - prevY) + player.height * 2;
+    const nearbyPlatforms = this.getPlatformsNearRect(nearX, nearY, nearW, nearH, 12);
     
     // First pass: Check if player is standing on any platform (including walls treated as floor)
     // This allows walking on blocks
-    for (const platform of this.activePlatforms) {
+    for (const platform of nearbyPlatforms) {
       const playerBottom = player.y + player.height / 2;
       const prevBottom = prevY + player.height / 2;
       const playerLeft = player.x - player.width / 2;
@@ -1856,7 +2028,7 @@ class Game {
       const playerRight = player.x + player.width / 2;
 
       let hitCeilingY: number | null = null;
-      for (const platform of this.activePlatforms) {
+      for (const platform of nearbyPlatforms) {
         if (platform.oneWay) continue;
         const platformBottom = platform.y + platform.height;
         const platformLeft = platform.x;
@@ -1875,7 +2047,7 @@ class Game {
     
     // Second pass: Handle horizontal collisions for all platform tiles.
     // A tile blocks horizontal movement as long as it exists.
-    for (const platform of this.activePlatforms) {
+    for (const platform of nearbyPlatforms) {
       if (platform.oneWay) continue;
       const rect = this.playerController.getRect();
       const rectLeft = rect.x;
@@ -1918,7 +2090,7 @@ class Game {
       const rectTop = rect.y;
       const rectBottom = rect.y + rect.height;
 
-      for (const platform of this.activePlatforms) {
+      for (const platform of nearbyPlatforms) {
         if (platform.oneWay) continue;
         const platLeft = platform.x;
         const platRight = platform.x + platform.width;
@@ -2825,25 +2997,28 @@ class Game {
   
   private updateHUD(): void {
     const player = this.playerController.getPlayer();
-    const scoreEl = document.getElementById("score");
-    const depthEl = document.getElementById("depth");
-    const ammoEl = document.getElementById("ammo");
-    const comboEl = document.getElementById("combo");
-    const ammoSliderFill = document.getElementById("ammo-slider-fill");
-    const hpBar = document.getElementById("hp-bar");
-    
-    if (scoreEl) scoreEl.textContent = `${this.score}`;
-    if (depthEl) depthEl.textContent = `${Math.floor(this.maxDepth)}m`;
-    if (ammoEl) ammoEl.textContent = "AMMO: " + "●".repeat(player.ammo) + "○".repeat(player.maxAmmo - player.ammo);
+    const scoreText = `${this.score}`;
+    if (this.hudRefs.scoreEl && this.prevHudScore !== this.score) {
+      this.hudRefs.scoreEl.textContent = scoreText;
+      this.prevHudScore = this.score;
+    }
+    const depthValue = Math.floor(this.maxDepth);
+    if (this.hudRefs.depthEl && this.prevHudDepth !== depthValue) {
+      this.hudRefs.depthEl.textContent = `${depthValue}m`;
+      this.prevHudDepth = depthValue;
+    }
+    const ammoText = "AMMO: " + "●".repeat(player.ammo) + "○".repeat(player.maxAmmo - player.ammo);
+    if (this.hudRefs.ammoEl && this.prevHudAmmo !== ammoText) {
+      this.hudRefs.ammoEl.textContent = ammoText;
+      this.prevHudAmmo = ammoText;
+    }
     
     // Update HP bubbles - detect lost HP and trigger pop
-    if (hpBar) {
-      const bubbles = hpBar.querySelectorAll(".hp-bubble");
-      
+    if (this.hudRefs.hpBar && this.hudRefs.hpBubbles.length > 0) {
       // Detect if HP just decreased (bubble pop trigger)
       if (player.hp < this.previousHp) {
         // Pop bubbles for each lost HP point
-        bubbles.forEach((bubble, index) => {
+        this.hudRefs.hpBubbles.forEach((bubble, index) => {
           // Bubbles are ordered top-to-bottom: data-hp 3,2,1,0
           // Index 0 = hp slot 3 (top), index 3 = hp slot 0 (bottom)
           const hpSlot = player.maxHp - 1 - index;
@@ -2867,7 +3042,7 @@ class Game {
           this.previousHp = player.hp;
         }
         
-        bubbles.forEach((bubble, index) => {
+        this.hudRefs.hpBubbles.forEach((bubble, index) => {
           const hpSlot = player.maxHp - 1 - index;
           
           if (hpSlot < player.hp) {
@@ -2882,20 +3057,27 @@ class Game {
     }
     
     // Update vertical ammo slider
-    if (ammoSliderFill) {
+    if (this.hudRefs.ammoSliderFill) {
       const ammoPercent = (player.ammo / player.maxAmmo) * 100;
-      ammoSliderFill.style.height = `${ammoPercent}%`;
+      if (ammoPercent !== this.prevHudAmmoPercent) {
+        this.hudRefs.ammoSliderFill.style.height = `${ammoPercent}%`;
+        this.prevHudAmmoPercent = ammoPercent;
+      }
     }
 
     // DOM powerup bar is hidden; active timer is rendered above the player.
-    document.getElementById("powerup-bar")?.classList.add("hidden");
+    this.hudRefs.powerupBar?.classList.add("hidden");
     
-    if (comboEl) {
+    if (this.hudRefs.comboEl) {
       if (player.combo > 0) {
-        comboEl.textContent = `x${player.combo}`;
-        comboEl.style.opacity = "1";
+        if (this.prevHudCombo !== player.combo) {
+          this.hudRefs.comboEl.textContent = `x${player.combo}`;
+          this.prevHudCombo = player.combo;
+        }
+        this.hudRefs.comboEl.style.opacity = "1";
       } else {
-        comboEl.style.opacity = "0";
+        this.hudRefs.comboEl.style.opacity = "0";
+        this.prevHudCombo = 0;
       }
     }
   }
@@ -3153,189 +3335,183 @@ class Game {
   
   private drawPlatforms(): void {
     const ctx = this.ctx;
-    const BLOCK_SIZE = 32; // Size of individual blocks (2x bigger)
-    
-    // Sand color palette for underwater theme - bright & vibrant
-    const SAND_LIGHT = { r: 255, g: 225, b: 150 };    // Bright warm sand
-    const SAND_MID   = { r: 235, g: 200, b: 120 };     // Vivid golden sand
-    const SAND_DARK  = { r: 210, g: 175, b: 100 };     // Rich sand
-    const SAND_DEEP  = { r: 175, g: 140, b: 70 };      // Deep shadow sand
-    
+    const visibleChunkSet = new Set<number>();
     for (const platform of this.activePlatforms) {
-      if (platform.oneWay) {
-        const x = platform.x;
-        const y = platform.y;
-        const w = platform.width;
-        const h = platform.height;
-        ctx.fillStyle = "rgba(215, 190, 120, 0.95)";
-        ctx.fillRect(x, y, w, h);
-        // Brighter top edge for readability.
-        ctx.fillStyle = "rgba(255, 240, 190, 0.9)";
-        ctx.fillRect(x, y, w, 2);
-        // Pixel-like dark notches so it reads as a platform strip.
-        ctx.fillStyle = "rgba(120, 90, 45, 0.55)";
-        for (let px = 2; px < w - 2; px += 10) {
-          ctx.fillRect(x + px, y + h - 2, 4, 2);
-        }
-        continue;
-      }
-
-      // Render cave walls and any impenetrable (non-breakable) masses
-      if (platform.isWall || !platform.breakable) {
-        // Organic wall made up of sand-colored pixelated blocks
-        const blocksX = Math.ceil(platform.width / BLOCK_SIZE);
-        const blocksY = Math.ceil(platform.height / BLOCK_SIZE);
-        const isLeftWall = platform.x < CONFIG.INTERNAL_WIDTH / 2;
-        
-        for (let bx = 0; bx < blocksX; bx++) {
-          for (let by = 0; by < blocksY; by++) {
-            const blockX = platform.x + bx * BLOCK_SIZE;
-            const blockY = platform.y + by * BLOCK_SIZE;
-            const blockW = Math.min(BLOCK_SIZE, platform.x + platform.width - blockX);
-            const blockH = Math.min(BLOCK_SIZE, platform.y + platform.height - blockY);
-            
-            // Determine if this is the inner edge block (facing the well)
-            const isInnerEdge = isLeftWall ? (bx === blocksX - 1) : (bx === 0);
-            // Depth from the inner edge (0 = edge, higher = deeper into wall)
-            const depthFromEdge = isLeftWall ? (blocksX - 1 - bx) : bx;
-            
-            // Sand color with depth variation - deeper into wall = darker sand
-            const depthDarken = depthFromEdge * 12;
-            const edgeBrighten = isInnerEdge ? 15 : 0;
-            const variation = ((bx + by) % 3) * 8;
-            // Alternate between slightly different hues for natural sand look
-            const hueShift = ((bx * 3 + by * 7) % 5) * 3;
-            
-            const r = Math.max(120, SAND_MID.r - depthDarken + edgeBrighten + variation - hueShift);
-            const g = Math.max(95, SAND_MID.g - depthDarken + edgeBrighten + variation - hueShift);
-            const b = Math.max(50, SAND_MID.b - depthDarken + edgeBrighten + variation - hueShift);
-            
-            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-            ctx.fillRect(blockX, blockY, blockW, blockH);
-            
-            // Pixelated grain detail (4x4 pixel sub-blocks for sandy texture)
-            const grainSize = 4;
-            for (let gx = 0; gx < blockW; gx += grainSize) {
-              for (let gy = 0; gy < blockH; gy += grainSize) {
-                const seed = ((blockX + gx) * 13 + (blockY + gy) * 7) % 11;
-                if (seed < 3) {
-                  // Darker grain speckle
-                  ctx.fillStyle = `rgba(160, 120, 50, 0.18)`;
-                  ctx.fillRect(blockX + gx, blockY + gy, grainSize, grainSize);
-                } else if (seed > 8) {
-                  // Lighter grain speckle  
-                  ctx.fillStyle = `rgba(255, 245, 210, 0.2)`;
-                  ctx.fillRect(blockX + gx, blockY + gy, grainSize, grainSize);
-                }
-              }
-            }
-            
-            // Block outline / grid lines (warm brown)
-            ctx.strokeStyle = `rgb(${SAND_DEEP.r - 15}, ${SAND_DEEP.g - 15}, ${SAND_DEEP.b - 10})`;
-            ctx.lineWidth = 1;
-            ctx.strokeRect(blockX + 0.5, blockY + 0.5, blockW - 1, blockH - 1);
-            
-            // Inner highlight (top-left) - bright warm sand highlight
-            ctx.fillStyle = `rgba(255, 245, 200, 0.25)`;
-            ctx.fillRect(blockX + 1, blockY + 1, blockW - 2, 2);
-            ctx.fillRect(blockX + 1, blockY + 1, 2, blockH - 2);
-            
-            // Inner shadow (bottom-right) - warm brown shadow
-            ctx.fillStyle = `rgba(140, 100, 40, 0.25)`;
-            ctx.fillRect(blockX + 1, blockY + blockH - 3, blockW - 2, 2);
-            ctx.fillRect(blockX + blockW - 3, blockY + 1, 2, blockH - 2);
-            
-            // Edge highlight on the inner face of cave wall
-            if (isInnerEdge) {
-              const edgeX = isLeftWall 
-                ? blockX + blockW - 3  // Right edge of left wall
-                : blockX + 1;          // Left edge of right wall
-              
-              // Brighter sand highlight on the face
-              ctx.fillStyle = `rgba(255, 240, 180, 0.35)`;
-              ctx.fillRect(edgeX, blockY + 2, 2, blockH - 4);
-              
-              // Subtle rough edge detail (small notches) - sand erosion
-              const notchSeed = (blockX * 7 + blockY * 13) % 5;
-              if (notchSeed < 2) {
-                ctx.fillStyle = `rgba(140, 100, 40, 0.35)`;
-                const notchY = blockY + (notchSeed + 1) * 8;
-                const notchX = isLeftWall ? blockX + blockW - 4 : blockX;
-                ctx.fillRect(notchX, notchY, 4, 3);
-              }
-            }
-          }
-        }
-      } else {
-        // Breakable platform block (32x32 square, same size as wall blocks)
-        const blockX = platform.x;
-        const blockY = platform.y;
-        const blockW = platform.width;
-        const blockH = platform.height;
-        
-        // Breakable blocks - darker sand/dirt color (more brown, less yellow)
-        const variation = (Math.floor(blockX / BLOCK_SIZE) % 3) * 5;
-        const r = SAND_DEEP.r - 20 + variation;
-        const g = SAND_DEEP.g - 20 + variation;
-        const b = SAND_DEEP.b - 15 + variation;
-        
-        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        ctx.fillRect(blockX, blockY, blockW, blockH);
-        
-        // Pixelated texture variation (darker/lighter spots)
-        const grainSize = 4;
-        for (let gx = 0; gx < blockW; gx += grainSize) {
-          for (let gy = 0; gy < blockH; gy += grainSize) {
-            const seed = ((blockX + gx) * 11 + (blockY + gy) * 17) % 9;
-            if (seed < 2) {
-              ctx.fillStyle = `rgba(100, 70, 30, 0.25)`;
-              ctx.fillRect(blockX + gx, blockY + gy, grainSize, grainSize);
-            } else if (seed > 7) {
-              ctx.fillStyle = `rgba(180, 140, 80, 0.2)`;
-              ctx.fillRect(blockX + gx, blockY + gy, grainSize, grainSize);
-            }
-          }
-        }
-        
-        // Minecraft-style pixelated X crack pattern
-        const crackColor = `rgba(40, 25, 10, 0.7)`;
-        const pixelSize = 4; // Size of crack pixels
-        
-        ctx.fillStyle = crackColor;
-        
-        // X-shaped crack pattern - diagonal from corners meeting in center
-        // Top-left to bottom-right diagonal
-        ctx.fillRect(blockX + 4, blockY + 4, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 8, blockY + 8, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 12, blockY + 12, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 16, blockY + 16, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 20, blockY + 20, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 24, blockY + 24, pixelSize, pixelSize);
-        
-        // Top-right to bottom-left diagonal
-        ctx.fillRect(blockX + 24, blockY + 4, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 20, blockY + 8, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 16, blockY + 12, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 12, blockY + 16, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 8, blockY + 20, pixelSize, pixelSize);
-        ctx.fillRect(blockX + 4, blockY + 24, pixelSize, pixelSize)
-        
-        // Block outline (dark brown)
-        ctx.strokeStyle = `rgb(80, 55, 25)`;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(blockX + 0.5, blockY + 0.5, blockW - 1, blockH - 1);
-        
-        // Subtle inner highlight (top-left) for 3D feel
-        ctx.fillStyle = `rgba(180, 140, 80, 0.15)`;
-        ctx.fillRect(blockX + 1, blockY + 1, blockW - 2, 2);
-        ctx.fillRect(blockX + 1, blockY + 1, 2, blockH - 2);
-        
-        // Subtle inner shadow (bottom-right)
-        ctx.fillStyle = `rgba(40, 25, 10, 0.2)`;
-        ctx.fillRect(blockX + 1, blockY + blockH - 3, blockW - 2, 2);
-        ctx.fillRect(blockX + blockW - 3, blockY + 1, 2, blockH - 2);
+      if (!platform.oneWay) {
+        visibleChunkSet.add(platform.chunkIndex);
       }
     }
+
+    for (const chunkIndex of visibleChunkSet) {
+      const cache = this.getChunkPlatformCache(chunkIndex);
+      ctx.drawImage(cache.canvas, 0, chunkIndex * CONFIG.CHUNK_HEIGHT);
+    }
+
+    // One-way strips are dynamic and inexpensive, so keep immediate rendering.
+    for (const platform of this.activePlatforms) {
+      if (!platform.oneWay) continue;
+      this.drawPlatformGeometry(ctx, platform);
+    }
+  }
+
+  private getChunkPlatformCache(chunkIndex: number): ChunkPlatformCache {
+    let cache = this.chunkPlatformCache.get(chunkIndex);
+    if (!cache) {
+      const canvas = document.createElement("canvas");
+      canvas.width = CONFIG.INTERNAL_WIDTH;
+      canvas.height = CONFIG.CHUNK_HEIGHT;
+      const cacheCtx = canvas.getContext("2d");
+      if (!cacheCtx) {
+        throw new Error("Failed to create chunk platform cache context");
+      }
+      cacheCtx.imageSmoothingEnabled = false;
+      cache = { canvas, ctx: cacheCtx, dirty: true };
+      this.chunkPlatformCache.set(chunkIndex, cache);
+    }
+    if (cache.dirty) {
+      this.redrawChunkPlatformCache(chunkIndex, cache);
+    }
+    return cache;
+  }
+
+  private redrawChunkPlatformCache(chunkIndex: number, cache: ChunkPlatformCache): void {
+    const chunk = this.levelSpawner.getChunk(chunkIndex);
+    cache.ctx.clearRect(0, 0, cache.canvas.width, cache.canvas.height);
+    cache.ctx.save();
+    cache.ctx.translate(0, -chunkIndex * CONFIG.CHUNK_HEIGHT);
+    for (const platform of chunk.platforms) {
+      if (platform.oneWay) continue;
+      this.drawPlatformGeometry(cache.ctx, platform);
+    }
+    cache.ctx.restore();
+    cache.dirty = false;
+  }
+
+  private drawPlatformGeometry(ctx: CanvasRenderingContext2D, platform: Platform): void {
+    const BLOCK_SIZE = 32;
+    const SAND_MID = { r: 235, g: 200, b: 120 };
+    const SAND_DEEP = { r: 175, g: 140, b: 70 };
+
+    if (platform.oneWay) {
+      const x = platform.x;
+      const y = platform.y;
+      const w = platform.width;
+      const h = platform.height;
+      ctx.fillStyle = "rgba(215, 190, 120, 0.95)";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "rgba(255, 240, 190, 0.9)";
+      ctx.fillRect(x, y, w, 2);
+      ctx.fillStyle = "rgba(120, 90, 45, 0.55)";
+      for (let px = 2; px < w - 2; px += 10) {
+        ctx.fillRect(x + px, y + h - 2, 4, 2);
+      }
+      return;
+    }
+
+    if (platform.isWall || !platform.breakable) {
+      const blocksX = Math.ceil(platform.width / BLOCK_SIZE);
+      const blocksY = Math.ceil(platform.height / BLOCK_SIZE);
+      const isLeftWall = platform.x < CONFIG.INTERNAL_WIDTH / 2;
+      for (let bx = 0; bx < blocksX; bx++) {
+        for (let by = 0; by < blocksY; by++) {
+          const blockX = platform.x + bx * BLOCK_SIZE;
+          const blockY = platform.y + by * BLOCK_SIZE;
+          const blockW = Math.min(BLOCK_SIZE, platform.x + platform.width - blockX);
+          const blockH = Math.min(BLOCK_SIZE, platform.y + platform.height - blockY);
+          const isInnerEdge = isLeftWall ? (bx === blocksX - 1) : (bx === 0);
+          const depthFromEdge = isLeftWall ? (blocksX - 1 - bx) : bx;
+          const depthDarken = depthFromEdge * 12;
+          const edgeBrighten = isInnerEdge ? 15 : 0;
+          const variation = ((bx + by) % 3) * 8;
+          const hueShift = ((bx * 3 + by * 7) % 5) * 3;
+          const r = Math.max(120, SAND_MID.r - depthDarken + edgeBrighten + variation - hueShift);
+          const g = Math.max(95, SAND_MID.g - depthDarken + edgeBrighten + variation - hueShift);
+          const b = Math.max(50, SAND_MID.b - depthDarken + edgeBrighten + variation - hueShift);
+          ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+          ctx.fillRect(blockX, blockY, blockW, blockH);
+          for (let gx = 0; gx < blockW; gx += 4) {
+            for (let gy = 0; gy < blockH; gy += 4) {
+              const seed = ((blockX + gx) * 13 + (blockY + gy) * 7) % 11;
+              if (seed < 3) {
+                ctx.fillStyle = "rgba(160, 120, 50, 0.18)";
+                ctx.fillRect(blockX + gx, blockY + gy, 4, 4);
+              } else if (seed > 8) {
+                ctx.fillStyle = "rgba(255, 245, 210, 0.2)";
+                ctx.fillRect(blockX + gx, blockY + gy, 4, 4);
+              }
+            }
+          }
+          ctx.strokeStyle = `rgb(${SAND_DEEP.r - 15}, ${SAND_DEEP.g - 15}, ${SAND_DEEP.b - 10})`;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(blockX + 0.5, blockY + 0.5, blockW - 1, blockH - 1);
+          ctx.fillStyle = "rgba(255, 245, 200, 0.25)";
+          ctx.fillRect(blockX + 1, blockY + 1, blockW - 2, 2);
+          ctx.fillRect(blockX + 1, blockY + 1, 2, blockH - 2);
+          ctx.fillStyle = "rgba(140, 100, 40, 0.25)";
+          ctx.fillRect(blockX + 1, blockY + blockH - 3, blockW - 2, 2);
+          ctx.fillRect(blockX + blockW - 3, blockY + 1, 2, blockH - 2);
+          if (isInnerEdge) {
+            const edgeX = isLeftWall ? blockX + blockW - 3 : blockX + 1;
+            ctx.fillStyle = "rgba(255, 240, 180, 0.35)";
+            ctx.fillRect(edgeX, blockY + 2, 2, blockH - 4);
+            const notchSeed = (blockX * 7 + blockY * 13) % 5;
+            if (notchSeed < 2) {
+              ctx.fillStyle = "rgba(140, 100, 40, 0.35)";
+              const notchY = blockY + (notchSeed + 1) * 8;
+              const notchX = isLeftWall ? blockX + blockW - 4 : blockX;
+              ctx.fillRect(notchX, notchY, 4, 3);
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    const blockX = platform.x;
+    const blockY = platform.y;
+    const blockW = platform.width;
+    const blockH = platform.height;
+    const variation = (Math.floor(blockX / BLOCK_SIZE) % 3) * 5;
+    const r = SAND_DEEP.r - 20 + variation;
+    const g = SAND_DEEP.g - 20 + variation;
+    const b = SAND_DEEP.b - 15 + variation;
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fillRect(blockX, blockY, blockW, blockH);
+    for (let gx = 0; gx < blockW; gx += 4) {
+      for (let gy = 0; gy < blockH; gy += 4) {
+        const seed = ((blockX + gx) * 11 + (blockY + gy) * 17) % 9;
+        if (seed < 2) {
+          ctx.fillStyle = "rgba(100, 70, 30, 0.25)";
+          ctx.fillRect(blockX + gx, blockY + gy, 4, 4);
+        } else if (seed > 7) {
+          ctx.fillStyle = "rgba(180, 140, 80, 0.2)";
+          ctx.fillRect(blockX + gx, blockY + gy, 4, 4);
+        }
+      }
+    }
+    ctx.fillStyle = "rgba(40, 25, 10, 0.7)";
+    const pixelSize = 4;
+    ctx.fillRect(blockX + 4, blockY + 4, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 8, blockY + 8, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 12, blockY + 12, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 16, blockY + 16, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 20, blockY + 20, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 24, blockY + 24, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 24, blockY + 4, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 20, blockY + 8, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 16, blockY + 12, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 12, blockY + 16, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 8, blockY + 20, pixelSize, pixelSize);
+    ctx.fillRect(blockX + 4, blockY + 24, pixelSize, pixelSize);
+    ctx.strokeStyle = "rgb(80, 55, 25)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(blockX + 0.5, blockY + 0.5, blockW - 1, blockH - 1);
+    ctx.fillStyle = "rgba(180, 140, 80, 0.15)";
+    ctx.fillRect(blockX + 1, blockY + 1, blockW - 2, 2);
+    ctx.fillRect(blockX + 1, blockY + 1, 2, blockH - 2);
+    ctx.fillStyle = "rgba(40, 25, 10, 0.2)";
+    ctx.fillRect(blockX + 1, blockY + blockH - 3, blockW - 2, 2);
+    ctx.fillRect(blockX + blockW - 3, blockY + 1, 2, blockH - 2);
   }
   
   private drawWeeds(): void {

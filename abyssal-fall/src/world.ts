@@ -1808,7 +1808,11 @@ export class LevelSpawner {
       const chunk = this.getChunk(i);
       platforms.push(...chunk.platforms);
       enemies.push(...chunk.enemies);
-      gems.push(...chunk.gems.filter(g => !g.collected));
+      for (const gem of chunk.gems) {
+        if (!gem.collected) {
+          gems.push(gem);
+        }
+      }
       weeds.push(...chunk.weeds);
     }
     
