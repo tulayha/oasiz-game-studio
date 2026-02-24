@@ -1155,6 +1155,7 @@ class Game {
       gem.vy = gem.vy ?? 0;
       gem.settleFrames = gem.settleFrames ?? 0;
       gem.fadeTimer = gem.fadeTimer ?? 0;
+      gem.collectDelay = Math.max(0, (gem.collectDelay ?? 0) - 1);
 
       const halfW = gem.width / 2;
       const halfH = gem.height / 2;
@@ -1415,7 +1416,6 @@ class Game {
   
   private resolveCollisions(): void {
     const player = this.playerController.getPlayer();
-    const playerRect = this.playerController.getRect();
     
     this.playerController.setGrounded(false);
     
@@ -1440,19 +1440,42 @@ class Game {
       }
     }
     
-    // Second pass: Handle wall collisions (horizontal)
+    // Second pass: Handle horizontal collisions for all platform tiles.
+    // A tile blocks horizontal movement as long as it exists.
     for (const platform of this.activePlatforms) {
-      if (!platform.isWall) continue;
-      if (!this.checkCollision(playerRect, platform)) continue;
-      
-      // Horizontal wall collision
-      if (player.x < CONFIG.INTERNAL_WIDTH / 2) {
-        this.playerController.setPosition(platform.x + platform.width + player.width / 2, player.y);
+      const rect = this.playerController.getRect();
+      const rectLeft = rect.x;
+      const rectRight = rect.x + rect.width;
+      const rectTop = rect.y;
+      const rectBottom = rect.y + rect.height;
+
+      const platLeft = platform.x;
+      const platRight = platform.x + platform.width;
+      const platTop = platform.y;
+      const platBottom = platform.y + platform.height;
+
+      if (rectRight <= platLeft || rectLeft >= platRight || rectBottom <= platTop || rectTop >= platBottom) {
+        continue;
+      }
+
+      // Resolve only horizontal penetration here; vertical is handled in landing pass.
+      const overlapX = Math.min(rectRight, platRight) - Math.max(rectLeft, platLeft);
+      const overlapY = Math.min(rectBottom, platBottom) - Math.max(rectTop, platTop);
+      if (overlapX <= 0 || overlapY <= 0 || overlapX >= overlapY) {
+        continue;
+      }
+
+      const playerCenterX = rectLeft + rect.width / 2;
+      const platformCenterX = platLeft + platform.width / 2;
+      if (playerCenterX < platformCenterX) {
+        this.playerController.setPosition(platLeft - player.width / 2, player.y);
       } else {
-        this.playerController.setPosition(platform.x - player.width / 2, player.y);
+        this.playerController.setPosition(platRight + player.width / 2, player.y);
       }
       this.playerController.stopHorizontal();
     }
+
+    const playerRect = this.playerController.getRect();
     
     // Enemy collisions
     for (let i = this.activeEnemies.length - 1; i >= 0; i--) {
@@ -1488,6 +1511,7 @@ class Game {
     for (let i = this.droppedGems.length - 1; i >= 0; i--) {
       const gem = this.droppedGems[i];
       if (gem.collected) continue;
+      if ((gem.collectDelay ?? 0) > 0) continue;
 
       if (this.checkGemPickup(playerRect, gem)) {
         gem.collected = true;
@@ -1770,7 +1794,11 @@ class Game {
     const player = this.playerController.getPlayer();
     
     // Check if we need to spawn a new powerup orb
-    this.powerUpManager.checkSpawnOrb(this.maxDepth, player.x);
+    this.powerUpManager.checkSpawnOrb(
+      this.maxDepth,
+      player.x,
+      (worldY, entityWidth, preferredX) => this.levelSpawner.getSafeSpawnX(worldY, entityWidth, preferredX)
+    );
     
     // Check powerup orb collection
     const collected = this.powerUpManager.checkCollection(
@@ -1954,10 +1982,13 @@ class Game {
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 1.2 + Math.random() * 2.8;
+      const spawnRadius = 12 + Math.random() * 10;
+      const spawnX = x + Math.cos(angle) * spawnRadius;
+      const spawnY = y + Math.sin(angle) * (spawnRadius * 0.6);
 
       this.droppedGems.push({
-        x,
-        y,
+        x: spawnX,
+        y: spawnY,
         width: 14,
         height: 14,
         value: (1 + Math.floor(Math.random() * 2)) * CONFIG.SCORE_PER_GEM,
@@ -1971,6 +2002,7 @@ class Game {
         settled: false,
         settleFrames: 0,
         fadeTimer: 0,
+        collectDelay: 8,
       });
     }
   }
@@ -3048,10 +3080,9 @@ class Game {
     if (this.submarineImg && this.submarineImg.complete) {
       const spriteWidth = 72;  // Display size (1.5x bigger: 48 * 1.5 = 72)
       const spriteHeight = 72;
-      const hullBottomInset = 6; // Transparent pixels at sprite bottom.
       const x = p.x - spriteWidth / 2;
-      // Anchor hull bottom near collider bottom so it sits on tiles correctly.
-      const y = p.y + p.height / 2 - spriteHeight + hullBottomInset;
+      // Center on physics body with slight upward bias to avoid sinking into tiles.
+      const y = p.y - spriteHeight / 2 - 3;
       
       ctx.save();
       

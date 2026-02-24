@@ -73,6 +73,7 @@ export interface Gem extends Entity {
   settled?: boolean;
   settleFrames?: number;
   fadeTimer?: number;
+  collectDelay?: number;
 }
 
 export interface Weed {
@@ -583,6 +584,21 @@ export class LevelSpawner {
     }
     return false;
   }
+
+  // Crabs should have at least one block of stomping headroom,
+  // but only over the central shell area (not requiring full-width open sky).
+  private hasStaticStompClearance(
+    platforms: Platform[],
+    x: number,
+    y: number,
+    width: number,
+    blockSize: number
+  ): boolean {
+    const clearanceWidth = Math.max(10, Math.floor(width * 0.45));
+    const clearanceX = x + (width - clearanceWidth) / 2;
+    const clearanceY = y - blockSize;
+    return !this.overlapsSolidPlatforms(platforms, clearanceX, clearanceY, clearanceWidth, blockSize, 0);
+  }
   
   // Helper: find the center column of the first gap in a column array
   private findFirstGap(columns: boolean[], numColumns: number): number {
@@ -704,7 +720,8 @@ export class LevelSpawner {
     const standableSurfaces = this.getStandableSurfaces(chunk, wallProfile);
     
     const sectionHeight = CONFIG.CHUNK_HEIGHT / (numEnemies + 1);
-    const enemySize = 56; // Conservative proxy for all enemy classes
+    const staticEnemySize = 34; // STATIC crab proxy height for surface placement.
+    const enemySize = 44; // Non-STATIC proxy for placement checks.
     const padding = 8; // Extra padding around platforms to keep enemies clear
     
     for (let i = 0; i < numEnemies; i++) {
@@ -718,16 +735,17 @@ export class LevelSpawner {
       // STATIC enemies must be placed on standable surfaces (platforms + wall ledges)
       if (type === "STATIC") {
         // Filter surfaces that are wide enough for the enemy
-        const validSurfaces = standableSurfaces.filter(s => s.width >= enemySize + 4);
+        const validSurfaces = standableSurfaces.filter(s => s.width >= staticEnemySize);
         if (validSurfaces.length === 0) continue;
         
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const staticAttempts = 24;
+        for (let attempt = 0; attempt < staticAttempts; attempt++) {
           const surface = rng.pick(validSurfaces);
           
           // Place enemy on top of the surface, with some random X offset
-          const maxOffset = Math.max(0, surface.width - enemySize - 4);
+          const maxOffset = Math.max(0, surface.width - staticEnemySize - 4);
           enemyX = surface.x + 2 + (maxOffset > 0 ? rng.range(0, maxOffset) : 0);
-          enemyY = surface.y - enemySize; // Sit directly on top of the surface
+          enemyY = surface.y - staticEnemySize; // Sit directly on top of the surface
           
           // Make sure it's not inside a wall
           const row = Math.min(
@@ -737,15 +755,23 @@ export class LevelSpawner {
           if (row >= 0 && row < wallProfile.leftWidths.length) {
             const leftWall = wallProfile.leftWidths[row] * BLOCK_SIZE;
             const rightWall = CONFIG.INTERNAL_WIDTH - wallProfile.rightWidths[row] * BLOCK_SIZE;
-            if (enemyX < leftWall || enemyX + enemySize > rightWall) continue;
+            if (enemyX < leftWall || enemyX + staticEnemySize > rightWall) continue;
           }
           
           // Check not too close to another enemy
           const tooCloseToOther = chunk.enemies.some(e => {
-            return Math.abs(e.x - enemyX) < enemySize * 1.5 && Math.abs(e.y - enemyY) < enemySize;
+            return Math.abs(e.x - enemyX) < staticEnemySize * 1.5 && Math.abs(e.y - enemyY) < staticEnemySize;
           });
-          
-          if (!tooCloseToOther) {
+
+          const hasHeadroom = this.hasStaticStompClearance(
+            chunk.platforms,
+            enemyX,
+            enemyY,
+            staticEnemySize,
+            BLOCK_SIZE
+          );
+
+          if (!tooCloseToOther && hasHeadroom) {
             placed = true;
             break;
           }
@@ -809,16 +835,14 @@ export class LevelSpawner {
 
       // Crabs (STATIC) need one clear block above their head so they are always killable.
       if (type === "STATIC") {
-        const headClearanceY = enemy.y - BLOCK_SIZE;
-        const blockedAbove = this.overlapsAnyPlatform(
+        const hasHeadroom = this.hasStaticStompClearance(
           chunk.platforms,
-          enemy.x + 2,
-          headClearanceY,
-          Math.max(1, enemy.width - 4),
-          BLOCK_SIZE,
-          1
+          enemy.x,
+          enemy.y,
+          enemy.width,
+          BLOCK_SIZE
         );
-        if (blockedAbove) continue;
+        if (!hasHeadroom) continue;
       }
 
       enemy.chunkIndex = chunk.index;

@@ -175,17 +175,25 @@ export class PowerUpManager {
   // ============= ORB SPAWNING =============
   
   /** Check if a new powerup orb should be spawned at the given depth */
-  checkSpawnOrb(maxDepth: number, playerX: number): void {
+  checkSpawnOrb(
+    maxDepth: number,
+    playerX: number,
+    resolveSafeX?: (worldY: number, entityWidth: number, preferredX: number) => number
+  ): void {
     // Calculate the NEXT milestone ahead of the player
     const nextMilestone = (Math.floor(maxDepth / CONFIG.POWERUP_SPAWN_DEPTH_INTERVAL) + 1) * CONFIG.POWERUP_SPAWN_DEPTH_INTERVAL;
     
     if (!this.spawnedMilestones.has(nextMilestone)) {
       this.spawnedMilestones.add(nextMilestone);
-      this.spawnOrb(nextMilestone, playerX);
+      this.spawnOrb(nextMilestone, playerX, resolveSafeX);
     }
   }
   
-  private spawnOrb(depthMilestone: number, playerX: number): void {
+  private spawnOrb(
+    depthMilestone: number,
+    playerX: number,
+    resolveSafeX?: (worldY: number, entityWidth: number, preferredX: number) => number
+  ): void {
     // Pick the next powerup type in cycle
     const type = this.typeOrder[this.typeIndex % this.typeOrder.length];
     this.typeIndex++;
@@ -196,7 +204,10 @@ export class PowerUpManager {
     // Center horizontally in the well, with some variation
     const centerX = CONFIG.INTERNAL_WIDTH / 2;
     const variation = (Math.sin(depthMilestone * 0.1) * 0.5) * (CONFIG.INTERNAL_WIDTH - CONFIG.WALL_WIDTH * 4);
-    const orbX = centerX + variation;
+    const preferredX = centerX + variation;
+    const orbX = resolveSafeX
+      ? resolveSafeX(worldY, POWERUP_CONSTANTS.ORB_HITBOX, preferredX)
+      : preferredX;
     
     const orb: PowerUpOrb = {
       x: orbX,
