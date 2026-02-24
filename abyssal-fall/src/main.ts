@@ -47,6 +47,11 @@ class Game {
   private maxDepth: number = 0;
   private score: number = 0;
   private gems: number = 0;
+  private scoreDepth: number = 0;
+  private scoreEnemies: number = 0;
+  private scoreGems: number = 0;
+  private scoreBreakables: number = 0;
+  private gameOverTimers: number[] = [];
   private frameCount: number = 0;
   
   private scale: number = 1;
@@ -1011,9 +1016,14 @@ class Game {
     this.gameState = "playing";
     this.score = 0;
     this.gems = 0;
+    this.scoreDepth = 0;
+    this.scoreEnemies = 0;
+    this.scoreGems = 0;
+    this.scoreBreakables = 0;
     this.maxDepth = 0;
     this.frameCount = 0;
     this.cameraY = 0;
+    this.clearGameOverTimers();
     
     // Reset input
     this.input = { left: false, right: false, shoot: false, jump: false };
@@ -1074,8 +1084,7 @@ class Game {
     
     // Show game over screen
     document.getElementById("game-over-screen")?.classList.remove("hidden");
-    document.getElementById("final-score")!.textContent = this.score.toString();
-    document.getElementById("final-depth")!.textContent = `Depth: ${Math.floor(this.maxDepth)}m`;
+    this.animateGameOverScoreBreakdown();
     const hud = document.getElementById("hud");
     if (hud) hud.style.display = "none";
     document.getElementById("settings-btn")?.classList.add("hidden");
@@ -1104,7 +1113,9 @@ class Game {
     // Update depth score
     const depth = Math.floor(player.y / 10);
     if (depth > this.maxDepth) {
-      this.score += (depth - this.maxDepth) * CONFIG.SCORE_PER_DEPTH;
+      const delta = (depth - this.maxDepth) * CONFIG.SCORE_PER_DEPTH;
+      this.score += delta;
+      this.scoreDepth += delta;
       this.maxDepth = depth;
     }
     
@@ -1543,6 +1554,7 @@ class Game {
     
     // Award some score for breaking blocks
     this.score += 2;
+    this.scoreBreakables += 2;
     this.triggerHaptic("light");
   }
   
@@ -1745,7 +1757,9 @@ class Game {
       if (this.checkGemPickup(playerRect, gem)) {
         gem.collected = true;
         const comboMultiplier = this.playerController.getComboMultiplier();
-        this.score += gem.value * comboMultiplier;
+        const points = gem.value * comboMultiplier;
+        this.score += points;
+        this.scoreGems += points;
         this.gems++;
         this.playGemSound();
       }
@@ -1760,7 +1774,9 @@ class Game {
       if (this.checkGemPickup(playerRect, gem)) {
         gem.collected = true;
         const comboMultiplier = this.playerController.getComboMultiplier();
-        this.score += gem.value * comboMultiplier;
+        const points = gem.value * comboMultiplier;
+        this.score += points;
+        this.scoreGems += points;
         this.gems++;
         this.playGemSound();
         this.droppedGems.splice(i, 1);
@@ -2215,12 +2231,91 @@ class Game {
     
     // Score with combo multiplier
     const comboMultiplier = this.playerController.getComboMultiplier();
-    this.score += CONFIG.SCORE_PER_ENEMY * comboMultiplier;
+    const points = CONFIG.SCORE_PER_ENEMY * comboMultiplier;
+    this.score += points;
+    this.scoreEnemies += points;
     
     // Small screen shake on enemy death
     this.addScreenShake(3);
     
     this.triggerHaptic("light");
+  }
+
+  private clearGameOverTimers(): void {
+    for (const t of this.gameOverTimers) {
+      window.clearTimeout(t);
+      window.clearInterval(t);
+    }
+    this.gameOverTimers = [];
+  }
+
+  private animateValue(el: HTMLElement, from: number, to: number, durationMs: number): void {
+    const start = performance.now();
+    const intervalId = window.setInterval(() => {
+      const now = performance.now();
+      const t = Math.min(1, (now - start) / durationMs);
+      const value = Math.round(from + (to - from) * t);
+      el.textContent = value.toString();
+      if (t < 1) {
+        return;
+      }
+      window.clearInterval(intervalId);
+    }, 16);
+    this.gameOverTimers.push(intervalId);
+  }
+
+  private animateGameOverScoreBreakdown(): void {
+    this.clearGameOverTimers();
+    const finalScoreEl = document.getElementById("final-score");
+    const finalDepthEl = document.getElementById("final-depth");
+    const depthRow = document.getElementById("score-row-depth");
+    const enemiesRow = document.getElementById("score-row-enemies");
+    const gemsRow = document.getElementById("score-row-gems");
+    const breakablesRow = document.getElementById("score-row-breakables");
+    const depthValueEl = document.getElementById("score-depth");
+    const enemiesValueEl = document.getElementById("score-enemies");
+    const gemsValueEl = document.getElementById("score-gems");
+    const breakablesValueEl = document.getElementById("score-breakables");
+    if (
+      !finalScoreEl || !finalDepthEl ||
+      !depthRow || !enemiesRow || !gemsRow || !breakablesRow ||
+      !depthValueEl || !enemiesValueEl || !gemsValueEl || !breakablesValueEl
+    ) {
+      return;
+    }
+
+    finalScoreEl.textContent = "0";
+    finalDepthEl.textContent = `Depth: ${Math.floor(this.maxDepth)}m`;
+    depthValueEl.textContent = "0";
+    enemiesValueEl.textContent = "0";
+    gemsValueEl.textContent = "0";
+    breakablesValueEl.textContent = "0";
+    depthRow.classList.remove("visible");
+    enemiesRow.classList.remove("visible");
+    gemsRow.classList.remove("visible");
+    breakablesRow.classList.remove("visible");
+
+    const steps = [
+      { row: depthRow, el: depthValueEl, value: this.scoreDepth },
+      { row: enemiesRow, el: enemiesValueEl, value: this.scoreEnemies },
+      { row: gemsRow, el: gemsValueEl, value: this.scoreGems },
+      { row: breakablesRow, el: breakablesValueEl, value: this.scoreBreakables },
+    ];
+
+    let delay = 120;
+    for (const step of steps) {
+      const showId = window.setTimeout(() => {
+        step.row.classList.add("visible");
+        this.animateValue(step.el, 0, step.value, 420);
+      }, delay);
+      this.gameOverTimers.push(showId);
+      delay += 460;
+    }
+
+    const totalId = window.setTimeout(() => {
+      this.animateValue(finalScoreEl, 0, this.score, 550);
+    }, delay + 120);
+    this.gameOverTimers.push(totalId);
   }
 
   private spawnDroppedGems(x: number, y: number, chunkIndex: number): void {

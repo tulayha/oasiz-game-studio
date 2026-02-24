@@ -261,6 +261,39 @@
             text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
         }
 
+        .score-breakdown {
+            margin-top: 14px;
+            display: grid;
+            gap: 8px;
+            min-width: 260px;
+        }
+
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.68rem;
+            color: rgba(255, 255, 255, 0.85);
+            opacity: 0;
+            transform: translateY(6px);
+            transition: opacity 0.22s ease, transform 0.22s ease;
+        }
+
+        .score-row.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .score-row .label {
+            color: rgba(255, 255, 255, 0.72);
+        }
+
+        .score-row .value {
+            color: #fff;
+            min-width: 88px;
+            text-align: right;
+        }
+
         /* Settings Modal */
         .settings-modal {
             position: absolute;
@@ -726,6 +759,24 @@
                     <div class="final-score-label">FINAL SCORE</div>
                     <div class="final-score" id="final-score">0</div>
                     <div class="final-depth" id="final-depth">Depth: 0m</div>
+                    <div class="score-breakdown" id="score-breakdown">
+                        <div class="score-row" id="score-row-depth">
+                            <span class="label">Depth Bonus</span>
+                            <span class="value" id="score-depth">0</span>
+                        </div>
+                        <div class="score-row" id="score-row-enemies">
+                            <span class="label">Enemy Kills</span>
+                            <span class="value" id="score-enemies">0</span>
+                        </div>
+                        <div class="score-row" id="score-row-gems">
+                            <span class="label">Gems</span>
+                            <span class="value" id="score-gems">0</span>
+                        </div>
+                        <div class="score-row" id="score-row-breakables">
+                            <span class="label">Breakables</span>
+                            <span class="value" id="score-breakables">0</span>
+                        </div>
+                    </div>
                 </div>
                 <button class="btn" id="restart-btn">RESTART</button>
             </div>

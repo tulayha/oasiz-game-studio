@@ -440,6 +440,184 @@ export class LevelSpawner {
     // This prevents a permanent free-fall center lane and creates natural cave pressure.
     this.generateSideCenterMasses(chunk, rng, wallProfile);
     this.generateOneWayPlatforms(chunk, rng, wallProfile);
+    this.ensureGuaranteedClearPath(chunk, wallProfile);
+    this.generateCatchShelves(chunk, wallProfile);
+    this.normalizeBreakablesUnderUnbreakables(chunk);
+  }
+
+  // Guarantee at least a 2-block-wide no-break route through each chunk.
+  // We carve a vertical lane by cutting overlapping platforms into left/right pieces.
+  private ensureGuaranteedClearPath(chunk: Chunk, wallProfile: WallProfile): void {
+    const BLOCK = CONFIG.WALL_BLOCK_SIZE;
+    const pathWidth = Math.max(BLOCK, CONFIG.GUARANTEED_CLEAR_PATH_BLOCKS * BLOCK);
+
+    // Conservative lane bounds valid across the entire chunk.
+    let laneLeft = 0;
+    let laneRight = CONFIG.INTERNAL_WIDTH;
+    for (let r = 0; r < wallProfile.leftWidths.length; r++) {
+      laneLeft = Math.max(laneLeft, wallProfile.leftWidths[r] * BLOCK);
+      laneRight = Math.min(laneRight, CONFIG.INTERNAL_WIDTH - wallProfile.rightWidths[r] * BLOCK);
+    }
+
+    const usable = laneRight - laneLeft;
+    if (usable <= pathWidth + 4) return;
+
+    // Deterministic center-biased lane placement per chunk.
+    const laneRng = new SeededRNG(this.seed + chunk.index * 15731 + 901);
+    const minX = laneLeft + 2;
+    const maxX = laneRight - pathWidth - 2;
+    const centerX = (laneLeft + laneRight - pathWidth) * 0.5;
+    const sway = (laneRng.next() - 0.5) * Math.max(0, usable - pathWidth) * 0.25;
+    const unclampedPathX = Math.max(minX, Math.min(maxX, centerX + sway));
+    const pathX = Math.max(minX, Math.min(maxX, Math.round(unclampedPathX / BLOCK) * BLOCK));
+    const pathY = chunk.y;
+    const pathH = CONFIG.CHUNK_HEIGHT;
+    const pathRight = pathX + pathWidth;
+    const minPieceWidth = 10;
+
+    const carved: Platform[] = [];
+    for (const p of chunk.platforms) {
+      if (p.oneWay) {
+        carved.push(p);
+        continue;
+      }
+      if (p.isWall) {
+        carved.push(p);
+        continue;
+      }
+
+      const overlapsPath = this.overlapsRect(pathX, pathY, pathWidth, pathH, p.x, p.y, p.width, p.height);
+      if (!overlapsPath) {
+        carved.push(p);
+        continue;
+      }
+
+      const pRight = p.x + p.width;
+      const leftWidth = Math.max(0, pathX - p.x);
+      const rightWidth = Math.max(0, pRight - pathRight);
+
+      if (leftWidth >= minPieceWidth) {
+        carved.push({
+          ...p,
+          x: p.x,
+          width: leftWidth,
+        });
+      }
+      if (rightWidth >= minPieceWidth) {
+        carved.push({
+          ...p,
+          x: pathRight,
+          width: rightWidth,
+        });
+      }
+    }
+
+    chunk.platforms = carved;
+  }
+
+  // Add deterministic one-way "catch shelves" so the player cannot free-fall
+  // for more than the configured time window from any fixed x position.
+  // Shelves leave a 2-block gap that shifts across left/center/right lanes.
+  private generateCatchShelves(chunk: Chunk, wallProfile: WallProfile): void {
+    const BLOCK = CONFIG.WALL_BLOCK_SIZE;
+    const thickness = CONFIG.ONE_WAY_PLATFORM_THICKNESS;
+    const frames = Math.max(1, Math.floor(CONFIG.FALL_OBSTACLE_MAX_SECONDS * 60));
+    let vy = 0;
+    let maxFallDistancePx = 0;
+    for (let i = 0; i < frames; i++) {
+      vy = Math.min(CONFIG.PLAYER_MAX_FALL_SPEED, vy + CONFIG.PLAYER_GRAVITY);
+      maxFallDistancePx += vy;
+    }
+    const spacingCap = Math.max(BLOCK * 4, Math.floor(maxFallDistancePx) - BLOCK);
+    const spacing = Math.max(BLOCK * 4, Math.min(CONFIG.CATCH_SHELF_SPACING_PX, spacingCap));
+    const gapWidth = Math.max(BLOCK * 2, CONFIG.GUARANTEED_CLEAR_PATH_BLOCKS * BLOCK);
+    const rowCount = wallProfile.leftWidths.length;
+    const chunkTop = chunk.y;
+    const chunkBottom = chunk.y + CONFIG.CHUNK_HEIGHT;
+
+    const firstShelf = Math.ceil(chunkTop / spacing) * spacing;
+    const phase = Math.abs(this.seed) % 3;
+
+    for (let shelfY = firstShelf; shelfY < chunkBottom; shelfY += spacing) {
+      const row = Math.min(rowCount - 1, Math.max(0, Math.floor((shelfY - chunk.y) / BLOCK)));
+      const laneLeft = wallProfile.leftWidths[row] * BLOCK;
+      const laneRight = CONFIG.INTERNAL_WIDTH - wallProfile.rightWidths[row] * BLOCK;
+      const laneWidth = laneRight - laneLeft;
+      if (laneWidth <= gapWidth + BLOCK) continue;
+
+      const shelfIndex = Math.floor(shelfY / spacing);
+      const slot = (shelfIndex + phase) % 3; // 0=left,1=center,2=right
+
+      const maxGapX = laneRight - gapWidth;
+      const rawGapX = laneLeft + ((laneWidth - gapWidth) * slot) / 2;
+      const gapX = Math.max(laneLeft, Math.min(maxGapX, Math.round(rawGapX / BLOCK) * BLOCK));
+      const gapRight = gapX + gapWidth;
+      const minSeg = 10;
+
+      const leftWidth = gapX - laneLeft;
+      if (leftWidth >= minSeg) {
+        chunk.platforms.push({
+          x: laneLeft,
+          y: shelfY,
+          width: leftWidth,
+          height: thickness,
+          isWall: false,
+          breakable: false,
+          oneWay: true,
+          hp: 0,
+          chunkIndex: chunk.index,
+        });
+      }
+
+      const rightWidth = laneRight - gapRight;
+      if (rightWidth >= minSeg) {
+        chunk.platforms.push({
+          x: gapRight,
+          y: shelfY,
+          width: rightWidth,
+          height: thickness,
+          isWall: false,
+          breakable: false,
+          oneWay: true,
+          hp: 0,
+          chunkIndex: chunk.index,
+        });
+      }
+    }
+  }
+
+  // Breakable tiles directly under an unbreakable solid become unbreakable.
+  // This prevents traps where the player expects to clear a block but cannot.
+  private normalizeBreakablesUnderUnbreakables(chunk: Chunk): void {
+    const tolerance = 2;
+    const unbreakables = chunk.platforms.filter((p) => !p.breakable && !p.oneWay);
+
+    for (const p of chunk.platforms) {
+      if (!p.breakable) continue;
+
+      const pTop = p.y;
+      const pLeft = p.x;
+      const pRight = p.x + p.width;
+      let blockedFromAbove = false;
+
+      for (const u of unbreakables) {
+        const uBottom = u.y + u.height;
+        if (Math.abs(uBottom - pTop) > tolerance) continue;
+
+        const uLeft = u.x;
+        const uRight = u.x + u.width;
+        const overlapsX = pRight > uLeft && pLeft < uRight;
+        if (!overlapsX) continue;
+
+        blockedFromAbove = true;
+        break;
+      }
+
+      if (blockedFromAbove) {
+        p.breakable = false;
+        p.hp = 0;
+      }
+    }
   }
 
   // Generate thin one-way platforms (Mario-style): standable from above,
