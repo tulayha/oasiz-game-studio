@@ -3,6 +3,8 @@ import {
   PilotState,
   ProjectileState,
   AsteroidState,
+  TurretState,
+  TurretBulletState,
   PowerUpState,
   LaserBeamState,
   MineState,
@@ -15,30 +17,21 @@ import {
 import { SeededRNG } from "../../../shared/sim/SeededRNG";
 import {
   SHIP_JOUST_LOCAL_POINTS,
-  SHIP_SHIELD_RADII,
   SHIP_VISUAL_REFERENCE_SIZE,
 } from "../../../shared/geometry/ShipRenderAnchors";
 import { PILOT_EFFECT_LOCAL_POINTS } from "../../../shared/geometry/PilotRenderAnchors";
-import {
-  SHIP_COLLIDER_VERTICES,
-  transformLocalVertices,
-} from "../../../shared/geometry/EntityShapes";
-import { projectRayToArenaWall } from "../../../shared/sim/physics/geometryMath";
 import { EntitySpriteStore } from "./EntitySpriteStore";
 import { MapOverlayStore } from "./MapOverlayStore";
 import { PowerUpSpriteStore } from "./PowerUpSpriteStore";
 import { RenderEffectsSystem } from "./RenderEffectsSystem";
-import {
-  drawDebugRadius,
-  drawMineBody,
-  drawMineExplosionEffect,
-} from "./RendererVisualPrimitives";
 import {
   ShipTrailRenderer,
   type ShipTrailVisualTuning,
 } from "./ShipTrailRenderer";
 import { ScreenShakeController } from "./ScreenShakeController";
 import { MapEffectsRenderer } from "./MapEffectsRenderer";
+import { CombatVisualsRenderer } from "./CombatVisualsRenderer";
+import { RenderDebugSystem } from "./RenderDebugSystem";
 import {
   CAMERA_DEFAULT_ZOOM,
   CAMERA_EDGE_SLACK_RATIO,
@@ -77,16 +70,22 @@ export class Renderer {
   private mapEffects: MapEffectsRenderer;
   private mapOverlays = new MapOverlayStore();
   private powerUpSprites = new PowerUpSpriteStore();
-  private projectileDebugHistory = new Map<
-    string,
-    Array<{ x: number; y: number; atMs: number }>
-  >();
+  private combatVisuals: CombatVisualsRenderer;
+  private debug: RenderDebugSystem;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
     this.visualRng = new SeededRNG(Date.now() >>> 0);
     this.mapEffects = new MapEffectsRenderer(this.ctx);
+    this.combatVisuals = new CombatVisualsRenderer(
+      this.ctx,
+      this.powerUpSprites,
+      () => this.getNowMs(),
+      (baseBlurAtUnitScale, minBlur, maxBlur) =>
+        this.getEffectBlurPx(baseBlurAtUnitScale, minBlur, maxBlur),
+    );
+    this.debug = new RenderDebugSystem(this.ctx, () => this.getNowMs());
     this.effects = new RenderEffectsSystem(
       this.ctx,
       this.entitySprites,
@@ -172,56 +171,32 @@ export class Renderer {
   setDevMode(enabled: boolean): void {
     this.devModeEnabled = enabled;
     if (!enabled) {
-      this.projectileDebugHistory.clear();
+      this.debug.clear();
     }
   }
 
   // Draw homing missile detection radius (dev mode only)
   drawHomingMissileDetectionRadius(x: number, y: number, radius: number): void {
     if (!this.devModeEnabled) return;
-    drawDebugRadius(this.ctx, x, y, radius, {
-      strokeStyle: "rgba(0, 255, 0, 0.8)",
-      fillStyle: "rgba(0, 255, 0, 0.1)",
-      label: "DETECT",
-      labelColor: "#00ff00",
-      lineDash: [10, 5],
-    });
+    this.debug.drawHomingMissileDetectionRadius(x, y, radius);
   }
 
   // Draw mine detection radius (dev mode only)
   drawMineDetectionRadius(x: number, y: number, radius: number): void {
     if (!this.devModeEnabled) return;
-    drawDebugRadius(this.ctx, x, y, radius, {
-      strokeStyle: "rgba(0, 255, 0, 0.8)",
-      fillStyle: "rgba(0, 255, 0, 0.1)",
-      label: "MINE",
-      labelColor: "#00ff00",
-      lineDash: [10, 5],
-    });
+    this.debug.drawMineDetectionRadius(x, y, radius);
   }
 
   // Draw turret detection radius (dev mode only)
   drawTurretDetectionRadius(x: number, y: number, radius: number): void {
     if (!this.devModeEnabled) return;
-    drawDebugRadius(this.ctx, x, y, radius, {
-      strokeStyle: "rgba(255, 50, 50, 0.8)",
-      fillStyle: "rgba(255, 50, 50, 0.1)",
-      label: "TURRET",
-      labelColor: "#ff3333",
-      lineDash: [10, 5],
-    });
+    this.debug.drawTurretDetectionRadius(x, y, radius);
   }
 
   // Draw turret bullet explosion radius (dev mode only)
   drawTurretBulletRadius(x: number, y: number, radius: number): void {
     if (!this.devModeEnabled) return;
-    drawDebugRadius(this.ctx, x, y, radius, {
-      strokeStyle: "rgba(255, 150, 0, 0.8)",
-      fillStyle: "rgba(255, 150, 0, 0.1)",
-      label: "BULLET",
-      labelColor: "#ff9900",
-      lineDash: [10, 5],
-    });
+    this.debug.drawTurretBulletRadius(x, y, radius);
   }
 
   // Draw power-up magnetic radius (dev mode only)
@@ -232,165 +207,19 @@ export class Renderer {
     isActive: boolean,
   ): void {
     if (!this.devModeEnabled) return;
-    drawDebugRadius(this.ctx, x, y, radius, {
-      strokeStyle: isActive
-        ? "rgba(200, 100, 255, 0.9)"
-        : "rgba(150, 80, 200, 0.7)",
-      fillStyle: isActive
-        ? "rgba(200, 100, 255, 0.15)"
-        : "rgba(150, 80, 200, 0.08)",
-      label: "MAGNET",
-      labelColor: isActive ? "#cc66ff" : "#9966cc",
-      lineDash: [8, 4],
-    });
+    this.debug.drawPowerUpMagneticRadius(x, y, radius, isActive);
   }
 
   // ============= TURRET RENDERING =============
 
-  drawTurret(state: import("../../types").TurretState): void {
-    const { ctx } = this;
-    const { x, y, angle, isTracking, orbitRadius } = state;
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Draw orbit ring (visual base)
-    ctx.strokeStyle = "rgba(100, 100, 120, 0.6)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, orbitRadius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Orbit ring glow
-    ctx.shadowColor = "#6666ff";
-    ctx.shadowBlur = 10;
-    ctx.strokeStyle = "rgba(100, 100, 255, 0.4)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(0, 0, orbitRadius - 5, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Draw turret base
-    ctx.fillStyle = "#444455";
-    ctx.strokeStyle = "#666677";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, 20, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Draw turret barrel (rotates toward target)
-    ctx.rotate(angle);
-
-    // Barrel glow when tracking
-    if (isTracking) {
-      ctx.shadowColor = "#ff4444";
-      ctx.shadowBlur = 15;
-    }
-
-    // Barrel
-    ctx.fillStyle = isTracking ? "#ff6666" : "#888899";
-    ctx.fillRect(15, -6, 25, 12);
-
-    // Barrel detail
-    ctx.fillStyle = "#555566";
-    ctx.fillRect(18, -4, 20, 8);
-
-    ctx.shadowBlur = 0;
-
-    // Center hub
-    ctx.fillStyle = "#333344";
-    ctx.beginPath();
-    ctx.arc(0, 0, 10, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Center glow
-    ctx.fillStyle = isTracking ? "#ff4444" : "#6666ff";
-    ctx.shadowColor = ctx.fillStyle;
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.arc(0, 0, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    ctx.restore();
+  drawTurret(state: TurretState): void {
+    this.combatVisuals.drawTurret(state);
   }
 
   // ============= TURRET BULLET RENDERING =============
 
-  drawTurretBullet(state: import("../../types").TurretBulletState): void {
-    const { ctx } = this;
-    const { x, y, vx, vy, exploded, explosionTime, explosionRadius } = state;
-    const nowMs = this.getNowMs();
-
-    if (exploded && explosionTime > 0) {
-      // Draw explosion effect
-      const elapsed = nowMs - explosionTime;
-      const progress = this.clamp01(elapsed / 500);
-      const blastRadius = Number.isFinite(explosionRadius) ? explosionRadius : 100;
-      const radius = blastRadius * (0.3 + progress * 0.7);
-      const alpha = 1 - progress;
-
-      ctx.save();
-      ctx.translate(x, y);
-
-      // Outer white flash
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Middle bright ring
-      ctx.fillStyle = `rgba(255, 200, 150, ${alpha * 0.8})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Inner bright core
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-    } else {
-      // Normal bullet
-      const angle = Math.atan2(vy, vx);
-
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(angle);
-
-      // Glow
-      ctx.shadowColor = "#ff8800";
-      ctx.shadowBlur = 15;
-
-      // Bullet body
-      ctx.fillStyle = "#ff6600";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 8, 4, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Core
-      ctx.fillStyle = "#ffaa00";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 4, 2, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.shadowBlur = 0;
-
-      // Trail
-      ctx.fillStyle = "rgba(255, 100, 0, 0.5)";
-      ctx.beginPath();
-      ctx.moveTo(-5, 0);
-      ctx.lineTo(-15, -3);
-      ctx.lineTo(-15, 3);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.restore();
-    }
+  drawTurretBullet(state: TurretBulletState): void {
+    this.combatVisuals.drawTurretBullet(state);
   }
 
   clear(): void {
@@ -427,7 +256,7 @@ export class Renderer {
   clearEffects(): void {
     this.effects.clear();
     this.shipTrails.clear();
-    this.projectileDebugHistory.clear();
+    this.debug.clear();
     this.screenShake.clear();
     this.mapEffects.clearTransientState();
   }
@@ -1032,138 +861,12 @@ export class Renderer {
 
   drawShipColliderDebug(state: ShipState): void {
     if (!this.devModeEnabled) return;
-    const { ctx } = this;
-    const vertices = transformLocalVertices(
-      SHIP_COLLIDER_VERTICES,
-      state.x,
-      state.y,
-      state.angle,
-    );
-    if (vertices.length < 3) return;
-
-    ctx.save();
-    ctx.strokeStyle = "rgba(255, 170, 0, 0.95)";
-    ctx.fillStyle = "rgba(255, 170, 0, 0.12)";
-    ctx.lineWidth = 1.25;
-    ctx.beginPath();
-    ctx.moveTo(vertices[0].x, vertices[0].y);
-    for (let i = 1; i < vertices.length; i += 1) {
-      ctx.lineTo(vertices[i].x, vertices[i].y);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Ship center marker for quick visual sanity checks.
-    ctx.strokeStyle = "rgba(255, 220, 120, 0.95)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(state.x - 2.5, state.y);
-    ctx.lineTo(state.x + 2.5, state.y);
-    ctx.moveTo(state.x, state.y - 2.5);
-    ctx.lineTo(state.x, state.y + 2.5);
-    ctx.stroke();
-    ctx.restore();
+    this.debug.drawShipColliderDebug(state);
   }
 
   drawProjectileSweepDebug(projectiles: ProjectileState[]): void {
     if (!this.devModeEnabled) return;
-    const { ctx } = this;
-    const nowMs = this.getNowMs();
-    const activeProjectileIds = new Set<string>();
-
-    for (const projectile of projectiles) {
-      activeProjectileIds.add(projectile.id);
-      const radius = Math.max(
-        0.1,
-        projectile.radius ?? GAME_CONFIG.PROJECTILE_RADIUS,
-      );
-      const history = this.projectileDebugHistory.get(projectile.id) ?? [];
-      const last = history[history.length - 1];
-      if (!last || Math.hypot(projectile.x - last.x, projectile.y - last.y) > 0.01) {
-        history.push({ x: projectile.x, y: projectile.y, atMs: nowMs });
-      } else {
-        last.atMs = nowMs;
-      }
-      while (history.length > 14) {
-        history.shift();
-      }
-      while (history.length > 2 && nowMs - history[0].atMs > 380) {
-        history.shift();
-      }
-      this.projectileDebugHistory.set(projectile.id, history);
-
-      const previous = history.length > 1 ? history[history.length - 2] : null;
-
-      if (previous) {
-        const dx = projectile.x - previous.x;
-        const dy = projectile.y - previous.y;
-        const distSq = dx * dx + dy * dy;
-
-        ctx.save();
-        for (let i = 1; i < history.length; i += 1) {
-          const a = history[i - 1];
-          const b = history[i];
-          const t = i / history.length;
-          ctx.strokeStyle = `rgba(255, 170, 120, ${0.18 + t * 0.42})`;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-
-        if (distSq > 1e-6) {
-          // Capsule body matching swept-circle width (diameter = 2 * radius).
-          ctx.strokeStyle = "rgba(255, 90, 40, 0.45)";
-          ctx.lineWidth = radius * 2;
-          ctx.lineCap = "round";
-          ctx.beginPath();
-          ctx.moveTo(previous.x, previous.y);
-          ctx.lineTo(projectile.x, projectile.y);
-          ctx.stroke();
-        }
-
-        // End circles and center line to make the sweep easier to read.
-        ctx.strokeStyle = "rgba(255, 120, 70, 0.95)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(previous.x, previous.y, radius, 0, Math.PI * 2);
-        ctx.arc(projectile.x, projectile.y, radius, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = "rgba(255, 220, 170, 0.95)";
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(previous.x, previous.y);
-        ctx.lineTo(projectile.x, projectile.y);
-        ctx.stroke();
-
-        // Explicit prev/curr markers.
-        ctx.fillStyle = "rgba(255, 210, 120, 0.95)";
-        ctx.beginPath();
-        ctx.arc(previous.x, previous.y, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(255, 120, 70, 0.95)";
-        ctx.beginPath();
-        ctx.arc(projectile.x, projectile.y, 2.4, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Tiny P/C labels so you can tell direction at a glance.
-        ctx.font = "8px monospace";
-        ctx.textAlign = "center";
-        ctx.fillStyle = "rgba(255, 230, 170, 0.95)";
-        ctx.fillText("P", previous.x, previous.y - Math.max(3, radius + 1));
-        ctx.fillStyle = "rgba(255, 150, 110, 0.95)";
-        ctx.fillText("C", projectile.x, projectile.y - Math.max(3, radius + 1));
-        ctx.restore();
-      }
-
-    }
-    for (const projectileId of [...this.projectileDebugHistory.keys()]) {
-      if (activeProjectileIds.has(projectileId)) continue;
-      this.projectileDebugHistory.delete(projectileId);
-    }
+    this.debug.drawProjectileSweepDebug(projectiles);
   }
 
   // ============= PARTICLE SYSTEM =============
@@ -1253,144 +956,19 @@ export class Renderer {
   // ============= POWER-UP RENDERING =============
 
   drawPowerUp(state: PowerUpState): void {
-    const { ctx } = this;
-    const { x, y, type, remainingTimeFraction } = state;
-    const size = GAME_CONFIG.POWERUP_SIZE;
-    const progress = Math.min(1, Math.max(0, remainingTimeFraction));
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Draw despawn ring
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(
-      0,
-      0,
-      size * 0.8,
-      -Math.PI / 2,
-      -Math.PI / 2 + Math.PI * 2 * progress,
-    );
-    ctx.stroke();
-
-    const glowColor = this.powerUpSprites.getGlowColor(type);
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = this.getEffectBlurPx(15, 7, 22);
-
-    const drewSprite = this.powerUpSprites.drawPowerUp(ctx, type, size);
-    ctx.shadowBlur = 0;
-
-    if (!drewSprite) {
-      ctx.fillStyle = glowColor;
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
-      ctx.fillRect(-size / 2, -size / 2, size, size);
-      ctx.strokeRect(-size / 2, -size / 2, size, size);
-    }
-
-    ctx.restore();
+    this.combatVisuals.drawPowerUp(state);
   }
 
   // ============= LASER BEAM RENDERING =============
 
   drawLaserBeam(state: LaserBeamState, beamWidthOverride?: number): void {
-    const { ctx } = this;
-    const { x, y, angle, id } = state;
-    const beamEnd = projectRayToArenaWall(
-      { x, y },
-      angle,
-      GAME_CONFIG.ARENA_WIDTH,
-      GAME_CONFIG.ARENA_HEIGHT,
-    );
-    const beamLength = Math.hypot(beamEnd.x - x, beamEnd.y - y);
-    const beamWidth = Number.isFinite(beamWidthOverride)
-      ? Math.max(1, beamWidthOverride as number)
-      : GAME_CONFIG.POWERUP_BEAM_WIDTH;
-    // Use deterministic offsets based on beam id to avoid flickering
-    const baseOffset = (id.charCodeAt(id.length - 1) % 10) / 10;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-
-    // Main beam gradient
-    const gradient = ctx.createLinearGradient(
-      0,
-      -beamWidth / 2,
-      0,
-      beamWidth / 2,
-    );
-    gradient.addColorStop(0, "rgba(255, 0, 100, 0.3)");
-    gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.9)");
-    gradient.addColorStop(1, "rgba(255, 0, 100, 0.3)");
-
-    // Draw main beam
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, -beamWidth / 2, beamLength, beamWidth);
-
-    // Core beam (bright white center)
-    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-    ctx.fillRect(0, -beamWidth / 4, beamLength, beamWidth / 2);
-
-    // Wire-like effect (sharp lines) - deterministic based on id
-    ctx.strokeStyle = "rgba(255, 150, 200, 0.6)";
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 5; i++) {
-      const offset = (((baseOffset + i * 0.2) % 1) - 0.5) * beamWidth * 0.8;
-      ctx.beginPath();
-      ctx.moveTo(0, offset);
-      ctx.lineTo(
-        beamLength,
-        offset + Math.sin(i * 1.5 + baseOffset * Math.PI) * 5,
-      );
-      ctx.stroke();
-    }
-
-    // Glow effect at beam origin
-    const glowGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 30);
-    glowGradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-    glowGradient.addColorStop(0.5, "rgba(255, 0, 100, 0.5)");
-    glowGradient.addColorStop(1, "transparent");
-    ctx.fillStyle = glowGradient;
-    ctx.beginPath();
-    ctx.arc(0, 0, 30, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
+    this.combatVisuals.drawLaserBeam(state, beamWidthOverride);
   }
 
   // ============= SHIELD RENDERING =============
 
   drawShield(x: number, y: number, hits: number): void {
-    const { ctx } = this;
-
-    // Color based on hits: 0 = blue, 1 = red
-    const isDamaged = hits >= 1;
-    const alpha = 0.4;
-    const color = isDamaged
-      ? `rgba(255, 50, 50, ${alpha})`
-      : `rgba(50, 150, 255, ${alpha})`;
-    const glowColor = isDamaged ? "#ff3333" : "#3399ff";
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    // Glow effect
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = this.getEffectBlurPx(20, 8, 28);
-
-    // Draw oval shield
-    ctx.fillStyle = color;
-    ctx.strokeStyle = glowColor;
-    ctx.lineWidth = 3;
-
-    ctx.beginPath();
-    ctx.ellipse(0, 0, SHIP_SHIELD_RADII.x, SHIP_SHIELD_RADII.y, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.restore();
+    this.combatVisuals.drawShield(x, y, hits);
   }
 
   spawnShieldBreakDebris(x: number, y: number): void {
@@ -1482,24 +1060,8 @@ export class Renderer {
 
   // ============= MINE RENDERING =============
 
-  drawMineState(state: import("../../types").MineState): void {
-    const { x, y, exploded, explosionTime } = state;
-    const nowMs = this.getNowMs();
-
-    // Check if mine has exploded
-    if (exploded && explosionTime > 0) {
-      // Draw explosion effect on client - lasts 500ms
-      const elapsed = nowMs - explosionTime;
-      const progress = this.clamp01(elapsed / 500);
-      const radius =
-        GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS * (0.3 + progress * 0.7);
-      const alpha = 1 - progress;
-
-      drawMineExplosionEffect(this.ctx, x, y, radius, alpha);
-      return;
-    }
-
-    drawMineBody(this.ctx, x, y, nowMs, GAME_CONFIG.POWERUP_MINE_SIZE);
+  drawMineState(state: MineState): void {
+    this.combatVisuals.drawMineState(state);
   }
 
   spawnMineExplosion(x: number, y: number, radius: number): void {
@@ -1509,90 +1071,6 @@ export class Renderer {
   // ============= HOMING MISSILE RENDERING =============
 
   drawHomingMissile(state: HomingMissileState): void {
-    const { ctx } = this;
-    const { x, y, angle } = state;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-
-    // Glow effect
-    ctx.shadowColor = "#ff4400";
-    ctx.shadowBlur = 15;
-
-    // Rocket body (metallic gray)
-    ctx.fillStyle = "#888888";
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 10, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Rocket nose (pointed)
-    ctx.fillStyle = "#aaaaaa";
-    ctx.beginPath();
-    ctx.moveTo(10, 0);
-    ctx.lineTo(4, -4);
-    ctx.lineTo(4, 4);
-    ctx.closePath();
-    ctx.fill();
-
-    // Fins
-    ctx.fillStyle = "#666666";
-    ctx.beginPath();
-    ctx.moveTo(-4, -4);
-    ctx.lineTo(-10, -8);
-    ctx.lineTo(-6, -2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(-4, 4);
-    ctx.lineTo(-10, 8);
-    ctx.lineTo(-6, 2);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.shadowBlur = 0;
-
-    // Fire and smoke particles at the tail
-    const tailX = -10;
-    const time = this.getNowMs() * 0.02;
-
-    // Fire (orange/yellow)
-    ctx.fillStyle = "#ff8800";
-    ctx.globalAlpha = 0.7 + Math.sin(time) * 0.2;
-    ctx.beginPath();
-    ctx.moveTo(tailX, 0);
-    ctx.lineTo(tailX - 8 - Math.sin(time * 1.5) * 3, -3);
-    ctx.lineTo(tailX - 12 - Math.sin(time * 2) * 4, 0);
-    ctx.lineTo(tailX - 8 - Math.sin(time * 1.5) * 3, 3);
-    ctx.closePath();
-    ctx.fill();
-
-    // Inner fire (yellow)
-    ctx.fillStyle = "#ffee00";
-    ctx.globalAlpha = 0.8 + Math.sin(time * 1.2) * 0.15;
-    ctx.beginPath();
-    ctx.moveTo(tailX, 0);
-    ctx.lineTo(tailX - 5 - Math.sin(time * 1.8) * 2, -2);
-    ctx.lineTo(tailX - 8 - Math.sin(time * 2.2) * 3, 0);
-    ctx.lineTo(tailX - 5 - Math.sin(time * 1.8) * 2, 2);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.globalAlpha = 1;
-
-    // Smoke trail (gray)
-    ctx.fillStyle = "#555555";
-    ctx.globalAlpha = 0.4;
-    for (let i = 0; i < 3; i++) {
-      const offset = (time * 0.5 + i * 2) % 8;
-      const smokeX = tailX - 12 - offset * 2;
-      const smokeSize = 2 + offset * 0.5;
-      ctx.beginPath();
-      ctx.arc(smokeX, Math.sin(time + i) * 2, smokeSize, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.globalAlpha = 1;
-    ctx.restore();
+    this.combatVisuals.drawHomingMissile(state);
   }
 }
