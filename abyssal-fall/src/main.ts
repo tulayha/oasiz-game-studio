@@ -30,8 +30,11 @@ class Game {
   
   private activeEnemies: BaseEnemy[] = [];
   private activeGems: Gem[] = [];
+  private droppedGems: Gem[] = [];
+  private droppedGemPool: Gem[] = [];
   private activePlatforms: Platform[] = [];
   private activeWeeds: Weed[] = [];
+  private brokenWeeds: Set<string> = new Set();
   private enemyBullets: EnemyBullet[] = [];
   
   // Powerup state
@@ -45,6 +48,11 @@ class Game {
   private maxDepth: number = 0;
   private score: number = 0;
   private gems: number = 0;
+  private scoreDepth: number = 0;
+  private scoreEnemies: number = 0;
+  private scoreGems: number = 0;
+  private scoreBreakables: number = 0;
+  private gameOverTimers: number[] = [];
   private frameCount: number = 0;
   
   private scale: number = 1;
@@ -142,6 +150,18 @@ class Game {
     life: number; maxLife: number;
     r: number; g: number; b: number;
   }[] = [];
+
+  // Floating damage text for player hits
+  private damageTexts: {
+    x: number; y: number;
+    vy: number;
+    alpha: number;
+    life: number;
+    maxLife: number;
+    text: string;
+  }[] = [];
+  private deathFreezeFrames: number = 0;
+  private deathFreezeKiller: { x: number; y: number } | null = null;
   
   // Track previous HP for bubble pop detection
   private previousHp: number = CONFIG.PLAYER_MAX_HP;
@@ -163,6 +183,8 @@ class Game {
   private ambienceAudio: HTMLAudioElement | null = null;
   private bulletBuffer: AudioBuffer | null = null;
   private laserBuffer: AudioBuffer | null = null;
+  private gemBuffer: AudioBuffer | null = null;
+  private enemyCrunchBuffer: AudioBuffer | null = null;
   
   // Menu animation entities
   private menuEnemies: BaseEnemy[] = [];
@@ -239,36 +261,48 @@ class Game {
     // Keyboard controls (for testing, spec says touch-only)
     window.addEventListener("keydown", (e) => {
       if (this.gameState !== "playing") return;
+      const isLeftKey = e.code === "ArrowLeft" || e.code === "KeyA";
+      const isRightKey = e.code === "ArrowRight" || e.code === "KeyD";
+      const isShootKey = e.code === "Space" || e.code === "ArrowDown" || e.code === "KeyS" || e.code === "ShiftLeft" || e.code === "ShiftRight";
+      const isJumpKey = e.code === "ArrowUp" || e.code === "KeyW";
       
-      if (e.key === "ArrowLeft" || e.key === "a") {
+      if (isLeftKey) {
         this.input.left = true;
         e.preventDefault();
       }
-      if (e.key === "ArrowRight" || e.key === "d") {
+      if (isRightKey) {
         this.input.right = true;
         e.preventDefault();
       }
-      if (e.key === " " || e.key === "ArrowDown" || e.key === "s") {
+      if (isShootKey) {
         this.input.shoot = true;
+        if ((e.code === "ShiftLeft" || e.code === "ShiftRight") && !e.repeat) {
+          console.log("[Keyboard]", "Shift pressed for shoot");
+        }
         e.preventDefault();
       }
-      if (e.key === "ArrowUp" || e.key === "w") {
+      if (isJumpKey) {
         this.input.jump = true;
         e.preventDefault();
       }
     });
     
     window.addEventListener("keyup", (e) => {
-      if (e.key === "ArrowLeft" || e.key === "a") {
+      const isLeftKey = e.code === "ArrowLeft" || e.code === "KeyA";
+      const isRightKey = e.code === "ArrowRight" || e.code === "KeyD";
+      const isShootKey = e.code === "Space" || e.code === "ArrowDown" || e.code === "KeyS" || e.code === "ShiftLeft" || e.code === "ShiftRight";
+      const isJumpKey = e.code === "ArrowUp" || e.code === "KeyW";
+
+      if (isLeftKey) {
         this.input.left = false;
       }
-      if (e.key === "ArrowRight" || e.key === "d") {
+      if (isRightKey) {
         this.input.right = false;
       }
-      if (e.key === " " || e.key === "ArrowDown" || e.key === "s") {
+      if (isShootKey) {
         this.input.shoot = false;
       }
-      if (e.key === "ArrowUp" || e.key === "w") {
+      if (isJumpKey) {
         this.input.jump = false;
       }
     });
@@ -276,6 +310,7 @@ class Game {
     // Touch controls (mobile spec)
     this.canvas.addEventListener("touchstart", (e) => {
       e.preventDefault();
+      this.tryStartAmbienceFromInteraction();
       this.handleTouchStart(e);
     }, { passive: false });
     
@@ -297,14 +332,22 @@ class Game {
     // Mouse controls (for desktop testing)
     this.canvas.addEventListener("mousedown", (e) => {
       if (this.gameState !== "playing") return;
+      this.tryStartAmbienceFromInteraction();
       this.handleMouseInput(e.clientX, e.clientY);
     });
     
     this.canvas.addEventListener("mouseup", () => {
-      this.input.left = false;
-      this.input.right = false;
-      this.input.shoot = false;
-      this.input.jump = false;
+      this.clearInputState();
+    });
+
+    // Prevent sticky input if mouse button is released outside the canvas
+    window.addEventListener("mouseup", () => {
+      this.clearInputState();
+    });
+
+    // Prevent sticky input if keyboard focus leaves the game window
+    window.addEventListener("blur", () => {
+      this.clearInputState();
     });
     
     // Resize handler
@@ -329,6 +372,7 @@ class Game {
         this.ensureGameLoopRunning();
       } else {
         this.isVisible = false;
+        this.clearInputState();
       }
     });
     
@@ -425,6 +469,13 @@ class Game {
       this.input.jump = true;
       this.input.shoot = true;
     }
+  }
+
+  private clearInputState(): void {
+    this.input.left = false;
+    this.input.right = false;
+    this.input.shoot = false;
+    this.input.jump = false;
   }
   
   private resizeCanvas(): void {
@@ -677,10 +728,17 @@ class Game {
   
   private loadAudio(): void {
     // Ambience uses HTMLAudioElement (long looping track)
-    this.ambienceAudio = new Audio("assets/sfx/underwater-ambience.mp3");
+    this.ambienceAudio = new Audio("assets/sfx/abyssal-echoes.mp3");
     this.ambienceAudio.loop = true;
-    this.ambienceAudio.volume = 1.0;
+    this.ambienceAudio.volume = 0.2;
     this.ambienceAudio.preload = "auto";
+    this.ambienceAudio.addEventListener("canplaythrough", () => {
+      console.log("[loadAudio]", "Background music ready");
+      this.tryStartAmbienceFromInteraction();
+    });
+    this.ambienceAudio.addEventListener("error", () => {
+      console.log("[loadAudio]", "Failed to load background music file");
+    });
     console.log("[Game] Ambience audio loaded");
     
     // SFX use Web Audio API for instant, overlapping playback
@@ -692,6 +750,16 @@ class Game {
     this.decodeAudioFile("assets/sfx/zap-exile.wav").then((buf) => {
       this.laserBuffer = buf;
       console.log("[Game] Laser audio decoded");
+    });
+
+    this.decodeAudioFile("assets/sfx/gem-pickup.mp3").then((buf) => {
+      this.gemBuffer = buf;
+      console.log("[Game] Gem pickup audio decoded");
+    });
+
+    this.decodeAudioFile("assets/sfx/enemy-crunch.mp3").then((buf) => {
+      this.enemyCrunchBuffer = buf;
+      console.log("[loadAudio]", "Enemy crunch audio decoded");
     });
   }
   
@@ -742,6 +810,101 @@ class Game {
     if (!this.settings.fx) return;
     this.playSfx(this.laserBuffer, 1.0);
   }
+
+  private playGemSound(): void {
+    if (!this.settings.fx) return;
+    this.playSfx(this.gemBuffer, 0.35);
+  }
+
+  private playHurtSound(): void {
+    if (!this.settings.fx) return;
+    const ctx = this.getAudioCtx();
+    const now = ctx.currentTime;
+    const duration = 0.1;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(210, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + duration);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.16, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + duration);
+  }
+
+  private playDeathSound(): void {
+    if (!this.settings.fx) return;
+    const ctx = this.getAudioCtx();
+    const now = ctx.currentTime;
+    const duration = 0.22;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(170, now);
+    osc.frequency.exponentialRampToValueAtTime(52, now + duration);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.2, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + duration);
+  }
+
+  private startDeathFreeze(killerX: number, killerY: number): void {
+    if (this.deathFreezeFrames > 0) return;
+    this.deathFreezeFrames = 120;
+    this.deathFreezeKiller = { x: killerX, y: killerY };
+    this.playDeathSound();
+    this.triggerHaptic("error");
+  }
+
+  private applyPlayerDamage(killerX: number, killerY: number): void {
+    if (this.playerController.isInvulnerable()) return;
+    const player = this.playerController.getPlayer();
+    this.playerController.takeDamage();
+    this.spawnDamageText(player.x, player.y - player.height * 0.6, "-1");
+    this.playHurtSound();
+    if (this.playerController.isDead()) {
+      this.startDeathFreeze(killerX, killerY);
+    }
+  }
+
+  private playEnemyCrunchSound(): void {
+    if (!this.settings.fx) return;
+    this.playSfx(this.enemyCrunchBuffer, 0.45);
+  }
+
+  private playBlockBreakSound(): void {
+    if (!this.settings.fx) return;
+    const ctx = this.getAudioCtx();
+    const now = ctx.currentTime;
+    const duration = 0.07;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(320, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + duration);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.32, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + duration);
+  }
   
   private startAmbience(): void {
     if (!this.settings.music || !this.ambienceAudio) return;
@@ -753,6 +916,14 @@ class Game {
     this.ambienceAudio.play().catch(() => {
       console.log("[Game] Ambience autoplay blocked, will retry on interaction");
     });
+  }
+
+  private tryStartAmbienceFromInteraction(): void {
+    if (this.gameState !== "playing" || !this.settings.music || !this.ambienceAudio) return;
+    if (!this.ambienceAudio.paused) return;
+
+    this.getAudioCtx();
+    this.ambienceAudio.play().catch(() => {});
   }
   
   private stopAmbience(): void {
@@ -855,10 +1026,15 @@ class Game {
     
     // Play bullet sound
     this.playBulletSound();
+
+    // Show ammo depletion feedback when the last bullet is spent.
+    const player = this.playerController.getPlayer();
+    if (player.ammo <= 0) {
+      this.spawnDamageText(player.x, player.y - player.height * 0.8, "Empty!");
+    }
     
     // If laser is active, fire a laser beam immediately
     if (this.lastShotEffects.triggerLaser) {
-      const player = this.playerController.getPlayer();
       this.powerUpManager.spawnLaserBeam(
         player.x,
         player.y + player.height / 2,
@@ -938,9 +1114,14 @@ class Game {
     this.gameState = "playing";
     this.score = 0;
     this.gems = 0;
+    this.scoreDepth = 0;
+    this.scoreEnemies = 0;
+    this.scoreGems = 0;
+    this.scoreBreakables = 0;
     this.maxDepth = 0;
     this.frameCount = 0;
     this.cameraY = 0;
+    this.clearGameOverTimers();
     
     // Reset input
     this.input = { left: false, right: false, shoot: false, jump: false };
@@ -948,6 +1129,11 @@ class Game {
     this.deathBubbles = [];
     this.hurtAnimations = [];
     this.enemyBullets = [];
+    this.releaseAllDroppedGems();
+    this.brokenWeeds.clear();
+    this.damageTexts = [];
+    this.deathFreezeFrames = 0;
+    this.deathFreezeKiller = null;
     
     // Reset level spawner
     this.levelSpawner.reset();
@@ -999,8 +1185,7 @@ class Game {
     
     // Show game over screen
     document.getElementById("game-over-screen")?.classList.remove("hidden");
-    document.getElementById("final-score")!.textContent = this.score.toString();
-    document.getElementById("final-depth")!.textContent = `Depth: ${Math.floor(this.maxDepth)}m`;
+    this.animateGameOverScoreBreakdown();
     const hud = document.getElementById("hud");
     if (hud) hud.style.display = "none";
     document.getElementById("settings-btn")?.classList.add("hidden");
@@ -1014,6 +1199,14 @@ class Game {
     this.frameCount++;
     
     if (this.gameState !== "playing") return;
+
+    if (this.deathFreezeFrames > 0) {
+      this.deathFreezeFrames--;
+      if (this.deathFreezeFrames <= 0) {
+        this.gameOver();
+      }
+      return;
+    }
     
     // Update powerup aura flash timer
     if (this.powerupAuraFlash > 0) {
@@ -1029,15 +1222,23 @@ class Game {
     // Update depth score
     const depth = Math.floor(player.y / 10);
     if (depth > this.maxDepth) {
-      this.score += (depth - this.maxDepth) * CONFIG.SCORE_PER_DEPTH;
+      const delta = (depth - this.maxDepth) * CONFIG.SCORE_PER_DEPTH;
+      this.score += delta;
+      this.scoreDepth += delta;
       this.maxDepth = depth;
     }
     
     // Check kill plane
-    this.playerController.checkKillPlane(this.cameraY);
+    const killedByFall = this.playerController.checkKillPlane(this.cameraY);
+    if (killedByFall) {
+      const p = this.playerController.getPlayer();
+      this.startDeathFreeze(p.x, this.cameraY + CONFIG.INTERNAL_HEIGHT + 70);
+      return;
+    }
     
     // 2. Enemy System
     this.updateEnemies();
+    this.updateDroppedGems();
     
     // 3. Weapon System
     this.updateBullets();
@@ -1057,6 +1258,7 @@ class Game {
     this.updateDeathExplosions();
     this.updateExplosionParticles();
     this.updateDeathBubbles();
+    this.updateDamageTexts();
 
     // 8. Platform crumble & sand effects
     this.updateCrumbleDebris();
@@ -1072,7 +1274,7 @@ class Game {
     this.updateHUD();
     
     // Check fail states
-    if (this.playerController.isDead()) {
+    if (this.playerController.isDead() && this.deathFreezeFrames <= 0) {
       this.gameOver();
     }
   }
@@ -1082,13 +1284,19 @@ class Game {
     this.activeEnemies = visible.enemies;
     this.activePlatforms = visible.platforms;
     this.activeGems = visible.gems;
-    this.activeWeeds = visible.weeds;
+    this.activeWeeds = visible.weeds.filter((weed) => !this.brokenWeeds.has(this.getWeedKey(weed)));
     
     const player = this.playerController.getPlayer();
     
     // Update each enemy using their class-specific behavior
     for (const enemy of this.activeEnemies) {
       enemy.update(player.x, player.y);
+
+      // Horizontal movers should never enter cave walls.
+      // Use actual generated wall geometry at this enemy's Y, not static WALL_WIDTH.
+      if (enemy.type === "HORIZONTAL" || enemy.type === "EXPLODER") {
+        this.constrainEnemyInsideWalls(enemy);
+      }
       
       // Collect bullets from static enemies
       if (enemy instanceof StaticEnemy) {
@@ -1099,7 +1307,234 @@ class Game {
       }
     }
   }
-  
+
+  private constrainEnemyInsideWalls(enemy: BaseEnemy): void {
+    const sampleY = enemy.y + enemy.height * 0.5;
+    let leftBound = CONFIG.WALL_WIDTH;
+    let rightBound = CONFIG.INTERNAL_WIDTH - CONFIG.WALL_WIDTH;
+
+    for (const platform of this.activePlatforms) {
+      if (!platform.isWall) continue;
+      if (sampleY < platform.y || sampleY > platform.y + platform.height) continue;
+      if (platform.x <= 0) {
+        leftBound = Math.max(leftBound, platform.x + platform.width);
+      } else {
+        rightBound = Math.min(rightBound, platform.x);
+      }
+    }
+
+    if (rightBound <= leftBound) return;
+
+    if (enemy.x < leftBound) {
+      enemy.x = leftBound;
+      enemy.direction = 1;
+      return;
+    }
+
+    const maxX = rightBound - enemy.width;
+    if (enemy.x > maxX) {
+      enemy.x = maxX;
+      enemy.direction = -1;
+    }
+  }
+
+  private getWeedKey(weed: Weed): string {
+    return `${Math.round(weed.x)}:${Math.round(weed.y)}:${weed.spriteIndex}:${weed.isLeft ? 1 : 0}`;
+  }
+
+  private acquireDroppedGem(): Gem {
+    const gem = this.droppedGemPool.pop();
+    if (gem) return gem;
+    return {
+      x: 0,
+      y: 0,
+      width: 14,
+      height: 14,
+      value: CONFIG.SCORE_PER_GEM,
+      collected: false,
+      chunkIndex: 0,
+      bobOffset: 0,
+      dropped: true,
+      vx: 0,
+      vy: 0,
+      life: 0,
+      settled: false,
+      settleFrames: 0,
+      fadeTimer: 0,
+      collectDelay: 0,
+      isLarge: false,
+    };
+  }
+
+  private releaseDroppedGem(index: number): void {
+    const gem = this.droppedGems[index];
+    if (!gem) return;
+    gem.collected = false;
+    gem.dropped = true;
+    gem.vx = 0;
+    gem.vy = 0;
+    gem.life = 0;
+    gem.settled = false;
+    gem.settleFrames = 0;
+    gem.fadeTimer = 0;
+    gem.collectDelay = 0;
+    gem.isLarge = false;
+    this.droppedGemPool.push(gem);
+    this.droppedGems.splice(index, 1);
+  }
+
+  private releaseAllDroppedGems(): void {
+    for (let i = this.droppedGems.length - 1; i >= 0; i--) {
+      this.releaseDroppedGem(i);
+    }
+  }
+
+  private updateDroppedGems(): void {
+    const overlapsRect = (
+      ax: number,
+      ay: number,
+      aw: number,
+      ah: number,
+      bx: number,
+      by: number,
+      bw: number,
+      bh: number
+    ): boolean => {
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    };
+
+    for (let i = this.droppedGems.length - 1; i >= 0; i--) {
+      const gem = this.droppedGems[i];
+
+      if (gem.collected) {
+        this.releaseDroppedGem(i);
+        continue;
+      }
+
+      gem.life = (gem.life ?? 0) + 1;
+      gem.vx = gem.vx ?? 0;
+      gem.vy = gem.vy ?? 0;
+      gem.settleFrames = gem.settleFrames ?? 0;
+      gem.fadeTimer = gem.fadeTimer ?? 0;
+      gem.collectDelay = Math.max(0, (gem.collectDelay ?? 0) - 1);
+
+      const halfW = gem.width / 2;
+      const halfH = gem.height / 2;
+      let onGround = false;
+
+      if (!gem.settled) {
+        // Horizontal move and collision (walls + solids).
+        let nextX = gem.x + gem.vx;
+        const testLeftX = nextX - halfW;
+        const testTopY = gem.y - halfH;
+        for (const platform of this.activePlatforms) {
+          if (!overlapsRect(testLeftX, testTopY, gem.width, gem.height, platform.x, platform.y, platform.width, platform.height)) continue;
+          if (gem.vx > 0) {
+            nextX = Math.min(nextX, platform.x - halfW);
+            gem.vx = -Math.abs(gem.vx) * 0.6;
+          } else if (gem.vx < 0) {
+            nextX = Math.max(nextX, platform.x + platform.width + halfW);
+            gem.vx = Math.abs(gem.vx) * 0.6;
+          }
+        }
+        gem.x = nextX;
+
+        // Vertical move and collision (bounce on top, damp on ceiling).
+        let nextY = gem.y + gem.vy;
+        const testLeft = gem.x - halfW;
+        const testTop = nextY - halfH;
+        for (const platform of this.activePlatforms) {
+          if (!overlapsRect(testLeft, testTop, gem.width, gem.height, platform.x, platform.y, platform.width, platform.height)) continue;
+
+          if (gem.vy >= 0) {
+            // Falling or resting onto top face.
+            nextY = Math.min(nextY, platform.y - halfH);
+            gem.vy = -Math.abs(gem.vy) * 0.42;
+            gem.vx *= 0.8;
+            onGround = true;
+            if (Math.abs(gem.vy) < 0.55) {
+              gem.vy = 0;
+            }
+          } else {
+            // Rising into underside.
+            nextY = Math.max(nextY, platform.y + platform.height + halfH);
+            gem.vy = Math.abs(gem.vy) * 0.35;
+          }
+        }
+        gem.y = nextY;
+
+        // Underwater drag + gentle gravity for dropped gems
+        gem.vx *= 0.985;
+        gem.vy = gem.vy * 0.99 + 0.12;
+
+        // Safety clamp to map bounds.
+        const minX = halfW;
+        const maxX = CONFIG.INTERNAL_WIDTH - halfW;
+        if (gem.x < minX) {
+          gem.x = minX;
+          gem.vx = Math.abs(gem.vx) * 0.65;
+        } else if (gem.x > maxX) {
+          gem.x = maxX;
+          gem.vx = -Math.abs(gem.vx) * 0.65;
+        }
+
+        // If a gem ended up inside geometry, push it out along the shallowest overlap axis.
+        const gemLeft = gem.x - halfW;
+        const gemTop = gem.y - halfH;
+        for (const platform of this.activePlatforms) {
+          if (!overlapsRect(gemLeft, gemTop, gem.width, gem.height, platform.x, platform.y, platform.width, platform.height)) continue;
+          const overlapLeft = gemLeft + gem.width - platform.x;
+          const overlapRight = platform.x + platform.width - gemLeft;
+          const overlapTop = gemTop + gem.height - platform.y;
+          const overlapBottom = platform.y + platform.height - gemTop;
+          const minOverlapX = Math.min(overlapLeft, overlapRight);
+          const minOverlapY = Math.min(overlapTop, overlapBottom);
+          if (minOverlapX < minOverlapY) {
+            if (overlapLeft < overlapRight) {
+              gem.x = platform.x - halfW;
+              gem.vx = -Math.abs(gem.vx) * 0.6;
+            } else {
+              gem.x = platform.x + platform.width + halfW;
+              gem.vx = Math.abs(gem.vx) * 0.6;
+            }
+          } else {
+            if (overlapTop < overlapBottom) {
+              gem.y = platform.y - halfH;
+              gem.vy = -Math.abs(gem.vy) * 0.42;
+              onGround = true;
+            } else {
+              gem.y = platform.y + platform.height + halfH;
+              gem.vy = Math.abs(gem.vy) * 0.35;
+            }
+          }
+        }
+
+        // Once almost still on ground, transition to flashing despawn state
+        const nearStill = Math.abs(gem.vx) < 0.08 && Math.abs(gem.vy) < 0.08;
+        if (onGround && nearStill) {
+          gem.settleFrames++;
+          if (gem.settleFrames > 10) {
+            gem.settled = true;
+            gem.vx = 0;
+            gem.vy = 0;
+            gem.fadeTimer = 0;
+          }
+        } else {
+          gem.settleFrames = 0;
+        }
+      } else {
+        gem.fadeTimer++;
+      }
+
+      const offTopOfScreen = gem.y + gem.height * 0.5 < this.cameraY - 24;
+      const isFarBelow = gem.y > this.cameraY + CONFIG.INTERNAL_HEIGHT * 1.6;
+      const expiredAfterSettle = gem.settled && (gem.fadeTimer ?? 0) > 140;
+      if ((gem.life ?? 0) > 1200 || offTopOfScreen || isFarBelow || expiredAfterSettle) {
+        this.releaseDroppedGem(i);
+      }
+    }
+  }
+
   private updateBullets(): void {
     // Update bullet positions and remove off-screen bullets
     this.playerController.updateBullets(this.cameraY);
@@ -1199,8 +1634,11 @@ class Game {
       };
       
       if (this.checkCollision(bulletRect, playerRect)) {
-        // Damage player
-        this.playerController.takeDamage();
+        if (this.playerController.isInvulnerable()) {
+          this.enemyBullets.splice(i, 1);
+          continue;
+        }
+        this.applyPlayerDamage(bullet.x, bullet.y);
         this.addScreenShake(5);
         this.triggerHaptic("error");
         
@@ -1257,6 +1695,7 @@ class Game {
   private destroyPlatform(platform: Platform): void {
     const cx = platform.x + platform.width / 2;
     const cy = platform.y + platform.height / 2;
+    this.playBlockBreakSound();
 
     // Spawn crumble debris (chunky sand blocks flying outward)
     this.spawnCrumbleDebris(platform.x, platform.y, platform.width, platform.height);
@@ -1276,12 +1715,14 @@ class Game {
     
     // Award some score for breaking blocks
     this.score += 2;
+    this.scoreBreakables += 2;
     this.triggerHaptic("light");
   }
   
   private resolveCollisions(): void {
     const player = this.playerController.getPlayer();
-    const playerRect = this.playerController.getRect();
+    const prevX = player.x - player.vx;
+    const prevY = player.y - player.vy;
     
     this.playerController.setGrounded(false);
     
@@ -1289,36 +1730,150 @@ class Game {
     // This allows walking on blocks
     for (const platform of this.activePlatforms) {
       const playerBottom = player.y + player.height / 2;
+      const prevBottom = prevY + player.height / 2;
       const playerLeft = player.x - player.width / 2;
       const playerRight = player.x + player.width / 2;
       const platformTop = platform.y;
       const platformLeft = platform.x;
       const platformRight = platform.x + platform.width;
+      const overlapsX = playerRight > platformLeft && playerLeft < platformRight;
+      const overlapWidth = Math.min(playerRight, platformRight) - Math.max(playerLeft, platformLeft);
+      const crossedTop = prevBottom <= platformTop + 1 && playerBottom >= platformTop;
       
       // Check if player is standing on top of this platform
       const isOnTop = playerBottom >= platformTop - 2 && 
                       playerBottom <= platformTop + 8 &&
-                      playerRight > platformLeft && 
-                      playerLeft < platformRight;
+                      overlapsX &&
+                      overlapWidth >= player.width * 0.35;
       
-      if (isOnTop && player.vy >= 0) {
-        this.playerController.land(platformTop);
+      if (player.vy >= 0 && overlapsX) {
+        if (platform.oneWay) {
+          if (crossedTop) {
+            this.playerController.land(platformTop);
+          }
+        } else if (crossedTop || isOnTop) {
+          this.playerController.land(platformTop);
+        }
+      }
+    }
+
+    // Ceiling pass: block upward recoil/shoot movement from tunneling through tiles.
+    if (player.vy < 0) {
+      const playerTop = player.y - player.height / 2;
+      const prevTop = prevY - player.height / 2;
+      const playerLeft = player.x - player.width / 2;
+      const playerRight = player.x + player.width / 2;
+
+      let hitCeilingY: number | null = null;
+      for (const platform of this.activePlatforms) {
+        if (platform.oneWay) continue;
+        const platformBottom = platform.y + platform.height;
+        const platformLeft = platform.x;
+        const platformRight = platform.x + platform.width;
+        const overlapsX = playerRight > platformLeft && playerLeft < platformRight;
+        const crossedBottom = prevTop >= platformBottom && playerTop <= platformBottom;
+        if (!overlapsX || !crossedBottom) continue;
+        hitCeilingY = hitCeilingY === null ? platformBottom : Math.max(hitCeilingY, platformBottom);
+      }
+
+      if (hitCeilingY !== null) {
+        this.playerController.setPosition(player.x, hitCeilingY + player.height / 2);
+        this.playerController.stopVertical();
       }
     }
     
-    // Second pass: Handle wall collisions (horizontal)
+    // Second pass: Handle horizontal collisions for all platform tiles.
+    // A tile blocks horizontal movement as long as it exists.
     for (const platform of this.activePlatforms) {
-      if (!platform.isWall) continue;
-      if (!this.checkCollision(playerRect, platform)) continue;
-      
-      // Horizontal wall collision
-      if (player.x < CONFIG.INTERNAL_WIDTH / 2) {
-        this.playerController.setPosition(platform.x + platform.width + player.width / 2, player.y);
+      if (platform.oneWay) continue;
+      const rect = this.playerController.getRect();
+      const rectLeft = rect.x;
+      const rectRight = rect.x + rect.width;
+      const rectTop = rect.y;
+      const rectBottom = rect.y + rect.height;
+
+      const platLeft = platform.x;
+      const platRight = platform.x + platform.width;
+      const platTop = platform.y;
+      const platBottom = platform.y + platform.height;
+
+      if (rectRight <= platLeft || rectLeft >= platRight || rectBottom <= platTop || rectTop >= platBottom) {
+        continue;
+      }
+
+      // Resolve only horizontal penetration here; vertical is handled in landing pass.
+      const overlapX = Math.min(rectRight, platRight) - Math.max(rectLeft, platLeft);
+      const overlapY = Math.min(rectBottom, platBottom) - Math.max(rectTop, platTop);
+      if (overlapX <= 0 || overlapY <= 0 || overlapX >= overlapY) {
+        continue;
+      }
+
+      const playerCenterX = rectLeft + rect.width / 2;
+      const platformCenterX = platLeft + platform.width / 2;
+      if (playerCenterX < platformCenterX) {
+        this.playerController.setPosition(platLeft - player.width / 2, player.y);
       } else {
-        this.playerController.setPosition(platform.x - player.width / 2, player.y);
+        this.playerController.setPosition(platRight + player.width / 2, player.y);
       }
       this.playerController.stopHorizontal();
     }
+
+    // Final depenetration pass: player should never remain inside any tile/wall.
+    for (let iter = 0; iter < 2; iter++) {
+      let resolvedAny = false;
+      const rect = this.playerController.getRect();
+      const rectLeft = rect.x;
+      const rectRight = rect.x + rect.width;
+      const rectTop = rect.y;
+      const rectBottom = rect.y + rect.height;
+
+      for (const platform of this.activePlatforms) {
+        if (platform.oneWay) continue;
+        const platLeft = platform.x;
+        const platRight = platform.x + platform.width;
+        const platTop = platform.y;
+        const platBottom = platform.y + platform.height;
+
+        if (rectRight <= platLeft || rectLeft >= platRight || rectBottom <= platTop || rectTop >= platBottom) {
+          continue;
+        }
+
+        const overlapLeft = rectRight - platLeft;
+        const overlapRight = platRight - rectLeft;
+        const overlapTop = rectBottom - platTop;
+        const overlapBottom = platBottom - rectTop;
+        const minOverlapX = Math.min(overlapLeft, overlapRight);
+        const minOverlapY = Math.min(overlapTop, overlapBottom);
+        const prevRectTop = prevY - player.height / 2;
+        const prevRectBottom = prevY + player.height / 2;
+        const playerBottomNow = player.y + player.height / 2;
+        const playerTopNow = player.y - player.height / 2;
+        const crossedTop = prevRectBottom <= platTop + 2 && playerBottomNow >= platTop;
+        const crossedBottom = prevRectTop >= platBottom - 2 && playerTopNow <= platBottom;
+        const canResolveVertically = crossedTop || crossedBottom;
+
+        if (minOverlapX < minOverlapY || !canResolveVertically) {
+          const pushRight = overlapLeft < overlapRight;
+          const nextX = pushRight
+            ? platLeft - player.width / 2
+            : platRight + player.width / 2;
+          this.playerController.setPosition(nextX, player.y);
+          this.playerController.stopHorizontal();
+        } else {
+          const pushUp = overlapTop < overlapBottom;
+          const nextY = pushUp
+            ? platTop - player.height / 2
+            : platBottom + player.height / 2;
+          this.playerController.setPosition(player.x, nextY);
+          this.playerController.stopVertical();
+        }
+        resolvedAny = true;
+      }
+
+      if (!resolvedAny) break;
+    }
+
+    const playerRect = this.playerController.getRect();
     
     // Enemy collisions
     for (let i = this.activeEnemies.length - 1; i >= 0; i--) {
@@ -1333,7 +1888,36 @@ class Game {
         this.bounceOnEnemy(enemy, i);
       } else if (!this.playerController.isInvulnerable()) {
         // Player takes damage only if moving up or stationary
-        this.playerController.takeDamage();
+        this.applyPlayerDamage(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+      }
+    }
+
+    // Weed stomp bounce (no score, no gems, no combo).
+    // Weeds act like springy coral: contact from above bounces the player.
+    const weedHitWidth = 20;
+    const weedHitHeight = 20;
+    for (let i = this.activeWeeds.length - 1; i >= 0; i--) {
+      const weed = this.activeWeeds[i];
+      const weedRect = {
+        x: weed.x - weedHitWidth / 2,
+        y: weed.y - weedHitHeight,
+        width: weedHitWidth,
+        height: weedHitHeight,
+      };
+      const playerBottom = playerRect.y + playerRect.height;
+      const fromAbove = playerBottom <= weed.y + 8;
+      const overlapsWeed =
+        playerRect.x < weedRect.x + weedRect.width &&
+        playerRect.x + playerRect.width > weedRect.x &&
+        playerRect.y < weedRect.y + weedRect.height &&
+        playerRect.y + playerRect.height > weedRect.y;
+      if (overlapsWeed && player.vy > 0 && fromAbove) {
+        this.playerController.bounce();
+        this.playEnemyCrunchSound();
+        this.triggerHaptic("light");
+        this.brokenWeeds.add(this.getWeedKey(weed));
+        this.activeWeeds.splice(i, 1);
+        break;
       }
     }
     
@@ -1341,13 +1925,46 @@ class Game {
     for (const gem of this.activeGems) {
       if (gem.collected) continue;
       
-      if (this.checkCollision(playerRect, gem)) {
+      if (this.checkGemPickup(playerRect, gem)) {
         gem.collected = true;
         const comboMultiplier = this.playerController.getComboMultiplier();
-        this.score += gem.value * comboMultiplier;
+        const points = gem.value * comboMultiplier;
+        this.score += points;
+        this.scoreGems += points;
         this.gems++;
+        this.playGemSound();
       }
     }
+
+    // Dropped gem collection
+    for (let i = this.droppedGems.length - 1; i >= 0; i--) {
+      const gem = this.droppedGems[i];
+      if (gem.collected) continue;
+      if ((gem.collectDelay ?? 0) > 0) continue;
+
+      if (this.checkGemPickup(playerRect, gem)) {
+        gem.collected = true;
+        const comboMultiplier = this.playerController.getComboMultiplier();
+        const points = gem.value * comboMultiplier;
+        this.score += points;
+        this.scoreGems += points;
+        this.gems++;
+        this.playGemSound();
+        this.releaseDroppedGem(i);
+      }
+    }
+  }
+
+  private checkGemPickup(playerRect: { x: number; y: number; width: number; height: number }, gem: Gem): boolean {
+    const gemLeft = gem.x - gem.width / 2;
+    const gemTop = gem.y - gem.height / 2;
+
+    return (
+      playerRect.x < gemLeft + gem.width &&
+      playerRect.x + playerRect.width > gemLeft &&
+      playerRect.y < gemTop + gem.height &&
+      playerRect.y + playerRect.height > gemTop
+    );
   }
   
   private bounceOnEnemy(enemy: BaseEnemy, index: number): void {
@@ -1487,6 +2104,32 @@ class Game {
     }
   }
 
+  private spawnDamageText(x: number, y: number, text: string): void {
+    this.damageTexts.push({
+      x,
+      y,
+      vy: -0.55,
+      alpha: 1,
+      life: 0,
+      maxLife: 64,
+      text,
+    });
+  }
+
+  private updateDamageTexts(): void {
+    for (let i = this.damageTexts.length - 1; i >= 0; i--) {
+      const t = this.damageTexts[i];
+      t.life++;
+      t.y += t.vy;
+      t.vy -= 0.01;
+      const p = t.life / t.maxLife;
+      t.alpha = Math.max(0, 1 - p);
+      if (t.life >= t.maxLife || t.alpha <= 0) {
+        this.damageTexts.splice(i, 1);
+      }
+    }
+  }
+
   // ============= PLATFORM CRUMBLE & SAND EFFECTS =============
 
   private spawnCrumbleDebris(px: number, py: number, pw: number, ph: number): void {
@@ -1608,7 +2251,11 @@ class Game {
     const player = this.playerController.getPlayer();
     
     // Check if we need to spawn a new powerup orb
-    this.powerUpManager.checkSpawnOrb(this.maxDepth, player.x);
+    this.powerUpManager.checkSpawnOrb(
+      this.maxDepth,
+      player.x,
+      (worldY, entityWidth, preferredX) => this.levelSpawner.getSafeSpawnX(worldY, entityWidth, preferredX)
+    );
     
     // Check powerup orb collection
     const collected = this.powerUpManager.checkCollection(
@@ -1751,6 +2398,8 @@ class Game {
   
   
   private killEnemy(enemy: BaseEnemy, index: number): void {
+    this.playEnemyCrunchSound();
+
     const cx = enemy.x + enemy.width / 2;
     const cy = enemy.y + enemy.height / 2;
     const enemyColor = enemy.getBaseColor();
@@ -1774,15 +2423,126 @@ class Game {
     if (chunkIndex !== -1) {
       chunk.enemies.splice(chunkIndex, 1);
     }
+
+    this.spawnDroppedGems(cx, cy, enemy.chunkIndex);
     
     // Score with combo multiplier
     const comboMultiplier = this.playerController.getComboMultiplier();
-    this.score += CONFIG.SCORE_PER_ENEMY * comboMultiplier;
+    const points = CONFIG.SCORE_PER_ENEMY * comboMultiplier;
+    this.score += points;
+    this.scoreEnemies += points;
     
     // Small screen shake on enemy death
     this.addScreenShake(3);
     
     this.triggerHaptic("light");
+  }
+
+  private clearGameOverTimers(): void {
+    for (const t of this.gameOverTimers) {
+      window.clearTimeout(t);
+      window.clearInterval(t);
+    }
+    this.gameOverTimers = [];
+  }
+
+  private animateValue(el: HTMLElement, from: number, to: number, durationMs: number): void {
+    const start = performance.now();
+    const intervalId = window.setInterval(() => {
+      const now = performance.now();
+      const t = Math.min(1, (now - start) / durationMs);
+      const value = Math.round(from + (to - from) * t);
+      el.textContent = value.toString();
+      if (t < 1) {
+        return;
+      }
+      window.clearInterval(intervalId);
+    }, 16);
+    this.gameOverTimers.push(intervalId);
+  }
+
+  private animateGameOverScoreBreakdown(): void {
+    this.clearGameOverTimers();
+    const finalScoreEl = document.getElementById("final-score");
+    const finalDepthEl = document.getElementById("final-depth");
+    const depthRow = document.getElementById("score-row-depth");
+    const enemiesRow = document.getElementById("score-row-enemies");
+    const gemsRow = document.getElementById("score-row-gems");
+    const breakablesRow = document.getElementById("score-row-breakables");
+    const depthValueEl = document.getElementById("score-depth");
+    const enemiesValueEl = document.getElementById("score-enemies");
+    const gemsValueEl = document.getElementById("score-gems");
+    const breakablesValueEl = document.getElementById("score-breakables");
+    if (
+      !finalScoreEl || !finalDepthEl ||
+      !depthRow || !enemiesRow || !gemsRow || !breakablesRow ||
+      !depthValueEl || !enemiesValueEl || !gemsValueEl || !breakablesValueEl
+    ) {
+      return;
+    }
+
+    finalScoreEl.textContent = "0";
+    finalDepthEl.textContent = `Depth: ${Math.floor(this.maxDepth)}m`;
+    depthValueEl.textContent = "0";
+    enemiesValueEl.textContent = "0";
+    gemsValueEl.textContent = "0";
+    breakablesValueEl.textContent = "0";
+    depthRow.classList.remove("visible");
+    enemiesRow.classList.remove("visible");
+    gemsRow.classList.remove("visible");
+    breakablesRow.classList.remove("visible");
+
+    const steps = [
+      { row: depthRow, el: depthValueEl, value: this.scoreDepth },
+      { row: enemiesRow, el: enemiesValueEl, value: this.scoreEnemies },
+      { row: gemsRow, el: gemsValueEl, value: this.scoreGems },
+      { row: breakablesRow, el: breakablesValueEl, value: this.scoreBreakables },
+    ];
+
+    let delay = 120;
+    for (const step of steps) {
+      const showId = window.setTimeout(() => {
+        step.row.classList.add("visible");
+        this.animateValue(step.el, 0, step.value, 420);
+      }, delay);
+      this.gameOverTimers.push(showId);
+      delay += 460;
+    }
+
+    const totalId = window.setTimeout(() => {
+      this.animateValue(finalScoreEl, 0, this.score, 550);
+    }, delay + 120);
+    this.gameOverTimers.push(totalId);
+  }
+
+  private spawnDroppedGems(x: number, y: number, chunkIndex: number): void {
+    const count = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.2 + Math.random() * 2.8;
+      const spawnRadius = 12 + Math.random() * 10;
+      const spawnX = x + Math.cos(angle) * spawnRadius;
+      const spawnY = y + Math.sin(angle) * (spawnRadius * 0.6);
+
+      this.droppedGems.push({
+        x: spawnX,
+        y: spawnY,
+        width: 14,
+        height: 14,
+        value: (1 + Math.floor(Math.random() * 2)) * CONFIG.SCORE_PER_GEM,
+        collected: false,
+        chunkIndex,
+        bobOffset: Math.random() * Math.PI * 2,
+        dropped: true,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 1.2,
+        life: 0,
+        settled: false,
+        settleFrames: 0,
+        fadeTimer: 0,
+        collectDelay: 8,
+      });
+    }
   }
   
   private spawnHurtAnimation(x: number, y: number, width: number, height: number, color: string, direction: number, spriteType: "shark" | "crab" | "squid"): void {
@@ -2117,9 +2877,13 @@ class Game {
       this.drawDeathExplosions();
       this.drawExplosionParticles();
       this.drawDeathBubbles();
+      this.drawDamageTexts();
       
       // Draw player
       this.drawPlayer();
+      if (this.deathFreezeFrames > 0) {
+        this.drawDeathFreezeHighlight();
+      }
       
       // Draw powerup effects (on top of player)
       this.drawSatellites();
@@ -2140,15 +2904,46 @@ class Game {
     // Apply dithering effect as post-process
     this.applyDithering();
   }
+
+  private drawDeathFreezeHighlight(): void {
+    const ctx = this.ctx;
+    const p = this.playerController.getPlayer();
+    const k = this.deathFreezeKiller;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(6, 15, 30, 0.35)";
+    ctx.fillRect(0, this.cameraY, CONFIG.INTERNAL_WIDTH, CONFIG.INTERNAL_HEIGHT);
+
+    ctx.strokeStyle = "rgba(255, 255, 210, 0.9)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 26, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (k) {
+      ctx.strokeStyle = "rgba(255, 90, 90, 0.95)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(k.x, k.y, 24, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
   
   private drawMenuBackground(): void {
     const ctx = this.ctx;
+    const crabScale = 0.95;
+    const crabW = 96 * crabScale;
+    const crabH = 96 * crabScale;
+    const crabX = CONFIG.INTERNAL_WIDTH / 2 - crabW / 2;
+    // Keep crab and submarine below the instruction block area
+    const crabY = CONFIG.INTERNAL_HEIGHT - crabH - 20;
     
-    // Draw bobbing submarine at the bottom of the screen
+    // Draw bobbing submarine above the crab
     if (this.submarineImg && this.submarineImg.complete) {
       const subX = CONFIG.INTERNAL_WIDTH / 2;
-      const bobY = CONFIG.INTERNAL_HEIGHT - 60 + Math.sin(this.frameCount * 0.03) * 8;
-      const subSize = 72;
+      const bobY = crabY - 18 + Math.sin(this.frameCount * 0.03) * 4;
+      const subSize = 64;
       
       ctx.save();
       
@@ -2161,7 +2956,7 @@ class Game {
       ctx.restore();
     }
     
-    // Draw animated crab below the start button
+    // Draw animated crab near the bottom of the start screen
     if (this.menuCrabImg && this.menuCrabImg.complete) {
       // Sprite sheet: 4 frames, 96x96 per frame
       const frameW = 96;
@@ -2175,19 +2970,14 @@ class Game {
       
       const sx = this.menuCrabFrame * frameW;
       const sy = 0;
-      
-      // Position: below the start button, centered
-      const scale = 1.0;
-      const crabX = CONFIG.INTERNAL_WIDTH / 2 - (frameW * scale) / 2;
-      const crabY = CONFIG.INTERNAL_HEIGHT / 2 + 100;
-      
+
       // Slight bob
       const bobY = Math.sin(this.frameCount * 0.05) * 3;
       
       ctx.drawImage(
         this.menuCrabImg,
         sx, sy, frameW, frameH,
-        crabX, crabY + bobY, frameW * scale, frameH * scale
+        crabX, crabY + bobY, crabW, crabH
       );
     }
     
@@ -2206,7 +2996,26 @@ class Game {
     const SAND_DEEP  = { r: 175, g: 140, b: 70 };      // Deep shadow sand
     
     for (const platform of this.activePlatforms) {
-      if (platform.isWall) {
+      if (platform.oneWay) {
+        const x = platform.x;
+        const y = platform.y;
+        const w = platform.width;
+        const h = platform.height;
+        ctx.fillStyle = "rgba(215, 190, 120, 0.95)";
+        ctx.fillRect(x, y, w, h);
+        // Brighter top edge for readability.
+        ctx.fillStyle = "rgba(255, 240, 190, 0.9)";
+        ctx.fillRect(x, y, w, 2);
+        // Pixel-like dark notches so it reads as a platform strip.
+        ctx.fillStyle = "rgba(120, 90, 45, 0.55)";
+        for (let px = 2; px < w - 2; px += 10) {
+          ctx.fillRect(x + px, y + h - 2, 4, 2);
+        }
+        continue;
+      }
+
+      // Render cave walls and any impenetrable (non-breakable) masses
+      if (platform.isWall || !platform.breakable) {
         // Organic wall made up of sand-colored pixelated blocks
         const blocksX = Math.ceil(platform.width / BLOCK_SIZE);
         const blocksY = Math.ceil(platform.height / BLOCK_SIZE);
@@ -2425,9 +3234,33 @@ class Game {
       
       // Bob animation using pre-calculated offset
       const bobY = Math.sin(this.frameCount * 0.1 + gem.bobOffset) * 3;
+      const spin = this.frameCount * 0.015 + gem.bobOffset * 0.35;
       
       // Diamond shape (no glow for clean dithering)
+      ctx.save();
+      ctx.translate(gem.x, gem.y + bobY);
+      ctx.rotate(spin);
       ctx.fillStyle = "#0ff";
+      ctx.beginPath();
+      ctx.moveTo(0, -gem.height / 2);
+      ctx.lineTo(gem.width / 2, 0);
+      ctx.lineTo(0, gem.height / 2);
+      ctx.lineTo(-gem.width / 2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (const gem of this.droppedGems) {
+      if (gem.collected) continue;
+
+      const bobY = Math.sin(this.frameCount * 0.16 + gem.bobOffset) * 1.5;
+      const fadeTimer = gem.fadeTimer ?? 0;
+      const flashing = gem.settled && fadeTimer > 30;
+      const alpha = flashing ? (Math.floor((fadeTimer - 30) / 6) % 2 === 0 ? 0.22 : 0.95) : 1;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "#ffd84a";
       ctx.beginPath();
       ctx.moveTo(gem.x, gem.y - gem.height / 2 + bobY);
       ctx.lineTo(gem.x + gem.width / 2, gem.y + bobY);
@@ -2435,6 +3268,7 @@ class Game {
       ctx.lineTo(gem.x - gem.width / 2, gem.y + bobY);
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
     }
   }
   
@@ -2819,13 +3653,30 @@ class Game {
       }
     }
   }
+
+  private drawDamageTexts(): void {
+    const ctx = this.ctx;
+    for (const t of this.damageTexts) {
+      ctx.save();
+      ctx.globalAlpha = t.alpha;
+      ctx.font = "14px 'Press Start 2P'";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#ff6e6e";
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.lineWidth = 3;
+      ctx.strokeText(t.text, t.x, t.y);
+      ctx.fillText(t.text, t.x, t.y);
+      ctx.restore();
+    }
+  }
   
   private drawPlayer(): void {
     const ctx = this.ctx;
     const p = this.playerController.getPlayer();
     
     // Invulnerability flash
-    if (p.invulnerable > 0 && Math.floor(p.invulnerable / 4) % 2 === 0) {
+    if (this.deathFreezeFrames <= 0 && p.invulnerable > 0 && Math.floor(p.invulnerable / 4) % 2 === 0) {
       return;
     }
     
@@ -2837,7 +3688,8 @@ class Game {
       const spriteWidth = 72;  // Display size (1.5x bigger: 48 * 1.5 = 72)
       const spriteHeight = 72;
       const x = p.x - spriteWidth / 2;
-      const y = p.y - spriteHeight / 2;
+      // Center on physics body with slight upward bias to avoid sinking into tiles.
+      const y = p.y - spriteHeight / 2 - 3;
       
       ctx.save();
       
