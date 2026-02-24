@@ -1,6 +1,7 @@
 import { Game } from "../Game";
 import { elements } from "./elements";
 import { createUIFeedback } from "../feedback/uiFeedback";
+import { SoundManager } from "../SoundManager";
 
 export interface StartScreenUI {
   resetStartButtons: (replayTitleIntro?: boolean) => void;
@@ -32,6 +33,11 @@ export function createStartScreenUI(game: Game): StartScreenUI {
     if (startShell) {
       startShell.classList.add("ui-intro-active");
     }
+
+    // Play logo hit sounds in sync with the CSS animation delays:
+    // "space" crashes in at t=0ms, "force" settles at t=465ms
+    void SoundManager.play("logoSpace");
+    setTimeout(() => { void SoundManager.play("logoForce"); }, 465);
   }
 
   function showJoinSection(): void {

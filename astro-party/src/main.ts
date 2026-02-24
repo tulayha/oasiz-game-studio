@@ -13,6 +13,7 @@ import {
   playCountdownFeedback,
   playGameEndFeedback,
 } from "./feedback/mainFlowFeedback";
+import { SoundManager } from "./SoundManager";
 
 // Declare platform-injected variables
 declare global {
@@ -41,6 +42,11 @@ window.setNextSeed = (seed: number): void => {
 };
 
 function runSplashScreen(): Promise<void> {
+  SoundManager.preload("splashScreen");
+  SoundManager.preload("mainMenu");
+  SoundManager.preload("logoSpace");
+  SoundManager.preload("logoForce");
+
   return new Promise((resolve) => {
     const splash = document.getElementById("splashScreen");
     if (!splash) {
@@ -49,6 +55,7 @@ function runSplashScreen(): Promise<void> {
     }
 
     const showLogo = (): void => {
+      void SoundManager.play("splashScreen");
       splash.classList.add("show-logo");
 
       setTimeout(() => {
@@ -81,6 +88,7 @@ async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
 
   await runSplashScreen();
+  void SoundManager.play("mainMenu");
 
   const viewport = createViewportController(game);
   await tryLockOrientation(viewport.isMobile);
@@ -144,6 +152,16 @@ async function init(): Promise<void> {
       console.log("[Main] Phase changed:", phase);
       const previousPhase = currentPhase;
       currentPhase = phase;
+
+      // Stop main menu music when leaving the start screen
+      if (previousPhase === "START" && phase !== "START") {
+        SoundManager.stop("mainMenu");
+      }
+      // Resume main menu music when returning to start screen
+      if (phase === "START" && previousPhase !== "START") {
+        void SoundManager.play("mainMenu");
+      }
+
       syncScreenToPhase(phase, true, previousPhase);
     },
 
