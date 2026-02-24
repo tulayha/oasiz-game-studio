@@ -666,3 +666,19 @@ TODO / Follow-ups:
   - Removed unused screen-shake accessor methods (`getScreenShakeIntensity`, `getScreenShakeDuration`).
 - Validation:
   - `astro-party`: `bun run build` passed.
+- Renderer major decomposition pass:
+  - Extracted ship trail subsystem into `src/systems/rendering/ShipTrailRenderer.ts`.
+    - Moved trail state, sampling, layered draw, and tuning clamp/equality logic out of `Renderer`.
+    - `Renderer` now delegates trail API methods to `ShipTrailRenderer` while preserving external API (`get/set/resetShipTrailVisualTuning`, `sampleShipTrail`, `drawShipTrails`).
+    - Re-exported `ShipTrailVisualTuning` from `Renderer` to keep existing imports stable.
+  - Removed dead starfield pipeline:
+    - Deleted `Renderer.initStars()` and `Renderer.drawStars()` plus star state storage.
+    - Removed obsolete `this.renderer.initStars()` call in `Game.start()`.
+  - Removed unused renderer API/state:
+    - Deleted unused `Renderer.getSize()` and `Renderer.getScale()`.
+    - Deleted unused viewport-centering fields previously written but never read (`offsetX`, `offsetY`).
+- Renderer control split pass:
+  - Added `src/systems/rendering/ScreenShakeController.ts` and moved shake state/update/apply/reset logic out of `Renderer`.
+  - `Renderer.beginFrame`, `updateScreenShake`, `addScreenShake`, and `clearEffects` now delegate to the controller.
+- Validation:
+  - `astro-party`: `bun run build` passed after each pass.

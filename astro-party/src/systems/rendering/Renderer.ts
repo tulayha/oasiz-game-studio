@@ -18,7 +18,6 @@ import {
   SHIP_JOUST_LOCAL_POINTS,
   SHIP_SHIELD_RADII,
   SHIP_VISUAL_REFERENCE_SIZE,
-  getShipTrailWorldPoint,
 } from "../../../shared/geometry/ShipRenderAnchors";
 import { PILOT_EFFECT_LOCAL_POINTS } from "../../../shared/geometry/PilotRenderAnchors";
 import {
@@ -36,6 +35,11 @@ import {
   drawMineExplosionEffect,
 } from "./RendererVisualPrimitives";
 import {
+  ShipTrailRenderer,
+  type ShipTrailVisualTuning,
+} from "./ShipTrailRenderer";
+import { ScreenShakeController } from "./ScreenShakeController";
+import {
   CAMERA_DEFAULT_ZOOM,
   CAMERA_EDGE_SLACK_RATIO,
   CAMERA_MAX_ZOOM,
@@ -46,6 +50,7 @@ import type {
   CenterHole,
   RepulsionZone,
 } from "../../../shared/sim/maps";
+export type { ShipTrailVisualTuning } from "./ShipTrailRenderer";
 
 interface BulletCasing {
   x: number;
@@ -93,108 +98,6 @@ interface PilotDeathBurstFx {
   color: string;
 }
 
-interface ShipTrailPoint {
-  x: number;
-  y: number;
-  atMs: number;
-}
-
-interface ShipTrailState {
-  color: string;
-  points: ShipTrailPoint[];
-}
-
-export interface ShipTrailVisualTuning {
-  outerWidth: number;
-  midWidth: number;
-  coreWidth: number;
-  outerAlpha: number;
-  midAlpha: number;
-  coreAlpha: number;
-}
-
-const DEFAULT_SHIP_TRAIL_VISUAL_TUNING: Readonly<ShipTrailVisualTuning> =
-  Object.freeze({
-    outerWidth: 12,
-    midWidth: 7,
-    coreWidth: 3.3,
-    outerAlpha: 0.048,
-    midAlpha: 0.096,
-    coreAlpha: 0.16,
-  });
-
-const SHIP_TRAIL_MAX_AGE_MS = 1400;
-const SHIP_TRAIL_MIN_SPEED_SQ = 0.2;
-const SHIP_TRAIL_SEGMENT_SPACING = 2.2;
-const SHIP_TRAIL_MIN_APPEND_DISTANCE = 0.7;
-const SHIP_TRAIL_MAX_INSERT_STEPS = 24;
-const SHIP_TRAIL_MAX_POINTS = 32;
-
-const DEFAULT_SHIP_TRAIL_CORE_COLOR = "#dffbff";
-
-interface ShipTrailRenderLayer {
-  width: number;
-  alpha: number;
-  color: string;
-}
-
-function buildShipTrailRenderLayers(
-  color: string,
-  tuning: ShipTrailVisualTuning,
-): ReadonlyArray<ShipTrailRenderLayer> {
-  return [
-    { width: tuning.outerWidth, alpha: tuning.outerAlpha, color },
-    { width: tuning.midWidth, alpha: tuning.midAlpha, color },
-    {
-      width: tuning.coreWidth,
-      alpha: tuning.coreAlpha,
-      color: DEFAULT_SHIP_TRAIL_CORE_COLOR,
-    },
-  ];
-}
-
-function clampShipTrailVisualTuning(
-  current: ShipTrailVisualTuning,
-  next: Partial<ShipTrailVisualTuning>,
-): ShipTrailVisualTuning {
-  const clamped: ShipTrailVisualTuning = { ...current };
-
-  if (Number.isFinite(next.outerWidth)) {
-    clamped.outerWidth = Math.max(0.1, Math.min(40, next.outerWidth as number));
-  }
-  if (Number.isFinite(next.midWidth)) {
-    clamped.midWidth = Math.max(0.1, Math.min(40, next.midWidth as number));
-  }
-  if (Number.isFinite(next.coreWidth)) {
-    clamped.coreWidth = Math.max(0.1, Math.min(40, next.coreWidth as number));
-  }
-  if (Number.isFinite(next.outerAlpha)) {
-    clamped.outerAlpha = Math.max(0, Math.min(1, next.outerAlpha as number));
-  }
-  if (Number.isFinite(next.midAlpha)) {
-    clamped.midAlpha = Math.max(0, Math.min(1, next.midAlpha as number));
-  }
-  if (Number.isFinite(next.coreAlpha)) {
-    clamped.coreAlpha = Math.max(0, Math.min(1, next.coreAlpha as number));
-  }
-
-  return clamped;
-}
-
-function isShipTrailVisualTuningEqual(
-  a: ShipTrailVisualTuning,
-  b: ShipTrailVisualTuning,
-): boolean {
-  return (
-    a.outerWidth === b.outerWidth &&
-    a.midWidth === b.midWidth &&
-    a.coreWidth === b.coreWidth &&
-    a.outerAlpha === b.outerAlpha &&
-    a.midAlpha === b.midAlpha &&
-    a.coreAlpha === b.coreAlpha
-  );
-}
-
 export class Renderer {
   private static readonly PILOT_DEBRIS_BASELINE_PILOT_WIDTH = 52;
   private static readonly PILOT_DEBRIS_SCALE_MULTIPLIER = 1;
@@ -209,11 +112,8 @@ export class Renderer {
   private bulletCasings: BulletCasing[] = [];
   private pilotDebrisPieces: PilotDebrisPiece[] = [];
   private pilotDeathBursts: PilotDeathBurstFx[] = [];
-  private shipTrails = new Map<string, ShipTrailState>();
-  private shipTrailVisualTuning: ShipTrailVisualTuning = {
-    ...DEFAULT_SHIP_TRAIL_VISUAL_TUNING,
-  };
-  private screenShake = { intensity: 0, duration: 0, offsetX: 0, offsetY: 0 };
+  private shipTrails = new ShipTrailRenderer();
+  private screenShake = new ScreenShakeController();
   private visualRng: SeededRNG;
   private gameTimeMs: number | null = null;
 
@@ -222,8 +122,6 @@ export class Renderer {
 
   // Fixed arena scaling
   private scale: number = 1;
-  private offsetX: number = 0;
-  private offsetY: number = 0;
   private cameraZoom: number = CAMERA_DEFAULT_ZOOM;
   private cameraFocusX: number = GAME_CONFIG.ARENA_WIDTH / 2;
   private cameraFocusY: number = GAME_CONFIG.ARENA_HEIGHT / 2;
@@ -309,19 +207,6 @@ export class Renderer {
     const scaleX = cssWidth / GAME_CONFIG.ARENA_WIDTH;
     const scaleY = cssHeight / GAME_CONFIG.ARENA_HEIGHT;
     this.scale = Math.min(scaleX, scaleY);
-
-    // Center the arena
-    this.offsetX = (cssWidth - GAME_CONFIG.ARENA_WIDTH * this.scale) / 2;
-    this.offsetY = (cssHeight - GAME_CONFIG.ARENA_HEIGHT * this.scale) / 2;
-  }
-
-  getSize(): { width: number; height: number } {
-    // Return fixed arena size (not canvas size)
-    return { width: GAME_CONFIG.ARENA_WIDTH, height: GAME_CONFIG.ARENA_HEIGHT };
-  }
-
-  getScale(): number {
-    return this.scale;
   }
 
   setCamera(zoom: number, focusX: number, focusY: number): void {
@@ -573,9 +458,7 @@ export class Renderer {
     this.ctx.save();
 
     // Apply screen shake (using pre-calculated offsets from updateScreenShake)
-    if (this.screenShake.duration > 0) {
-      this.ctx.translate(this.screenShake.offsetX, this.screenShake.offsetY);
-    }
+    this.screenShake.applyTransform(this.ctx);
 
     // Apply camera around world-space focus.
     const zoom = this.getEffectiveCameraZoom();
@@ -591,38 +474,11 @@ export class Renderer {
   }
 
   updateScreenShake(dt: number): void {
-    if (this.screenShake.duration > 0) {
-      this.screenShake.duration -= dt;
-
-      // Calculate deterministic shake offsets using time-based sin/cos
-      // This avoids Math.random() in the render loop while still giving chaotic motion
-      const time = this.getNowMs() * 0.05;
-      const decay = this.screenShake.duration > 0 ? 1 : 0;
-      this.screenShake.offsetX =
-        Math.sin(time * 1.1) *
-        Math.cos(time * 0.7) *
-        this.screenShake.intensity *
-        decay;
-      this.screenShake.offsetY =
-        Math.sin(time * 0.9) *
-        Math.cos(time * 1.3) *
-        this.screenShake.intensity *
-        decay;
-
-      if (this.screenShake.duration <= 0) {
-        this.screenShake.intensity = 0;
-        this.screenShake.offsetX = 0;
-        this.screenShake.offsetY = 0;
-      }
-    }
+    this.screenShake.update(dt, this.getNowMs());
   }
 
   addScreenShake(intensity: number, duration: number): void {
-    this.screenShake.intensity = Math.max(
-      this.screenShake.intensity,
-      intensity,
-    );
-    this.screenShake.duration = Math.max(this.screenShake.duration, duration);
+    this.screenShake.add(intensity, duration);
   }
 
   clearEffects(): void {
@@ -632,28 +488,20 @@ export class Renderer {
     this.pilotDeathBursts = [];
     this.shipTrails.clear();
     this.projectileDebugHistory.clear();
-    this.screenShake.intensity = 0;
-    this.screenShake.duration = 0;
-    this.screenShake.offsetX = 0;
-    this.screenShake.offsetY = 0;
+    this.screenShake.clear();
     this.centerHoleRotationState.clear();
   }
 
   getShipTrailVisualTuning(): ShipTrailVisualTuning {
-    return { ...this.shipTrailVisualTuning };
+    return this.shipTrails.getVisualTuning();
   }
 
   resetShipTrailVisualTuning(): void {
-    this.shipTrailVisualTuning = { ...DEFAULT_SHIP_TRAIL_VISUAL_TUNING };
-    this.shipTrails.clear();
+    this.shipTrails.resetVisualTuning();
   }
 
   setShipTrailVisualTuning(next: Partial<ShipTrailVisualTuning>): void {
-    if (!next || typeof next !== "object") return;
-    const nextClamped = clampShipTrailVisualTuning(this.shipTrailVisualTuning, next);
-    if (!isShipTrailVisualTuningEqual(nextClamped, this.shipTrailVisualTuning)) {
-      this.shipTrailVisualTuning = nextClamped;
-    }
+    this.shipTrails.setVisualTuning(next);
   }
 
   private clampCameraZoom(zoom: number): number {
@@ -718,112 +566,11 @@ export class Renderer {
   // ============= SHIP RENDERING =============
 
   sampleShipTrail(state: ShipState, color: PlayerColor): void {
-    if (!state.alive) return;
-    const nowMs = this.getNowMs();
-    const speedSq = state.vx * state.vx + state.vy * state.vy;
-    if (speedSq < SHIP_TRAIL_MIN_SPEED_SQ) return;
-
-    const trailAnchor = getShipTrailWorldPoint(state);
-    let trail = this.shipTrails.get(state.playerId);
-    if (!trail) {
-      trail = { color: color.primary, points: [] };
-      this.shipTrails.set(state.playerId, trail);
-    }
-    trail.color = color.primary;
-    this.pruneExpiredShipTrailPoints(trail, nowMs);
-
-    const points = trail.points;
-    const lastPoint = points[points.length - 1];
-    if (!lastPoint) {
-      points.push({ x: trailAnchor.x, y: trailAnchor.y, atMs: nowMs });
-      return;
-    }
-
-    const dx = trailAnchor.x - lastPoint.x;
-    const dy = trailAnchor.y - lastPoint.y;
-    const distance = Math.hypot(dx, dy);
-    if (distance < SHIP_TRAIL_MIN_APPEND_DISTANCE) {
-      return;
-    }
-
-    const insertSteps = Math.min(
-      SHIP_TRAIL_MAX_INSERT_STEPS,
-      Math.floor(distance / SHIP_TRAIL_SEGMENT_SPACING),
-    );
-    for (let step = 1; step <= insertSteps; step += 1) {
-      const t = step / (insertSteps + 1);
-      points.push({
-        x: lastPoint.x + dx * t,
-        y: lastPoint.y + dy * t,
-        atMs: nowMs,
-      });
-    }
-    points.push({ x: trailAnchor.x, y: trailAnchor.y, atMs: nowMs });
-
-    if (points.length > SHIP_TRAIL_MAX_POINTS) {
-      points.splice(0, points.length - SHIP_TRAIL_MAX_POINTS);
-    }
+    this.shipTrails.sample(state, color, this.getNowMs());
   }
 
   drawShipTrails(): void {
-    const nowMs = this.getNowMs();
-    const { ctx } = this;
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    for (const [playerId, trail] of this.shipTrails) {
-      this.pruneExpiredShipTrailPoints(trail, nowMs);
-      if (trail.points.length < 2) {
-        if (trail.points.length === 0) {
-          this.shipTrails.delete(playerId);
-        }
-        continue;
-      }
-
-      this.drawShipTrailLayered(trail, nowMs);
-    }
-
-    ctx.restore();
-  }
-
-  private pruneExpiredShipTrailPoints(trail: ShipTrailState, nowMs: number): void {
-    const cutoff = nowMs - SHIP_TRAIL_MAX_AGE_MS;
-    while (trail.points.length > 0 && trail.points[0].atMs < cutoff) {
-      trail.points.shift();
-    }
-  }
-
-  private drawShipTrailLayered(trail: ShipTrailState, nowMs: number): void {
-    const { ctx } = this;
-    const layers = buildShipTrailRenderLayers(
-      trail.color,
-      this.shipTrailVisualTuning,
-    );
-
-    for (const layer of layers) {
-      for (let i = 1; i < trail.points.length; i += 1) {
-        const prev = trail.points[i - 1];
-        const curr = trail.points[i];
-        const age01 = this.clamp01((nowMs - curr.atMs) / SHIP_TRAIL_MAX_AGE_MS);
-        const fade = 1 - age01;
-        if (fade <= 0) continue;
-
-        const segmentAlpha = layer.alpha * fade * fade;
-        if (segmentAlpha <= 0.004) continue;
-
-        ctx.globalAlpha = segmentAlpha;
-        ctx.strokeStyle = layer.color;
-        ctx.lineWidth = layer.width * (0.4 + fade * 0.6);
-        ctx.beginPath();
-        ctx.moveTo(prev.x, prev.y);
-        ctx.lineTo(curr.x, curr.y);
-        ctx.stroke();
-      }
-    }
-
-    ctx.globalAlpha = 1;
+    this.shipTrails.draw(this.ctx, this.getNowMs());
   }
 
   drawShip(
@@ -2629,51 +2376,6 @@ export class Renderer {
         size: 3 + this.random() * 4,
         color: "#88ccff",
       });
-    }
-  }
-
-  // ============= STARS BACKGROUND =============
-
-  private stars: {
-    x: number;
-    y: number;
-    size: number;
-    brightness: number;
-    twinkleSpeed: number;
-    twinkleOffset: number;
-  }[] = [];
-
-  initStars(): void {
-    this.stars = [];
-    // Stars are in arena coordinates (within the fixed arena size)
-    const count = Math.floor(
-      (GAME_CONFIG.ARENA_WIDTH * GAME_CONFIG.ARENA_HEIGHT) / 4000,
-    );
-    for (let i = 0; i < count; i++) {
-      this.stars.push({
-        x: this.random() * GAME_CONFIG.ARENA_WIDTH,
-        y: this.random() * GAME_CONFIG.ARENA_HEIGHT,
-        size: 0.5 + this.random() * 1.5,
-        brightness: 0.3 + this.random() * 0.7,
-        twinkleSpeed: 1 + this.random() * 3,
-        twinkleOffset: this.random() * Math.PI * 2,
-      });
-    }
-  }
-
-  drawStars(): void {
-    const { ctx } = this;
-    const time = this.getNowMs() / 1000;
-
-    // Stars are drawn in arena coordinates (already transformed)
-    for (const star of this.stars) {
-      const twinkle =
-        0.5 + 0.5 * Math.sin(time * star.twinkleSpeed + star.twinkleOffset);
-      const alpha = star.brightness * twinkle;
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-      ctx.fill();
     }
   }
 
