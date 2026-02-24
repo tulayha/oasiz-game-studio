@@ -311,7 +311,7 @@ export class PlayerController {
   
   takeDamage(): void {
     this.player.hp--;
-    this.player.invulnerable = 60; // 1 second of invulnerability
+    this.player.invulnerable = CONFIG.PLAYER_INVULNERABLE_FRAMES;
     this.player.combo = 0;
     this.player.comboTimer = 0;
     

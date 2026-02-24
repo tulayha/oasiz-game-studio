@@ -56,6 +56,7 @@ export interface Entity {
 export interface Platform extends Entity {
   isWall: boolean;
   breakable: boolean;
+  oneWay?: boolean; // Thin top-only platform (pass through from below)
   hp: number; // HP for breakable blocks (1 = one shot to break)
   chunkIndex: number; // Track which chunk this platform belongs to
 }
@@ -438,6 +439,53 @@ export class LevelSpawner {
     // Add side-grown, stacked wall masses that push toward the center.
     // This prevents a permanent free-fall center lane and creates natural cave pressure.
     this.generateSideCenterMasses(chunk, rng, wallProfile);
+    this.generateOneWayPlatforms(chunk, rng, wallProfile);
+  }
+
+  // Generate thin one-way platforms (Mario-style): standable from above,
+  // pass-through from below.
+  private generateOneWayPlatforms(chunk: Chunk, rng: SeededRNG, wallProfile: WallProfile): void {
+    const BLOCK = CONFIG.WALL_BLOCK_SIZE;
+    const thickness = CONFIG.ONE_WAY_PLATFORM_THICKNESS;
+    const targetCount = Math.max(0, CONFIG.ONE_WAY_PLATFORMS_PER_CHUNK + rng.int(-1, 1));
+    const maxAttempts = targetCount * 8;
+    let spawned = 0;
+
+    for (let attempt = 0; attempt < maxAttempts && spawned < targetCount; attempt++) {
+      const y = Math.round((chunk.y + rng.range(90, CONFIG.CHUNK_HEIGHT - 90)) / BLOCK) * BLOCK;
+      const row = Math.min(
+        wallProfile.leftWidths.length - 1,
+        Math.max(0, Math.floor((y - chunk.y) / BLOCK))
+      );
+
+      const leftWallWidth = wallProfile.leftWidths[row] * BLOCK;
+      const rightWallWidth = wallProfile.rightWidths[row] * BLOCK;
+      const playableLeft = leftWallWidth + 8;
+      const playableRight = CONFIG.INTERNAL_WIDTH - rightWallWidth - 8;
+      const playableWidth = playableRight - playableLeft;
+      if (playableWidth < BLOCK * 3) continue;
+
+      const widthBlocks = rng.int(2, 4);
+      const width = widthBlocks * BLOCK;
+      if (width + 12 > playableWidth) continue;
+
+      const x = playableLeft + rng.range(0, playableWidth - width);
+      const overlaps = this.overlapsAnyPlatform(chunk.platforms, x, y - 2, width, thickness + 4, 6);
+      if (overlaps) continue;
+
+      chunk.platforms.push({
+        x,
+        y,
+        width,
+        height: thickness,
+        isWall: false,
+        breakable: false,
+        oneWay: true,
+        hp: 0,
+        chunkIndex: chunk.index,
+      });
+      spawned++;
+    }
   }
 
   // Generate impenetrable stepped formations that grow from side walls toward center.
@@ -446,26 +494,29 @@ export class LevelSpawner {
   private generateSideCenterMasses(chunk: Chunk, rng: SeededRNG, wallProfile: WallProfile): void {
     const BLOCK_SIZE = CONFIG.WALL_BLOCK_SIZE;
     const rows = wallProfile.leftWidths.length;
-    const bandMeters = 20;
-    const bandSizePx = bandMeters * 10; // depth UI uses y/10 => 20m = 200px
+    const intervalMeters = Math.max(10, CONFIG.SIDE_MASS_INTERVAL_METERS);
+    const intervalPx = intervalMeters * 10; // depth UI uses y/10 => meters to world px
+    const jitterPx = Math.max(0, CONFIG.SIDE_MASS_INTERVAL_JITTER_METERS) * 10;
     const chunkTop = chunk.y;
     const chunkBottom = chunk.y + CONFIG.CHUNK_HEIGHT - 1;
-    const firstBand = Math.floor(chunkTop / bandSizePx);
-    const lastBand = Math.floor(chunkBottom / bandSizePx);
+    const firstEvent = Math.max(0, Math.floor(chunkTop / intervalPx) - 1);
+    const lastEvent = Math.floor(chunkBottom / intervalPx) + 1;
 
-    for (let band = firstBand; band <= lastBand; band++) {
-      // Deterministic band-level RNG prevents duplicate/random drift across chunks.
-      const bandRng = new SeededRNG(this.seed + band * 92821 + 77);
-      // Infrequent: about one formation every ~20m (some bands intentionally empty).
-      if (!bandRng.chance(0.6)) continue;
+    for (let eventIndex = firstEvent; eventIndex <= lastEvent; eventIndex++) {
+      // Shared interval stream for both sides: each interval can spawn at most one side mass.
+      const eventRng = new SeededRNG(this.seed + eventIndex * 92821 + 77);
+      if (!eventRng.chance(CONFIG.SIDE_MASS_SPAWN_CHANCE)) continue;
 
-      const fromLeft = bandRng.chance(0.5);
-      const layers = bandRng.int(2, 3); // Max 3 tall
-      const topRunBlocks = bandRng.int(2, 3);
+      const eventCenterY = eventIndex * intervalPx + intervalPx * 0.5 + eventRng.range(-jitterPx, jitterPx);
+      if (eventCenterY < chunkTop || eventCenterY > chunkBottom) continue;
+
+      const fromLeft = eventRng.chance(0.5);
+      const layers = eventRng.int(2, 3); // Max 3 tall
+      const topRunBlocks = eventRng.int(1, 2);
       const growthPerLayer = 1;
+      const maxSideMassWidthBlocks = Math.max(2, CONFIG.SIDE_MASS_MAX_WIDTH_BLOCKS);
 
-      const bandCenterY = band * bandSizePx + bandSizePx / 2;
-      let baseRow = Math.round((bandCenterY - chunk.y) / BLOCK_SIZE);
+      let baseRow = Math.round((eventCenterY - chunk.y) / BLOCK_SIZE);
       baseRow = Math.max(layers + 2, Math.min(rows - 3, baseRow));
 
       for (let layer = 0; layer < layers; layer++) {
@@ -474,16 +525,43 @@ export class LevelSpawner {
 
         const leftWallBlocks = wallProfile.leftWidths[row];
         const rightWallBlocks = wallProfile.rightWidths[row];
-        const playableBlocks = Math.floor((CONFIG.INTERNAL_WIDTH - (leftWallBlocks + rightWallBlocks) * BLOCK_SIZE) / BLOCK_SIZE);
-        const maxRunByGap = Math.max(0, playableBlocks - Math.ceil(CONFIG.SAFE_PATH_WIDTH / BLOCK_SIZE));
-        if (maxRunByGap < 2) continue;
-
-        const runBlocks = Math.min(topRunBlocks + layer * growthPerLayer, maxRunByGap);
-        const width = runBlocks * BLOCK_SIZE;
         const y = chunk.y + row * BLOCK_SIZE;
+        const laneLeft = leftWallBlocks * BLOCK_SIZE;
+        const laneRight = CONFIG.INTERNAL_WIDTH - rightWallBlocks * BLOCK_SIZE;
+        const playableBlocks = Math.floor((laneRight - laneLeft) / BLOCK_SIZE);
+        const requiredGapBlocks = Math.ceil(CONFIG.SAFE_PATH_WIDTH / BLOCK_SIZE);
+
+        // Account for side masses already placed on this same row so opposite sides
+        // can never combine and close the lane.
+        let existingLeftBlocks = 0;
+        let existingRightBlocks = 0;
+        for (const p of chunk.platforms) {
+          if (p.isWall || p.breakable || p.y !== y || p.height !== BLOCK_SIZE) continue;
+          if (p.x <= laneLeft + 1) {
+            existingLeftBlocks = Math.max(existingLeftBlocks, Math.ceil((p.x + p.width - laneLeft) / BLOCK_SIZE));
+          } else if (p.x + p.width >= laneRight - 1) {
+            existingRightBlocks = Math.max(existingRightBlocks, Math.ceil((laneRight - p.x) / BLOCK_SIZE));
+          }
+        }
+
+        const existingSideBlocks = existingLeftBlocks + existingRightBlocks;
+        const remainingForNewMass = Math.max(0, playableBlocks - requiredGapBlocks - existingSideBlocks);
+        if (remainingForNewMass < 2) continue;
+
+        // Keep side masses narrow: never wider than 3 blocks.
+        const runBlocks = Math.min(topRunBlocks + layer * growthPerLayer, remainingForNewMass, maxSideMassWidthBlocks);
+        if (runBlocks < 1) continue;
+        if (runBlocks >= maxSideMassWidthBlocks && !eventRng.chance(CONFIG.SIDE_MASS_LONG_WIDTH_CHANCE)) continue;
+        const width = runBlocks * BLOCK_SIZE;
         const x = fromLeft
           ? leftWallBlocks * BLOCK_SIZE
           : CONFIG.INTERNAL_WIDTH - rightWallBlocks * BLOCK_SIZE - width;
+
+        // Never allow two side masses to occupy the same row from opposite sides.
+        const hasExistingRowMass = chunk.platforms.some((p) => {
+          return !p.isWall && !p.breakable && p.height === BLOCK_SIZE && p.y === y;
+        });
+        if (hasExistingRowMass) continue;
 
         chunk.platforms.push({
           x,
@@ -585,9 +663,10 @@ export class LevelSpawner {
     return false;
   }
 
-  // Crabs should have at least one block of stomping headroom,
-  // but only over the central shell area (not requiring full-width open sky).
-  private hasStaticStompClearance(
+  // Require at least one clear block above the entity's central body area.
+  // This avoids spawns inside 1-block-high tunnels while still allowing
+  // natural cave overhangs near edges.
+  private hasSpawnHeadroom(
     platforms: Platform[],
     x: number,
     y: number,
@@ -626,7 +705,8 @@ export class LevelSpawner {
     // 1. Group breakable platforms by Y to find contiguous floor rows
     const platformsByY = new Map<number, { x: number; width: number }[]>();
     for (const p of chunk.platforms) {
-      if (!p.breakable) continue;
+      if (p.isWall) continue;
+      if (!p.breakable && !p.oneWay) continue;
       const key = p.y;
       if (!platformsByY.has(key)) platformsByY.set(key, []);
       platformsByY.get(key)!.push({ x: p.x, width: p.width });
@@ -763,7 +843,7 @@ export class LevelSpawner {
             return Math.abs(e.x - enemyX) < staticEnemySize * 1.5 && Math.abs(e.y - enemyY) < staticEnemySize;
           });
 
-          const hasHeadroom = this.hasStaticStompClearance(
+          const hasHeadroom = this.hasSpawnHeadroom(
             chunk.platforms,
             enemyX,
             enemyY,
@@ -833,17 +913,16 @@ export class LevelSpawner {
       const insideSolid = this.overlapsSolidPlatforms(chunk.platforms, enemy.x, enemy.y, enemy.width, enemy.height, 2);
       if (!validLane || insideSolid) continue;
 
-      // Crabs (STATIC) need one clear block above their head so they are always killable.
-      if (type === "STATIC") {
-        const hasHeadroom = this.hasStaticStompClearance(
-          chunk.platforms,
-          enemy.x,
-          enemy.y,
-          enemy.width,
-          BLOCK_SIZE
-        );
-        if (!hasHeadroom) continue;
-      }
+      // Reuse crab headroom rule for all enemy spawns:
+      // no enemy should spawn in a 1-block-high tunnel.
+      const hasHeadroom = this.hasSpawnHeadroom(
+        chunk.platforms,
+        enemy.x,
+        enemy.y,
+        enemy.width,
+        BLOCK_SIZE
+      );
+      if (!hasHeadroom) continue;
 
       enemy.chunkIndex = chunk.index;
       chunk.enemies.push(enemy);
@@ -881,7 +960,8 @@ export class LevelSpawner {
 
         const validLane = this.isRectInsideLane(chunk, wallProfile, rectX, rectY, gemW, gemH, 2);
         const insideSolid = this.overlapsSolidPlatforms(chunk.platforms, rectX, rectY, gemW, gemH, 2);
-        if (!validLane || insideSolid) continue;
+        const hasHeadroom = this.hasSpawnHeadroom(chunk.platforms, rectX, rectY, gemW, BLOCK_SIZE);
+        if (!validLane || insideSolid || !hasHeadroom) continue;
 
         chunk.gems.push({
           x: gemX,
@@ -934,7 +1014,10 @@ export class LevelSpawner {
     const rectY = worldY - entityWidth / 2;
     for (const x of candidates) {
       const rectX = x - half;
-      if (!this.overlapsSolidPlatforms(chunk.platforms, rectX, rectY, entityWidth, entityWidth, 2)) {
+      if (
+        !this.overlapsSolidPlatforms(chunk.platforms, rectX, rectY, entityWidth, entityWidth, 2) &&
+        this.hasSpawnHeadroom(chunk.platforms, rectX, rectY, entityWidth, CONFIG.WALL_BLOCK_SIZE)
+      ) {
         return x;
       }
     }
@@ -943,7 +1026,10 @@ export class LevelSpawner {
     const step = Math.max(8, Math.floor(CONFIG.WALL_BLOCK_SIZE / 2));
     for (let x = leftBound; x <= rightBound; x += step) {
       const rectX = x - half;
-      if (!this.overlapsSolidPlatforms(chunk.platforms, rectX, rectY, entityWidth, entityWidth, 2)) {
+      if (
+        !this.overlapsSolidPlatforms(chunk.platforms, rectX, rectY, entityWidth, entityWidth, 2) &&
+        this.hasSpawnHeadroom(chunk.platforms, rectX, rectY, entityWidth, CONFIG.WALL_BLOCK_SIZE)
+      ) {
         return x;
       }
     }
@@ -954,6 +1040,8 @@ export class LevelSpawner {
   private generateWeeds(chunk: Chunk, rng: SeededRNG, wallProfile: WallProfile): void {
     const BLOCK = CONFIG.WALL_BLOCK_SIZE;
     const rows = wallProfile.leftWidths.length;
+    const weedBodyWidth = 20;
+    const weedBodyHeight = 20;
     
     // A ledge forms when the row BELOW is wider than the row above.
     // The wider lower row protrudes further into the well, creating a shelf.
@@ -972,13 +1060,20 @@ export class LevelSpawner {
           const ledgeX = (narrowEdge + wideEdge) / 2;
           // Top of the wider row = shelf surface
           const ledgeY = chunk.y + (r + 1) * BLOCK;
-          chunk.weeds.push({
-            x: ledgeX,
-            y: ledgeY,
-            spriteIndex: rng.int(0, 6),
-            flipX: rng.chance(0.5),
-            isLeft: true,
-          });
+          const bodyX = ledgeX - weedBodyWidth / 2;
+          const bodyY = ledgeY - weedBodyHeight;
+          const insideLane = this.isRectInsideLane(chunk, wallProfile, bodyX, bodyY, weedBodyWidth, weedBodyHeight, 1);
+          const overlapsSolid = this.overlapsAnyPlatform(chunk.platforms, bodyX, bodyY, weedBodyWidth, weedBodyHeight, 0);
+          const hasHeadroom = this.hasSpawnHeadroom(chunk.platforms, bodyX, bodyY, weedBodyWidth, BLOCK);
+          if (insideLane && !overlapsSolid && hasHeadroom) {
+            chunk.weeds.push({
+              x: ledgeX,
+              y: ledgeY,
+              spriteIndex: rng.int(0, 6),
+              flipX: rng.chance(0.5),
+              isLeft: true,
+            });
+          }
         }
       }
     }
@@ -991,13 +1086,20 @@ export class LevelSpawner {
           const wideEdge = CONFIG.INTERNAL_WIDTH - wallProfile.rightWidths[r + 1] * BLOCK;
           const ledgeX = (narrowEdge + wideEdge) / 2;
           const ledgeY = chunk.y + (r + 1) * BLOCK;
-          chunk.weeds.push({
-            x: ledgeX,
-            y: ledgeY,
-            spriteIndex: rng.int(0, 6),
-            flipX: rng.chance(0.5),
-            isLeft: false,
-          });
+          const bodyX = ledgeX - weedBodyWidth / 2;
+          const bodyY = ledgeY - weedBodyHeight;
+          const insideLane = this.isRectInsideLane(chunk, wallProfile, bodyX, bodyY, weedBodyWidth, weedBodyHeight, 1);
+          const overlapsSolid = this.overlapsAnyPlatform(chunk.platforms, bodyX, bodyY, weedBodyWidth, weedBodyHeight, 0);
+          const hasHeadroom = this.hasSpawnHeadroom(chunk.platforms, bodyX, bodyY, weedBodyWidth, BLOCK);
+          if (insideLane && !overlapsSolid && hasHeadroom) {
+            chunk.weeds.push({
+              x: ledgeX,
+              y: ledgeY,
+              spriteIndex: rng.int(0, 6),
+              flipX: rng.chance(0.5),
+              isLeft: false,
+            });
+          }
         }
       }
     }

@@ -33,6 +33,7 @@ class Game {
   private droppedGems: Gem[] = [];
   private activePlatforms: Platform[] = [];
   private activeWeeds: Weed[] = [];
+  private brokenWeeds: Set<string> = new Set();
   private enemyBullets: EnemyBullet[] = [];
   
   // Powerup state
@@ -165,6 +166,7 @@ class Game {
   private bulletBuffer: AudioBuffer | null = null;
   private laserBuffer: AudioBuffer | null = null;
   private gemBuffer: AudioBuffer | null = null;
+  private enemyCrunchBuffer: AudioBuffer | null = null;
   
   // Menu animation entities
   private menuEnemies: BaseEnemy[] = [];
@@ -727,6 +729,11 @@ class Game {
       this.gemBuffer = buf;
       console.log("[Game] Gem pickup audio decoded");
     });
+
+    this.decodeAudioFile("assets/sfx/enemy-crunch.mp3").then((buf) => {
+      this.enemyCrunchBuffer = buf;
+      console.log("[loadAudio]", "Enemy crunch audio decoded");
+    });
   }
   
   private getAudioCtx(): AudioContext {
@@ -780,6 +787,33 @@ class Game {
   private playGemSound(): void {
     if (!this.settings.fx) return;
     this.playSfx(this.gemBuffer, 0.35);
+  }
+
+  private playHurtSound(): void {
+    if (!this.settings.fx) return;
+    const ctx = this.getAudioCtx();
+    const now = ctx.currentTime;
+    const duration = 0.1;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(210, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + duration);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.16, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + duration);
+  }
+
+  private playEnemyCrunchSound(): void {
+    if (!this.settings.fx) return;
+    this.playSfx(this.enemyCrunchBuffer, 0.45);
   }
   
   private startAmbience(): void {
@@ -988,6 +1022,7 @@ class Game {
     this.hurtAnimations = [];
     this.enemyBullets = [];
     this.droppedGems = [];
+    this.brokenWeeds.clear();
     
     // Reset level spawner
     this.levelSpawner.reset();
@@ -1123,13 +1158,19 @@ class Game {
     this.activeEnemies = visible.enemies;
     this.activePlatforms = visible.platforms;
     this.activeGems = visible.gems;
-    this.activeWeeds = visible.weeds;
+    this.activeWeeds = visible.weeds.filter((weed) => !this.brokenWeeds.has(this.getWeedKey(weed)));
     
     const player = this.playerController.getPlayer();
     
     // Update each enemy using their class-specific behavior
     for (const enemy of this.activeEnemies) {
       enemy.update(player.x, player.y);
+
+      // Horizontal movers should never enter cave walls.
+      // Use actual generated wall geometry at this enemy's Y, not static WALL_WIDTH.
+      if (enemy.type === "HORIZONTAL" || enemy.type === "EXPLODER") {
+        this.constrainEnemyInsideWalls(enemy);
+      }
       
       // Collect bullets from static enemies
       if (enemy instanceof StaticEnemy) {
@@ -1141,7 +1182,54 @@ class Game {
     }
   }
 
+  private constrainEnemyInsideWalls(enemy: BaseEnemy): void {
+    const sampleY = enemy.y + enemy.height * 0.5;
+    let leftBound = CONFIG.WALL_WIDTH;
+    let rightBound = CONFIG.INTERNAL_WIDTH - CONFIG.WALL_WIDTH;
+
+    for (const platform of this.activePlatforms) {
+      if (!platform.isWall) continue;
+      if (sampleY < platform.y || sampleY > platform.y + platform.height) continue;
+      if (platform.x <= 0) {
+        leftBound = Math.max(leftBound, platform.x + platform.width);
+      } else {
+        rightBound = Math.min(rightBound, platform.x);
+      }
+    }
+
+    if (rightBound <= leftBound) return;
+
+    if (enemy.x < leftBound) {
+      enemy.x = leftBound;
+      enemy.direction = 1;
+      return;
+    }
+
+    const maxX = rightBound - enemy.width;
+    if (enemy.x > maxX) {
+      enemy.x = maxX;
+      enemy.direction = -1;
+    }
+  }
+
+  private getWeedKey(weed: Weed): string {
+    return `${Math.round(weed.x)}:${Math.round(weed.y)}:${weed.spriteIndex}:${weed.isLeft ? 1 : 0}`;
+  }
+
   private updateDroppedGems(): void {
+    const overlapsRect = (
+      ax: number,
+      ay: number,
+      aw: number,
+      ah: number,
+      bx: number,
+      by: number,
+      bw: number,
+      bh: number
+    ): boolean => {
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    };
+
     for (let i = this.droppedGems.length - 1; i >= 0; i--) {
       const gem = this.droppedGems[i];
 
@@ -1159,54 +1247,93 @@ class Game {
 
       const halfW = gem.width / 2;
       const halfH = gem.height / 2;
-      const prevY = gem.y;
       let onGround = false;
 
       if (!gem.settled) {
-        gem.x += gem.vx;
-        gem.y += gem.vy;
+        // Horizontal move and collision (walls + solids).
+        let nextX = gem.x + gem.vx;
+        const testLeftX = nextX - halfW;
+        const testTopY = gem.y - halfH;
+        for (const platform of this.activePlatforms) {
+          if (!overlapsRect(testLeftX, testTopY, gem.width, gem.height, platform.x, platform.y, platform.width, platform.height)) continue;
+          if (gem.vx > 0) {
+            nextX = Math.min(nextX, platform.x - halfW);
+            gem.vx = -Math.abs(gem.vx) * 0.6;
+          } else if (gem.vx < 0) {
+            nextX = Math.max(nextX, platform.x + platform.width + halfW);
+            gem.vx = Math.abs(gem.vx) * 0.6;
+          }
+        }
+        gem.x = nextX;
+
+        // Vertical move and collision (bounce on top, damp on ceiling).
+        let nextY = gem.y + gem.vy;
+        const testLeft = gem.x - halfW;
+        const testTop = nextY - halfH;
+        for (const platform of this.activePlatforms) {
+          if (!overlapsRect(testLeft, testTop, gem.width, gem.height, platform.x, platform.y, platform.width, platform.height)) continue;
+
+          if (gem.vy >= 0) {
+            // Falling or resting onto top face.
+            nextY = Math.min(nextY, platform.y - halfH);
+            gem.vy = -Math.abs(gem.vy) * 0.42;
+            gem.vx *= 0.8;
+            onGround = true;
+            if (Math.abs(gem.vy) < 0.55) {
+              gem.vy = 0;
+            }
+          } else {
+            // Rising into underside.
+            nextY = Math.max(nextY, platform.y + platform.height + halfH);
+            gem.vy = Math.abs(gem.vy) * 0.35;
+          }
+        }
+        gem.y = nextY;
 
         // Underwater drag + gentle gravity for dropped gems
         gem.vx *= 0.985;
         gem.vy = gem.vy * 0.99 + 0.12;
 
-        // Bounce from platform tops while falling
-        if (gem.vy >= 0) {
-          const prevBottom = prevY + halfH;
-          const nextBottom = gem.y + halfH;
-          const gemLeft = gem.x - halfW;
-          const gemRight = gem.x + halfW;
-
-          for (const platform of this.activePlatforms) {
-            const platformTop = platform.y;
-            const platformLeft = platform.x;
-            const platformRight = platform.x + platform.width;
-            const crossedTop = prevBottom <= platformTop && nextBottom >= platformTop;
-            const overlapsX = gemRight > platformLeft && gemLeft < platformRight;
-
-            if (crossedTop && overlapsX) {
-              gem.y = platformTop - halfH;
-              gem.vy = -Math.abs(gem.vy) * 0.42;
-              gem.vx *= 0.8;
-              onGround = true;
-
-              if (Math.abs(gem.vy) < 0.55) {
-                gem.vy = 0;
-              }
-              break;
-            }
-          }
-        }
-
-        // Bounce lightly from side walls
-        const minX = 8 + halfW;
-        const maxX = CONFIG.INTERNAL_WIDTH - 8 - halfW;
+        // Safety clamp to map bounds.
+        const minX = halfW;
+        const maxX = CONFIG.INTERNAL_WIDTH - halfW;
         if (gem.x < minX) {
           gem.x = minX;
           gem.vx = Math.abs(gem.vx) * 0.65;
         } else if (gem.x > maxX) {
           gem.x = maxX;
           gem.vx = -Math.abs(gem.vx) * 0.65;
+        }
+
+        // If a gem ended up inside geometry, push it out along the shallowest overlap axis.
+        const gemLeft = gem.x - halfW;
+        const gemTop = gem.y - halfH;
+        for (const platform of this.activePlatforms) {
+          if (!overlapsRect(gemLeft, gemTop, gem.width, gem.height, platform.x, platform.y, platform.width, platform.height)) continue;
+          const overlapLeft = gemLeft + gem.width - platform.x;
+          const overlapRight = platform.x + platform.width - gemLeft;
+          const overlapTop = gemTop + gem.height - platform.y;
+          const overlapBottom = platform.y + platform.height - gemTop;
+          const minOverlapX = Math.min(overlapLeft, overlapRight);
+          const minOverlapY = Math.min(overlapTop, overlapBottom);
+          if (minOverlapX < minOverlapY) {
+            if (overlapLeft < overlapRight) {
+              gem.x = platform.x - halfW;
+              gem.vx = -Math.abs(gem.vx) * 0.6;
+            } else {
+              gem.x = platform.x + platform.width + halfW;
+              gem.vx = Math.abs(gem.vx) * 0.6;
+            }
+          } else {
+            if (overlapTop < overlapBottom) {
+              gem.y = platform.y - halfH;
+              gem.vy = -Math.abs(gem.vy) * 0.42;
+              onGround = true;
+            } else {
+              gem.y = platform.y + platform.height + halfH;
+              gem.vy = Math.abs(gem.vy) * 0.35;
+            }
+          }
         }
 
         // Once almost still on ground, transition to flashing despawn state
@@ -1334,8 +1461,13 @@ class Game {
       };
       
       if (this.checkCollision(bulletRect, playerRect)) {
+        if (this.playerController.isInvulnerable()) {
+          this.enemyBullets.splice(i, 1);
+          continue;
+        }
         // Damage player
         this.playerController.takeDamage();
+        this.playHurtSound();
         this.addScreenShake(5);
         this.triggerHaptic("error");
         
@@ -1416,6 +1548,8 @@ class Game {
   
   private resolveCollisions(): void {
     const player = this.playerController.getPlayer();
+    const prevX = player.x - player.vx;
+    const prevY = player.y - player.vy;
     
     this.playerController.setGrounded(false);
     
@@ -1423,6 +1557,7 @@ class Game {
     // This allows walking on blocks
     for (const platform of this.activePlatforms) {
       const playerBottom = player.y + player.height / 2;
+      const prevBottom = prevY + player.height / 2;
       const playerLeft = player.x - player.width / 2;
       const playerRight = player.x + player.width / 2;
       const platformTop = platform.y;
@@ -1435,14 +1570,45 @@ class Game {
                       playerRight > platformLeft && 
                       playerLeft < platformRight;
       
-      if (isOnTop && player.vy >= 0) {
+      if (platform.oneWay) {
+        const crossedFromAbove = prevBottom <= platformTop + 2;
+        if (isOnTop && crossedFromAbove && player.vy >= 0) {
+          this.playerController.land(platformTop);
+        }
+      } else if (isOnTop && player.vy >= 0) {
         this.playerController.land(platformTop);
+      }
+    }
+
+    // Ceiling pass: block upward recoil/shoot movement from tunneling through tiles.
+    if (player.vy < 0) {
+      const playerTop = player.y - player.height / 2;
+      const prevTop = prevY - player.height / 2;
+      const playerLeft = player.x - player.width / 2;
+      const playerRight = player.x + player.width / 2;
+
+      let hitCeilingY: number | null = null;
+      for (const platform of this.activePlatforms) {
+        if (platform.oneWay) continue;
+        const platformBottom = platform.y + platform.height;
+        const platformLeft = platform.x;
+        const platformRight = platform.x + platform.width;
+        const overlapsX = playerRight > platformLeft && playerLeft < platformRight;
+        const crossedBottom = prevTop >= platformBottom && playerTop <= platformBottom;
+        if (!overlapsX || !crossedBottom) continue;
+        hitCeilingY = hitCeilingY === null ? platformBottom : Math.max(hitCeilingY, platformBottom);
+      }
+
+      if (hitCeilingY !== null) {
+        this.playerController.setPosition(player.x, hitCeilingY + player.height / 2);
+        this.playerController.stopVertical();
       }
     }
     
     // Second pass: Handle horizontal collisions for all platform tiles.
     // A tile blocks horizontal movement as long as it exists.
     for (const platform of this.activePlatforms) {
+      if (platform.oneWay) continue;
       const rect = this.playerController.getRect();
       const rectLeft = rect.x;
       const rectRight = rect.x + rect.width;
@@ -1475,6 +1641,54 @@ class Game {
       this.playerController.stopHorizontal();
     }
 
+    // Final depenetration pass: player should never remain inside any tile/wall.
+    for (let iter = 0; iter < 2; iter++) {
+      let resolvedAny = false;
+      const rect = this.playerController.getRect();
+      const rectLeft = rect.x;
+      const rectRight = rect.x + rect.width;
+      const rectTop = rect.y;
+      const rectBottom = rect.y + rect.height;
+
+      for (const platform of this.activePlatforms) {
+        if (platform.oneWay) continue;
+        const platLeft = platform.x;
+        const platRight = platform.x + platform.width;
+        const platTop = platform.y;
+        const platBottom = platform.y + platform.height;
+
+        if (rectRight <= platLeft || rectLeft >= platRight || rectBottom <= platTop || rectTop >= platBottom) {
+          continue;
+        }
+
+        const overlapLeft = rectRight - platLeft;
+        const overlapRight = platRight - rectLeft;
+        const overlapTop = rectBottom - platTop;
+        const overlapBottom = platBottom - rectTop;
+        const minOverlapX = Math.min(overlapLeft, overlapRight);
+        const minOverlapY = Math.min(overlapTop, overlapBottom);
+
+        if (minOverlapX < minOverlapY) {
+          const pushRight = overlapLeft < overlapRight;
+          const nextX = pushRight
+            ? platLeft - player.width / 2
+            : platRight + player.width / 2;
+          this.playerController.setPosition(nextX, player.y);
+          this.playerController.stopHorizontal();
+        } else {
+          const pushUp = overlapTop < overlapBottom;
+          const nextY = pushUp
+            ? platTop - player.height / 2
+            : platBottom + player.height / 2;
+          this.playerController.setPosition(player.x, nextY);
+          this.playerController.stopVertical();
+        }
+        resolvedAny = true;
+      }
+
+      if (!resolvedAny) break;
+    }
+
     const playerRect = this.playerController.getRect();
     
     // Enemy collisions
@@ -1491,6 +1705,36 @@ class Game {
       } else if (!this.playerController.isInvulnerable()) {
         // Player takes damage only if moving up or stationary
         this.playerController.takeDamage();
+        this.playHurtSound();
+      }
+    }
+
+    // Weed stomp bounce (no score, no gems, no combo).
+    // Weeds act like springy coral: contact from above bounces the player.
+    const weedHitWidth = 20;
+    const weedHitHeight = 20;
+    for (let i = this.activeWeeds.length - 1; i >= 0; i--) {
+      const weed = this.activeWeeds[i];
+      const weedRect = {
+        x: weed.x - weedHitWidth / 2,
+        y: weed.y - weedHitHeight,
+        width: weedHitWidth,
+        height: weedHitHeight,
+      };
+      const playerBottom = playerRect.y + playerRect.height;
+      const fromAbove = playerBottom <= weed.y + 8;
+      const overlapsWeed =
+        playerRect.x < weedRect.x + weedRect.width &&
+        playerRect.x + playerRect.width > weedRect.x &&
+        playerRect.y < weedRect.y + weedRect.height &&
+        playerRect.y + playerRect.height > weedRect.y;
+      if (overlapsWeed && player.vy > 0 && fromAbove) {
+        this.playerController.bounce();
+        this.playEnemyCrunchSound();
+        this.triggerHaptic("light");
+        this.brokenWeeds.add(this.getWeedKey(weed));
+        this.activeWeeds.splice(i, 1);
+        break;
       }
     }
     
@@ -1941,6 +2185,8 @@ class Game {
   
   
   private killEnemy(enemy: BaseEnemy, index: number): void {
+    this.playEnemyCrunchSound();
+
     const cx = enemy.x + enemy.width / 2;
     const cy = enemy.y + enemy.height / 2;
     const enemyColor = enemy.getBaseColor();
@@ -2429,6 +2675,24 @@ class Game {
     const SAND_DEEP  = { r: 175, g: 140, b: 70 };      // Deep shadow sand
     
     for (const platform of this.activePlatforms) {
+      if (platform.oneWay) {
+        const x = platform.x;
+        const y = platform.y;
+        const w = platform.width;
+        const h = platform.height;
+        ctx.fillStyle = "rgba(215, 190, 120, 0.95)";
+        ctx.fillRect(x, y, w, h);
+        // Brighter top edge for readability.
+        ctx.fillStyle = "rgba(255, 240, 190, 0.9)";
+        ctx.fillRect(x, y, w, 2);
+        // Pixel-like dark notches so it reads as a platform strip.
+        ctx.fillStyle = "rgba(120, 90, 45, 0.55)";
+        for (let px = 2; px < w - 2; px += 10) {
+          ctx.fillRect(x + px, y + h - 2, 4, 2);
+        }
+        continue;
+      }
+
       // Render cave walls and any impenetrable (non-breakable) masses
       if (platform.isWall || !platform.breakable) {
         // Organic wall made up of sand-colored pixelated blocks
@@ -2649,16 +2913,21 @@ class Game {
       
       // Bob animation using pre-calculated offset
       const bobY = Math.sin(this.frameCount * 0.1 + gem.bobOffset) * 3;
+      const spin = this.frameCount * 0.015 + gem.bobOffset * 0.35;
       
       // Diamond shape (no glow for clean dithering)
+      ctx.save();
+      ctx.translate(gem.x, gem.y + bobY);
+      ctx.rotate(spin);
       ctx.fillStyle = "#0ff";
       ctx.beginPath();
-      ctx.moveTo(gem.x, gem.y - gem.height / 2 + bobY);
-      ctx.lineTo(gem.x + gem.width / 2, gem.y + bobY);
-      ctx.lineTo(gem.x, gem.y + gem.height / 2 + bobY);
-      ctx.lineTo(gem.x - gem.width / 2, gem.y + bobY);
+      ctx.moveTo(0, -gem.height / 2);
+      ctx.lineTo(gem.width / 2, 0);
+      ctx.lineTo(0, gem.height / 2);
+      ctx.lineTo(-gem.width / 2, 0);
       ctx.closePath();
       ctx.fill();
+      ctx.restore();
     }
 
     for (const gem of this.droppedGems) {
