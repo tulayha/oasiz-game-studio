@@ -659,3 +659,10 @@ TODO / Follow-ups:
   - Unified remaining visual animation clocks to renderer time source (`getNowMs()`) for screen shake phase, stars twinkle, and homing missile flame/smoke.
 - Validation:
   - `astro-party`: `bun run build` passed.
+- Renderer split pass (next step):
+  - Extracted reusable drawing primitives from `Renderer.ts` into new module `src/systems/rendering/RendererVisualPrimitives.ts`.
+  - Moved debug radius primitive (`drawDebugRadius`) and mine visuals (`drawMineExplosionEffect`, `drawMineBody`) into that module.
+  - `Renderer` now delegates to these helpers for dev overlays and mine rendering.
+  - Removed unused screen-shake accessor methods (`getScreenShakeIntensity`, `getScreenShakeDuration`).
+- Validation:
+  - `astro-party`: `bun run build` passed.
