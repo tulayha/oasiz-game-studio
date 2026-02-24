@@ -1,4 +1,5 @@
 import { Renderer } from "./Renderer";
+import { RenderEffectsSystem } from "./RenderEffectsSystem";
 import {
   GAME_CONFIG,
   GamePhase,
@@ -46,7 +47,10 @@ export interface RenderContext {
 export class GameRenderer {
   private mapVisualTimeSec = 0;
 
-  constructor(private renderer: Renderer) {}
+  constructor(
+    private renderer: Renderer,
+    private effects: RenderEffectsSystem,
+  ) {}
 
   render(ctx: RenderContext): void {
     this.renderer.clear();
@@ -147,8 +151,8 @@ export class GameRenderer {
         }
       });
 
-      this.renderer.drawPilotDeathDebris();
-      this.renderer.drawBulletCasings();
+      this.effects.drawPilotDeathDebris();
+      this.effects.drawBulletCasings();
 
       renderProjectiles.forEach((state) => {
         this.renderer.drawProjectile(state);
@@ -253,7 +257,7 @@ export class GameRenderer {
         this.renderer.drawMapOverlay(ctx.mapId);
       }
 
-      this.renderer.drawParticles();
+      this.effects.drawParticles();
     }
 
     if (ctx.phase === "COUNTDOWN" && ctx.countdown > 0) {

@@ -10,7 +10,6 @@ import {
   MineState,
   HomingMissileState,
   PlayerColor,
-  PLAYER_COLORS,
   GAME_CONFIG,
   MapId,
 } from "../../types";
@@ -36,6 +35,10 @@ import type {
 } from "../../../shared/sim/maps";
 export type { ShipTrailVisualTuning } from "./ShipTrailRenderer";
 
+interface RendererInitDeps {
+  onEffectsReady?: (effects: RenderEffectsSystem) => void;
+}
+
 export class Renderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -57,7 +60,7 @@ export class Renderer {
   private entityVisuals: EntityVisualsRenderer;
   private debug: RenderDebugSystem;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, deps?: RendererInitDeps) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
     this.visualRng = new SeededRNG(Date.now() >>> 0);
@@ -76,6 +79,7 @@ export class Renderer {
       () => this.random(),
       () => this.getNowMs(),
     );
+    deps?.onEffectsReady?.(this.effects);
     this.entityVisuals = new EntityVisualsRenderer(this.ctx, this.entitySprites, {
       bumpPilotDebrisWithBody: (x, y, radius, vx, vy) =>
         this.effects.bumpPilotDebrisWithBody(x, y, radius, vx, vy),
@@ -289,90 +293,6 @@ export class Renderer {
     this.debug.drawProjectileSweepDebug(projectiles);
   }
 
-  // ============= PARTICLE SYSTEM =============
-
-  spawnParticle(
-    x: number,
-    y: number,
-    color: string,
-    type: "explosion" | "thrust" | "hit",
-  ): void {
-    this.effects.spawnParticle(x, y, color, type);
-  }
-
-  spawnExplosion(x: number, y: number, color: string): void {
-    this.effects.spawnExplosion(x, y, color);
-  }
-
-  spawnShipDestroyedBurst(x: number, y: number, color: string): void {
-    this.effects.spawnShipDestroyedBurst(x, y, color);
-  }
-
-  spawnNitroParticle(x: number, y: number, color: string): void {
-    this.effects.spawnNitroParticle(x, y, color);
-  }
-
-  spawnDashParticles(
-    x: number,
-    y: number,
-    shipAngle: number,
-    color: string,
-    count: number = 12,
-  ): void {
-    this.effects.spawnDashParticles(x, y, shipAngle, color, count);
-  }
-
-  spawnPilotDashBurstParticles(
-    x: number,
-    y: number,
-    pilotAngle: number,
-    color: string,
-  ): void {
-    this.effects.spawnPilotDashBurstParticles(x, y, pilotAngle, color);
-  }
-
-  spawnBulletCasing(
-    x: number,
-    y: number,
-    shotAngle: number,
-    inheritedVx: number = 0,
-    inheritedVy: number = 0,
-  ): void {
-    this.effects.spawnBulletCasing(x, y, shotAngle, inheritedVx, inheritedVy);
-  }
-
-  spawnAsteroidDebris(x: number, y: number, size: number, color: string): void {
-    this.effects.spawnAsteroidDebris(x, y, size, color);
-  }
-
-  spawnShipDebris(x: number, y: number, color: string): void {
-    this.effects.spawnShipDebris(x, y, color);
-  }
-
-  spawnPilotKillBurst(x: number, y: number, color: string): void {
-    this.effects.spawnPilotKillBurst(x, y, color);
-  }
-
-  spawnPilotDeathBurst(x: number, y: number, color: string): void {
-    this.effects.spawnPilotDeathBurst(x, y, color);
-  }
-
-  drawPilotDeathDebris(): void {
-    this.effects.drawPilotDeathDebris();
-  }
-
-  updateParticles(dt: number): void {
-    this.effects.updateParticles(dt);
-  }
-
-  drawBulletCasings(): void {
-    this.effects.drawBulletCasings();
-  }
-
-  drawParticles(): void {
-    this.effects.drawParticles();
-  }
-
   // ============= POWER-UP RENDERING =============
 
   drawPowerUp(state: PowerUpState): void {
@@ -383,16 +303,6 @@ export class Renderer {
 
   drawLaserBeam(state: LaserBeamState, beamWidthOverride?: number): void {
     this.combatVisuals.drawLaserBeam(state, beamWidthOverride);
-  }
-
-  // ============= SHIELD RENDERING =============
-
-  drawShield(x: number, y: number, hits: number): void {
-    this.combatVisuals.drawShield(x, y, hits);
-  }
-
-  spawnShieldBreakDebris(x: number, y: number): void {
-    this.effects.spawnShieldBreakDebris(x, y);
   }
 
   // ============= ARENA BORDER =============
@@ -474,18 +384,10 @@ export class Renderer {
     ctx.restore();
   }
 
-  getPlayerColor(index: number): PlayerColor {
-    return PLAYER_COLORS[index % PLAYER_COLORS.length];
-  }
-
   // ============= MINE RENDERING =============
 
   drawMineState(state: MineState): void {
     this.combatVisuals.drawMineState(state);
-  }
-
-  spawnMineExplosion(x: number, y: number, radius: number): void {
-    this.effects.spawnMineExplosion(x, y, radius);
   }
 
   // ============= HOMING MISSILE RENDERING =============

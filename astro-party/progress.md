@@ -742,3 +742,29 @@ TODO / Follow-ups:
   - `astro-party`: `bun run build` passed.
 - Size impact:
   - `Renderer.ts` reduced to 496 lines after this pass.
+- Renderer facade-surface trim pass (effects wrappers):
+  - Replaced external calls to `Renderer` FX wrappers with direct `RenderEffectsSystem` access via new `Renderer.getEffectsSystem()`:
+    - updated call sites in `src/Game.ts`, `src/network/NetworkSyncSystem.ts`, and `src/systems/rendering/GameRenderer.ts`.
+  - Removed redundant FX wrapper methods from `Renderer` that only forwarded to `RenderEffectsSystem`:
+    - spawn/draw/update particle/casing/burst/explosion methods and mine/shield debris forwarders.
+  - Removed unused `Renderer` API methods:
+    - `drawShield(...)` wrapper (internal consumers already use `CombatVisualsRenderer` directly)
+    - `getPlayerColor(...)` (unused in client code path)
+  - Kept rendering orchestration and major draw entry points intact to avoid broad API churn.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Size impact:
+  - `Renderer.ts` reduced to 397 lines after this pass.
+- Renderer dependency-injection pass (remove FX service-locator usage):
+  - Removed `Renderer.getEffectsSystem()` service-locator usage from runtime call paths.
+  - `RenderEffectsSystem` is now passed explicitly to call-site systems:
+    - `GameRenderer` constructor now takes `(renderer, effects)`.
+    - `NetworkSyncSystem` constructor now takes `(network, renderer, effects, ...)`.
+  - Composition root wiring in `Game` now captures effects once during `Renderer` init:
+    - `Renderer` constructor accepts optional `{ onEffectsReady }` callback.
+    - `Game` stores `effects` field and passes it directly to `GameRenderer` + `NetworkSyncSystem`.
+  - Updated `Game`/`NetworkSyncSystem` call-sites to use `this.effects` directly for all spawn/update/draw FX interactions.
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Notes:
+  - Confirmed zero remaining `getEffectsSystem()` references in `astro-party/src`.

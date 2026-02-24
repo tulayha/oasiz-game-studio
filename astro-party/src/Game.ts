@@ -2,6 +2,7 @@ import {
   Renderer,
   type ShipTrailVisualTuning,
 } from "./systems/rendering/Renderer";
+import { RenderEffectsSystem } from "./systems/rendering/RenderEffectsSystem";
 import { InputManager } from "./systems/input/Input";
 import { MultiInputManager } from "./systems/input/MultiInputManager";
 import { NetworkManager, type PlayerMetaMap } from "./network/NetworkManager";
@@ -65,6 +66,7 @@ export class Game {
   private botMgr: BotManager;
   private gameRenderer: GameRenderer;
   private networkSync: NetworkSyncSystem;
+  private effects!: RenderEffectsSystem;
   private inputResolver: PlayerInputResolver;
   private adaptiveCamera = new AdaptiveCameraController();
 
@@ -103,7 +105,11 @@ export class Game {
   static SHOW_PING = true;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new Renderer(canvas);
+    this.renderer = new Renderer(canvas, {
+      onEffectsReady: (effects) => {
+        this.effects = effects;
+      },
+    });
     this.input = new InputManager();
     this.network = new NetworkManager();
     this.multiInput = new MultiInputManager();
@@ -114,10 +120,11 @@ export class Game {
     this.flowMgr = new GameFlowManager(this.network);
     this.botMgr = new BotManager(this.network, this.multiInput);
 
-    this.gameRenderer = new GameRenderer(this.renderer);
+    this.gameRenderer = new GameRenderer(this.renderer, this.effects);
     this.networkSync = new NetworkSyncSystem(
       this.network,
       this.renderer,
+      this.effects,
       this.playerMgr,
       this.playerPowerUps,
       () => this.emitPlayersUpdate(),
@@ -524,14 +531,14 @@ export class Game {
           return;
         }
         if (payload.kind === "pilot") {
-          this.renderer.spawnPilotDashBurstParticles(
+          this.effects.spawnPilotDashBurstParticles(
             payload.x,
             payload.y,
             payload.angle,
             payload.color,
           );
         } else {
-          this.renderer.spawnDashParticles(
+          this.effects.spawnDashParticles(
             payload.x,
             payload.y,
             payload.angle,
@@ -831,7 +838,7 @@ export class Game {
       this.updateVisualEffects(frameRenderState);
     }
 
-    this.renderer.updateParticles(frameDt);
+    this.effects.updateParticles(frameDt);
     this.renderer.updateScreenShake(frameDt);
     this.render(frameDt, frameRenderState);
 
@@ -1155,7 +1162,7 @@ export class Game {
         const tailX = tailPoint.x;
         const tailY = tailPoint.y;
         const color = this.nitroColorIndex++ % 5 < 3 ? "#ff6600" : "#ffee00";
-        this.renderer.spawnNitroParticle(tailX, tailY, color);
+        this.effects.spawnNitroParticle(tailX, tailY, color);
       }
     });
   }
