@@ -682,3 +682,19 @@ TODO / Follow-ups:
   - `Renderer.beginFrame`, `updateScreenShake`, `addScreenShake`, and `clearEffects` now delegate to the controller.
 - Validation:
   - `astro-party`: `bun run build` passed after each pass.
+- Renderer decomposition pass (aggressive):
+  - Added `src/systems/rendering/RenderEffectsSystem.ts` and moved the full FX state/logic out of `Renderer`:
+    - particles, bullet casings, pilot death bursts/debris lifecycle
+    - spawn/update/draw methods for explosions, dash/nitro bursts, shield/mine debris
+    - pilot debris body bumping and debris scale helpers
+  - `Renderer` now delegates all FX APIs to `RenderEffectsSystem` while preserving external method names/signatures.
+  - Added `src/systems/rendering/MapEffectsRenderer.ts` and moved map/environment visual logic out of `Renderer`:
+    - arena border, yellow blocks
+    - center-hole rotation/vortex state + rendering
+    - repulsion-zone rendering
+  - `Renderer.clearEffects()` now clears map transient state via `MapEffectsRenderer.clearTransientState()`.
+  - Kept `hasMapOverlay` / `drawMapOverlay` in `Renderer` for now (store ownership unchanged).
+- Validation:
+  - `astro-party`: `bun run build` passed.
+- Size impact:
+  - `Renderer.ts` reduced to 1598 lines after this pass (from 1955 at start of pass).
