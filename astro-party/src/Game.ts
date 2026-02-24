@@ -786,7 +786,6 @@ export class Game {
 
   start(): void {
     this.resizeHandler();
-    this.renderer.initStars();
 
     if (!this.resizeListenerAttached) {
       window.addEventListener("resize", this.resizeHandler);
