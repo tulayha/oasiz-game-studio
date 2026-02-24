@@ -14,11 +14,12 @@ import { SettingsManager } from "./SettingsManager";
 import splashScreenSrc from "../Sound/Splash-Screen-Sound.wav?url";
 import mainMenuSrc from "../Sound/Audio-Main-Menu-5.m4a?url";
 import logoHitSrc from "../Sound/Logo-Main-Menu-1.wav?url";
+import battleMusicSrc from "../Sound/Night Rockus.wav?url";
 // import nextSoundSrc from "../Sound/Next-Sound.wav?url";  ← future sounds here
 
 // ─── Sound IDs ────────────────────────────────────────────────────────────────
 // Add new IDs to this union when registering a new sound.
-export type SoundId = "splashScreen" | "mainMenu" | "logoSpace" | "logoForce";
+export type SoundId = "splashScreen" | "mainMenu" | "logoSpace" | "logoForce" | "battleMusic";
 
 // ─── Sound Config ─────────────────────────────────────────────────────────────
 interface SoundDef {
@@ -63,6 +64,13 @@ const SOUND_REGISTRY: Record<SoundId, SoundDef> = {
     loop: false,
     checkFx: true,
     checkMusic: false,
+  },
+  battleMusic: {
+    src: battleMusicSrc,
+    volume: 0.5,
+    loop: true,
+    checkFx: false,
+    checkMusic: true, // respects the Music toggle in Settings
   },
 };
 

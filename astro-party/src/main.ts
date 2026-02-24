@@ -46,6 +46,7 @@ function runSplashScreen(): Promise<void> {
   SoundManager.preload("mainMenu");
   SoundManager.preload("logoSpace");
   SoundManager.preload("logoForce");
+  SoundManager.preload("battleMusic");
 
   return new Promise((resolve) => {
     const splash = document.getElementById("splashScreen");
@@ -160,6 +161,16 @@ async function init(): Promise<void> {
       // Resume main menu music when returning to start screen
       if (phase === "START" && previousPhase !== "START") {
         void SoundManager.play("mainMenu");
+      }
+
+      // Battle music: play during rounds (COUNTDOWN/PLAYING/ROUND_END), stop otherwise
+      const inRound = phase === "COUNTDOWN" || phase === "PLAYING" || phase === "ROUND_END";
+      const wasInRound = previousPhase === "COUNTDOWN" || previousPhase === "PLAYING" || previousPhase === "ROUND_END";
+
+      if (inRound && !SoundManager.isPlaying("battleMusic")) {
+        void SoundManager.play("battleMusic");
+      } else if (!inRound && wasInRound) {
+        SoundManager.stop("battleMusic");
       }
 
       syncScreenToPhase(phase, true, previousPhase);
