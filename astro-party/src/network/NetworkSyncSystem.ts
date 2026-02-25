@@ -1,4 +1,5 @@
 import { Renderer } from "../systems/rendering/Renderer";
+import { RenderEffectsSystem } from "../systems/rendering/RenderEffectsSystem";
 import { NetworkManager } from "./NetworkManager";
 import { PlayerManager } from "../managers/PlayerManager";
 import { NETWORK_GAME_FEEL_TUNING } from "./gameFeel/NetworkGameFeelTuning";
@@ -127,6 +128,7 @@ export class NetworkSyncSystem {
   constructor(
     private network: NetworkManager,
     private renderer: Renderer,
+    private effects: RenderEffectsSystem,
     private playerMgr: PlayerManager,
     private playerPowerUps: Map<string, PlayerPowerUp | null>,
     private onPlayersUpdate: () => void,
@@ -156,7 +158,7 @@ export class NetworkSyncSystem {
     const dodgeAngle =
       ship.angle +
       ((SHIP_DODGE_ANGLE_DEG * Math.PI) / 180) * this.latestRotationDirection;
-    this.renderer.spawnDashParticles(ship.x, ship.y, dodgeAngle, color, 10);
+    this.effects.spawnDashParticles(ship.x, ship.y, dodgeAngle, color, 10);
   }
 
   triggerLocalFirePrediction(playerId: string): void {
@@ -168,9 +170,9 @@ export class NetworkSyncSystem {
     const muzzleX = muzzlePoint.x;
     const muzzleY = muzzlePoint.y;
     for (let i = 0; i < 3; i += 1) {
-      this.renderer.spawnParticle(muzzleX, muzzleY, color, "hit");
+      this.effects.spawnParticle(muzzleX, muzzleY, color, "hit");
     }
-    this.renderer.spawnParticle(muzzleX, muzzleY, "#ffffff", "hit");
+    this.effects.spawnParticle(muzzleX, muzzleY, "#ffffff", "hit");
   }
 
   applyAsteroidColliders(payload: AsteroidColliderSync[]): void {
@@ -617,7 +619,7 @@ export class NetworkSyncSystem {
         "#ffffff";
       const previousShip = this.clientShipPositions.get(shipState.playerId);
       if (previousShip?.alive && !shipState.alive) {
-        this.renderer.spawnShipDestroyedBurst(
+        this.effects.spawnShipDestroyedBurst(
           previousShip.x,
           previousShip.y,
           color,
@@ -646,7 +648,7 @@ export class NetworkSyncSystem {
         if (ownerShip && !ownerShip.alive) {
           const pilotColor =
             this.playerMgr.players.get(playerId)?.color.primary ?? "#00f0ff";
-          this.renderer.spawnPilotKillBurst(
+          this.effects.spawnPilotKillBurst(
             pilotData.x,
             pilotData.y,
             pilotColor,
@@ -683,7 +685,7 @@ export class NetworkSyncSystem {
           : Math.atan2(projectile.vy, projectile.vx);
         const spawnX = projectile.x - Math.cos(shotAngle) * 8;
         const spawnY = projectile.y - Math.sin(shotAngle) * 8;
-        this.renderer.spawnBulletCasing(
+        this.effects.spawnBulletCasing(
           spawnX,
           spawnY,
           shotAngle,
@@ -704,12 +706,12 @@ export class NetworkSyncSystem {
     );
     for (const [asteroidId, asteroidData] of this.clientAsteroidStates) {
       if (!currentAsteroidIds.has(asteroidId)) {
-        this.renderer.spawnExplosion(
+        this.effects.spawnExplosion(
           asteroidData.x,
           asteroidData.y,
           GAME_CONFIG.ASTEROID_COLOR,
         );
-        this.renderer.spawnAsteroidDebris(
+        this.effects.spawnAsteroidDebris(
           asteroidData.x,
           asteroidData.y,
           asteroidData.size,
@@ -735,12 +737,12 @@ export class NetworkSyncSystem {
         !this.clientArmingMines.has(mineState.id)
       ) {
         this.clientArmingMines.add(mineState.id);
-        this.renderer.spawnExplosion(mineState.x, mineState.y, "#ff4400");
+        this.effects.spawnExplosion(mineState.x, mineState.y, "#ff4400");
         triggerMineArmingFeedback();
       }
       if (mineState.exploded && !this.clientExplodedMines.has(mineState.id)) {
         this.clientExplodedMines.add(mineState.id);
-        this.renderer.spawnMineExplosion(
+        this.effects.spawnMineExplosion(
           mineState.x,
           mineState.y,
           GAME_CONFIG.POWERUP_MINE_EXPLOSION_RADIUS,
