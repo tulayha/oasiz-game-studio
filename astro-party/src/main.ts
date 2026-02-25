@@ -362,6 +362,9 @@ async function init(): Promise<void> {
     },
 
     onCountdownUpdate: (count: number) => {
+      if (currentPhase !== "COUNTDOWN") {
+        return;
+      }
       playCountdownFeedback(count);
     },
     onGameModeChange: (mode: GameMode) => {
