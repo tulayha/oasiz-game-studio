@@ -150,7 +150,7 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.emitDebugStateFromSimulation();
 
     this.tickInterval = setInterval(() => {
-      if (!this.simulation) return;
+      if (!this.simulation || this.simPaused) return;
       this.simulation.update(LocalSharedSimTransport.TICK_DURATION_MS);
     }, LocalSharedSimTransport.TICK_DURATION_MS);
 
@@ -374,6 +374,28 @@ export class LocalSharedSimTransport implements NetworkTransport {
     if (!this.simulation || !this.mySessionId) return false;
     this.simulation.kickPlayer(this.mySessionId, playerId);
     return true;
+  }
+
+  setPlayerAI(sessionId: string, enabled: boolean): void {
+    this.simulation?.setPlayerAI(sessionId, enabled);
+  }
+
+  skipCountdown(): void {
+    this.simulation?.skipCountdown();
+  }
+
+  private simPaused = false;
+
+  pauseSimulation(paused: boolean): void {
+    this.simPaused = paused;
+  }
+
+  demoRespawnPlayer(playerId: string): void {
+    this.simulation?.demoRespawnPlayer(playerId);
+  }
+
+  demoCleanupStalePilots(maxAgeMs: number): void {
+    this.simulation?.demoCleanupStalePilots(maxAgeMs);
   }
 
   getMyPlayerId(): string | null {

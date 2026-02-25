@@ -5,12 +5,14 @@ import { createUIFeedback } from "../feedback/uiFeedback";
 export interface StartScreenUI {
   resetStartButtons: (replayTitleIntro?: boolean) => void;
   playTitleIntro: () => void;
+  setBeforeAction: (fn: (() => Promise<void>) | null) => void;
 }
 
 export function createStartScreenUI(game: Game): StartScreenUI {
   const feedback = createUIFeedback("startScreen");
   const titleWrap = document.getElementById("gameTitleWrap");
   const startShell = document.querySelector<HTMLElement>("#startScreen .start-shell");
+  let beforeAction: (() => Promise<void>) | null = null;
 
   function playTitleIntro(): void {
     if (!titleWrap && !startShell) {
@@ -60,6 +62,7 @@ export function createStartScreenUI(game: Game): StartScreenUI {
 
   elements.createRoomBtn.addEventListener("click", async () => {
     feedback.button();
+    if (beforeAction) await beforeAction();
     game.setSessionMode("online");
     elements.createRoomBtn.disabled = true;
     elements.createRoomBtn.textContent = "Creating...";
@@ -77,14 +80,16 @@ export function createStartScreenUI(game: Game): StartScreenUI {
     }
   });
 
-  elements.joinRoomBtn.addEventListener("click", () => {
+  elements.joinRoomBtn.addEventListener("click", async () => {
     feedback.subtle();
+    if (beforeAction) await beforeAction();
     game.setSessionMode("online");
     showJoinSection();
   });
 
   elements.localMatchBtn.addEventListener("click", async () => {
     feedback.button();
+    if (beforeAction) await beforeAction();
     game.setSessionMode("local");
     elements.localMatchBtn.disabled = true;
     elements.localMatchBtn.textContent = "Starting...";
@@ -158,5 +163,9 @@ export function createStartScreenUI(game: Game): StartScreenUI {
     elements.submitJoinBtn.textContent = "Join";
   });
 
-  return { resetStartButtons, playTitleIntro };
+  function setBeforeAction(fn: (() => Promise<void>) | null): void {
+    beforeAction = fn;
+  }
+
+  return { resetStartButtons, playTitleIntro, setBeforeAction };
 }
