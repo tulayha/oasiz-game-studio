@@ -1,18 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 40 40" role="img" aria-label="Ship cel shaded variant: Comic Pop">
   <defs>
     <style>
-      .o { stroke: #000; stroke-width: 6.2; stroke-linejoin: round; stroke-linecap: round; }
-      .o3 { stroke: #000; stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+      .o { stroke: var(--slot-stroke, #000); stroke-width: 6.2; stroke-linejoin: round; stroke-linecap: round; }
+      .o3 { stroke: var(--slot-stroke, #000); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
 
-      .h { fill: #00eaff; }
-      .s { fill: #007a8a; }
-      .d { fill: #003c45; }
+      .h { fill: var(--slot-primary, #00f0ff); }
+      .s {
+        fill: #000;
+        opacity: 0.22;
+      }
+      .d {
+        fill: #000;
+        opacity: 0.38;
+      }
 
-      .w { fill: #00d6f4; }
-      .ws { fill: #006a78; }
+      .w { fill: var(--slot-primary, #00f0ff); }
+      .ws {
+        fill: #000;
+        opacity: 0.22;
+      }
 
-      .hi { fill: #fff; opacity: 0.95; }
-      .glow { fill: #00f0ff; opacity: 0.10; }
+      .hi { fill: var(--slot-secondary, #fff); opacity: 0.95; }
+      .glow { fill: var(--slot-primary, #00f0ff); opacity: 0.10; }
       .dot { fill: #000; opacity: 0.22; }
     </style>
   </defs>
@@ -21,13 +30,13 @@
     <circle cx="0" cy="30" r="26" class="glow"/>
 
     <!-- wings -->
-    <polygon points="-32.9,27.1 -49.9,22.7 -33.6,10.5 -19.2,23.0" class="w o3"/>
+    <polygon points="-32.9,27.1 -49.9,22.7 -33.6,10.5 -19.2,23.0" data-role="wing-left" class="w o3"/>
     <polygon points="-33.6,10.5 -49.9,22.7 -33.2,18.0 -21.2,22.0" class="ws"/>
-    <polygon points="36.2,27.1 50.4,23.0 34.3,10.3 19.3,22.4" class="w o3"/>
+    <polygon points="36.2,27.1 50.4,23.0 34.3,10.3 19.3,22.4" data-role="wing-right" class="w o3"/>
     <polygon points="34.3,10.3 50.4,23.0 33.9,18.0 21.8,22.0" class="ws"/>
 
     <!-- hull -->
-    <polygon points="0,-32 37,3 16,18 -16,18 -37,3" class="h o"/>
+    <polygon points="0,-32 37,3 16,18 -16,18 -37,3" data-role="hull-main" class="h o"/>
     <polygon points="0,-32 37,3 16,18 0,14" class="s"/>
     <polygon points="0,-32 -37,3 -16,18 0,14" class="d"/>
 

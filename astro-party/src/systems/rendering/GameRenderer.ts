@@ -1,5 +1,6 @@
 import { Renderer } from "./Renderer";
 import { RenderEffectsSystem } from "./RenderEffectsSystem";
+import { resolveShipSkinIdForPlayer } from "../../../shared/geometry/ShipSkins";
 import {
   GAME_CONFIG,
   GamePhase,
@@ -150,9 +151,11 @@ export class GameRenderer {
       if (!player) return;
       const powerUp = ctx.playerPowerUps.get(state.playerId);
       const renderData = this.getShipPowerUpRenderData(powerUp, ctx.nowMs);
+      const shipSkinId = resolveShipSkinIdForPlayer(state.playerId);
       this.renderer.drawShip(
         state,
         player.color,
+        shipSkinId,
         renderData.shieldHits,
         renderData.laserCharges,
         renderData.laserMaxCharges,
