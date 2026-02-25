@@ -6,6 +6,7 @@ import { AudioManager } from "../AudioManager";
 export interface StartScreenUI {
   resetStartButtons: (replayTitleIntro?: boolean) => void;
   playTitleIntro: () => void;
+  setBeforeAction: (fn: (() => Promise<void>) | null) => void;
 }
 
 interface StartScreenAudioCallbacks {
@@ -22,6 +23,7 @@ export function createStartScreenUI(
   const FORCE_TITLE_ANIMATION_DELAY_SEC = 0.465;
   let forceTitleTriggerRafId = 0;
   let titleIntroRunToken = 0;
+  let beforeAction: (() => Promise<void>) | null = null;
 
   function cancelTitleAudioSync(): void {
     if (forceTitleTriggerRafId !== 0) {
@@ -118,6 +120,7 @@ export function createStartScreenUI(
 
   elements.createRoomBtn.addEventListener("click", async () => {
     feedback.button();
+    if (beforeAction) await beforeAction();
     game.setSessionMode("online");
     elements.createRoomBtn.disabled = true;
     elements.createRoomBtn.textContent = "Creating...";
@@ -135,14 +138,16 @@ export function createStartScreenUI(
     }
   });
 
-  elements.joinRoomBtn.addEventListener("click", () => {
+  elements.joinRoomBtn.addEventListener("click", async () => {
     feedback.subtle();
+    if (beforeAction) await beforeAction();
     game.setSessionMode("online");
     showJoinSection();
   });
 
   elements.localMatchBtn.addEventListener("click", async () => {
     feedback.button();
+    if (beforeAction) await beforeAction();
     game.setSessionMode("local");
     elements.localMatchBtn.disabled = true;
     elements.localMatchBtn.textContent = "Starting...";
@@ -216,5 +221,9 @@ export function createStartScreenUI(
     elements.submitJoinBtn.textContent = "Join";
   });
 
-  return { resetStartButtons, playTitleIntro };
+  function setBeforeAction(fn: (() => Promise<void>) | null): void {
+    beforeAction = fn;
+  }
+
+  return { resetStartButtons, playTitleIntro, setBeforeAction };
 }

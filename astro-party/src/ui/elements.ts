@@ -125,4 +125,14 @@ export const elements = {
   starsContainer: getElement<HTMLElement>("starsContainer"),
   starsBg: getElement<HTMLElement>("starsBg"),
   starsLayer: getElement<HTMLElement>("starsLayer"),
+
+  // Demo overlays
+  demoAttractOverlay: getElement<HTMLElement>("demoAttractOverlay"),
+  demoTapText: getElement<HTMLElement>("demoTapText"),
+  demoSkipBtn: getElement<HTMLButtonElement>("demoSkipBtn"),
+  demoTutorialOverlay: getElement<HTMLElement>("demoTutorialOverlay"),
+  demoTutorialPanel: getElement<HTMLElement>("demoTutorialPanel"),
+  demoTutorialDiagram: getElement<HTMLElement>("demoTutorialDiagram"),
+  demoTutorialDialogue: getElement<HTMLElement>("demoTutorialDialogue"),
+  demoTutorialSkip: getElement<HTMLButtonElement>("demoTutorialSkip"),
 } as const;

@@ -9,6 +9,7 @@ interface DebugPanelOptions {
   game: Game;
   screenController: ScreenController;
   restoreLiveUi: () => void;
+  playDemo?: () => Promise<void>;
 }
 
 const PANEL_ID = "qaDebugPanel";
@@ -199,6 +200,25 @@ export function mountDebugPanel(options: DebugPanelOptions): void {
       shouldHandleTap,
     ),
   );
+
+  if (options.playDemo) {
+    const playDemoFn = options.playDemo;
+    panel.appendChild(
+      buildSection(
+        "Demo",
+        [
+          {
+            label: "Play Demo",
+            onClick: () => {
+              closeDebugPanel();
+              void playDemoFn();
+            },
+          },
+        ],
+        shouldHandleTap,
+      ),
+    );
+  }
 
   toggles.appendChild(toggle);
   toggles.appendChild(labToggle);
