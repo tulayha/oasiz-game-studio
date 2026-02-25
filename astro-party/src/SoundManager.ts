@@ -11,11 +11,11 @@
 import { SettingsManager } from "./SettingsManager";
 
 // ─── Asset Imports ────────────────────────────────────────────────────────────
-import splashScreenSrc from "../Sound/Splash-Screen-Sound.wav?url";
-import mainMenuSrc from "../Sound/Main-Menu-Sound-3.wav?url";
-import logoHitSrc from "../Sound/Logo-Main-Menu-1.wav?url";
-import battleMusicSrc from "../Sound/Night Rockus.wav?url";
-import leaderboardMusicSrc from "../Sound/Podium.wav?url";
+import splashScreenSrc from "../Sound/1-Splash-Screen-Sound.wav?url";
+import logoHitSrc from "../Sound/2-Logo-Main-Menu-1.wav?url";
+import mainMenuSrc from "../Sound/3-Main-Menu-Sound-3.wav?url";
+import battleMusicSrc from "../Sound/4-InGame.wav?url";
+import leaderboardMusicSrc from "../Sound/5-LeaderBoard.wav?url";
 // import nextSoundSrc from "../Sound/Next-Sound.wav?url";  ← future sounds here
 
 // ─── Sound IDs ────────────────────────────────────────────────────────────────
