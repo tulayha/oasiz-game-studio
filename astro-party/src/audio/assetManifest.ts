@@ -34,7 +34,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   splashScreenSting: {
     id: "splashScreenSting",
     channel: "music",
-    relativePath: "music-cue-splash.wav",
+    relativePath: "music-cue-splash.ogg",
     loop: false,
     volume: 0.72,
     preload: "metadata",
@@ -42,7 +42,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   logoRevealSting: {
     id: "logoRevealSting",
     channel: "music",
-    relativePath: "music-cue-logo.wav",
+    relativePath: "music-cue-logo.ogg",
     loop: false,
     volume: 0.72,
     preload: "metadata",
@@ -50,7 +50,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   mainMenuLobbyLoop: {
     id: "mainMenuLobbyLoop",
     channel: "music",
-    relativePath: "music-loop-menu.wav",
+    relativePath: "music-loop-menu.ogg",
     loop: true,
     volume: 0.32,
     preload: "none",
@@ -58,7 +58,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   gameplayLoop: {
     id: "gameplayLoop",
     channel: "music",
-    relativePath: "music-loop-gameplay.wav",
+    relativePath: "music-loop-gameplay.ogg",
     loop: true,
     volume: 0.32,
     preload: "none",
@@ -66,7 +66,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   resultsLoop: {
     id: "resultsLoop",
     channel: "music",
-    relativePath: "music-loop-results.wav",
+    relativePath: "music-loop-results.ogg",
     loop: true,
     volume: 0.32,
     preload: "none",
@@ -74,7 +74,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxFire: {
     id: "sfxFire",
     channel: "fx",
-    relativePath: "sfx-fire.wav",
+    relativePath: "sfx-fire.ogg",
     loop: false,
     volume: 0.7,
     preload: "metadata",
@@ -82,7 +82,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxExplosion: {
     id: "sfxExplosion",
     channel: "fx",
-    relativePath: "sfx-explosion.wav",
+    relativePath: "sfx-explosion.ogg",
     loop: false,
     volume: 0.75,
     preload: "metadata",
@@ -90,7 +90,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxHit: {
     id: "sfxHit",
     channel: "fx",
-    relativePath: "sfx-hit.wav",
+    relativePath: "sfx-hit.ogg",
     loop: false,
     volume: 0.65,
     preload: "metadata",
@@ -98,7 +98,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxDash: {
     id: "sfxDash",
     channel: "fx",
-    relativePath: "sfx-dash.wav",
+    relativePath: "sfx-dash.ogg",
     loop: false,
     volume: 0.7,
     preload: "metadata",
@@ -106,7 +106,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxCountdown: {
     id: "sfxCountdown",
     channel: "fx",
-    relativePath: "sfx-countdown.wav",
+    relativePath: "sfx-countdown.ogg",
     loop: false,
     volume: 0.7,
     preload: "metadata",
@@ -114,7 +114,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxFight: {
     id: "sfxFight",
     channel: "fx",
-    relativePath: "sfx-fight.wav",
+    relativePath: "sfx-fight.ogg",
     loop: false,
     volume: 0.75,
     preload: "metadata",
@@ -122,7 +122,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxWin: {
     id: "sfxWin",
     channel: "fx",
-    relativePath: "sfx-win.wav",
+    relativePath: "sfx-win.ogg",
     loop: false,
     volume: 0.75,
     preload: "metadata",
@@ -130,7 +130,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxKill: {
     id: "sfxKill",
     channel: "fx",
-    relativePath: "sfx-kill.wav",
+    relativePath: "sfx-kill.ogg",
     loop: false,
     volume: 0.72,
     preload: "metadata",
@@ -138,7 +138,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxRespawn: {
     id: "sfxRespawn",
     channel: "fx",
-    relativePath: "sfx-respawn.wav",
+    relativePath: "sfx-respawn.ogg",
     loop: false,
     volume: 0.7,
     preload: "metadata",
@@ -146,7 +146,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxUiClick: {
     id: "sfxUiClick",
     channel: "ui",
-    relativePath: "sfx-ui-click.wav",
+    relativePath: "sfx-ui-click.ogg",
     loop: false,
     volume: 0.65,
     preload: "metadata",
@@ -154,7 +154,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxPilotEject: {
     id: "sfxPilotEject",
     channel: "fx",
-    relativePath: "sfx-pilot-eject.wav",
+    relativePath: "sfx-pilot-eject.ogg",
     loop: false,
     volume: 0.72,
     preload: "metadata",
@@ -162,7 +162,7 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
   sfxPilotDeath: {
     id: "sfxPilotDeath",
     channel: "fx",
-    relativePath: "sfx-pilot-death.wav",
+    relativePath: "sfx-pilot-death.ogg",
     loop: false,
     volume: 0.72,
     preload: "metadata",
