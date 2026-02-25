@@ -22,6 +22,7 @@ import {
   ShipTrailRenderer,
   type ShipTrailVisualTuning,
 } from "./layers/ShipTrailRenderer";
+import type { ShipSkinId } from "../../../shared/geometry/ShipSkins";
 import { ScreenShakeController } from "./controllers/ScreenShakeController";
 import { MapEffectsRenderer } from "./layers/MapEffectsRenderer";
 import { CombatVisualsRenderer } from "./layers/CombatVisualsRenderer";
@@ -240,6 +241,7 @@ export class Renderer {
   drawShip(
     state: ShipState,
     color: PlayerColor,
+    shipSkinId: ShipSkinId,
     shieldHits?: number,
     laserCharges?: number,
     laserMaxCharges?: number,
@@ -253,6 +255,7 @@ export class Renderer {
     this.entityVisuals.drawShip(
       state,
       color,
+      shipSkinId,
       shieldHits,
       laserCharges,
       laserMaxCharges,

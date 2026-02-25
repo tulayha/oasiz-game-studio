@@ -2,6 +2,10 @@ import {
   getEntityAsset,
   type EntityAssetId,
 } from "../../../../shared/geometry/EntityAssets";
+import {
+  getShipSkin,
+  type ShipSkinId,
+} from "../../../../shared/geometry/ShipSkins";
 import { renderAssetStore } from "./RenderAssetStore";
 
 /**
@@ -46,10 +50,47 @@ export class EntitySpriteStore {
     return true;
   }
 
+  drawShipSkin(
+    ctx: CanvasRenderingContext2D,
+    skinId: ShipSkinId,
+    slotOverrides?: Readonly<Record<string, string>>,
+  ): boolean {
+    const skin = getShipSkin(skinId);
+    const slots = {
+      ...skin.slotDefaults,
+      ...(slotOverrides ?? {}),
+    };
+
+    const key = this.buildShipSkinKey(skinId, slots);
+    const image = this.getOrCreateImage(key, skin.svgTemplate, slots);
+    if (!image.complete || image.naturalWidth === 0) {
+      return false;
+    }
+
+    ctx.drawImage(
+      image,
+      -skin.renderSize.width / 2,
+      -skin.renderSize.height / 2,
+      skin.renderSize.width,
+      skin.renderSize.height,
+    );
+
+    return true;
+  }
+
   private buildKey(entityId: string, slots: Readonly<Record<string, string>>): string {
     const orderedKeys = Object.keys(slots).sort();
     const slotKey = orderedKeys.map((key) => `${key}:${slots[key]}`).join("|");
     return `${entityId}::${slotKey}`;
+  }
+
+  private buildShipSkinKey(
+    skinId: string,
+    slots: Readonly<Record<string, string>>,
+  ): string {
+    const orderedKeys = Object.keys(slots).sort();
+    const slotKey = orderedKeys.map((key) => `${key}:${slots[key]}`).join("|");
+    return "ship-skin::" + skinId + "::" + slotKey;
   }
 
   private getOrCreateImage(

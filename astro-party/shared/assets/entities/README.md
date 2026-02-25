@@ -1,6 +1,9 @@
 # Entity SVG Pipeline
 
-This folder is the source of truth for entity art + collider geometry.
+This folder is the source of truth for gameplay entity art + collider geometry.
+
+Ship skin variants live under `shared/assets/ships/skins/` and are visual-only.
+`ship.svg` in this folder remains the canonical ship for physics/collider/hardpoint data.
 
 ## Required contract per SVG
 
