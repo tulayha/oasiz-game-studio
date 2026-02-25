@@ -41,7 +41,7 @@ Expected output filenames in `public/assets/audio`:
 - sfx-pilot-death.ogg
 
 Prompt-based rename key (2026-02-26):
-- `Arcade_sci-fi_plasma_#2-1772054061754.wav` -> `sfx-fire.wav`
+- `Arcade_sci-fi_plasma_#2-1772054061754.wav` -> `sfx-fire-previous.wav`
 - `Arcade_elimination_c_#2-1772054216646.wav` -> `sfx-kill.wav`
 - `Competitive_match_co_#1-1772054288964.wav` -> `sfx-countdown.wav`
 - `clear_fight_fx_that__#1-1772053805351.wav` -> `sfx-fight-2.wav`
@@ -49,6 +49,7 @@ Prompt-based rename key (2026-02-26):
 - `Respawn_materialize__#3-1772054527954.wav` -> `sfx-respawn.wav`
 - `Projectile_impact_pi_#2-1772054621694.wav` -> `sfx-hit.wav`
 - `Neon_holographic_UI__#2-1772054956378.wav` -> `sfx-ui-click-previous.wav`
+- `sound (1).wav` -> `sfx-explosion.wav`
 
 Fight variants:
 - `clear_fight_fx_that__#4-1772053786795_trim-v1.wav` -> `sfx-fight.wav` (active, longer trimmed variant)
@@ -59,3 +60,14 @@ UI click variants:
 - `sfx-ui-click-fast-1p6x-tight.wav` -> `sfx-ui-click.wav` (active)
 - `sfx-ui-click-previous.wav` (previous active source)
 - Additional alternates: `sfx-ui-click-fast-1p2x.wav`, `sfx-ui-click-fast-1p3x.wav`, `sfx-ui-click-fast-1p4x-tight.wav`, `sfx-ui-click-fast-1p5x.wav`, `sfx-ui-click-fast-1p8x-tight.wav`, `sfx-ui-click-fast-2p0x-tight.wav`
+
+Dash variants from `jump.wav` (toned down):
+- `sfx-dash-from-jump-v4-soft-270ms.wav` -> `sfx-dash.wav` (active, longest/most blended)
+- `sfx-dash-from-jump-v1-soft-180ms.wav` (fastest/tightest)
+- `sfx-dash-from-jump-v2-soft-220ms.wav` (balanced)
+- `sfx-dash-from-jump-v3-soft-250ms.wav` (smoother tail)
+
+Fire variants:
+- `sfx-fire-v1-crisp-240ms.wav` -> `sfx-fire.wav` (active)
+- `sfx-fire-previous.wav` (previous active source)
+- Additional alternates: `sfx-fire-v2-balanced-300ms.wav`, `sfx-fire-v3-soft-tail-360ms.wav`, `sfx-fire-v4-fuller-420ms.wav`
