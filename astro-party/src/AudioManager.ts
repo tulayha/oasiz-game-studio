@@ -1,8 +1,21 @@
 // ============= AUDIO MANAGER =============
-// Handles all game audio using Tone.js, respects SettingsManager
+// Handles all game audio using Tone.js for procedural FX and asset manifest paths for music/cues.
 
 import * as Tone from "tone";
 import { SettingsManager } from "./SettingsManager";
+import {
+  AUDIO_ASSETS,
+  AUDIO_CUE_ASSETS,
+  AUDIO_SCENE_MUSIC,
+  resolveAudioAssetUrl,
+  type AudioAssetId,
+  type AudioCueId,
+  type AudioSceneId,
+} from "./audio/assetManifest";
+
+interface PlayMusicOptions {
+  restart?: boolean;
+}
 
 class AudioManagerClass {
   private initialized = false;
@@ -19,8 +32,10 @@ class AudioManagerClass {
   private respawnSynth: Tone.Synth | null = null;
   private uiClickSynth: Tone.Synth | null = null;
 
-  // Background music (placeholder - can be replaced with actual audio file)
-  private bgMusic: HTMLAudioElement | null = null;
+  // Manifest-driven asset players
+  private assetPlayers: Map<AudioAssetId, HTMLAudioElement> = new Map();
+  private activeMusicAssetId: AudioAssetId | null = null;
+  private activeMusicPlayer: HTMLAudioElement | null = null;
 
   constructor() {
     // Defer initialization until first user interaction (required by browsers)
@@ -30,22 +45,21 @@ class AudioManagerClass {
     if (this.initialized) return true;
 
     try {
-      // Start Tone.js audio context (requires user gesture)
       if (Tone.getContext().state !== "running") {
         await Tone.start();
       }
 
       this.initSynths();
       this.initialized = true;
-      console.log("[AudioManager] Initialized");
+      console.log("[AudioManager.ensureInitialized]", "Initialized");
       return true;
     } catch (e) {
-      console.log("[AudioManager] Failed to initialize:", e);
+      console.log("[AudioManager.ensureInitialized]", "Failed to initialize");
+      console.log("[AudioManager.ensureInitialized]", String(e));
       return false;
     }
   }
 
-  // Helper to safely trigger sounds (Tone.js throws on rapid triggers)
   private safeTrigger(fn: () => void): void {
     try {
       fn();
@@ -55,21 +69,18 @@ class AudioManagerClass {
   }
 
   private initSynths(): void {
-    // Fire/shoot sound - sharp laser
     this.fireSynth = new Tone.Synth({
       oscillator: { type: "sawtooth" },
       envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 },
     }).toDestination();
     this.fireSynth.volume.value = -15;
 
-    // Explosion sound - noise burst
     this.explosionSynth = new Tone.NoiseSynth({
       noise: { type: "brown" },
       envelope: { attack: 0.005, decay: 0.3, sustain: 0, release: 0.2 },
     }).toDestination();
     this.explosionSynth.volume.value = -10;
 
-    // Hit/damage sound - thump
     this.hitSynth = new Tone.MembraneSynth({
       pitchDecay: 0.05,
       octaves: 4,
@@ -77,54 +88,184 @@ class AudioManagerClass {
     }).toDestination();
     this.hitSynth.volume.value = -12;
 
-    // Dash sound - whoosh
     this.dashSynth = new Tone.Synth({
       oscillator: { type: "sine" },
       envelope: { attack: 0.01, decay: 0.15, sustain: 0, release: 0.1 },
     }).toDestination();
     this.dashSynth.volume.value = -18;
 
-    // Countdown beep
     this.countdownSynth = new Tone.Synth({
       oscillator: { type: "square" },
       envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.1 },
     }).toDestination();
     this.countdownSynth.volume.value = -12;
 
-    // Fight! fanfare
     this.fightSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 0.02, decay: 0.2, sustain: 0.1, release: 0.3 },
     }).toDestination();
     this.fightSynth.volume.value = -8;
 
-    // Win fanfare
     this.winSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 0.02, decay: 0.3, sustain: 0.2, release: 0.5 },
     }).toDestination();
     this.winSynth.volume.value = -6;
 
-    // Kill confirmation
     this.killSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "sine" },
       envelope: { attack: 0.01, decay: 0.15, sustain: 0.05, release: 0.2 },
     }).toDestination();
     this.killSynth.volume.value = -10;
 
-    // Respawn sound
     this.respawnSynth = new Tone.Synth({
       oscillator: { type: "sine" },
       envelope: { attack: 0.1, decay: 0.2, sustain: 0.1, release: 0.3 },
     }).toDestination();
     this.respawnSynth.volume.value = -12;
 
-    // UI click
     this.uiClickSynth = new Tone.Synth({
       oscillator: { type: "sine" },
       envelope: { attack: 0.005, decay: 0.05, sustain: 0, release: 0.05 },
     }).toDestination();
     this.uiClickSynth.volume.value = -15;
+  }
+
+  private getOrCreateAssetPlayer(assetId: AudioAssetId): HTMLAudioElement {
+    const existing = this.assetPlayers.get(assetId);
+    if (existing) {
+      return existing;
+    }
+
+    const asset = AUDIO_ASSETS[assetId];
+    const url = this.getAssetUrl(assetId);
+    const player = new Audio(url);
+    player.preload = asset.preload;
+    player.loop = asset.loop;
+    player.volume = asset.volume;
+    this.assetPlayers.set(assetId, player);
+    return player;
+  }
+
+  private stopPlayer(player: HTMLAudioElement, resetPosition: boolean): void {
+    player.pause();
+    if (resetPosition) {
+      player.currentTime = 0;
+    }
+  }
+
+  private async playPlayer(player: HTMLAudioElement): Promise<boolean> {
+    try {
+      await player.play();
+      return true;
+    } catch (e) {
+      console.log("[AudioManager.playPlayer]", "Playback failed");
+      console.log("[AudioManager.playPlayer]", String(e));
+      return false;
+    }
+  }
+
+  getConfiguredAssetIds(): AudioAssetId[] {
+    return Object.keys(AUDIO_ASSETS) as AudioAssetId[];
+  }
+
+  getAssetUrl(assetId: AudioAssetId): string {
+    return resolveAudioAssetUrl(assetId);
+  }
+
+  preloadAsset(assetId: AudioAssetId): void {
+    const player = this.getOrCreateAssetPlayer(assetId);
+    player.load();
+  }
+
+  preloadConfiguredAssets(): void {
+    const ids = this.getConfiguredAssetIds();
+    for (const assetId of ids) {
+      const definition = AUDIO_ASSETS[assetId];
+      if (definition.preload === "none") {
+        continue;
+      }
+      this.preloadAsset(assetId);
+    }
+  }
+
+  getSceneMusicAsset(scene: AudioSceneId): AudioAssetId | null {
+    return AUDIO_SCENE_MUSIC[scene];
+  }
+
+  async playSceneMusic(
+    scene: AudioSceneId,
+    options: PlayMusicOptions = {},
+  ): Promise<void> {
+    const sceneAsset = this.getSceneMusicAsset(scene);
+    if (!sceneAsset) {
+      this.stopMusic();
+      return;
+    }
+
+    await this.playMusicAsset(sceneAsset, options);
+  }
+
+  async playCue(cueId: AudioCueId): Promise<void> {
+    const assetId = AUDIO_CUE_ASSETS[cueId];
+    const definition = AUDIO_ASSETS[assetId];
+
+    if (definition.channel === "music" && !SettingsManager.shouldPlayMusic()) {
+      return;
+    }
+    if (
+      (definition.channel === "fx" || definition.channel === "ui") &&
+      !SettingsManager.shouldPlayFx()
+    ) {
+      return;
+    }
+
+    const player = this.getOrCreateAssetPlayer(assetId);
+    this.stopPlayer(player, true);
+    player.loop = definition.loop;
+    player.volume = definition.volume;
+    await this.playPlayer(player);
+  }
+
+  async playMusicAsset(
+    assetId: AudioAssetId,
+    options: PlayMusicOptions = {},
+  ): Promise<void> {
+    if (!SettingsManager.shouldPlayMusic()) {
+      return;
+    }
+
+    const definition = AUDIO_ASSETS[assetId];
+    if (definition.channel !== "music") {
+      console.log(
+        "[AudioManager.playMusicAsset]",
+        "Rejected non-music asset " + assetId,
+      );
+      return;
+    }
+
+    const player = this.getOrCreateAssetPlayer(assetId);
+    const shouldRestart =
+      options.restart ?? this.activeMusicAssetId !== assetId;
+
+    if (this.activeMusicPlayer && this.activeMusicPlayer !== player) {
+      this.stopPlayer(this.activeMusicPlayer, true);
+    }
+
+    if (shouldRestart) {
+      player.currentTime = 0;
+    }
+
+    player.loop = true;
+    player.volume = definition.volume;
+
+    const played = await this.playPlayer(player);
+    if (!played) {
+      return;
+    }
+
+    this.activeMusicAssetId = assetId;
+    this.activeMusicPlayer = player;
   }
 
   // ============= SOUND EFFECTS =============
@@ -265,37 +406,31 @@ class AudioManagerClass {
   // ============= BACKGROUND MUSIC =============
 
   async startMusic(): Promise<void> {
-    if (!SettingsManager.shouldPlayMusic()) return;
-
-    // Background music would be loaded from an asset URL
-    // For now, this is a placeholder - can be replaced with actual music file
-    // Example: this.bgMusic = new Audio("https://assets.oasiz.ai/audio/astro-party-theme.mp3");
-
-    if (this.bgMusic) {
-      this.bgMusic.loop = true;
-      this.bgMusic.volume = 0.3;
-      try {
-        await this.bgMusic.play();
-      } catch (e) {
-        console.log("[AudioManager] Music play failed:", e);
-      }
+    const target =
+      this.activeMusicAssetId !== null
+        ? this.activeMusicAssetId
+        : AUDIO_SCENE_MUSIC.LOBBY;
+    if (!target) {
+      return;
     }
+
+    await this.playMusicAsset(target, { restart: false });
   }
 
   stopMusic(): void {
-    if (this.bgMusic) {
-      this.bgMusic.pause();
-      this.bgMusic.currentTime = 0;
+    if (!this.activeMusicPlayer) {
+      return;
     }
+    this.stopPlayer(this.activeMusicPlayer, true);
+    this.activeMusicPlayer = null;
   }
 
-  // Update music state based on settings
   updateMusicState(isPlaying: boolean): void {
     if (isPlaying && SettingsManager.shouldPlayMusic()) {
-      this.startMusic();
-    } else {
-      this.stopMusic();
+      void this.startMusic();
+      return;
     }
+    this.stopMusic();
   }
 
   // ============= CLEANUP =============
@@ -303,7 +438,14 @@ class AudioManagerClass {
   destroy(): void {
     this.stopMusic();
 
-    // Dispose synths
+    for (const player of this.assetPlayers.values()) {
+      this.stopPlayer(player, true);
+      player.src = "";
+    }
+    this.assetPlayers.clear();
+    this.activeMusicAssetId = null;
+    this.activeMusicPlayer = null;
+
     this.fireSynth?.dispose();
     this.explosionSynth?.dispose();
     this.hitSynth?.dispose();
@@ -316,9 +458,8 @@ class AudioManagerClass {
     this.uiClickSynth?.dispose();
 
     this.initialized = false;
-    console.log("[AudioManager] Destroyed");
+    console.log("[AudioManager.destroy]", "Destroyed");
   }
 }
 
-// Export singleton instance
 export const AudioManager = new AudioManagerClass();

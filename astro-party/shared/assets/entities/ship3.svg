@@ -1,29 +1,112 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 40 40" role="img" aria-label="Astro Party ship">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 40 40" role="img">
+
   <defs>
     <style>
-      .slot-primary { fill: var(--slot-primary, #00f0ff); }
-      .slot-secondary { fill: var(--slot-secondary, #ffffff); }
-      .slot-tertiary { fill: var(--slot-tertiary, #ff4400); }
-      .slot-stroke { stroke: var(--slot-stroke, #ffffff); }
+      .outline {
+        stroke: #07121a;
+        stroke-width: 3.5;
+        stroke-linejoin: round;
+      }
+
+      .hull-base { fill: #00e6ff; }
+      .hull-shadow { fill: #0094a6; }
+      .hull-deep { fill: #004e59; }
+
+      .wing-base { fill: #00c8e0; }
+      .wing-shadow { fill: #007a8a; }
+
+      .highlight { fill: #ffffff; opacity: 0.85; }
+      .highlight-soft { fill: #bff8ff; opacity: 0.65; }
+
+      .engine-core { fill: #00f0ff; }
+      .engine-shadow { fill: #0088a0; }
+
+      .glow-flat { fill: #00f0ff; opacity: 0.18; }
     </style>
   </defs>
 
-  <g id="visual" transform="translate(0 0)">
-    <!-- Engine flame -->
-    <path class="slot-tertiary" d="M -6 0 L -10 -4 L -15 0 L -10 4 Z" />
+  <g id="visual" transform="scale(1 0.8) rotate(90) scale(0.35) translate(-0.25 -4.5)">
 
-    <!-- Ship hull (matches current rendered physics hull) -->
-    <path
-      class="slot-primary slot-stroke"
-      d="M 17 0 L -8.5 9 L -8.5 -9 Z"
-      stroke-width="1.8"
-      stroke-linejoin="round"
+    <!-- flat glow instead of gradient -->
+    <circle cx="0" cy="30" r="26" class="glow-flat"/>
+
+    <!-- wings -->
+    <polygon
+      points="-32.9,27.1 -49.9,22.7 -33.6,10.5 -19.2,23.0"
+      class="wing-base outline"
     />
 
-    <!-- Cockpit -->
-    <circle class="slot-secondary" cx="3" cy="0" r="3.4" />
+    <polygon
+      points="-33.6,10.5 -49.9,22.7 -33.6,18.0 -21.0,22.0"
+      class="wing-shadow"
+    />
+
+    <polygon
+      points="36.2,27.1 50.4,23.0 34.3,10.3 19.3,22.4"
+      class="wing-base outline"
+    />
+
+    <polygon
+      points="34.3,10.3 50.4,23.0 34.3,18.0 22.0,22.0"
+      class="wing-shadow"
+    />
+
+    <!-- hull main -->
+    <polygon
+      points="0,-32 37,3 16,18 -16,18 -37,3"
+      class="hull-base outline"
+    />
+
+    <!-- hull shadow band -->
+    <polygon
+      points="0,-32 37,3 16,18 0,14"
+      class="hull-shadow"
+    />
+
+    <!-- deeper shadow -->
+    <polygon
+      points="0,-32 -37,3 -16,18 0,14"
+      class="hull-deep"
+    />
+
+    <!-- hard highlight strip -->
+    <polygon
+      points="-10,-12 0,-26 10,-12 6,-10 0,-20 -6,-10"
+      class="highlight"
+    />
+
+    <!-- secondary highlight -->
+    <polygon
+      points="-14,-4 0,-16 14,-4 10,-2 0,-10 -10,-2"
+      class="highlight-soft"
+    />
+
+    <!-- cockpit -->
+    <polygon
+      points="0,-24 15,-11 0,-7 -15,-11"
+      fill="#07121a"
+      class="outline"
+      stroke-width="2"
+    />
+
+    <!-- engine -->
+    <polygon
+      points="0,34 13,24 0,14 -13,24"
+      class="engine-core outline"
+    />
+
+    <polygon
+      points="0,31 9,24 0,18 -9,24"
+      class="engine-shadow"
+    />
+
   </g>
 
-  <!-- Canonical collider path for extractor tooling -->
-  <path id="collider" d="M 17 0 L -8.5 9 L -8.5 -9 Z" fill="none" stroke="none" />
+  <!-- unchanged collider -->
+  <path
+    id="collider"
+    d="M 12.775 -0.07 L 0.525 10.29 L -6.475 14.042 L -10.325 -0.07 L -6.37 -14.042 L 0.525 -10.43 Z"
+    fill="none"
+  />
+
 </svg>
