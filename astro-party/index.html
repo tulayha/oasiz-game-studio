@@ -3113,6 +3113,301 @@
         --mobile-landscape-left-offset: var(--leave-btn-size);
       }
     }
+
+    /* ============= DEMO / ATTRACT MODE ============= */
+    .demo-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    .demo-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    /* Stars raised above canvas during demo — provides space gradient BG */
+    .stars-container.demo-stars {
+      z-index: 1;
+    }
+
+    /* Attract overlay — minimal vignette only; starfield provides the BG */
+    .demo-attract-bg {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 20%, rgba(5,3,8,0.55) 100%);
+      pointer-events: none;
+    }
+    .demo-attract-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(1rem, 3vw, 2rem);
+      padding: max(var(--safe-top, 0px), 120px) 0 max(var(--safe-bottom, 0px), 2rem);
+      cursor: pointer;
+      user-select: none;
+    }
+    .demo-logo-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      opacity: 0;
+      transform: translateY(-28px);
+      animation: demoLogoSlideIn 700ms cubic-bezier(0.22, 0.95, 0.28, 1) 400ms forwards;
+    }
+    .demo-logo-wrap .title-layer {
+      opacity: 1;
+      transform: none;
+      animation: none;
+    }
+    @keyframes demoLogoSlideIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .demo-tap-text {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(1rem, 3.5vw, 1.6rem);
+      color: #00f0ff;
+      letter-spacing: 0.12em;
+      opacity: 0;
+      animation: demoTapFadeIn 600ms ease 1200ms forwards, demoPulse 1.8s ease-in-out 1800ms infinite;
+    }
+    @keyframes demoTapFadeIn {
+      to { opacity: 1; }
+    }
+    @keyframes demoPulse {
+      0%, 100% { opacity: 0.65; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.04); }
+    }
+    .demo-skip-btn {
+      font-family: 'Exo 2', sans-serif;
+      font-size: 0.8rem;
+      color: rgba(255,255,255,0.45);
+      background: none;
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 7px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .demo-skip-btn:hover {
+      color: rgba(255,255,255,0.75);
+      border-color: rgba(255,255,255,0.35);
+    }
+
+    /* Tutorial overlay */
+    #demoTutorialOverlay {
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 1rem max(var(--safe-bottom, 0px), 2.5rem);
+    }
+    .demo-tutorial-panel {
+      background: rgba(8, 6, 18, 0.92);
+      border: 1px solid rgba(0,240,255,0.22);
+      border-radius: 14px;
+      padding: clamp(1rem, 3vw, 1.5rem) clamp(1rem, 3vw, 1.5rem);
+      max-width: 440px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      box-shadow: 0 0 32px rgba(0,240,255,0.07);
+    }
+    .demo-tutorial-diagram {
+      width: 100%;
+    }
+    .demo-diagram-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .demo-tutorial-dialogue {
+      font-family: 'Exo 2', sans-serif;
+      font-size: clamp(0.88rem, 2.5vw, 1rem);
+      color: rgba(255,255,255,0.9);
+      line-height: 1.55;
+      min-height: 3.2em;
+    }
+    .demo-tutorial-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.25rem;
+    }
+    .demo-tutorial-skip-btn {
+      margin: 0;
+    }
+    .demo-next-btn {
+      background: rgba(0, 240, 255, 0.12);
+      border: 1px solid rgba(0, 240, 255, 0.45);
+      color: #00f0ff;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      padding: 7px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .demo-next-btn:hover {
+      background: rgba(0, 240, 255, 0.22);
+      box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+    }
+    .demo-next-btn.hidden {
+      display: none;
+    }
+
+    /* Tutorial panel slide-out when in "try it" phase */
+    .demo-tutorial-panel {
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    .demo-tutorial-panel.panel-hidden {
+      opacity: 0;
+      transform: translateY(24px);
+      pointer-events: none;
+    }
+
+    /* "Start Playing" button — prominent CTA */
+    /* Exit Demo button — top-left, shown during free-play phase */
+    .demo-exit-btn {
+      position: fixed;
+      top: max(var(--safe-top, 0px), 16px);
+      left: 16px;
+      z-index: 600;
+      background: rgba(0, 0, 0, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: rgba(255, 255, 255, 0.75);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      padding: 7px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .demo-exit-btn:hover {
+      background: rgba(0, 240, 255, 0.12);
+      border-color: rgba(0, 240, 255, 0.5);
+      color: #00f0ff;
+    }
+    .demo-exit-btn.hidden {
+      display: none;
+    }
+
+    .demo-start-playing-btn {
+      align-self: stretch;
+      background: rgba(0,240,255,0.12) !important;
+      border: 1px solid rgba(0,240,255,0.5) !important;
+      color: #00f0ff !important;
+      font-family: 'Orbitron', sans-serif !important;
+      font-size: 0.88rem !important;
+      letter-spacing: 0.1em;
+      padding: 10px 20px !important;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    @media (pointer: coarse) {
+      .demo-attract-content {
+        padding-top: max(var(--safe-top, 0px), 140px);
+      }
+      .demo-skip-btn {
+        min-height: 44px;
+        padding: 10px 22px;
+      }
+    }
+
+    /* Player intro overlay — "your ship" spotlight */
+    .demo-player-intro-overlay {
+      /* Dark vignette with a circular spotlight punched out at --spot-x / --spot-y */
+      --spot-x: 50%;
+      --spot-y: 50%;
+      --spot-r: 72px;
+      background: rgba(0, 0, 0, 0.82);
+      -webkit-mask-image: radial-gradient(
+        circle var(--spot-r) at var(--spot-x) var(--spot-y),
+        transparent 68%,
+        black 100%
+      );
+      mask-image: radial-gradient(
+        circle var(--spot-r) at var(--spot-x) var(--spot-y),
+        transparent 68%,
+        black 100%
+      );
+      z-index: 550;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+    .demo-player-intro-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    /* The ring is absolutely positioned via JS at the ship's screen coords */
+    .demo-player-intro-ring {
+      position: fixed;
+      width: clamp(64px, 13vmin, 96px);
+      height: clamp(64px, 13vmin, 96px);
+      border-radius: 50%;
+      border: 2.5px solid #00f0ff;
+      transform: translate(-50%, -50%);
+      /* box-shadow set dynamically */
+      animation: playerIntroPulse 0.55s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    @keyframes playerIntroPulse {
+      from { transform: translate(-50%, -50%) scale(0.88); opacity: 0.6; }
+      to   { transform: translate(-50%, -50%) scale(1.14); opacity: 1; }
+    }
+    .demo-player-intro-inner {
+      /* The label is centered at the bottom of the screen, not the ship */
+      position: fixed;
+      bottom: max(var(--safe-bottom, 0px), 3rem);
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      pointer-events: none;
+    }
+    .demo-player-intro-label {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(0.75rem, 3vmin, 1rem);
+      color: rgba(255, 255, 255, 0.88);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0;
+      animation: demoTapFadeIn 400ms ease 300ms forwards;
+    }
+
+    /* Landscape: keep tutorial panel anchored at the bottom */
+    @media (orientation: landscape) {
+      #demoTutorialOverlay {
+        align-items: flex-end;
+        justify-content: center;
+        padding: 0 max(var(--safe-left, 0px), 1rem) max(var(--safe-bottom, 0px), 1rem) max(var(--safe-right, 0px), 1rem);
+      }
+      .demo-tutorial-panel {
+        max-width: min(520px, 60vw);
+        padding: 0.75rem 1rem;
+        gap: 0.6rem;
+      }
+      .demo-tutorial-diagram {
+        display: none; /* hide diagram in landscape to save vertical space */
+      }
+      .demo-tutorial-dialogue {
+        font-size: clamp(0.8rem, 2vh, 0.95rem);
+        min-height: 2.4em;
+      }
+    }
   </style>
 </head>
 <body>
@@ -3493,6 +3788,48 @@
   <div class="rotate-overlay" id="rotateOverlay">
     <svg viewBox="0 0 24 24"><path d="M7.34 6.41L.86 12.9l6.49 6.48 6.49-6.48-6.5-6.49zM3.69 12.9l3.66-3.66L11 12.9l-3.66 3.66-3.65-3.66zm15.67-6.26A8.95 8.95 0 0 0 13 4V.76L8.76 5 13 9.24V6c1.79 0 3.58.68 4.95 2.05a7.007 7.007 0 0 1 0 9.9 6.973 6.973 0 0 1-7.79 1.44l-1.49 1.49C10.02 21.62 11.51 22 13 22c2.3 0 4.61-.88 6.36-2.64a8.98 8.98 0 0 0 0-12.72z"/></svg>
     <p>Rotate your device to landscape</p>
+  </div>
+
+  <!-- Demo Attract Overlay -->
+  <div id="demoAttractOverlay" class="demo-overlay hidden">
+    <div class="demo-attract-bg"></div>
+    <div class="demo-attract-content">
+      <div class="demo-logo-wrap">
+        <div class="title-layer space">
+          <img src="./assets/space_force_exact_split_v2_space.svg" alt="">
+        </div>
+        <div class="title-layer force">
+          <img src="./assets/space_force_exact_split_v2_force.svg" alt="">
+        </div>
+      </div>
+      <div class="demo-tap-text" id="demoTapText">Tap to Start</div>
+      <button class="demo-skip-btn" id="demoSkipBtn">Skip</button>
+    </div>
+  </div>
+
+  <!-- Demo Tutorial Overlay -->
+  <div id="demoTutorialOverlay" class="demo-overlay hidden">
+    <div class="demo-tutorial-panel" id="demoTutorialPanel">
+      <div class="demo-tutorial-diagram" id="demoTutorialDiagram"></div>
+      <div class="demo-tutorial-dialogue" id="demoTutorialDialogue"></div>
+      <div class="demo-tutorial-actions">
+        <button class="demo-skip-btn demo-tutorial-skip-btn" id="demoTutorialSkip">Skip</button>
+        <button class="demo-next-btn hidden" id="demoTutorialNext">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Demo Exit Button — shown after "Start Playing" so player can leave free-play -->
+  <button id="demoExitBtn" class="demo-exit-btn hidden">Exit Demo</button>
+
+  <!-- Demo Player Intro Overlay — "your ship" spotlight + zoom -->
+  <div id="demoPlayerIntroOverlay" class="demo-overlay hidden demo-player-intro-overlay">
+    <!-- Ring is positioned at ship coords by JS (position:fixed) -->
+    <div class="demo-player-intro-ring" id="demoPlayerIntroRing"></div>
+    <!-- Label stays at bottom-center -->
+    <div class="demo-player-intro-inner">
+      <div class="demo-player-intro-label">YOUR SHIP</div>
+    </div>
   </div>
 
   <script type="module" src="./src/main.ts"></script>

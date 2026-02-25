@@ -120,6 +120,10 @@ export class Renderer {
     this.viewport.resetCamera();
   }
 
+  worldToViewportCSS(wx: number, wy: number): { x: number; y: number } {
+    return this.viewport.worldToViewportCSS(wx, wy);
+  }
+
   // Enable/disable dev mode visualization
   setDevMode(enabled: boolean): void {
     this.devModeEnabled = enabled;

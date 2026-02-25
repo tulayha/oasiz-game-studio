@@ -21,6 +21,7 @@ const MAP_THEME_GRADIENTS: Record<number, StarfieldGradient> = {
   3: { inner: "#050202", mid: "#1c0505", outer: "#3a101a" },
   4: { inner: "#020502", mid: "#081c0a", outer: "#103015" },
   5: { inner: "#020505", mid: "#081c1c", outer: "#103030" },
+  6: { inner: "#050308", mid: "#180a20", outer: "#351535" },
 };
 
 function getGradientForMap(mapId: number): StarfieldGradient {
@@ -85,6 +86,8 @@ export interface ScreenController {
   updateGameEnd: (players: PlayerData[]) => void;
   resetEndScreenButtons: () => void;
   updateStarfieldForMap: (mapId: number) => void;
+  /** Force the starfield gradient for demo mode, bypassing activeScreen guard. */
+  forceDemoStarfield: (mapId: number) => void;
 }
 
 export function createScreenController(
@@ -177,7 +180,10 @@ export function createScreenController(
       updateStarfieldGradient(currentMapId);
       elements.starsContainer.classList.add("active");
     } else {
-      elements.starsContainer.classList.remove("active");
+      // Preserve starfield when demo-stars is active (background battle visible)
+      if (!elements.starsContainer.classList.contains("demo-stars")) {
+        elements.starsContainer.classList.remove("active");
+      }
     }
   }
 
@@ -426,6 +432,21 @@ export function createScreenController(
     }
   }
 
+  /**
+   * Force starfield gradient for demo mode — bypasses the activeScreen guard.
+   * Initialises the star nodes if not done yet, sets gradient, and ensures
+   * the container is visible. Call this instead of updateStarfieldForMap
+   * whenever the game screen is not "game" (e.g. attract / menu demo states).
+   */
+  function forceDemoStarfield(mapId: number): void {
+    if (!starfieldInitialized) {
+      initStarfield(0x73a5f1c3 >>> 0);
+      starfieldInitialized = true;
+    }
+    updateStarfieldGradient(mapId);
+    elements.starsContainer.classList.add("active");
+  }
+
   SettingsManager.subscribe(() => {
     updateControlHints();
   });
@@ -442,6 +463,7 @@ export function createScreenController(
     updateGameEnd,
     resetEndScreenButtons,
     updateStarfieldForMap,
+    forceDemoStarfield,
   };
 }
 

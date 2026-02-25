@@ -151,6 +151,7 @@ import {
   clearRoundEntities,
   syncRoomMeta,
   cleanupExpiredEntities,
+  getSpawnPoints,
 } from "./systems/GameFlowSystem.js";
 
 const { Body } = Matter;
@@ -516,7 +517,7 @@ export class AstroPartySimulation implements SimState {
       this.hooks.onError(sessionId, "INVALID_PHASE", "Maps can only be changed in lobby");
       return;
     }
-    if (!Number.isInteger(mapId) || mapId < 0 || mapId > 5) {
+    if (!Number.isInteger(mapId) || mapId < 0 || mapId > 6) {
       this.hooks.onError(sessionId, "INVALID_MAP", "Unknown map");
       return;
     }
@@ -525,6 +526,88 @@ export class AstroPartySimulation implements SimState {
     this.mapId = nextMapId;
     this.mapPowerUpsSpawned = false;
     syncRoomMeta(this);
+  }
+
+  setPlayerAI(sessionId: string, enabled: boolean): void {
+    const player = this.players.get(sessionId);
+    if (!player) return;
+    player.isBot = enabled;
+    player.botType = enabled ? "ai" : null;
+  }
+
+  /** Immediately skips the countdown, entering PLAYING phase. Demo use only. */
+  skipCountdown(): void {
+    if (this.phase !== "COUNTDOWN") return;
+    this.countdownMs = 0;
+    this.countdownValue = 0;
+  }
+
+  /**
+   * Removes ejected pilots that have been floating for longer than maxAgeMs.
+   * Sets their player state to SPECTATING so the demo respawn monitor picks them up.
+   * Demo use only.
+   */
+  demoCleanupStalePilots(maxAgeMs: number): void {
+    if (this.phase !== "PLAYING") return;
+    let changed = false;
+    for (const [playerId, pilot] of this.pilots) {
+      if (pilot.alive && this.nowMs - pilot.spawnTime > maxAgeMs) {
+        this.pilots.delete(playerId);
+        this.removePilotBody(playerId);
+        const player = this.players.get(playerId);
+        if (player && player.state === "EJECTED") {
+          player.state = "SPECTATING";
+          changed = true;
+        }
+      }
+    }
+    if (changed) this.syncPlayers();
+  }
+
+  /**
+   * Respawns a player's ship mid-round at their assigned corner.
+   * Demo use only — should not be called during normal gameplay.
+   */
+  demoRespawnPlayer(playerId: string): void {
+    if (this.phase !== "PLAYING") return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    // Remove any existing ejected pilot
+    if (this.pilots.has(playerId)) {
+      this.pilots.delete(playerId);
+      this.removePilotBody(playerId);
+    }
+
+    // Assign spawn position based on player order index
+    const idx = this.playerOrder.indexOf(playerId);
+    const points = getSpawnPoints(this.playerOrder.length);
+    const spawn = points[idx % points.length] ?? points[0];
+
+    player.state = "ACTIVE";
+    player.dashQueued = false;
+    player.dashTimerSec = 0;
+    player.dashVectorX = 0;
+    player.dashVectorY = 0;
+    player.recoilTimerSec = 0;
+    player.angularVelocity = 0;
+    player.ship = {
+      ...player.ship,
+      x: spawn.x,
+      y: spawn.y,
+      angle: spawn.angle,
+      vx: 0,
+      vy: 0,
+      alive: true,
+      invulnerableUntil: this.nowMs + 2000,
+      ammo: MAX_AMMO,
+      maxAmmo: MAX_AMMO,
+      lastShotTime: this.nowMs - this.getGlobalConfig().FIRE_COOLDOWN_MS - 1,
+      reloadStartTime: this.nowMs,
+      isReloading: false,
+    };
+
+    this.syncPlayers();
   }
 
   rotateToRandomMap(): void {
