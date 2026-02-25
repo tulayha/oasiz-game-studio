@@ -23,7 +23,7 @@ Expected output filenames in `public/assets/audio`:
 - music-cue-logo.ogg
 - music-loop-menu.ogg
 - music-loop-gameplay.ogg
-- music-loop-results.ogg
+- music-cue-results.ogg
 - sfx-fire.ogg
 - sfx-explosion.ogg
 - sfx-hit.ogg

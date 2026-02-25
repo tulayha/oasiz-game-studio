@@ -256,9 +256,12 @@ async function init(): Promise<void> {
 
     clearStartMenuMusicTimer();
     const nextScene = resolveSceneForPhase(phase);
-    const previousScene =
-      previousPhase !== null ? resolveSceneForPhase(previousPhase) : null;
-    const shouldRestart = previousScene !== nextScene;
+    const nextMusicAssetId = AudioManager.getSceneMusicAsset(nextScene);
+    const previousMusicAssetId =
+      previousPhase !== null
+        ? AudioManager.getSceneMusicAsset(resolveSceneForPhase(previousPhase))
+        : null;
+    const shouldRestart = previousMusicAssetId !== nextMusicAssetId;
     void AudioManager.playSceneMusic(nextScene, { restart: shouldRestart });
   };
 
