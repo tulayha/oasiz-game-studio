@@ -31,3 +31,7 @@ audio/
 !astro-party/**/asset/**
 !astro-party/**/assets/
 !astro-party/**/assets/**
+!astro-party/src/audio/
+!astro-party/src/audio/**
+
+output/
