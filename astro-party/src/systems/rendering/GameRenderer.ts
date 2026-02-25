@@ -26,6 +26,7 @@ export interface RenderContext {
   phase: GamePhase;
   countdown: number;
   showMapElements: boolean;
+  hideBorder: boolean;
   isDevModeEnabled: boolean;
   playerPowerUps: Map<string, PlayerPowerUp | null>;
   players: Map<string, PlayerData>;
@@ -108,7 +109,9 @@ export class GameRenderer {
   ): void {
     if (!ctx.showMapElements) return;
 
-    this.renderer.drawArenaBorder(mapTheme.border);
+    if (!ctx.hideBorder) {
+      this.renderer.drawArenaBorder(mapTheme.border);
+    }
     for (const block of this.getYellowBlocksForRender(
       map.yellowBlocks,
       ctx.yellowBlockHp,
