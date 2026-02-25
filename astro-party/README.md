@@ -52,7 +52,28 @@ Note: `bun run build` triggers `prebuild`, which runs:
 
 ```bash
 bun run generate:entities
+bun run generate:ship-skins
 ```
+
+Ship skin generation now validates the skin contract in strict mode by default.
+If a skin breaks required rules (for example missing major-surface role markers or missing
+`--slot-primary` mapping on hull/wing surfaces), `generate:ship-skins` fails and therefore
+`bun run build` fails.
+
+For intentional local iteration with known-invalid skins:
+
+```bash
+bun run generate:ship-skins:warn
+bun run generate:ship-skins:off
+```
+
+Or via env var:
+
+```bash
+SHIP_SKIN_VALIDATION=warn bun run generate:ship-skins
+```
+
+See `shared/assets/ships/README.md` for the full ship skin contract.
 
 ```bash
 cd astro-party/server

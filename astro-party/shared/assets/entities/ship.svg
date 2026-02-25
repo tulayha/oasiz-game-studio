@@ -98,6 +98,7 @@
 
     <polygon
       points="-32.9,27.1 -49.9,22.7 -33.6,10.5 -19.2,23.0"
+      data-role="wing-left"
       fill="url(#wingGrad)"
       class="slot-stroke"
       stroke-width="3"
@@ -105,6 +106,7 @@
     />
     <polygon
       points="36.2,27.1 50.4,23.0 34.3,10.3 19.3,22.4"
+      data-role="wing-right"
       fill="url(#wingGrad)"
       class="slot-stroke"
       stroke-width="3"
@@ -113,6 +115,7 @@
 
     <polygon
       points="0,-32 37,3 16,18 -16,18 -37,3"
+      data-role="hull-main"
       fill="url(#hullGrad)"
       class="slot-stroke"
       stroke-width="3"

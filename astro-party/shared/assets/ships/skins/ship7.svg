@@ -5,21 +5,42 @@
       .slot-secondary { fill: var(--slot-secondary, #ffffff); }
       .slot-stroke { stroke: var(--slot-stroke, #041018); }
 
-      .o { stroke: #041018; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
-      .o3 { stroke: #041018; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+      .o { stroke: var(--slot-stroke, #041018); stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+      .o3 { stroke: var(--slot-stroke, #041018); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 
-      .hullBase { fill: #00eaff; }
-      .hullShadow { fill: #00879a; }
-      .hullDeep { fill: #004c57; }
+      .hullBase { fill: var(--slot-primary, #00f0ff); }
+      .hullShadow {
+        fill: #000;
+        opacity: 0.22;
+      }
+      .hullDeep {
+        fill: #000;
+        opacity: 0.38;
+      }
 
-      .wingBase { fill: #00d6f4; }
-      .wingShadow { fill: #007483; }
+      .wingBase { fill: var(--slot-primary, #00f0ff); }
+      .wingShadow {
+        fill: #000;
+        opacity: 0.22;
+      }
 
-      .panel { fill: #0b2a37; opacity: 0.9; }
-      .rim { fill: #ffffff; opacity: 0.75; }
+      .panel {
+        fill: #000;
+        opacity: 0.12;
+      }
+      .rim {
+        fill: var(--slot-secondary, #ffffff);
+        opacity: 0.95;
+      }
 
-      .accent { fill: #ffffff; opacity: 0.92; }
-      .accentNeon { fill: var(--slot-primary, #00f0ff); opacity: 1; }
+      .accent {
+        fill: var(--slot-secondary, #ffffff);
+        opacity: 0.85;
+      }
+      .accentNeon {
+        fill: var(--slot-secondary, #ffffff);
+        opacity: 0.95;
+      }
 
       .glow { fill: var(--slot-primary, #00f0ff); opacity: 0.22; }
     </style>
@@ -30,13 +51,13 @@
     <circle cx="0" cy="30" r="28" class="glow"/>
 
     <!-- wings -->
-    <polygon points="-32.9,27.1 -49.9,22.7 -33.6,10.5 -19.2,23.0" class="wingBase o3"/>
+    <polygon points="-32.9,27.1 -49.9,22.7 -33.6,10.5 -19.2,23.0" data-role="wing-left" class="wingBase o3"/>
     <polygon points="-33.6,10.5 -49.9,22.7 -33.2,18.0 -21.2,22.0" class="wingShadow"/>
-    <polygon points="36.2,27.1 50.4,23.0 34.3,10.3 19.3,22.4" class="wingBase o3"/>
+    <polygon points="36.2,27.1 50.4,23.0 34.3,10.3 19.3,22.4" data-role="wing-right" class="wingBase o3"/>
     <polygon points="34.3,10.3 50.4,23.0 33.9,18.0 21.8,22.0" class="wingShadow"/>
 
     <!-- hull -->
-    <polygon points="0,-32 37,3 16,18 -16,18 -37,3" class="hullBase o"/>
+    <polygon points="0,-32 37,3 16,18 -16,18 -37,3" data-role="hull-main" class="hullBase o"/>
     <polygon points="0,-32 37,3 16,18 0,14" class="hullShadow"/>
     <polygon points="0,-32 -37,3 -16,18 0,14" class="hullDeep"/>
 

@@ -11,6 +11,7 @@ import {
   SHIP_VISUAL_REFERENCE_SIZE,
 } from "../../../../shared/geometry/ShipRenderAnchors";
 import { PILOT_EFFECT_LOCAL_POINTS } from "../../../../shared/geometry/PilotRenderAnchors";
+import type { ShipSkinId } from "../../../../shared/geometry/ShipSkins";
 import { EntitySpriteStore } from "../assets/EntitySpriteStore";
 
 interface EntityVisualsDeps {
@@ -62,6 +63,7 @@ export class EntityVisualsRenderer {
   drawShip(
     state: ShipState,
     color: PlayerColor,
+    shipSkinId: ShipSkinId,
     shieldHits?: number,
     laserCharges?: number,
     laserMaxCharges?: number,
@@ -269,7 +271,7 @@ export class EntityVisualsRenderer {
       ctx.globalAlpha = 0.5;
     }
 
-    this.entitySprites.drawEntity(this.ctx, "ship", {
+    this.entitySprites.drawShipSkin(this.ctx, shipSkinId, {
       "slot-primary": color.primary,
     });
 
@@ -404,10 +406,11 @@ export class EntityVisualsRenderer {
     const { ctx } = this;
     const { x, y, vx, vy } = state;
     const angle = Math.atan2(vy, vx);
-    const glowRadius = Math.max(
-      0.1,
-      state.visualGlowRadius ?? GAME_CONFIG.PROJECTILE_VISUAL_GLOW_RADIUS,
-    );
+    const glowRadius =
+      Math.max(
+        0.1,
+        state.visualGlowRadius ?? GAME_CONFIG.PROJECTILE_VISUAL_GLOW_RADIUS,
+      ) * 0.82;
     const coreRadius = Math.max(0.1, state.radius ?? GAME_CONFIG.PROJECTILE_RADIUS);
     const tailRadiusX = coreRadius * 1.9;
     const tailRadiusY = coreRadius * 0.62;
@@ -417,7 +420,7 @@ export class EntityVisualsRenderer {
     ctx.translate(x, y);
     ctx.rotate(angle);
 
-    ctx.fillStyle = "rgba(255, 236, 196, 0.35)";
+    ctx.fillStyle = "rgba(255, 236, 196, 0.2)";
     ctx.beginPath();
     ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
     ctx.fill();
