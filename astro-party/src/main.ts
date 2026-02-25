@@ -47,6 +47,7 @@ function runSplashScreen(): Promise<void> {
   SoundManager.preload("logoSpace");
   SoundManager.preload("logoForce");
   SoundManager.preload("battleMusic");
+  SoundManager.preload("leaderboardMusic");
 
   return new Promise((resolve) => {
     const splash = document.getElementById("splashScreen");
@@ -154,23 +155,39 @@ async function init(): Promise<void> {
       const previousPhase = currentPhase;
       currentPhase = phase;
 
-      // Stop main menu music when leaving the start screen
-      if (previousPhase === "START" && phase !== "START") {
+      // Main menu music plays across START and LOBBY — feels like one continuous zone
+      const inMenuZone = phase === "START" || phase === "LOBBY";
+      const wasInMenuZone = previousPhase === "START" || previousPhase === "LOBBY";
+
+      if (inMenuZone && !SoundManager.isPlaying("mainMenu")) {
+        // Entering menu zone from outside (e.g. game end → lobby) or cold start
+        void SoundManager.play("mainMenu");
+      } else if (!inMenuZone && wasInMenuZone) {
+        // Leaving menu zone (e.g. lobby → countdown)
         SoundManager.stop("mainMenu");
       }
-      // Resume main menu music when returning to start screen
-      if (phase === "START" && previousPhase !== "START") {
-        void SoundManager.play("mainMenu");
-      }
+      // START ↔ LOBBY transitions: music is already playing — do nothing
 
-      // Battle music: play during rounds (COUNTDOWN/PLAYING/ROUND_END), stop otherwise
+      // Battle music: play during rounds (COUNTDOWN/PLAYING/ROUND_END), crossfade out on GAME_END
       const inRound = phase === "COUNTDOWN" || phase === "PLAYING" || phase === "ROUND_END";
       const wasInRound = previousPhase === "COUNTDOWN" || previousPhase === "PLAYING" || previousPhase === "ROUND_END";
 
       if (inRound && !SoundManager.isPlaying("battleMusic")) {
         void SoundManager.play("battleMusic");
       } else if (!inRound && wasInRound) {
-        SoundManager.stop("battleMusic");
+        if (phase === "GAME_END") {
+          // Crossfade: battle music fades out as podium music fades in simultaneously
+          SoundManager.fadeOutAndStop("battleMusic", 2.0);
+          void SoundManager.play("leaderboardMusic");
+        } else {
+          // Player left mid-game (e.g. back to menu) — stop immediately
+          SoundManager.stop("battleMusic");
+        }
+      }
+
+      // Stop podium music when leaving the leaderboard screen
+      if (previousPhase === "GAME_END" && phase !== "GAME_END") {
+        SoundManager.stop("leaderboardMusic");
       }
 
       syncScreenToPhase(phase, true, previousPhase);

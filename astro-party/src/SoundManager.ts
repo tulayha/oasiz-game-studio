@@ -12,14 +12,15 @@ import { SettingsManager } from "./SettingsManager";
 
 // ─── Asset Imports ────────────────────────────────────────────────────────────
 import splashScreenSrc from "../Sound/Splash-Screen-Sound.wav?url";
-import mainMenuSrc from "../Sound/Audio-Main-Menu-5.m4a?url";
+import mainMenuSrc from "../Sound/Main-Menu-Sound-3.wav?url";
 import logoHitSrc from "../Sound/Logo-Main-Menu-1.wav?url";
 import battleMusicSrc from "../Sound/Night Rockus.wav?url";
+import leaderboardMusicSrc from "../Sound/Podium.wav?url";
 // import nextSoundSrc from "../Sound/Next-Sound.wav?url";  ← future sounds here
 
 // ─── Sound IDs ────────────────────────────────────────────────────────────────
 // Add new IDs to this union when registering a new sound.
-export type SoundId = "splashScreen" | "mainMenu" | "logoSpace" | "logoForce" | "battleMusic";
+export type SoundId = "splashScreen" | "mainMenu" | "logoSpace" | "logoForce" | "battleMusic" | "leaderboardMusic";
 
 // ─── Sound Config ─────────────────────────────────────────────────────────────
 interface SoundDef {
@@ -28,6 +29,8 @@ interface SoundDef {
   volume: number;
   /** Loop indefinitely — uses Web Audio API for gapless playback */
   loop: boolean;
+  /** Fade-in duration in seconds when the loop starts (optional) */
+  fadeIn?: number;
   /** Gate behind the FX toggle in Settings */
   checkFx: boolean;
   /** Gate behind the Music toggle in Settings */
@@ -69,8 +72,16 @@ const SOUND_REGISTRY: Record<SoundId, SoundDef> = {
     src: battleMusicSrc,
     volume: 0.5,
     loop: true,
+    fadeIn: 3.0, // fade in over 3 seconds
     checkFx: false,
     checkMusic: true, // respects the Music toggle in Settings
+  },
+  leaderboardMusic: {
+    src: leaderboardMusicSrc,
+    volume: 0.6,
+    loop: false,
+    checkFx: false,
+    checkMusic: true,
   },
 };
 
@@ -220,8 +231,15 @@ class SoundManagerClass {
     }
 
     const gain = ctx.createGain();
-    gain.gain.value = def.volume;
     gain.connect(ctx.destination);
+
+    if (def.fadeIn && def.fadeIn > 0) {
+      // Start silent, ramp up to target volume over fadeIn seconds
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(def.volume, ctx.currentTime + def.fadeIn);
+    } else {
+      gain.gain.value = def.volume;
+    }
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
@@ -243,6 +261,30 @@ class SoundManagerClass {
     }
     node.gain.disconnect();
     this.loopNodes.delete(id);
+  }
+
+  /**
+   * Smoothly fade a looping sound out over `duration` seconds then stop it.
+   * Removes it from loopNodes immediately so isPlaying returns false right away.
+   */
+  fadeOutAndStop(id: SoundId, duration: number): void {
+    const node = this.loopNodes.get(id);
+    if (!node) return;
+    // Remove from map immediately — treat as "no longer active"
+    this.loopNodes.delete(id);
+
+    const ctx = this.getAudioContext();
+    const now = ctx.currentTime;
+
+    // Ramp gain from its current value down to 0
+    node.gain.gain.cancelScheduledValues(now);
+    node.gain.gain.setValueAtTime(node.gain.gain.value, now);
+    node.gain.gain.linearRampToValueAtTime(0, now + duration);
+
+    // Stop the source exactly when the fade ends, then disconnect
+    node.source.loop = false;
+    node.source.stop(now + duration);
+    node.source.onended = () => node.gain.disconnect();
   }
 
   /**
