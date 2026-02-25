@@ -8,6 +8,7 @@ interface CliOptions {
   outputDir: string;
   ffmpegBin: string;
   dryRun: boolean;
+  onlySelectors: string[];
 }
 
 const SUPPORTED_INPUT_EXTENSIONS = [".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aif", ".aiff"];
@@ -23,6 +24,15 @@ function parseCliOptions(projectRoot: string): CliOptions {
   let outputDir = resolve(projectRoot, "public", "assets", "audio");
   let ffmpegBin = process.env.FFMPEG_BIN ?? "ffmpeg";
   let dryRun = false;
+  const onlySelectors: string[] = [];
+
+  const addOnlySelectors = (rawValue: string): void => {
+    const selectors = rawValue
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    onlySelectors.push(...selectors);
+  };
 
   for (let index = 0; index < args.length; index += 1) {
     const currentArg = args[index];
@@ -62,6 +72,16 @@ function parseCliOptions(projectRoot: string): CliOptions {
       continue;
     }
 
+    if (currentArg === "--only") {
+      const next = args[index + 1];
+      if (!next) {
+        throw new Error("Missing value for --only");
+      }
+      addOnlySelectors(next);
+      index += 1;
+      continue;
+    }
+
     if (currentArg === "--help") {
       printUsage();
       process.exit(0);
@@ -82,6 +102,11 @@ function parseCliOptions(projectRoot: string): CliOptions {
       continue;
     }
 
+    if (currentArg.startsWith("--only=")) {
+      addOnlySelectors(currentArg.split("=").slice(1).join("="));
+      continue;
+    }
+
     throw new Error("Unknown argument: " + currentArg);
   }
 
@@ -90,13 +115,14 @@ function parseCliOptions(projectRoot: string): CliOptions {
     outputDir,
     ffmpegBin,
     dryRun,
+    onlySelectors,
   };
 }
 
 function printUsage(): void {
   log(
     "processAudioAssets.usage",
-    "bun run process:audio [--src assets/audio-src] [--out public/assets/audio] [--ffmpeg-bin ffmpeg] [--dry-run]",
+    "bun run process:audio [--src assets/audio-src] [--out public/assets/audio] [--ffmpeg-bin ffmpeg] [--dry-run] [--only selector]",
   );
 }
 
@@ -113,6 +139,105 @@ function collectManifestRelativePaths(): string[] {
     unique.add(asset.relativePath);
   }
   return Array.from(unique).sort();
+}
+
+function collectManifestRelativePathsByAssetId(): Map<string, string> {
+  const output = new Map<string, string>();
+  for (const [assetId, asset] of Object.entries(AUDIO_ASSETS)) {
+    output.set(assetId.toLowerCase(), asset.relativePath);
+  }
+  return output;
+}
+
+function normalizeSelector(rawSelector: string): string {
+  let normalized = rawSelector.trim().replace(/\\/g, "/").toLowerCase();
+  while (normalized.startsWith("./")) {
+    normalized = normalized.slice(2);
+  }
+  return normalized;
+}
+
+function resolveSelectedTargets(
+  manifestTargets: string[],
+  onlySelectors: string[],
+): string[] {
+  if (onlySelectors.length <= 0) {
+    return manifestTargets;
+  }
+
+  const targetByRelativePath = new Map<string, string>();
+  const targetsByBasenameWithoutExtension = new Map<string, Set<string>>();
+  const targetByAssetId = collectManifestRelativePathsByAssetId();
+
+  for (const target of manifestTargets) {
+    const normalizedTarget = normalizeSelector(target);
+    targetByRelativePath.set(normalizedTarget, target);
+
+    const base = basename(target);
+    const extension = extname(base);
+    const baseWithoutExtension = base.slice(0, base.length - extension.length).toLowerCase();
+    const existing = targetsByBasenameWithoutExtension.get(baseWithoutExtension);
+    if (existing) {
+      existing.add(target);
+    } else {
+      targetsByBasenameWithoutExtension.set(baseWithoutExtension, new Set([target]));
+    }
+  }
+
+  const selectedTargets = new Set<string>();
+
+  for (const rawSelector of onlySelectors) {
+    const normalizedSelector = normalizeSelector(rawSelector);
+    if (normalizedSelector.length <= 0) {
+      continue;
+    }
+
+    const exactTarget = targetByRelativePath.get(normalizedSelector);
+    if (exactTarget) {
+      selectedTargets.add(exactTarget);
+      continue;
+    }
+
+    const assetTarget = targetByAssetId.get(normalizedSelector);
+    if (assetTarget) {
+      selectedTargets.add(assetTarget);
+      continue;
+    }
+
+    const selectorBase = basename(normalizedSelector);
+    const selectorExtension = extname(selectorBase);
+    const selectorWithoutExtension = selectorBase
+      .slice(0, selectorBase.length - selectorExtension.length)
+      .toLowerCase();
+    const basenameMatches = targetsByBasenameWithoutExtension.get(selectorWithoutExtension);
+    if (basenameMatches && basenameMatches.size === 1) {
+      const firstMatch = basenameMatches.values().next().value as string;
+      selectedTargets.add(firstMatch);
+      continue;
+    }
+
+    if (basenameMatches && basenameMatches.size > 1) {
+      throw new Error(
+        "Selector \"" +
+          rawSelector +
+          "\" matched multiple targets: " +
+          Array.from(basenameMatches).join(", ") +
+          ". Use a full relative path or asset id.",
+      );
+    }
+
+    throw new Error(
+      "Unknown --only selector \"" +
+        rawSelector +
+        "\". Use asset id (example: sfxFight) or target filename (example: sfx-fight.ogg).",
+    );
+  }
+
+  if (selectedTargets.size <= 0) {
+    throw new Error("No targets selected after applying --only selectors.");
+  }
+
+  return manifestTargets.filter((target) => selectedTargets.has(target));
 }
 
 function listFilesRecursively(rootDir: string): string[] {
@@ -218,6 +343,10 @@ function processAudioAssets(options: CliOptions): void {
   if (manifestTargets.length <= 0) {
     throw new Error("No audio targets found in src/audio/assetManifest.ts");
   }
+  const selectedTargets = resolveSelectedTargets(
+    manifestTargets,
+    options.onlySelectors,
+  );
 
   mkdirSync(options.outputDir, { recursive: true });
 
@@ -225,10 +354,20 @@ function processAudioAssets(options: CliOptions): void {
     verifyFfmpeg(options.ffmpegBin);
   }
 
+  if (options.onlySelectors.length > 0) {
+    log(
+      "processAudioAssets.main",
+      "Selected " +
+        String(selectedTargets.length) +
+        " target(s): " +
+        selectedTargets.join(", "),
+    );
+  }
+
   const missingTargets: string[] = [];
   const processedTargets: string[] = [];
 
-  for (const targetRelativePath of manifestTargets) {
+  for (const targetRelativePath of selectedTargets) {
     const sourcePath = findSourceFile(options.sourceDir, targetRelativePath);
     if (!sourcePath) {
       missingTargets.push(targetRelativePath);
@@ -284,11 +423,17 @@ function processAudioAssets(options: CliOptions): void {
   );
 
   if (missingTargets.length > 0) {
+    const missingDescriptor =
+      options.onlySelectors.length > 0
+        ? "requested files"
+        : "expected files from manifest";
     log(
       "processAudioAssets.summary",
       "Missing " +
         String(missingTargets.length) +
-        " expected files from manifest. Add them to " +
+        " " +
+        missingDescriptor +
+        ". Add them to " +
         options.sourceDir +
         " when ready.",
     );
