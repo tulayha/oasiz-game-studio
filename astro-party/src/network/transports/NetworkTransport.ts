@@ -140,6 +140,11 @@ export interface NetworkTransport {
   addLocalBot(keySlot: number): Promise<unknown | null>;
   removeBot(playerId: string): Promise<boolean>;
   kickPlayer(playerId: string): Promise<boolean>;
+  setPlayerAI?(sessionId: string, enabled: boolean): void;
+  skipCountdown?(): void;
+  pauseSimulation?(paused: boolean): void;
+  demoRespawnPlayer?(playerId: string): void;
+  demoCleanupStalePilots?(maxAgeMs: number): void;
 
   getMyPlayerId(): string | null;
   isHost(): boolean;

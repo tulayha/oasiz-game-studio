@@ -265,6 +265,26 @@ export class NetworkManager {
     return this.transport.kickPlayer(playerId);
   }
 
+  setPlayerAI(sessionId: string, enabled: boolean): void {
+    this.transport.setPlayerAI?.(sessionId, enabled);
+  }
+
+  skipCountdown(): void {
+    this.transport.skipCountdown?.();
+  }
+
+  pauseSimulation(paused: boolean): void {
+    this.transport.pauseSimulation?.(paused);
+  }
+
+  demoRespawnPlayer(playerId: string): void {
+    this.transport.demoRespawnPlayer?.(playerId);
+  }
+
+  demoCleanupStalePilots(maxAgeMs: number): void {
+    this.transport.demoCleanupStalePilots?.(maxAgeMs);
+  }
+
   isPlayerBot(playerId: string): boolean {
     return this.transport.isPlayerBot(playerId);
   }

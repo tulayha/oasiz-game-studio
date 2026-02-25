@@ -67,6 +67,17 @@ export class RenderViewportController {
     this.cameraFocusY = GAME_CONFIG.ARENA_HEIGHT / 2;
   }
 
+  /** Convert a world-space point to CSS viewport coordinates (px from top-left). */
+  worldToViewportCSS(wx: number, wy: number): { x: number; y: number } {
+    const zoom = this.getEffectiveCameraZoom();
+    const focus = this.getClampedCameraFocus(zoom);
+    const scaled = this.scale * zoom;
+    return {
+      x: (wx - focus.x) * scaled + this.viewportWidth / 2,
+      y: (wy - focus.y) * scaled + this.viewportHeight / 2,
+    };
+  }
+
   applyWorldTransform(ctx: CanvasRenderingContext2D): void {
     const zoom = this.getEffectiveCameraZoom();
     const focus = this.getClampedCameraFocus(zoom);

@@ -93,6 +93,7 @@ export class Game {
   private readonly debugToolsRequested = isClientDebugToolsRequested();
   private debugToolsEnabledForRoom = false;
   private debugSessionTainted = false;
+  private isDemoSession = false;
   private devKeyInputRequestedByUI = false;
   private advancedSettings: AdvancedSettings = {
     ...DEFAULT_ADVANCED_SETTINGS,
@@ -101,6 +102,9 @@ export class Game {
   private baseMode: BaseGameMode = "STANDARD";
   private selectedMapId: MapId = 0;
   private showMapElements = false;
+  private hideBorder = false;
+  private demoZoomBoost: number | null = null;
+  private cachedLocalShipWorldPos: { x: number; y: number } | null = null;
 
   static SHOW_PING = true;
 
@@ -1223,10 +1227,22 @@ export class Game {
       phase: this.flowMgr.phase,
       anchors: this.collectAdaptiveCameraAnchors(renderState),
     });
+
+    // Cache local player's ship world position for overlay positioning
+    const myId = this.network.getMyPlayerId();
+    const myShip = myId
+      ? renderState.networkShips.find((s) => s.playerId === myId)
+      : undefined;
+    if (myShip) {
+      this.cachedLocalShipWorldPos = { x: myShip.x, y: myShip.y };
+    }
+
+    // Apply demo zoom boost (multiplies adaptive zoom, focuses on player ship)
+    const zoomMultiplier = this.demoZoomBoost ?? 1;
     this.renderer.setCamera(
-      adaptiveCameraState.zoom,
-      adaptiveCameraState.focusX,
-      adaptiveCameraState.focusY,
+      adaptiveCameraState.zoom * zoomMultiplier,
+      myShip && this.demoZoomBoost ? myShip.x : adaptiveCameraState.focusX,
+      myShip && this.demoZoomBoost ? myShip.y : adaptiveCameraState.focusY,
     );
 
     this.gameRenderer.render({
@@ -1235,6 +1251,7 @@ export class Game {
       phase: this.flowMgr.phase,
       countdown: this.flowMgr.countdown,
       showMapElements: this.showMapElements,
+      hideBorder: this.hideBorder,
       isDevModeEnabled: this.isDevModeEnabled(),
       playerPowerUps: this.playerPowerUps,
       players: this.playerMgr.players,
@@ -1554,6 +1571,53 @@ export class Game {
     this.showMapElements = visible;
   }
 
+  setHideBorder(hidden: boolean): void {
+    this.hideBorder = hidden;
+  }
+
+  /** Multiplies the adaptive camera zoom by `boost` (e.g. 2.0) or clears with null. */
+  setDemoZoomBoost(boost: number | null): void {
+    this.demoZoomBoost = boost;
+  }
+
+  /** Returns the CSS viewport position of the local player's ship, or null if unknown. */
+  getLocalShipViewportPos(): { x: number; y: number } | null {
+    if (!this.cachedLocalShipWorldPos) return null;
+    return this.renderer.worldToViewportCSS(
+      this.cachedLocalShipWorldPos.x,
+      this.cachedLocalShipWorldPos.y,
+    );
+  }
+
+  setDemoSession(active: boolean): void {
+    this.isDemoSession = active;
+  }
+
+  isDemoMode(): boolean {
+    return this.isDemoSession;
+  }
+
+  setHostAI(enabled: boolean): void {
+    const myId = this.network.getMyPlayerId();
+    if (myId) this.network.setPlayerAI(myId, enabled);
+  }
+
+  skipDemoCountdown(): void {
+    this.network.skipCountdown();
+  }
+
+  setSimPaused(paused: boolean): void {
+    this.network.pauseSimulation(paused);
+  }
+
+  demoRespawnPlayer(playerId: string): void {
+    this.network.demoRespawnPlayer(playerId);
+  }
+
+  demoCleanupStalePilots(maxAgeMs: number): void {
+    this.network.demoCleanupStalePilots(maxAgeMs);
+  }
+
   setSessionMode(mode: "online" | "local"): void {
     this.network.setTransportMode(mode);
     this.debugToolsEnabledForRoom = false;
@@ -1827,6 +1891,7 @@ export class Game {
   }
 
   private shouldSubmitScoreNow(hasEligibleLobbyBot: boolean): boolean {
+    if (this.isDemoSession) return false;
     return shouldSubmitScoreToPlatform(
       hasEligibleLobbyBot,
       this.debugSessionTainted,

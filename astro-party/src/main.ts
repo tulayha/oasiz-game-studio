@@ -17,6 +17,9 @@ import {
   playCountdownFeedback,
   playGameEndFeedback,
 } from "./feedback/mainFlowFeedback";
+import { DemoController } from "./demo/DemoController";
+import { DemoOverlayUI } from "./demo/DemoOverlayUI";
+import { elements } from "./ui/elements";
 
 declare const __APP_VERSION__: string;
 declare const __APP_BUILD_TAG__: string;
@@ -31,6 +34,8 @@ declare global {
     setNextSeed?: (seed: number) => void;
   }
 }
+
+const DEMO_SEEN_KEY = "astro-party-demo-seen";
 
 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
 const game = new Game(canvas);
@@ -291,6 +296,102 @@ async function init(): Promise<void> {
     void AudioManager.playSceneMusic(nextScene, { restart: shouldRestart });
   };
 
+  // Demo state
+  let demoController: DemoController | null = null;
+  let demoOverlay: DemoOverlayUI | null = null;
+  let starfieldInitializedForDemo = false;
+
+  async function teardownDemoAndShowMenu(): Promise<void> {
+    if (!demoController?.isDemoActive()) return;
+    demoOverlay?.hideAll();
+    await demoController.teardown();
+    localStorage.setItem(DEMO_SEEN_KEY, "1");
+    demoController = null;
+    demoOverlay = null;
+    starfieldInitializedForDemo = false;
+    // Remove demo-specific starfield state
+    elements.starsContainer.classList.remove("demo-stars", "active");
+    screenController.showScreen("start");
+    startUI.resetStartButtons(true);
+    startUI.setBeforeAction(null);
+  }
+
+  async function startDemoSession(showAttract = true): Promise<void> {
+    // Clean up any existing demo first
+    if (demoController?.isDemoActive()) {
+      await demoController.teardown().catch(() => {});
+    }
+    demoController = null;
+    demoOverlay = null;
+    starfieldInitializedForDemo = false;
+
+    // Leave any active game
+    if (game.getPhase() !== "START") {
+      await game.leaveGame().catch(() => {});
+    }
+
+    demoController = new DemoController(game);
+    demoOverlay = new DemoOverlayUI(viewport.isMobile);
+
+    demoOverlay.setCallbacks({
+      onTapToStart: () => {
+        demoController!.enterTutorial();
+        demoOverlay!.showTutorial(viewport.isMobile);
+      },
+      onTutorialComplete: () => {
+        // Tutorial finished → player keeps free-playing with Exit Demo button
+        demoController!.enterFreePlay();
+        localStorage.setItem(DEMO_SEEN_KEY, "1");
+        demoOverlay!.showExitButton(() => {
+          // Keep the battle running — transition to MENU state (same as skip)
+          demoOverlay?.hideAll();
+          demoController?.enterMenu();
+          screenController.showScreen("start");
+          startUI.resetStartButtons(true);
+        });
+      },
+      onSkipToMenu: () => {
+        // Keep background battle alive — just transition to MENU state
+        demoOverlay?.hideAll();
+        demoController?.enterMenu();
+        screenController.showScreen("start");
+        startUI.resetStartButtons(true);
+        localStorage.setItem(DEMO_SEEN_KEY, "1");
+      },
+      onPauseGame: () => demoController?.pauseGame(),
+      onResumeGame: () => demoController?.resumeGame(),
+      getShipColor: () => {
+        const myId = game.getMyPlayerId();
+        const players = game.getPlayers();
+        const myPlayer = myId ? players.find((p) => p.id === myId) : players[0];
+        return myPlayer?.color.primary ?? "#00f0ff";
+      },
+      getShipPos: () => game.getLocalShipViewportPos(),
+      setZoom: (boost) => game.setDemoZoomBoost(boost),
+    });
+
+    startUI.setBeforeAction(teardownDemoAndShowMenu);
+
+    await demoController.startDemo();
+
+    // Activate the starfield immediately so it's visible in the attract overlay.
+    // forceDemoStarfield bypasses the activeScreen guard in screens.ts.
+    if (!starfieldInitializedForDemo) {
+      elements.starsContainer.classList.add("demo-stars");
+      screenController.forceDemoStarfield(6 as MapId);
+      starfieldInitializedForDemo = true;
+    }
+
+    if (showAttract) {
+      demoOverlay.showAttract();
+    } else {
+      // Second visit: skip attract, go straight to background MENU state
+      demoController.enterMenu();
+      screenController.showScreen("start");
+      startUI.resetStartButtons(false);
+    }
+  }
+
   const syncScreenToPhase = (
     phase: GamePhase,
     triggerPhaseEffects: boolean,
@@ -300,10 +401,58 @@ async function init(): Promise<void> {
       lobbyUI.closeMapPicker();
     }
 
+    // During demo: intercept game phases to show background battle without HUD
+    if (demoController?.isDemoActive()) {
+      const demoState = demoController.getState();
+      switch (phase) {
+        case "LOBBY":
+          // Demo just created room — suppress lobby screen
+          return;
+        case "COUNTDOWN":
+        case "PLAYING":
+        case "ROUND_END": {
+          // Show game canvas + starfield, but suppress HUD and normal game UI
+          game.setMapElementsVisible(true);
+          if (!starfieldInitializedForDemo) {
+            elements.starsContainer.classList.add("demo-stars");
+            screenController.forceDemoStarfield(6 as MapId);
+            starfieldInitializedForDemo = true;
+          }
+          if (demoState === "MENU") {
+            // MENU state: show start screen over the game canvas
+            screenController.showScreen("start");
+            startUI.resetStartButtons(false);
+          } else {
+            elements.startScreen.classList.add("hidden");
+          }
+          elements.hud.classList.remove("active");
+          // Keyboard enabled only when player is in control
+          if (demoState !== "TUTORIAL" && demoState !== "FREEPLAY") {
+            game.setKeyboardInputEnabled(false);
+          }
+          // Forward to DemoController for countdown skip + respawn timer cleanup
+          demoController.onPhaseChange(phase);
+          return;
+        }
+        case "GAME_END":
+          // Auto-restart — DemoController handles this via onPhaseChange
+          demoController.onPhaseChange(phase);
+          return;
+        case "START":
+          // Demo tore itself down — fall through to normal START handling
+          break;
+      }
+    }
+
     switch (phase) {
       case "START":
         screenController.showScreen("start");
         startUI.resetStartButtons(previousPhase !== "START");
+        // Restart the background AI battle when returning from a real match.
+        // Only when demoController is fully gone (not mid-teardown).
+        if (previousPhase !== null && previousPhase !== "START" && demoController === null) {
+          void startDemoSession(false);
+        }
         break;
       case "LOBBY":
         screenController.showScreen("lobby");
@@ -345,6 +494,8 @@ async function init(): Promise<void> {
     },
 
     onPlayersUpdate: (players: PlayerData[]) => {
+      // Suppress lobby/HUD updates during demo attract
+      if (demoController?.isDemoActive()) return;
       lobbyUI.updateLobbyUI(players);
       screenController.updateScoreTrack(players);
       screenController.updateHudControlsVisibility();
@@ -368,19 +519,24 @@ async function init(): Promise<void> {
       playCountdownFeedback(count);
     },
     onGameModeChange: (mode: GameMode) => {
+      if (demoController?.isDemoActive()) return;
       lobbyUI.setModeUI(mode, "remote");
     },
     onRoundResult: () => {
+      if (demoController?.isDemoActive()) return;
       screenController.updateRoundResultOverlay();
     },
     onAdvancedSettingsChange: (settings) => {
+      if (demoController?.isDemoActive()) return;
       advancedSettingsUI.updateAdvancedSettingsUI(settings);
       screenController.updateScoreTrack(game.getPlayers());
     },
     onSystemMessage: (message, durationMs) => {
+      if (demoController?.isDemoActive()) return;
       screenController.showSystemMessage(message, durationMs);
     },
     onMapChange: (mapId: MapId) => {
+      if (demoController?.isDemoActive()) return;
       lobbyUI.setMapUI(mapId, "remote");
       lobbyUI.updateMapSelector();
       mapPreviewUI.updateMapPreview(mapId);
@@ -411,6 +567,13 @@ async function init(): Promise<void> {
       restoreLiveUi: () => {
         syncScreenToPhase(game.getPhase(), false, currentPhase);
       },
+      playDemo: async () => {
+        try {
+          await startDemoSession();
+        } catch (e) {
+          console.error("[Main] Debug: demo failed to start:", e);
+        }
+      },
     });
   }
 
@@ -434,6 +597,26 @@ async function init(): Promise<void> {
     } catch (e) {
       console.error("[Main] Error auto-joining room:", e);
     }
+    return; // Skip demo when platform-injected room code is present
+  }
+
+  // Always start a background AI battle.
+  // Show the attract overlay only on first visit; otherwise go straight
+  // to the menu with ships visible behind it.
+  const showAttractOverlay = !localStorage.getItem(DEMO_SEEN_KEY);
+  try {
+    await startDemoSession(showAttractOverlay);
+  } catch (e) {
+    console.error("[Main] Demo failed to start, falling back to menu:", e);
+    const ctrl = demoController as DemoController | null;
+    if (ctrl?.isDemoActive()) {
+      await ctrl.teardown().catch(() => {});
+    }
+    demoController = null;
+    demoOverlay = null;
+    screenController.showScreen("start");
+    startUI.resetStartButtons(true);
+    startUI.setBeforeAction(null);
   }
 }
 
