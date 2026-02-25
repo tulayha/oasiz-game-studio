@@ -20,6 +20,7 @@ interface PlayMusicOptions {
 
 class AudioManagerClass {
   private assetPlayers: Map<AudioAssetId, Howl> = new Map();
+  private activeSoundIdByAsset: Map<AudioAssetId, number> = new Map();
   private activeMusicAssetId: AudioAssetId | null = null;
   private activeMusicSoundId: number | null = null;
 
@@ -63,6 +64,7 @@ class AudioManagerClass {
   private playAsset(assetId: AudioAssetId, restart: boolean): number | null {
     const definition = AUDIO_ASSETS[assetId];
     if (!this.canPlayChannel(definition.channel)) {
+      this.activeSoundIdByAsset.delete(assetId);
       return null;
     }
 
@@ -72,13 +74,16 @@ class AudioManagerClass {
 
     if (restart) {
       player.stop();
+      this.activeSoundIdByAsset.delete(assetId);
     }
 
     const soundId = player.play();
     if (typeof soundId !== "number") {
       console.log("[AudioManager.playAsset]", "Could not play asset " + assetId);
+      this.activeSoundIdByAsset.delete(assetId);
       return null;
     }
+    this.activeSoundIdByAsset.set(assetId, soundId);
     return soundId;
   }
 
@@ -95,8 +100,82 @@ class AudioManagerClass {
         active.stop();
       }
     }
+    this.activeSoundIdByAsset.delete(this.activeMusicAssetId);
     this.activeMusicAssetId = null;
     this.activeMusicSoundId = null;
+  }
+
+  private getAssetPlaybackTime(assetId: AudioAssetId): number | null {
+    const soundId = this.activeSoundIdByAsset.get(assetId);
+    if (soundId === undefined) {
+      return null;
+    }
+    const player = this.assetPlayers.get(assetId);
+    if (!player || !player.playing(soundId)) {
+      return null;
+    }
+    const seekValue = player.seek(undefined, soundId);
+    if (typeof seekValue !== "number" || !Number.isFinite(seekValue)) {
+      return null;
+    }
+    return seekValue;
+  }
+
+  private isAssetLoaded(assetId: AudioAssetId): boolean {
+    const player = this.assetPlayers.get(assetId);
+    if (!player) {
+      return false;
+    }
+    return player.state() === "loaded";
+  }
+
+  private waitForPlayerLoaded(
+    assetId: AudioAssetId,
+    player: Howl,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    if (player.state() === "loaded") {
+      return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+      const handleLoad = (): void => {
+        finalize(true, "");
+      };
+
+      const handleLoadError = (...args: unknown[]): void => {
+        const errorText = args.length > 1 ? String(args[1]) : "Unknown load error";
+        finalize(false, "Load failed for " + assetId + ": " + errorText);
+      };
+
+      const finalize = (loaded: boolean, message: string): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        player.off("load", handleLoad);
+        player.off("loaderror", handleLoadError);
+        if (!loaded) {
+          console.log("[AudioManager.waitForPlayerLoaded]", message);
+        }
+        resolve(loaded);
+      };
+
+      timeoutHandle = setTimeout(() => {
+        finalize(false, "Load timeout for " + assetId);
+      }, timeoutMs);
+
+      player.once("load", handleLoad);
+      player.once("loaderror", handleLoadError);
+      player.load();
+    });
   }
 
   getConfiguredAssetIds(): AudioAssetId[] {
@@ -112,15 +191,24 @@ class AudioManagerClass {
     player.load();
   }
 
-  preloadConfiguredAssets(): void {
+  async preloadAssets(
+    assetIds: AudioAssetId[],
+    timeoutMs: number = 6000,
+  ): Promise<void> {
+    const uniqueIds = Array.from(new Set(assetIds));
+    const preloadTasks = uniqueIds.map(async (assetId) => {
+      const player = this.getOrCreateAssetPlayer(assetId);
+      await this.waitForPlayerLoaded(assetId, player, timeoutMs);
+    });
+    await Promise.all(preloadTasks);
+  }
+
+  async preloadConfiguredAssets(timeoutMs: number = 6000): Promise<void> {
     const ids = this.getConfiguredAssetIds();
-    for (const assetId of ids) {
-      const definition = AUDIO_ASSETS[assetId];
-      if (definition.preload === "none") {
-        continue;
-      }
-      this.preloadAsset(assetId);
-    }
+    const preloadableIds = ids.filter((assetId) => {
+      return AUDIO_ASSETS[assetId].preload !== "none";
+    });
+    await this.preloadAssets(preloadableIds, timeoutMs);
   }
 
   getSceneMusicAsset(scene: AudioSceneId): AudioAssetId | null {
@@ -143,6 +231,14 @@ class AudioManagerClass {
   async playCue(cueId: AudioCueId): Promise<void> {
     const assetId = AUDIO_CUE_ASSETS[cueId];
     this.playAsset(assetId, true);
+  }
+
+  getCuePlaybackTime(cueId: AudioCueId): number | null {
+    return this.getAssetPlaybackTime(AUDIO_CUE_ASSETS[cueId]);
+  }
+
+  isCueLoaded(cueId: AudioCueId): boolean {
+    return this.isAssetLoaded(AUDIO_CUE_ASSETS[cueId]);
   }
 
   async playSplashScreenCue(): Promise<void> {
@@ -298,6 +394,7 @@ class AudioManagerClass {
     }
 
     this.assetPlayers.clear();
+    this.activeSoundIdByAsset.clear();
     this.activeMusicAssetId = null;
     this.activeMusicSoundId = null;
     console.log("[AudioManager.destroy]", "Destroyed");
