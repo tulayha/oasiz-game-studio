@@ -5,7 +5,7 @@ export type AudioAssetId =
   | "logoRevealSting"
   | "mainMenuLobbyLoop"
   | "gameplayLoop"
-  | "resultsLoop"
+  | "resultsSting"
   | "sfxFire"
   | "sfxExplosion"
   | "sfxHit"
@@ -66,12 +66,12 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
     volume: 0.32,
     preload: "none",
   },
-  resultsLoop: {
-    id: "resultsLoop",
+  resultsSting: {
+    id: "resultsSting",
     channel: "music",
-    relativePath: "music-loop-results.ogg",
-    url: "./assets/audio/music-loop-results.ogg",
-    loop: true,
+    relativePath: "music-cue-results.ogg",
+    url: "./assets/audio/music-cue-results.ogg",
+    loop: false,
     volume: 0.32,
     preload: "none",
   },
@@ -197,7 +197,7 @@ export const AUDIO_SCENE_MUSIC: Record<AudioSceneId, AudioAssetId | null> = {
   START: "mainMenuLobbyLoop",
   LOBBY: "mainMenuLobbyLoop",
   GAMEPLAY: "gameplayLoop",
-  RESULTS: "resultsLoop",
+  RESULTS: "resultsSting",
 };
 
 export type AudioCueId = "SPLASH_STING" | "LOGO_STING";

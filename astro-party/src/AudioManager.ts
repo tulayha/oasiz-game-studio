@@ -463,8 +463,8 @@ class AudioManagerClass {
     await this.playMusicAsset("gameplayLoop", options);
   }
 
-  async playResultsMusic(options: PlayMusicOptions = {}): Promise<void> {
-    await this.playMusicAsset("resultsLoop", options);
+  async playResultsSting(options: PlayMusicOptions = {}): Promise<void> {
+    await this.playMusicAsset("resultsSting", options);
   }
 
   // ============= SOUND EFFECTS =============
