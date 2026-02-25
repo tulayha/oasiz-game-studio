@@ -30,6 +30,14 @@ function collectBackgroundMusicAssetIds(): ReadonlySet<AudioAssetId> {
 }
 
 const BACKGROUND_MUSIC_ASSET_IDS = collectBackgroundMusicAssetIds();
+const MUSIC_FADE_IN_MS = 220;
+const MUSIC_FADE_OUT_MS = 180;
+
+interface PendingFadeStopEntry {
+  timer: ReturnType<typeof setTimeout>;
+  soundId: number;
+  onFade: (...args: unknown[]) => void;
+}
 
 class AudioManagerClass {
   private assetPlayers: Map<AudioAssetId, Howl> = new Map();
@@ -39,6 +47,8 @@ class AudioManagerClass {
   private autoplayBlocked: boolean = false;
   private pendingBackgroundMusicAssetId: AudioAssetId | null = null;
   private gestureUnlockHandler: (() => void) | null = null;
+  private pendingFadeStopTimersByAsset: Map<AudioAssetId, PendingFadeStopEntry> =
+    new Map();
 
   constructor() {
     this.setupUserGestureUnlock();
@@ -255,17 +265,171 @@ class AudioManagerClass {
       return;
     }
 
-    const active = this.assetPlayers.get(this.activeMusicAssetId);
-    if (active) {
-      if (this.activeMusicSoundId !== null) {
-        active.stop(this.activeMusicSoundId);
-      } else {
-        active.stop();
+    this.stopActiveMusicPlayerWithFade(false);
+  }
+
+  private clearPendingFadeStopTimer(assetId: AudioAssetId): void {
+    const existingEntry = this.pendingFadeStopTimersByAsset.get(assetId);
+    if (existingEntry !== undefined) {
+      clearTimeout(existingEntry.timer);
+      const player = this.assetPlayers.get(assetId);
+      if (player) {
+        player.off("fade", existingEntry.onFade, existingEntry.soundId);
       }
+      this.pendingFadeStopTimersByAsset.delete(assetId);
     }
-    this.activeSoundIdByAsset.delete(this.activeMusicAssetId);
+  }
+
+  private scheduleFadeStopForAsset(
+    assetId: AudioAssetId,
+    soundId: number,
+    durationMs: number,
+  ): void {
+    const player = this.assetPlayers.get(assetId);
+    if (!player) {
+      return;
+    }
+
+    this.clearPendingFadeStopTimer(assetId);
+    let settled = false;
+
+    const finalize = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      this.clearPendingFadeStopTimer(assetId);
+      const trackedSoundId = this.activeSoundIdByAsset.get(assetId);
+      if (trackedSoundId !== soundId) {
+        return;
+      }
+
+      player.stop(soundId);
+      this.activeSoundIdByAsset.delete(assetId);
+    };
+
+    const onFade = (): void => {
+      finalize();
+    };
+
+    player.once("fade", onFade, soundId);
+    const stopTimer = setTimeout(() => {
+      finalize();
+    }, durationMs + 64);
+
+    this.pendingFadeStopTimersByAsset.set(assetId, {
+      timer: stopTimer,
+      soundId,
+      onFade,
+    });
+  }
+
+  private stopActiveMusicPlayerWithFade(fadeOut: boolean): void {
+    const activeMusicAssetId = this.activeMusicAssetId;
+    if (activeMusicAssetId === null) {
+      return;
+    }
+
+    const activeMusicSoundId = this.activeMusicSoundId;
+    const player = this.assetPlayers.get(activeMusicAssetId);
     this.activeMusicAssetId = null;
     this.activeMusicSoundId = null;
+
+    if (!player || activeMusicSoundId === null) {
+      this.clearPendingFadeStopTimer(activeMusicAssetId);
+      this.activeSoundIdByAsset.delete(activeMusicAssetId);
+      return;
+    }
+
+    if (!fadeOut || !player.playing(activeMusicSoundId)) {
+      this.clearPendingFadeStopTimer(activeMusicAssetId);
+      player.stop(activeMusicSoundId);
+      this.activeSoundIdByAsset.delete(activeMusicAssetId);
+      return;
+    }
+
+    const currentVolume = player.volume();
+    player.fade(currentVolume, 0, MUSIC_FADE_OUT_MS, activeMusicSoundId);
+    this.scheduleFadeStopForAsset(
+      activeMusicAssetId,
+      activeMusicSoundId,
+      MUSIC_FADE_OUT_MS,
+    );
+  }
+
+  private stopAssetPlayback(assetId: AudioAssetId): void {
+    this.clearPendingFadeStopTimer(assetId);
+    const player = this.assetPlayers.get(assetId);
+    if (player) {
+      const soundId = this.activeSoundIdByAsset.get(assetId);
+      if (soundId !== undefined) {
+        player.stop(soundId);
+      } else {
+        player.stop();
+      }
+    }
+
+    this.activeSoundIdByAsset.delete(assetId);
+    if (this.activeMusicAssetId === assetId) {
+      this.activeMusicAssetId = null;
+      this.activeMusicSoundId = null;
+    }
+  }
+
+  private waitForSoundEnd(
+    assetId: AudioAssetId,
+    player: Howl,
+    soundId: number,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    if (!player.playing(soundId)) {
+      return Promise.resolve(false);
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+      const finalize = (completed: boolean): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        player.off("end", handleEnd, soundId);
+        player.off("stop", handleStop, soundId);
+        player.off("playerror", handlePlayError, soundId);
+        const trackedSoundId = this.activeSoundIdByAsset.get(assetId);
+        if (trackedSoundId !== soundId) {
+          resolve(false);
+          return;
+        }
+        resolve(completed);
+      };
+
+      const handleEnd = (): void => {
+        finalize(true);
+      };
+
+      const handleStop = (): void => {
+        finalize(false);
+      };
+
+      const handlePlayError = (): void => {
+        finalize(false);
+      };
+
+      timeoutHandle = setTimeout(() => {
+        finalize(false);
+      }, timeoutMs);
+
+      player.once("end", handleEnd, soundId);
+      player.once("stop", handleStop, soundId);
+      player.once("playerror", handlePlayError, soundId);
+    });
   }
 
   private getAssetPlaybackTime(assetId: AudioAssetId): number | null {
@@ -396,6 +560,42 @@ class AudioManagerClass {
     this.playAsset(assetId, true);
   }
 
+  stopCue(cueId: AudioCueId): void {
+    const assetId = AUDIO_CUE_ASSETS[cueId];
+    this.stopAssetPlayback(assetId);
+  }
+
+  async waitForCueEnd(cueId: AudioCueId, timeoutMs: number = 2400): Promise<boolean> {
+    const assetId = AUDIO_CUE_ASSETS[cueId];
+    const soundId = this.activeSoundIdByAsset.get(assetId);
+    if (soundId === undefined) {
+      return false;
+    }
+
+    const player = this.assetPlayers.get(assetId);
+    if (!player) {
+      return false;
+    }
+
+    return this.waitForSoundEnd(assetId, player, soundId, timeoutMs);
+  }
+
+  clearPendingBackgroundMusicForTarget(targetAssetId: AudioAssetId | null): void {
+    const pendingAssetId = this.pendingBackgroundMusicAssetId;
+    if (pendingAssetId === null) {
+      return;
+    }
+    if (targetAssetId !== null && pendingAssetId === targetAssetId) {
+      return;
+    }
+
+    this.pendingBackgroundMusicAssetId = null;
+    console.log(
+      "[AudioManager.clearPendingBackgroundMusicForTarget]",
+      "Cleared stale pending BGM " + pendingAssetId,
+    );
+  }
+
   getCuePlaybackTime(cueId: AudioCueId): number | null {
     return this.getAssetPlaybackTime(AUDIO_CUE_ASSETS[cueId]);
   }
@@ -434,7 +634,7 @@ class AudioManagerClass {
       options.restart ?? this.activeMusicAssetId !== assetId;
 
     if (this.activeMusicAssetId !== null && this.activeMusicAssetId !== assetId) {
-      this.stopActiveMusicPlayer();
+      this.stopActiveMusicPlayerWithFade(true);
     }
 
     if (
@@ -451,6 +651,9 @@ class AudioManagerClass {
       return;
     }
 
+    const targetVolume = definition.volume;
+    player.volume(0, soundId);
+    player.fade(0, targetVolume, MUSIC_FADE_IN_MS, soundId);
     this.activeMusicAssetId = assetId;
     this.activeMusicSoundId = soundId;
   }
@@ -535,7 +738,7 @@ class AudioManagerClass {
   }
 
   stopMusic(): void {
-    this.stopActiveMusicPlayer();
+    this.stopActiveMusicPlayerWithFade(true);
     this.pendingBackgroundMusicAssetId = null;
   }
 
@@ -560,6 +763,10 @@ class AudioManagerClass {
 
     this.assetPlayers.clear();
     this.activeSoundIdByAsset.clear();
+    for (const entry of this.pendingFadeStopTimersByAsset.values()) {
+      clearTimeout(entry.timer);
+    }
+    this.pendingFadeStopTimersByAsset.clear();
     this.activeMusicAssetId = null;
     this.activeMusicSoundId = null;
     this.pendingBackgroundMusicAssetId = null;

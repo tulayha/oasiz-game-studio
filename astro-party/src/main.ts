@@ -213,11 +213,24 @@ async function init(): Promise<void> {
   const settingsUI = createSettingsUI(leaveModal.openLeaveModal);
   const advancedSettingsUI = createAdvancedSettingsUI(game);
   const mapPreviewUI = createMapPreviewUI(game);
-  const startUI = createStartScreenUI(game);
   const lobbyUI = createLobbyUI(game, viewport.isMobile);
   bindEndScreenUI(game);
   let currentPhase: GamePhase = "START";
+  let waitingForStartIntroAudioCompletion = false;
   let startMenuMusicTimer: ReturnType<typeof setTimeout> | null = null;
+  const startUI = createStartScreenUI(game, {
+    onIntroAudioComplete: () => {
+      if (!waitingForStartIntroAudioCompletion) {
+        return;
+      }
+      waitingForStartIntroAudioCompletion = false;
+      clearStartMenuMusicTimer();
+      if (currentPhase !== "START") {
+        return;
+      }
+      void AudioManager.playSceneMusic("START", { restart: false });
+    },
+  });
 
   const clearStartMenuMusicTimer = (): void => {
     if (startMenuMusicTimer === null) {
@@ -231,6 +244,10 @@ async function init(): Promise<void> {
     clearStartMenuMusicTimer();
     startMenuMusicTimer = setTimeout(() => {
       startMenuMusicTimer = null;
+      if (!waitingForStartIntroAudioCompletion) {
+        return;
+      }
+      waitingForStartIntroAudioCompletion = false;
       if (currentPhase !== "START") {
         return;
       }
@@ -242,21 +259,30 @@ async function init(): Promise<void> {
     phase: GamePhase,
     previousPhase: GamePhase | null,
   ): void => {
+    const nextScene = resolveSceneForPhase(phase);
+    const nextMusicAssetId = AudioManager.getSceneMusicAsset(nextScene);
+    AudioManager.clearPendingBackgroundMusicForTarget(nextMusicAssetId);
+    AudioManager.stopCue("SPLASH_STING");
+    if (phase !== "START") {
+      AudioManager.stopCue("LOGO_STING");
+    }
+
     if (phase === "START") {
       const shouldWaitForIntro =
         previousPhase === null || previousPhase !== "START";
       if (shouldWaitForIntro) {
+        waitingForStartIntroAudioCompletion = true;
         scheduleStartMenuMusic();
       } else {
+        waitingForStartIntroAudioCompletion = false;
         clearStartMenuMusicTimer();
         void AudioManager.playSceneMusic("START", { restart: false });
       }
       return;
     }
 
+    waitingForStartIntroAudioCompletion = false;
     clearStartMenuMusicTimer();
-    const nextScene = resolveSceneForPhase(phase);
-    const nextMusicAssetId = AudioManager.getSceneMusicAsset(nextScene);
     const previousMusicAssetId =
       previousPhase !== null
         ? AudioManager.getSceneMusicAsset(resolveSceneForPhase(previousPhase))

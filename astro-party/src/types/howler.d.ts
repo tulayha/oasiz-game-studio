@@ -1,5 +1,12 @@
 declare module "howler" {
-  export type HowlEvent = "load" | "loaderror" | "play" | "playerror" | "stop";
+  export type HowlEvent =
+    | "load"
+    | "loaderror"
+    | "play"
+    | "playerror"
+    | "stop"
+    | "end"
+    | "fade";
   export type HowlEventCallback = (...args: unknown[]) => void;
 
   export interface HowlOptions {
@@ -29,6 +36,7 @@ declare module "howler" {
     loop(loop: boolean, soundId: number): this;
     volume(volume?: number): number;
     volume(volume: number, soundId?: number): this;
+    fade(from: number, to: number, duration: number, soundId?: number): this;
     playing(soundId?: number): boolean;
   }
 }

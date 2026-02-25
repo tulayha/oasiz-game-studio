@@ -8,7 +8,14 @@ export interface StartScreenUI {
   playTitleIntro: () => void;
 }
 
-export function createStartScreenUI(game: Game): StartScreenUI {
+interface StartScreenAudioCallbacks {
+  onIntroAudioComplete?: () => void;
+}
+
+export function createStartScreenUI(
+  game: Game,
+  callbacks: StartScreenAudioCallbacks = {},
+): StartScreenUI {
   const feedback = createUIFeedback("startScreen");
   const titleWrap = document.getElementById("gameTitleWrap");
   const startShell = document.querySelector<HTMLElement>("#startScreen .start-shell");
@@ -69,6 +76,12 @@ export function createStartScreenUI(game: Game): StartScreenUI {
           titleWrap.classList.add("force-active");
         }
         void AudioManager.playLogoRevealCue();
+        void AudioManager.waitForCueEnd("LOGO_STING").finally(() => {
+          if (introRunToken !== titleIntroRunToken) {
+            return;
+          }
+          callbacks.onIntroAudioComplete?.();
+        });
         forceTitleTriggerRafId = 0;
         return;
       }
