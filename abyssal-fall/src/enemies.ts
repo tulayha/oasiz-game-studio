@@ -533,7 +533,7 @@ export class HorizontalEnemy extends BaseEnemy {
     // Scale to fit hitbox nicely
     const scale = 0.8;
     this.setupSprite({
-      src: "assets/Water-Monsters-Pixel-Art-Sprite-Sheet-Pack/1/Walk.png",
+      src: getAssetUrl("Water-Monsters-Pixel-Art-Sprite-Sheet-Pack/1/Walk.png"),
       frameWidth: 96,
       frameHeight: 96,
       frameCount: 6,
@@ -601,7 +601,7 @@ export class ExploderEnemy extends BaseEnemy {
     // Squid walk sprite sheet: 6 frames, 96×96 per frame (576x96 total)
     const scale = 0.75;
     this.setupSprite({
-      src: "assets/Water-Monsters-Pixel-Art-Sprite-Sheet-Pack/2/Walk.png",
+      src: getAssetUrl("Water-Monsters-Pixel-Art-Sprite-Sheet-Pack/2/Walk.png"),
       frameWidth: 96,
       frameHeight: 96,
       frameCount: 6,

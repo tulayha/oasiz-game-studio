@@ -274,7 +274,9 @@
             margin-top: 14px;
             display: grid;
             gap: 8px;
-            min-width: 380px;
+            width: min(380px, 100%);
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .score-row {
@@ -297,15 +299,35 @@
         .score-row .label {
             color: rgba(255, 255, 255, 0.72);
             white-space: nowrap;
+            text-align: left;
+            justify-self: start;
         }
 
         .score-row .value {
             color: #fff;
-            min-width: 200px;
+            min-width: 0;
             text-align: right;
             white-space: nowrap;
             font-size: 0.6rem;
             letter-spacing: 0;
+            justify-self: end;
+        }
+
+        #game-over-screen {
+            justify-content: flex-start;
+            padding-top: clamp(20px, 8vh, 72px);
+            padding-bottom: 18px;
+        }
+
+        #game-over-screen .content {
+            width: min(460px, 94vw);
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 18px 14px 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
         }
 
         /* Settings Modal */
@@ -750,6 +772,44 @@
             #combo {
                 font-size: 0.75rem;
             }
+
+            .game-over-title {
+                font-size: 1.25rem;
+                margin-bottom: 8px;
+            }
+
+            .final-score-container {
+                margin: 8px 0;
+                width: 100%;
+            }
+
+            .final-score {
+                font-size: 1.55rem;
+            }
+
+            .final-depth {
+                font-size: 0.62rem;
+                margin-top: 10px;
+            }
+
+            .score-breakdown {
+                gap: 6px;
+            }
+
+            .score-row {
+                font-size: 0.5rem;
+                column-gap: 8px;
+            }
+
+            .score-row .value {
+                font-size: 0.48rem;
+            }
+
+            #restart-btn {
+                font-size: 0.64rem;
+                padding: 14px 26px;
+                margin-top: 8px;
+            }
         }
 
         /* Small screens */
@@ -760,6 +820,19 @@
             .settings-modal {
                 min-width: 260px;
                 padding: 20px;
+            }
+
+            .final-score {
+                font-size: 1.35rem;
+            }
+
+            .score-row {
+                font-size: 0.44rem;
+                column-gap: 6px;
+            }
+
+            .score-row .value {
+                font-size: 0.42rem;
             }
         }
     </style>
