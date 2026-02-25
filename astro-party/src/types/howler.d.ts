@@ -1,4 +1,7 @@
 declare module "howler" {
+  export type HowlEvent = "load" | "loaderror" | "play" | "playerror" | "stop";
+  export type HowlEventCallback = (...args: unknown[]) => void;
+
   export interface HowlOptions {
     src: string[];
     loop?: boolean;
@@ -12,8 +15,16 @@ declare module "howler" {
     constructor(options: HowlOptions);
     load(): void;
     unload(): void;
+    state(): "unloaded" | "loading" | "loaded";
+    on(event: HowlEvent, fn: HowlEventCallback, id?: number): this;
+    once(event: HowlEvent, fn: HowlEventCallback, id?: number): this;
+    off(event: HowlEvent, fn?: HowlEventCallback, id?: number): this;
     play(soundId?: number): number;
     stop(soundId?: number): this;
+    seek(): number;
+    seek(seek: number): this;
+    seek(seek: number, soundId: number): this;
+    seek(seek: undefined, soundId: number): number;
     loop(loop?: boolean): boolean;
     loop(loop: boolean, soundId: number): this;
     volume(volume?: number): number;

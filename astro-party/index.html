@@ -116,6 +116,47 @@
       transform: translateY(0);
     }
 
+    .splash-loader {
+      position: absolute;
+      bottom: min(16vh, 110px);
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.55rem;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .splash-screen.preloading .splash-loader {
+      opacity: 1;
+    }
+
+    .splash-loader-spinner {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-top-color: rgba(255, 255, 255, 0.95);
+      animation: splash-loader-spin 0.85s linear infinite;
+    }
+
+    .splash-loader-text {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(0.62rem, 1.4vw, 0.76rem);
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: rgba(215, 228, 255, 0.72);
+      text-align: center;
+      min-width: 160px;
+    }
+
+    @keyframes splash-loader-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     .splash-screen.fade-tagline .splash-tagline {
       opacity: 0;
       transform: translateY(-10px);
@@ -3077,12 +3118,16 @@
 </head>
 <body>
   <!-- Splash Screen -->
-  <div id="splashScreen" class="splash-screen">
+  <div id="splashScreen" class="splash-screen preloading">
     <div class="splash-black"></div>
     <div class="splash-content">
       <img id="splashLogoImage" src="./assets/Oasiz-logo-transparent.png" alt="Oasiz" class="splash-logo">
       <div class="splash-tagline">AN OASIZ ORIGINAL</div>
       <div class="splash-version" id="splashVersionLabel"></div>
+      <div class="splash-loader" id="splashLoader" aria-live="polite" aria-atomic="true">
+        <div class="splash-loader-spinner" aria-hidden="true"></div>
+        <div class="splash-loader-text" id="splashLoaderText">Loading assets...</div>
+      </div>
     </div>
   </div>
 

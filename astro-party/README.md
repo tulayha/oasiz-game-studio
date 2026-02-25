@@ -75,6 +75,18 @@ SHIP_SKIN_VALIDATION=warn bun run generate:ship-skins
 
 See `shared/assets/ships/README.md` for the full ship skin contract.
 
+## Audio assets
+
+Process audio into runtime assets with:
+
+```bash
+cd astro-party
+bun run process:audio
+```
+
+For source layout, ffmpeg path overrides, and expected output files, see:
+`assets/audio-src/README.md`.
+
 ```bash
 cd astro-party/server
 npm run typecheck

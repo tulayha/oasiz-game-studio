@@ -9,6 +9,10 @@ import { createSettingsUI } from "./ui/settings";
 import { createAdvancedSettingsUI } from "./ui/advancedSettings";
 import { createMapPreviewUI } from "./ui/mapPreview";
 import { CLIENT_DEBUG_BUILD_ENABLED } from "./debug/debugTools";
+import { AudioManager } from "./AudioManager";
+import { SettingsManager } from "./SettingsManager";
+import type { AudioSceneId } from "./audio/assetManifest";
+import { preloadStartupAssets, setStartupLoaderState } from "./preload";
 import {
   playCountdownFeedback,
   playGameEndFeedback,
@@ -30,6 +34,17 @@ declare global {
 
 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
 const game = new Game(canvas);
+
+const SPLASH_TIMELINE_SEC = {
+  startLogoCue: 0.1,
+  showTagline: 0.34,
+  fadeTagline: 1.48,
+  fadeLogo: 1.9,
+  fadeOut: 2.28,
+  done: 2.78,
+  absoluteSafetyDone: 4.2,
+  safetyExtension: 3.0,
+} as const;
 
 window.addEventListener("beforeunload", () => {
   game.destroy();
@@ -65,6 +80,21 @@ function setSplashVersionLabel(): void {
   splashVersion.textContent = `v${appVersion} (${buildTag})`;
 }
 
+function resolveSceneForPhase(phase: GamePhase): AudioSceneId {
+  switch (phase) {
+    case "START":
+      return "START";
+    case "LOBBY":
+      return "LOBBY";
+    case "COUNTDOWN":
+    case "PLAYING":
+    case "ROUND_END":
+      return "GAMEPLAY";
+    case "GAME_END":
+      return "RESULTS";
+  }
+}
+
 function runSplashScreen(): Promise<void> {
   return new Promise((resolve) => {
     const splash = document.getElementById("splashScreen");
@@ -73,38 +103,145 @@ function runSplashScreen(): Promise<void> {
       return;
     }
 
-    const showLogo = (): void => {
-      splash.classList.add("show-logo");
-
-      setTimeout(() => {
-        splash.classList.add("show-tagline");
-
-        setTimeout(() => {
-          splash.classList.add("fade-tagline");
-
-          setTimeout(() => {
-            splash.classList.add("fade-logo");
-
-            setTimeout(() => {
-              splash.classList.add("fade-out");
-
-              setTimeout(() => {
-                splash.classList.add("done");
-                resolve();
-              }, 500);
-            }, 400);
-          }, 400);
-        }, 1200);
-      }, 300);
+    let logoCueStarted = false;
+    let fallbackLogoCueStartSec = 0;
+    const fallbackStartMs = performance.now();
+    let rafId = 0;
+    let safetyExtensionApplied = false;
+    let safetyDeadlineSec = SPLASH_TIMELINE_SEC.absoluteSafetyDone;
+    const stage = {
+      showLogo: false,
+      showTagline: false,
+      fadeTagline: false,
+      fadeLogo: false,
+      fadeOut: false,
+      done: false,
     };
 
-    setTimeout(showLogo, 100);
+    const applyStage = (stageName: keyof typeof stage): void => {
+      if (stage[stageName]) {
+        return;
+      }
+      stage[stageName] = true;
+      if (stageName === "showLogo") {
+        setStartupLoaderState(false);
+        splash.classList.add("show-logo");
+        return;
+      }
+      if (stageName === "showTagline") {
+        splash.classList.add("show-tagline");
+        return;
+      }
+      if (stageName === "fadeTagline") {
+        splash.classList.add("fade-tagline");
+        return;
+      }
+      if (stageName === "fadeLogo") {
+        splash.classList.add("fade-logo");
+        return;
+      }
+      if (stageName === "fadeOut") {
+        splash.classList.add("fade-out");
+        return;
+      }
+      if (stageName === "done") {
+        splash.classList.add("done");
+      }
+    };
+
+    const finish = (): void => {
+      if (stage.done) {
+        return;
+      }
+      setStartupLoaderState(false);
+      applyStage("done");
+      cancelAnimationFrame(rafId);
+      resolve();
+    };
+
+    void AudioManager.playSplashScreenCue();
+
+    const tick = (): void => {
+      const fallbackElapsedSec = (performance.now() - fallbackStartMs) / 1000;
+      const splashCueElapsedSec = AudioManager.getCuePlaybackTime("SPLASH_STING");
+
+      if (!logoCueStarted) {
+        const shouldStartLogoCue =
+          splashCueElapsedSec !== null
+            ? splashCueElapsedSec >= SPLASH_TIMELINE_SEC.startLogoCue
+            : fallbackElapsedSec >= SPLASH_TIMELINE_SEC.startLogoCue;
+        if (shouldStartLogoCue) {
+          logoCueStarted = true;
+          fallbackLogoCueStartSec = fallbackElapsedSec;
+          applyStage("showLogo");
+          void AudioManager.playLogoRevealCue();
+        }
+      }
+
+      const logoCueElapsedSec = AudioManager.getCuePlaybackTime("LOGO_STING");
+      const timelineElapsedSec =
+        logoCueElapsedSec !== null
+          ? logoCueElapsedSec
+          : logoCueStarted
+            ? fallbackElapsedSec - fallbackLogoCueStartSec
+            : 0;
+
+      if (logoCueStarted && timelineElapsedSec >= SPLASH_TIMELINE_SEC.showTagline) {
+        applyStage("showTagline");
+      }
+      if (logoCueStarted && timelineElapsedSec >= SPLASH_TIMELINE_SEC.fadeTagline) {
+        applyStage("fadeTagline");
+      }
+      if (logoCueStarted && timelineElapsedSec >= SPLASH_TIMELINE_SEC.fadeLogo) {
+        applyStage("fadeLogo");
+      }
+      if (logoCueStarted && timelineElapsedSec >= SPLASH_TIMELINE_SEC.fadeOut) {
+        applyStage("fadeOut");
+      }
+      if (logoCueStarted && timelineElapsedSec >= SPLASH_TIMELINE_SEC.done) {
+        const waitingOnLogoCue =
+          logoCueElapsedSec === null && !AudioManager.isCueLoaded("LOGO_STING");
+        if (waitingOnLogoCue) {
+          if (!safetyExtensionApplied) {
+            safetyExtensionApplied = true;
+            safetyDeadlineSec =
+              SPLASH_TIMELINE_SEC.absoluteSafetyDone +
+              SPLASH_TIMELINE_SEC.safetyExtension;
+            setStartupLoaderState(true, "Loading audio...");
+            console.log(
+              "[Main.runSplashScreen]",
+              "Extending splash safety window while logo cue loads",
+            );
+          }
+        } else {
+          finish();
+          return;
+        }
+      }
+
+      if (fallbackElapsedSec >= safetyDeadlineSec) {
+        if (safetyExtensionApplied) {
+          console.log(
+            "[Main.runSplashScreen]",
+            "Extended safety window reached, finishing splash",
+          );
+        }
+        console.log("[Main.runSplashScreen]", "Falling back to safety timeout");
+        finish();
+        return;
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
   });
 }
 
 async function init(): Promise<void> {
   console.log("[Main] Initializing Astro Party");
   setSplashVersionLabel();
+  await preloadStartupAssets();
 
   await runSplashScreen();
 
@@ -120,6 +257,17 @@ async function init(): Promise<void> {
   const lobbyUI = createLobbyUI(game, viewport.isMobile);
   bindEndScreenUI(game);
   let currentPhase: GamePhase = "START";
+
+  const syncAudioToPhase = (
+    phase: GamePhase,
+    previousPhase: GamePhase | null,
+  ): void => {
+    const nextScene = resolveSceneForPhase(phase);
+    const previousScene =
+      previousPhase !== null ? resolveSceneForPhase(previousPhase) : null;
+    const shouldRestart = previousScene !== nextScene;
+    void AudioManager.playSceneMusic(nextScene, { restart: shouldRestart });
+  };
 
   const syncScreenToPhase = (
     phase: GamePhase,
@@ -171,6 +319,7 @@ async function init(): Promise<void> {
       const previousPhase = currentPhase;
       currentPhase = phase;
       syncScreenToPhase(phase, true, previousPhase);
+      syncAudioToPhase(phase, previousPhase);
     },
 
     onPlayersUpdate: (players: PlayerData[]) => {
@@ -218,6 +367,15 @@ async function init(): Promise<void> {
   advancedSettingsUI.updateAdvancedSettingsUI();
   screenController.showScreen("start");
   startUI.resetStartButtons(true);
+  syncAudioToPhase(currentPhase, null);
+
+  SettingsManager.subscribe((settings) => {
+    if (settings.music) {
+      syncAudioToPhase(currentPhase, currentPhase);
+      return;
+    }
+    AudioManager.stopMusic();
+  });
 
   if (CLIENT_DEBUG_BUILD_ENABLED) {
     const { mountDebugPanel } = await import("./debug/debugPanel");
