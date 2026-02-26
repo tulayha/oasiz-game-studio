@@ -2435,6 +2435,22 @@
       background: rgba(255, 255, 255, 0.08);
     }
 
+    .touch-zone.demo-left-highlight {
+      opacity: 0.62;
+      border-color: rgba(0, 240, 255, 0.95) !important;
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.5), inset 0 0 20px rgba(0, 240, 255, 0.24);
+      animation: demoLeftTouchPulse 0.9s ease-in-out infinite alternate;
+    }
+
+    @keyframes demoLeftTouchPulse {
+      from {
+        box-shadow: 0 0 12px rgba(0, 240, 255, 0.36), inset 0 0 12px rgba(0, 240, 255, 0.18);
+      }
+      to {
+        box-shadow: 0 0 24px rgba(0, 240, 255, 0.76), inset 0 0 24px rgba(0, 240, 255, 0.34);
+      }
+    }
+
     .touch-zone-label {
       font-family: 'Orbitron', sans-serif;
       font-size: 0.65rem;
