@@ -65,7 +65,7 @@ Audio:
 ## Server Topology
 
 - `server/src/rooms/*`: authoritative Colyseus room/session behavior.
-- `server/src/index.ts`: server bootstrap and transport config.
+- `server/src/index.ts`: server bootstrap, transport config, HTTP routes, and Colyseus monitor mounting/auth gate.
 - `server/src/*` HTTP endpoints: matchmaking and health checks.
 
 ## Key Ownership Boundaries

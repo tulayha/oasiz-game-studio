@@ -7,12 +7,14 @@ Authoritative multiplayer backend for Astro Party.
 - Hosts Colyseus room `astro_party`.
 - Runs fixed-step simulation and broadcasts snapshots/events.
 - Exposes matchmaking and health HTTP endpoints.
+- Exposes Colyseus monitor dashboard endpoint.
 - Tracks room codes for friend joins.
 
 ## Stack
 
 - Node.js + TypeScript
 - Colyseus (`colyseus`, `@colyseus/ws-transport`)
+- Colyseus Monitor (`@colyseus/monitor`)
 - Express (`/healthz`, `/match/create`, `/match/join`)
 
 ## Run locally
@@ -96,6 +98,39 @@ Implementation files:
 - `loadtest/minimal-roomcode.loadtest.ts`
 - `loadtest/run-roomcode-loadtest.ts`
 
+## Colyseus Monitor
+
+The server mounts Colyseus Monitor on the same HTTP server.
+
+Default behavior:
+
+- enabled automatically when `NODE_ENV` is not `production`
+- default path is `/colyseus`
+- in `production`, set `COLYSEUS_MONITOR_ENABLED=true` to enable
+
+Quick local usage:
+
+```bash
+cd astro-party/server
+npm run dev
+# open http://localhost:2567/colyseus
+```
+
+Optional password protection (Basic Auth):
+
+- set both `COLYSEUS_MONITOR_USERNAME` and `COLYSEUS_MONITOR_PASSWORD`
+- if only one is set, monitor is disabled for safety
+
+PowerShell example:
+
+```powershell
+cd astro-party/server
+$env:COLYSEUS_MONITOR_ENABLED="true"
+$env:COLYSEUS_MONITOR_USERNAME="admin"
+$env:COLYSEUS_MONITOR_PASSWORD="change-me"
+npm run dev
+```
+
 ## Validation snapshot (February 23, 2026)
 
 - `cd astro-party/server && npm run typecheck`: passes.
@@ -120,6 +155,10 @@ Shell-provided environment variables still work and take precedence over `.env`.
 - `SNAPSHOT_HZ_LOBBY` (default: `12`, capped at tick rate)
 - `CLIENT_MAX_OUTBOUND_BUFFER_BYTES` (default: `262144`)
 - `WS_MAX_PAYLOAD_BYTES` (default: `262144`)
+- `COLYSEUS_MONITOR_ENABLED` (default: `true` outside production, `false` in production)
+- `COLYSEUS_MONITOR_PATH` (default: `/colyseus`)
+- `COLYSEUS_MONITOR_USERNAME` (optional; requires password too)
+- `COLYSEUS_MONITOR_PASSWORD` (optional; requires username too)
 - `DEBUG_TOOLS_ENABLED` (default: `false`)
 
 ## Debug tools

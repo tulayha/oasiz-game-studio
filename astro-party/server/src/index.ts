@@ -3,6 +3,8 @@ import express from "express";
 import { createServer } from "node:http";
 import { Server, matchMaker } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
+import { monitor } from "@colyseus/monitor";
+import type { RequestHandler } from "express";
 import { AstroPartyRoom } from "./rooms/AstroPartyRoom.js";
 import {
   generateUniqueRoomCode,
@@ -20,6 +22,85 @@ const wsMaxPayloadBytes = Number.parseInt(
   10,
 );
 const roomCodeLength = Number.parseInt(process.env.ROOM_CODE_LENGTH ?? "4", 10);
+const monitorEnabledDefault = process.env.NODE_ENV !== "production";
+let monitorEnabled = parseBooleanEnv(
+  process.env.COLYSEUS_MONITOR_ENABLED,
+  monitorEnabledDefault,
+);
+const monitorPath = normalizeMonitorPath(process.env.COLYSEUS_MONITOR_PATH);
+const monitorUsername = readOptionalEnv(process.env.COLYSEUS_MONITOR_USERNAME);
+const monitorPassword = readOptionalEnv(process.env.COLYSEUS_MONITOR_PASSWORD);
+
+if (
+  monitorEnabled &&
+  ((monitorUsername && !monitorPassword) ||
+    (!monitorUsername && monitorPassword))
+) {
+  monitorEnabled = false;
+  console.warn(
+    "[Server]",
+    "COLYSEUS_MONITOR_USERNAME and COLYSEUS_MONITOR_PASSWORD must both be set. Monitor disabled for safety.",
+  );
+}
+
+function parseBooleanEnv(rawValue: string | undefined, fallback: boolean): boolean {
+  if (rawValue === undefined) return fallback;
+  const normalized = rawValue.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function readOptionalEnv(rawValue: string | undefined): string | null {
+  if (typeof rawValue !== "string") return null;
+  const trimmed = rawValue.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeMonitorPath(rawValue: string | undefined): string {
+  if (typeof rawValue !== "string") return "/colyseus";
+  const trimmed = rawValue.trim();
+  if (trimmed.length <= 0) return "/colyseus";
+  if (trimmed.startsWith("/")) return trimmed;
+  return "/" + trimmed;
+}
+
+function createBasicAuthMiddleware(
+  username: string,
+  password: string,
+): RequestHandler {
+  return (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Basic ")) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="Colyseus Monitor"');
+      res.status(401).send("Authentication required");
+      return;
+    }
+
+    let decoded = "";
+    try {
+      decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf8");
+    } catch (_error) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="Colyseus Monitor"');
+      res.status(401).send("Invalid authorization header");
+      return;
+    }
+
+    const separatorIndex = decoded.indexOf(":");
+    const providedUsername =
+      separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : decoded;
+    const providedPassword =
+      separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "";
+
+    if (providedUsername !== username || providedPassword !== password) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="Colyseus Monitor"');
+      res.status(401).send("Unauthorized");
+      return;
+    }
+
+    next();
+  };
+}
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Server] Unhandled promise rejection", reason);
@@ -47,6 +128,27 @@ const gameServer = new Server({
 });
 
 gameServer.define("astro_party", AstroPartyRoom);
+
+if (monitorEnabled) {
+  const monitorMiddleware = monitor();
+  if (monitorUsername && monitorPassword) {
+    app.use(
+      monitorPath,
+      createBasicAuthMiddleware(monitorUsername, monitorPassword),
+      monitorMiddleware,
+    );
+    console.log(
+      "[Server]",
+      "Colyseus monitor enabled at " + monitorPath + " with basic auth",
+    );
+  } else {
+    app.use(monitorPath, monitorMiddleware);
+    console.log(
+      "[Server]",
+      "Colyseus monitor enabled at " + monitorPath + " without auth",
+    );
+  }
+}
 
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true });
