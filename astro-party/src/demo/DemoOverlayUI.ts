@@ -53,6 +53,7 @@ export class DemoOverlayUI {
   // Spotlight state
   private spotlightActive = false;
   private spotlightTrackInterval: ReturnType<typeof setInterval> | null = null;
+  private spotlightFirstActionTriggered = false;
 
   private boundOnTap: () => void;
   private boundOnAttractPointerDown: (e: PointerEvent) => void;
@@ -332,8 +333,18 @@ export class DemoOverlayUI {
       this.spotlightTrackInterval = null;
     }
     this.spotlightOverlay.classList.add("hidden");
-    this.spotlightOverlay.classList.remove("spot-panel", "spot-action");
+    this.spotlightOverlay.classList.remove("spot-panel", "spot-action", "spot-dimmed");
+    this.spotlightOverlay.style.removeProperty("--spot-r");
     this.spotlightActive = false;
+  }
+
+  /** Called on the player's first action — reduces overlay opacity and expands spotlight radius. */
+  private dimSpotlight(): void {
+    if (!this.spotlightActive) return;
+    this.spotlightOverlay.classList.add("spot-dimmed");
+    // Override --spot-r inline so the expanded radius wins over spot-panel/spot-action classes
+    this.spotlightOverlay.style.setProperty("--spot-r", "195px");
+    this.applyRingSize("panel");
   }
 
   // -------------------------------------------------------------------------
@@ -342,6 +353,7 @@ export class DemoOverlayUI {
 
   private async runTutorial(isMobile: boolean): Promise<void> {
     this.tutorialRunning = true;
+    this.spotlightFirstActionTriggered = false;
     const steps = getTutorialSteps(isMobile);
 
     for (let i = 0; i < steps.length; i++) {
@@ -414,7 +426,6 @@ export class DemoOverlayUI {
         await this.waitForInputCount(
           step.waitFor,
           step.requiredCount,
-          step.tryDurationMs,
         );
         if (!this.tutorialRunning) break;
       }
@@ -507,12 +518,11 @@ export class DemoOverlayUI {
 
   /**
    * Waits for the player to perform an action N times before resolving.
-   * Auto-advances after tryDurationMs if the player doesn't complete it.
+   * Only advances when the required count is fully met — no auto-timeout.
    */
   private waitForInputCount(
     action: "rotate" | "dash" | "fire",
     requiredCount: number,
-    autoAdvanceMs: number,
   ): Promise<void> {
     return new Promise((resolve) => {
       let resolved = false;
@@ -524,7 +534,6 @@ export class DemoOverlayUI {
         resolved = true;
         unsubscribeInputAction?.();
         unsubscribeInputAction = null;
-        clearTimeout(autoTimeout);
         // Brief pause to let the last action animate before advancing
         setTimeout(resolve, 800);
       };
@@ -536,6 +545,11 @@ export class DemoOverlayUI {
             return;
           }
           if (localAction === action) {
+            // On the very first action, dim the spotlight overlay
+            if (!this.spotlightFirstActionTriggered) {
+              this.spotlightFirstActionTriggered = true;
+              this.dimSpotlight();
+            }
             count++;
             if (count >= requiredCount) {
               done();
@@ -548,8 +562,6 @@ export class DemoOverlayUI {
         done();
         return;
       }
-
-      const autoTimeout = setTimeout(done, autoAdvanceMs);
     });
   }
 
