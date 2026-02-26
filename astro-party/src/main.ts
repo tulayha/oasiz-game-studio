@@ -37,6 +37,34 @@ declare global {
 
 const DEMO_SEEN_KEY = "astro-party-demo-seen";
 
+/** Returns true if the player has already seen the demo (local or cross-device). */
+function isDemoSeen(): boolean {
+  if (localStorage.getItem(DEMO_SEEN_KEY)) return true;
+  try {
+    const saved = (window as any).loadGameState?.() as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    if (saved?.demo_seen) return true;
+  } catch {
+    // platform API unavailable — fall back to localStorage only
+  }
+  return false;
+}
+
+/** Marks the demo as seen in localStorage and in the platform's cross-device store. */
+function markDemoSeen(): void {
+  localStorage.setItem(DEMO_SEEN_KEY, "1");
+  try {
+    const existing =
+      ((window as any).loadGameState?.() as Record<string, unknown> | null) ??
+      {};
+    (window as any).saveGameState?.({ ...existing, demo_seen: true });
+  } catch {
+    // platform API unavailable — localStorage persists the flag locally
+  }
+}
+
 const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
 const game = new Game(canvas);
 
@@ -336,7 +364,7 @@ async function init(): Promise<void> {
     demoOverlay?.hideAll();
     await demoController.teardown();
     demoInputActionSubscribers.clear();
-    localStorage.setItem(DEMO_SEEN_KEY, "1");
+    markDemoSeen();
     demoController = null;
     demoOverlay = null;
     starfieldInitializedForDemo = false;
@@ -353,7 +381,7 @@ async function init(): Promise<void> {
     demoOverlay?.hideAll();
     await demoController.teardown();
     demoInputActionSubscribers.clear();
-    localStorage.setItem(DEMO_SEEN_KEY, "1");
+    markDemoSeen();
     demoController = null;
     demoOverlay = null;
     starfieldInitializedForDemo = false;
@@ -410,7 +438,7 @@ async function init(): Promise<void> {
         demoController!.enterFreePlay();
         syncAudioToPhase(currentPhase, currentPhase);
         syncDemoTouchLayoutForState();
-        localStorage.setItem(DEMO_SEEN_KEY, "1");
+        markDemoSeen();
         demoOverlay!.showExitButton(() => {
           // Keep the battle running — transition to MENU state (same as skip)
           demoOverlay?.hideAll();
@@ -429,7 +457,7 @@ async function init(): Promise<void> {
         syncDemoTouchLayoutForState();
         screenController.showScreen("start");
         startUI.resetStartButtons(true);
-        localStorage.setItem(DEMO_SEEN_KEY, "1");
+        markDemoSeen();
       },
       onPauseGame: () => demoController?.pauseGame(),
       onResumeGame: () => demoController?.resumeGame(),
@@ -744,7 +772,7 @@ async function init(): Promise<void> {
   // Always start a background AI battle.
   // Show the attract overlay only on first visit; otherwise go straight
   // to the menu with ships visible behind it.
-  const showAttractOverlay = !localStorage.getItem(DEMO_SEEN_KEY);
+  const showAttractOverlay = !isDemoSeen();
   queueDemoStartupAfterIntro(showAttractOverlay);
   startPendingDemoStartupAfterIntro();
 }
