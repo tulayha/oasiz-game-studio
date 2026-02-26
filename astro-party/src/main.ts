@@ -225,6 +225,9 @@ async function init(): Promise<void> {
   let startMenuMusicTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingDemoStartupAfterIntro: { showAttract: boolean } | null = null;
   let suppressNextStartPhaseEffects = false;
+  const demoInputActionSubscribers = new Set<
+    (action: "rotate" | "fire") => void
+  >();
   // Demo state
   let demoController: DemoController | null = null;
   let demoOverlay: DemoOverlayUI | null = null;
@@ -332,6 +335,7 @@ async function init(): Promise<void> {
     if (!demoController?.isDemoActive()) return;
     demoOverlay?.hideAll();
     await demoController.teardown();
+    demoInputActionSubscribers.clear();
     localStorage.setItem(DEMO_SEEN_KEY, "1");
     demoController = null;
     demoOverlay = null;
@@ -348,12 +352,32 @@ async function init(): Promise<void> {
     suppressNextStartPhaseEffects = true;
     demoOverlay?.hideAll();
     await demoController.teardown();
+    demoInputActionSubscribers.clear();
     localStorage.setItem(DEMO_SEEN_KEY, "1");
     demoController = null;
     demoOverlay = null;
     starfieldInitializedForDemo = false;
     elements.starsContainer.classList.remove("demo-stars", "active");
     startUI.setBeforeAction(null);
+    if (viewport.isMobile) {
+      game.clearTouchLayout();
+    }
+  }
+
+  function syncDemoTouchLayoutForState(): void {
+    if (!viewport.isMobile) {
+      return;
+    }
+    if (!demoController?.isDemoActive()) {
+      game.clearTouchLayout();
+      return;
+    }
+    const demoState = demoController.getState();
+    if (demoState === "TUTORIAL" || demoState === "FREEPLAY") {
+      game.updateTouchLayout();
+    } else {
+      game.clearTouchLayout();
+    }
   }
 
   async function startDemoSession(showAttract = true): Promise<void> {
@@ -361,6 +385,7 @@ async function init(): Promise<void> {
     if (demoController?.isDemoActive()) {
       await demoController.teardown().catch(() => {});
     }
+    demoInputActionSubscribers.clear();
     demoController = null;
     demoOverlay = null;
     starfieldInitializedForDemo = false;
@@ -377,18 +402,21 @@ async function init(): Promise<void> {
       onTapToStart: () => {
         demoController!.enterTutorial();
         syncAudioToPhase(currentPhase, currentPhase);
+        syncDemoTouchLayoutForState();
         demoOverlay!.showTutorial(viewport.isMobile);
       },
       onTutorialComplete: () => {
         // Tutorial finished → player keeps free-playing with Exit Demo button
         demoController!.enterFreePlay();
         syncAudioToPhase(currentPhase, currentPhase);
+        syncDemoTouchLayoutForState();
         localStorage.setItem(DEMO_SEEN_KEY, "1");
         demoOverlay!.showExitButton(() => {
           // Keep the battle running — transition to MENU state (same as skip)
           demoOverlay?.hideAll();
           demoController?.enterMenu();
           syncAudioToPhase(currentPhase, currentPhase);
+          syncDemoTouchLayoutForState();
           screenController.showScreen("start");
           startUI.resetStartButtons(true);
         });
@@ -398,6 +426,7 @@ async function init(): Promise<void> {
         demoOverlay?.hideAll();
         demoController?.enterMenu();
         syncAudioToPhase(currentPhase, currentPhase);
+        syncDemoTouchLayoutForState();
         screenController.showScreen("start");
         startUI.resetStartButtons(true);
         localStorage.setItem(DEMO_SEEN_KEY, "1");
@@ -412,12 +441,19 @@ async function init(): Promise<void> {
       },
       getShipPos: () => game.getLocalShipViewportPos(),
       setZoom: (boost) => game.setDemoZoomBoost(boost),
+      subscribeInputAction: (handler) => {
+        demoInputActionSubscribers.add(handler);
+        return () => {
+          demoInputActionSubscribers.delete(handler);
+        };
+      },
     });
 
     startUI.setBeforeAction(teardownDemoForAction);
 
     await demoController.startDemo();
     syncAudioToPhase(currentPhase, currentPhase);
+    syncDemoTouchLayoutForState();
 
     // Activate the starfield immediately so it's visible in the attract overlay.
     // forceDemoStarfield bypasses the activeScreen guard in screens.ts.
@@ -433,6 +469,7 @@ async function init(): Promise<void> {
       // Second visit: skip attract, go straight to background MENU state
       demoController.enterMenu();
       syncAudioToPhase(currentPhase, currentPhase);
+      syncDemoTouchLayoutForState();
       screenController.showScreen("start");
       startUI.resetStartButtons(false);
     }
@@ -444,6 +481,7 @@ async function init(): Promise<void> {
     if (ctrl?.isDemoActive()) {
       await ctrl.teardown().catch(() => {});
     }
+    demoInputActionSubscribers.clear();
     demoController = null;
     demoOverlay = null;
     screenController.showScreen("start");
@@ -512,6 +550,13 @@ async function init(): Promise<void> {
           // Keyboard enabled only when player is in control
           if (demoState !== "TUTORIAL" && demoState !== "FREEPLAY") {
             game.setKeyboardInputEnabled(false);
+          }
+          if (viewport.isMobile) {
+            if (demoState === "TUTORIAL" || demoState === "FREEPLAY") {
+              game.updateTouchLayout();
+            } else {
+              game.clearTouchLayout();
+            }
           }
           // Forward to DemoController for countdown skip + respawn timer cleanup
           demoController.onPhaseChange(phase);
@@ -628,6 +673,14 @@ async function init(): Promise<void> {
       lobbyUI.updateMapSelector();
       mapPreviewUI.updateMapPreview(mapId);
       screenController.updateStarfieldForMap(mapId);
+    },
+    onLocalInputAction: (action) => {
+      if (!demoController?.isDemoActive()) {
+        return;
+      }
+      for (const handler of [...demoInputActionSubscribers]) {
+        handler(action);
+      }
     },
   });
 

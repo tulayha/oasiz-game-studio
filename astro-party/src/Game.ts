@@ -171,6 +171,7 @@ export class Game {
     onAdvancedSettingsChange?: (settings: AdvancedSettings) => void;
     onSystemMessage?: (message: string, durationMs?: number) => void;
     onMapChange?: (mapId: MapId) => void;
+    onLocalInputAction?: (action: "rotate" | "fire") => void;
   }): void {
     this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
@@ -180,6 +181,7 @@ export class Game {
     this._onAdvancedSettingsChange = callbacks.onAdvancedSettingsChange ?? null;
     this._onSystemMessage = callbacks.onSystemMessage ?? null;
     this._onMapChange = callbacks.onMapChange ?? null;
+    this._onLocalInputAction = callbacks.onLocalInputAction ?? null;
   }
 
   private _onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
@@ -192,6 +194,9 @@ export class Game {
     | ((message: string, durationMs?: number) => void)
     | null = null;
   private _onMapChange: ((mapId: MapId) => void) | null = null;
+  private _onLocalInputAction: ((action: "rotate" | "fire") => void) | null =
+    null;
+  private previousLocalInputButtons = { buttonA: false, buttonB: false };
   private lastTransportErrorCode: string | null = null;
   private lastTransportErrorMessage: string | null = null;
   private stickyMatchPlayerOrder: string[] = [];
@@ -709,6 +714,8 @@ export class Game {
     this.controlledInputSequenceByPlayer.clear();
     this.clearStickyRoster();
     this.lastCombatSnapshotByPlayerId.clear();
+    this.previousLocalInputButtons.buttonA = false;
+    this.previousLocalInputButtons.buttonB = false;
   }
 
   private seedRngForRound(): void {
@@ -820,6 +827,7 @@ export class Game {
       now,
       this.botMgr.useTouchForHost,
     );
+    this.emitLocalInputActions(localInput);
     this.networkSync.captureLocalInput(localInput);
     const sentInput = this.inputResolver.sendLocalInputIfNeeded(
       now,
@@ -847,6 +855,17 @@ export class Game {
     this.render(frameDt, frameRenderState);
 
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  private emitLocalInputActions(input: PlayerInput): void {
+    if (input.buttonA && !this.previousLocalInputButtons.buttonA) {
+      this._onLocalInputAction?.("rotate");
+    }
+    if (input.buttonB && !this.previousLocalInputButtons.buttonB) {
+      this._onLocalInputAction?.("fire");
+    }
+    this.previousLocalInputButtons.buttonA = input.buttonA;
+    this.previousLocalInputButtons.buttonB = input.buttonB;
   }
 
   private processDevPowerUpRequests(): void {
