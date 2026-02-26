@@ -33,6 +33,69 @@ npm run start
 
 Default port is `2567`.
 
+## Load testing
+
+This server includes a minimal Colyseus load-test harness powered by `@colyseus/loadtest`.
+
+Run from `astro-party/server`:
+
+```bash
+npm run loadtest -- --roomCode BJ9H --numClients 24 --delay 20 --durationSec 90
+```
+
+Or from game root (`astro-party/`):
+
+```bash
+npm run loadtest:roomcode -- --roomCode BJ9H --numClients 24 --delay 20 --durationSec 90
+```
+
+Behavior:
+
+- each client joins the exact room code via `/match/join` + seat reservation consume
+- input spam starts only in `PLAYING`, pauses in other phases, and resumes when `PLAYING` returns
+- reads `evt:snapshot` payloads and discards them (with metrics)
+- sends `cmd:input` (`buttonA` + `buttonB`) at default client debounce (`1000/60`), aligned to server `tickDurationMs` when available
+- on room errors, attempts a graceful leave (`leave(false)`) and relies on `onLeave` for terminal cleanup
+
+Useful flags:
+
+- `--roomCode <ABCD>` (required)
+- `--numClients <n>`
+- `--delay <ms>`
+- `--durationSec <n>` / `--durationMs <n>`
+- `--requestTimeoutMs <n>` (default `15000`)
+- `--summaryIntervalMs <n>` (default `5000`)
+- `--inputDebounceMs <n>` (default `16.666...`)
+- `--autoExitOnComplete true|false` (default `true` when duration is set)
+
+Endpoint resolution:
+
+- If `--endpoint` is provided, it is used.
+- Otherwise, `VITE_COLYSEUS_WS_URL` must be set.
+- If neither is available, loadtest exits with an error.
+
+Output logs:
+
+- If `--output <path>` is provided, that path is used.
+- If `--output` is omitted, the launcher writes to:
+  - `./loadtest-logs/loadtest-roomcode-YYYYMMDD-HHmmss.log`
+- The launcher prints the chosen path on startup:
+  - `[LoadTest.run-roomcode] Using output log <path>`
+
+Environment variable equivalents:
+
+- `LOADTEST_ROOM_CODE`
+- `LOADTEST_REQUEST_TIMEOUT_MS`
+- `LOADTEST_DURATION_SEC` / `LOADTEST_DURATION_MS`
+- `LOADTEST_AUTO_EXIT_ON_COMPLETE`
+- `LOADTEST_SUMMARY_INTERVAL_MS`
+- `LOADTEST_INPUT_DEBOUNCE_MS`
+
+Implementation files:
+
+- `loadtest/minimal-roomcode.loadtest.ts`
+- `loadtest/run-roomcode-loadtest.ts`
+
 ## Validation snapshot (February 23, 2026)
 
 - `cd astro-party/server && npm run typecheck`: passes.
