@@ -119,6 +119,23 @@
       #version-label {
         position: fixed;
         right: 14px;
+        bottom: 42px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        background: rgba(9, 18, 40, 0.55);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+        color: #eaf2ff;
+        padding: 6px 10px;
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        pointer-events: none;
+        z-index: 12;
+      }
+
+      #fps-label {
+        position: fixed;
+        right: 14px;
         bottom: 14px;
         border-radius: 10px;
         border: 1px solid rgba(255, 255, 255, 0.28);
@@ -260,6 +277,11 @@
 
         #version-label {
           right: 12px;
+          bottom: 52px;
+        }
+
+        #fps-label {
+          right: 12px;
           bottom: 22px;
         }
       }
@@ -290,6 +312,7 @@
         <div id="speed-label" class="hud-chip">Speed: 0.0</div>
       </div>
       <div id="version-label">Build 0.0.0</div>
+      <div id="fps-label">FPS 0</div>
 
       <button id="restart-btn" class="control-btn hidden" aria-label="Restart">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

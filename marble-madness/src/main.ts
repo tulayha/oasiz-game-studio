@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 
-const BUILD_VERSION = "0.4.4";
+const BUILD_VERSION = "0.5.3";
 
 type GameState = "start" | "playing" | "gameOver";
 type HapticType = "light" | "medium" | "heavy" | "success" | "error";
@@ -53,6 +53,33 @@ interface FireworkRow {
   triggered: boolean;
 }
 
+type PlatformType =
+  | "flat"
+  | "slope_down_soft"
+  | "slope_down_steep"
+  | "detour_left_short"
+  | "detour_right_short"
+  | "bottleneck"
+  | "gap_short"
+  | "finish_straight";
+
+interface PlatformSection {
+  type: PlatformType;
+  zStart: number;
+  zEnd: number;
+  slope: number;
+  width: number;
+  hasFloor: boolean;
+  detourDirection: -1 | 1;
+  detourMagnitude: number;
+}
+
+interface LevelConfig {
+  platformCount: number;
+  sections: PlatformSection[];
+  fireworkZ: number;
+}
+
 interface TrailParticle {
   mesh: THREE.Mesh;
   life: number;
@@ -93,6 +120,10 @@ class MarbleMadnessStarter {
   private animationFrameId = 0;
   private lastFrameSeconds = 0;
   private accumulator = 0;
+  private fpsSmoothed = 60;
+  private cameraFollowAnchor = new THREE.Vector3();
+  private cameraLookAnchor = new THREE.Vector3();
+  private cameraAnchorsInitialized = false;
 
   private runTimeSeconds = 0;
   private finishedTimeSeconds = 0;
@@ -117,14 +148,19 @@ class MarbleMadnessStarter {
   private readonly wallHeight = 3.6;
   private readonly wallThickness = 0.8;
   private readonly platformUvScaleV = 0.035;
+  private readonly endlessMode = true;
   private readonly trackSamples: TrackSample[] = [];
   private readonly trackSlices: TrackSlice[] = [];
-  private readonly fireworkTriggerZ = -186;
+  private fireworkTriggerZ = -186;
+  private levelConfig: LevelConfig;
+  private levelObjects: THREE.Object3D[] = [];
+  private trackRigidBodies: RAPIER.RigidBody[] = [];
   private particles: FireworkParticle[] = [];
   private fireworkRows: FireworkRow[] = [];
   private trailParticles: TrailParticle[] = [];
   private trailSpawnSeconds = 0;
   private readonly trailSpawnInterval = 0.015;
+  private loopsCompleted = 0;
 
   private readonly startScreen: HTMLElement;
   private readonly gameOverScreen: HTMLElement;
@@ -137,6 +173,7 @@ class MarbleMadnessStarter {
   private readonly speedLabel: HTMLElement;
   private readonly resultLabel: HTMLElement;
   private readonly versionLabel: HTMLElement;
+  private readonly fpsLabel: HTMLElement;
 
   public constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -169,7 +206,9 @@ class MarbleMadnessStarter {
     this.speedLabel = this.requireElement("speed-label");
     this.resultLabel = this.requireElement("result-label");
     this.versionLabel = this.requireElement("version-label");
+    this.fpsLabel = this.requireElement("fps-label");
     this.versionLabel.textContent = "Build " + BUILD_VERSION;
+    this.fpsLabel.textContent = "FPS 0";
 
     this.settings = this.loadSettings();
     this.persistentState = this.loadPersistentState();
@@ -192,6 +231,8 @@ class MarbleMadnessStarter {
     this.loadMarbleTexture();
     this.loadTileTexture();
 
+    this.levelConfig = this.createRandomLevelConfig();
+    this.fireworkTriggerZ = this.levelConfig.fireworkZ;
     this.buildTrackSlices();
     this.setupSceneVisuals();
     this.bindUi();
@@ -328,65 +369,195 @@ class MarbleMadnessStarter {
     return t * t * (3 - 2 * t);
   }
 
+  private randomRange(min: number, max: number): number {
+    return min + Math.random() * (max - min);
+  }
+
+  private pickMiddlePlatformType(previousType: PlatformType): PlatformType {
+    const canGap = previousType === "slope_down_soft" || previousType === "slope_down_steep";
+    const roll = Math.random();
+    if (canGap && roll < 0.18) {
+      return "gap_short";
+    }
+    if (roll < 0.38) {
+      return "slope_down_soft";
+    }
+    if (roll < 0.58) {
+      return "slope_down_steep";
+    }
+    if (roll < 0.74) {
+      return "bottleneck";
+    }
+    return Math.random() < 0.5 ? "detour_left_short" : "detour_right_short";
+  }
+
+  private createPlatformSection(type: PlatformType, zStart: number, zEnd: number): PlatformSection {
+    if (type === "flat" || type === "finish_straight") {
+      return {
+        type,
+        zStart,
+        zEnd,
+        slope: 0,
+        width: this.trackWidth,
+        hasFloor: true,
+        detourDirection: 1,
+        detourMagnitude: 0,
+      };
+    }
+    if (type === "slope_down_soft") {
+      return {
+        type,
+        zStart,
+        zEnd,
+        slope: this.randomRange(0.1, 0.18),
+        width: this.trackWidth,
+        hasFloor: true,
+        detourDirection: 1,
+        detourMagnitude: 0,
+      };
+    }
+    if (type === "slope_down_steep") {
+      return {
+        type,
+        zStart,
+        zEnd,
+        slope: this.randomRange(0.22, 0.34),
+        width: this.trackWidth,
+        hasFloor: true,
+        detourDirection: 1,
+        detourMagnitude: 0,
+      };
+    }
+    if (type === "bottleneck") {
+      return {
+        type,
+        zStart,
+        zEnd,
+        slope: this.randomRange(0.12, 0.24),
+        width: this.randomRange(5.8, 8.4),
+        hasFloor: true,
+        detourDirection: 1,
+        detourMagnitude: 0,
+      };
+    }
+    if (type === "gap_short") {
+      return {
+        type,
+        zStart,
+        zEnd,
+        slope: this.randomRange(0.08, 0.14),
+        width: this.trackWidth,
+        hasFloor: false,
+        detourDirection: 1,
+        detourMagnitude: 0,
+      };
+    }
+    return {
+      type,
+      zStart,
+      zEnd,
+      slope: this.randomRange(0.14, 0.24),
+      width: this.trackWidth,
+      hasFloor: true,
+      detourDirection: type === "detour_left_short" ? -1 : 1,
+      detourMagnitude: this.randomRange(2.6, 6.8),
+    };
+  }
+
+  private createRandomLevelConfig(): LevelConfig {
+    const platformCount = Math.min(24, 4 + this.loopsCompleted);
+    const sections: PlatformSection[] = [];
+
+    const startLength = this.randomRange(18, 30);
+    const finishLength = this.randomRange(18, 26);
+    const middleCount = Math.max(1, platformCount - 2);
+    const usableLength = Math.max(80, this.startZ - this.finishZ - startLength - finishLength);
+    const weights: number[] = [];
+    let weightSum = 0;
+    for (let i = 0; i < middleCount; i += 1) {
+      const weight = this.randomRange(0.8, 1.5);
+      weights.push(weight);
+      weightSum += weight;
+    }
+
+    let currentZ = this.startZ;
+    const startSectionEnd = currentZ - startLength;
+    sections.push(this.createPlatformSection("flat", currentZ, startSectionEnd));
+    currentZ = startSectionEnd;
+
+    let previousType: PlatformType = "flat";
+    const typeLog: string[] = ["flat"];
+    for (let i = 0; i < middleCount; i += 1) {
+      const length = Math.max(9, (weights[i] / Math.max(0.001, weightSum)) * usableLength);
+      const zEnd = Math.max(this.finishZ + finishLength, currentZ - length);
+      let type = this.pickMiddlePlatformType(previousType);
+      if (type === "gap_short" && !(previousType === "slope_down_soft" || previousType === "slope_down_steep")) {
+        type = "slope_down_soft";
+      }
+      sections.push(this.createPlatformSection(type, currentZ, zEnd));
+      typeLog.push(type);
+      previousType = type;
+      currentZ = zEnd;
+    }
+
+    if (sections.length > 1) {
+      const lastMiddleIndex = sections.length - 1;
+      const lastMiddle = sections[lastMiddleIndex];
+      sections[lastMiddleIndex] = this.createPlatformSection("flat", lastMiddle.zStart, lastMiddle.zEnd);
+      typeLog[lastMiddleIndex] = "flat";
+    }
+
+    sections.push(this.createPlatformSection("finish_straight", currentZ, this.finishZ));
+    typeLog.push("finish_straight");
+
+    const fireworkZ = this.finishZ + 12;
+    console.log(
+      "[CreateRandomLevelConfig]",
+      "platformCount=" + String(platformCount) + " types=" + typeLog.join(" > "),
+    );
+    return {
+      platformCount,
+      sections,
+      fireworkZ,
+    };
+  }
+
+  private getSectionAtZ(z: number): PlatformSection {
+    const clampedZ = THREE.MathUtils.clamp(z, this.finishZ, this.startZ);
+    for (const section of this.levelConfig.sections) {
+      if (clampedZ <= section.zStart && clampedZ >= section.zEnd) {
+        return section;
+      }
+    }
+    return this.levelConfig.sections[this.levelConfig.sections.length - 1];
+  }
+
   private sampleTrackX(z: number): number {
-    if (z >= 40) {
+    const section = this.getSectionAtZ(z);
+    if (section.type !== "detour_left_short" && section.type !== "detour_right_short") {
       return 0;
     }
-    if (z > -20) {
-      const t = (40 - z) / 60;
-      return -4.6 * this.smooth01(THREE.MathUtils.clamp(t, 0, 1));
-    }
-    if (z > -82) {
-      return -4.6;
-    }
-    if (z > -128) {
-      const t = (-82 - z) / 46;
-      return THREE.MathUtils.lerp(-4.6, 0, this.smooth01(THREE.MathUtils.clamp(t, 0, 1)));
-    }
-    return 0;
+    const sectionLength = Math.max(0.001, section.zStart - section.zEnd);
+    const t = THREE.MathUtils.clamp((section.zStart - z) / sectionLength, 0, 1);
+    const halfT = t <= 0.5
+      ? this.smooth01(t * 2)
+      : this.smooth01((1 - t) * 2);
+    return section.detourDirection * section.detourMagnitude * halfT;
   }
 
   private sampleTrackSlope(z: number): number {
-    if (z >= 70) {
-      return 0.0;
-    }
-    if (z >= 30) {
-      return 0.30;
-    }
-    if (z >= -12) {
-      return 0.24;
-    }
-    if (z >= -64) {
-      return 0.22;
-    }
-    if (z >= -82) {
-      return -0.12;
-    }
-    if (z >= -102) {
-      return 0.14;
-    }
-    if (z >= -128) {
-      return 0.08;
-    }
-    return 0.01;
+    const section = this.getSectionAtZ(z);
+    return section.slope;
   }
 
   private sampleTrackWidth(z: number): number {
-    if (z >= -20) {
-      return this.trackWidth;
-    }
-    if (z >= -76) {
-      return 7;
-    }
-    if (z >= -132) {
-      return 10;
-    }
-    return this.trackWidth;
+    const section = this.getSectionAtZ(z);
+    return section.width;
   }
 
   private hasFloorAtZ(z: number): boolean {
-    const isFirstGap = z < -12 && z > -26;
-    return !isFirstGap;
+    const section = this.getSectionAtZ(z);
+    return section.hasFloor;
   }
 
   private buildTrackSlices(): void {
@@ -448,7 +619,7 @@ class MarbleMadnessStarter {
 
   private setupSceneVisuals(): void {
     const hemi = new THREE.HemisphereLight("#d8ebff", "#6a89ad", 1.05);
-    this.scene.add(hemi);
+    this.addLevelObject(hemi);
 
     const sunLight = new THREE.DirectionalLight("#fff9df", 3.15);
     sunLight.position.set(140, 180, 90);
@@ -462,7 +633,7 @@ class MarbleMadnessStarter {
     sunLight.shadow.camera.right = 220;
     sunLight.shadow.camera.top = 220;
     sunLight.shadow.camera.bottom = -220;
-    this.scene.add(sunLight);
+    this.addLevelObject(sunLight);
 
     this.addPlatformRunMeshes();
 
@@ -484,7 +655,7 @@ class MarbleMadnessStarter {
     }
     finishStrip.rotation.x = -this.getTrackTiltAtZ(this.finishZ);
     finishStrip.position.set(0, this.getTrackSurfaceY(this.finishZ) + 0.08, this.finishZ);
-    this.scene.add(finishStrip);
+    this.addLevelObject(finishStrip);
 
     const finishFrameMaterial = new THREE.MeshStandardMaterial({
       color: "#1b2f4e",
@@ -494,12 +665,12 @@ class MarbleMadnessStarter {
     const finishPillarLeft = new THREE.Mesh(new THREE.BoxGeometry(0.8, 8.5, 0.8), finishFrameMaterial);
     finishPillarLeft.rotation.x = -this.getTrackTiltAtZ(this.finishZ);
     finishPillarLeft.position.set(-this.trackWidth * 0.5 + 0.8, this.getTrackSurfaceY(this.finishZ) + 4.2, this.finishZ);
-    this.scene.add(finishPillarLeft);
+    this.addLevelObject(finishPillarLeft);
 
     const finishPillarRight = new THREE.Mesh(new THREE.BoxGeometry(0.8, 8.5, 0.8), finishFrameMaterial);
     finishPillarRight.rotation.x = -this.getTrackTiltAtZ(this.finishZ);
     finishPillarRight.position.set(this.trackWidth * 0.5 - 0.8, this.getTrackSurfaceY(this.finishZ) + 4.2, this.finishZ);
-    this.scene.add(finishPillarRight);
+    this.addLevelObject(finishPillarRight);
 
     const finishTopBeam = new THREE.Mesh(
       new THREE.BoxGeometry(this.trackWidth - 1, 0.9, 0.9),
@@ -507,7 +678,7 @@ class MarbleMadnessStarter {
     );
     finishTopBeam.rotation.x = -this.getTrackTiltAtZ(this.finishZ);
     finishTopBeam.position.set(0, this.getTrackSurfaceY(this.finishZ) + 8.6, this.finishZ);
-    this.scene.add(finishTopBeam);
+    this.addLevelObject(finishTopBeam);
 
     this.addSkyscrapers();
     this.addFinishTriggerCubes();
@@ -690,17 +861,17 @@ class MarbleMadnessStarter {
       const geo = this.buildRunGeometry(run);
       const floorMesh = new THREE.Mesh(geo.floor, this.trackMaterial);
       floorMesh.receiveShadow = true;
-      this.scene.add(floorMesh);
+      this.addLevelObject(floorMesh);
 
       const leftWallMesh = new THREE.Mesh(geo.leftWall, this.trackMaterial);
       leftWallMesh.castShadow = true;
       leftWallMesh.receiveShadow = true;
-      this.scene.add(leftWallMesh);
+      this.addLevelObject(leftWallMesh);
 
       const rightWallMesh = new THREE.Mesh(geo.rightWall, this.trackMaterial);
       rightWallMesh.castShadow = true;
       rightWallMesh.receiveShadow = true;
-      this.scene.add(rightWallMesh);
+      this.addLevelObject(rightWallMesh);
     }
     console.log("[AddPlatformRunMeshes]", "Built continuous platform and wall meshes");
   }
@@ -734,7 +905,7 @@ class MarbleMadnessStarter {
       skyscraperGroup.add(building);
     }
 
-    this.scene.add(skyscraperGroup);
+    this.addLevelObject(skyscraperGroup);
     console.log("[AddSkyscrapers]", "Placed 10 skyscrapers under floating ramp");
   }
 
@@ -756,12 +927,12 @@ class MarbleMadnessStarter {
       const rowBurstPoints: THREE.Vector3[] = [];
       const leftColumn = new THREE.Mesh(new THREE.BoxGeometry(1.6, columnHeight, 1.6), cubeMaterial);
       leftColumn.position.set(-cubeOffsetX, y, z);
-      this.scene.add(leftColumn);
+      this.addLevelObject(leftColumn);
       rowBurstPoints.push(new THREE.Vector3(-cubeOffsetX, y + columnHeight * 0.52, z));
 
       const rightColumn = new THREE.Mesh(new THREE.BoxGeometry(1.6, columnHeight, 1.6), cubeMaterial);
       rightColumn.position.set(cubeOffsetX, y, z);
-      this.scene.add(rightColumn);
+      this.addLevelObject(rightColumn);
       rowBurstPoints.push(new THREE.Vector3(cubeOffsetX, y + columnHeight * 0.52, z));
 
       this.fireworkRows.push({
@@ -843,6 +1014,7 @@ class MarbleMadnessStarter {
           w: segmentRotation.w,
         });
       const floorBody = this.world.createRigidBody(floorBodyDesc);
+      this.trackRigidBodies.push(floorBody);
       const floorCollider = RAPIER.ColliderDesc.cuboid(
         slice.width * 0.5,
         this.trackThickness * 0.5,
@@ -869,6 +1041,7 @@ class MarbleMadnessStarter {
           w: segmentRotation.w,
         });
       const leftWallBody = this.world.createRigidBody(leftWallBodyDesc);
+      this.trackRigidBodies.push(leftWallBody);
       const leftWallCollider = RAPIER.ColliderDesc.cuboid(wallHalfX, wallHalfY, wallHalfZ).setFriction(0.7).setRestitution(0);
       this.world.createCollider(leftWallCollider, leftWallBody);
 
@@ -885,6 +1058,7 @@ class MarbleMadnessStarter {
           w: segmentRotation.w,
         });
       const rightWallBody = this.world.createRigidBody(rightWallBodyDesc);
+      this.trackRigidBodies.push(rightWallBody);
       const rightWallCollider = RAPIER.ColliderDesc.cuboid(wallHalfX, wallHalfY, wallHalfZ).setFriction(0.7).setRestitution(0);
       this.world.createCollider(rightWallCollider, rightWallBody);
     }
@@ -1126,6 +1300,8 @@ class MarbleMadnessStarter {
     this.gameState = "playing";
     this.runTimeSeconds = 0;
     this.finishedTimeSeconds = 0;
+    this.loopsCompleted = 0;
+    this.cameraAnchorsInitialized = false;
     for (const row of this.fireworkRows) {
       row.triggered = false;
     }
@@ -1142,7 +1318,76 @@ class MarbleMadnessStarter {
     this.resetMarble();
     this.updateHud();
     this.applyUiForState();
-    console.log("[StartRun]", "Run started");
+    console.log("[StartRun]", "Run started in " + (this.endlessMode ? "endless" : "classic") + " mode");
+  }
+
+  private addLevelObject(object: THREE.Object3D): void {
+    this.scene.add(object);
+    this.levelObjects.push(object);
+  }
+
+  private clearLevelVisuals(): void {
+    for (const object of this.levelObjects) {
+      this.scene.remove(object);
+      object.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          if (node.geometry) {
+            node.geometry.dispose();
+          }
+          if (Array.isArray(node.material)) {
+            for (const material of node.material) {
+              if (material !== this.trackMaterial && material !== this.marbleMaterial) {
+                material.dispose();
+              }
+            }
+          } else if (node.material && node.material !== this.trackMaterial && node.material !== this.marbleMaterial) {
+            node.material.dispose();
+          }
+        }
+      });
+    }
+    this.levelObjects = [];
+    this.fireworkRows = [];
+  }
+
+  private clearTrackPhysics(): void {
+    if (!this.world) {
+      return;
+    }
+    for (const body of this.trackRigidBodies) {
+      this.world.removeRigidBody(body);
+    }
+    this.trackRigidBodies = [];
+  }
+
+  private advanceToNextRandomLevel(): void {
+    if (!this.world || !this.marbleBody) {
+      return;
+    }
+
+    this.loopsCompleted += 1;
+    this.levelConfig = this.createRandomLevelConfig();
+    this.fireworkTriggerZ = this.levelConfig.fireworkZ;
+
+    for (const item of this.particles) {
+      this.scene.remove(item.mesh);
+    }
+    this.particles = [];
+    for (const item of this.trailParticles) {
+      this.scene.remove(item.mesh);
+    }
+    this.trailParticles = [];
+    this.trailSpawnSeconds = 0;
+
+    this.clearLevelVisuals();
+    this.clearTrackPhysics();
+    this.buildTrackSlices();
+    this.setupSceneVisuals();
+    this.createTrackPhysics();
+    this.cameraAnchorsInitialized = false;
+    this.resetMarble();
+
+    console.log("[AdvanceToNextRandomLevel]", "Advanced to random level #" + String(this.loopsCompleted));
   }
 
   private endRun(finished: boolean): void {
@@ -1265,6 +1510,9 @@ class MarbleMadnessStarter {
     const nowSeconds = timeMs / 1000;
     const delta = Math.min(0.05, nowSeconds - this.lastFrameSeconds);
     this.lastFrameSeconds = nowSeconds;
+    const instantFps = 1 / Math.max(0.0001, delta);
+    this.fpsSmoothed = THREE.MathUtils.lerp(this.fpsSmoothed, instantFps, 0.12);
+    this.fpsLabel.textContent = "FPS " + String(Math.round(this.fpsSmoothed));
 
     this.accumulator += delta;
     while (this.accumulator >= this.fixedStep) {
@@ -1306,7 +1554,7 @@ class MarbleMadnessStarter {
 
       this.world.step();
 
-      const position = this.marbleBody.translation();
+      let position = this.marbleBody.translation();
       const velocity = this.marbleBody.linvel();
       const surfaceYAfterStep = this.getTrackSurfaceY(position.z);
       const groundClearanceAfter = position.y - (surfaceYAfterStep + this.marbleRadius);
@@ -1332,8 +1580,12 @@ class MarbleMadnessStarter {
       }
 
       if (position.z <= this.finishZ) {
+        if (this.endlessMode) {
+          this.advanceToNextRandomLevel();
+          return;
+        }
         this.endRun(true);
-      } else if (position.y < this.loseY || this.runTimeSeconds >= this.maxRunSeconds) {
+      } else if (position.y < this.loseY || (!this.endlessMode && this.runTimeSeconds >= this.maxRunSeconds)) {
         this.endRun(false);
       }
     }
@@ -1343,12 +1595,24 @@ class MarbleMadnessStarter {
     const targetPosition = this.marbleMesh.position;
 
     const panX = targetPosition.x * 0.5;
-    const desired = new THREE.Vector3(panX, targetPosition.y + 40, targetPosition.z + 54);
-    const lerpFactor = Math.min(1, delta * 4.5);
-    this.camera.position.lerp(desired, lerpFactor);
+    const followTarget = new THREE.Vector3(panX, targetPosition.y + 40, targetPosition.z + 54);
+    const lookTarget = new THREE.Vector3(panX, targetPosition.y + 1.2, targetPosition.z - 34);
 
-    const look = new THREE.Vector3(panX, targetPosition.y + 1.2, targetPosition.z - 34);
-    this.camera.lookAt(look);
+    if (!this.cameraAnchorsInitialized) {
+      this.cameraFollowAnchor.copy(followTarget);
+      this.cameraLookAnchor.copy(lookTarget);
+      this.cameraAnchorsInitialized = true;
+    }
+
+    // Delayed camera anchors smooth small physics jitters.
+    const followSmooth = Math.min(1, delta * 2.2);
+    const lookSmooth = Math.min(1, delta * 2.6);
+    this.cameraFollowAnchor.lerp(followTarget, followSmooth);
+    this.cameraLookAnchor.lerp(lookTarget, lookSmooth);
+
+    const cameraSmooth = Math.min(1, delta * 4.0);
+    this.camera.position.lerp(this.cameraFollowAnchor, cameraSmooth);
+    this.camera.lookAt(this.cameraLookAnchor);
   }
 
   private updateHud(): void {
