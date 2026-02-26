@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { AUDIO_ASSETS } from "../src/audio/assetManifest";
+import { resolveFfmpegBinary } from "./ffmpeg-path";
 
 interface CliOptions {
   sourceDir: string;
@@ -22,7 +23,7 @@ function parseCliOptions(projectRoot: string): CliOptions {
   const args = process.argv.slice(2);
   let sourceDir = resolve(projectRoot, "assets", "audio-src");
   let outputDir = resolve(projectRoot, "public", "assets", "audio");
-  let ffmpegBin = process.env.FFMPEG_BIN ?? "ffmpeg";
+  let ffmpegBin = "";
   let dryRun = false;
   const onlySelectors: string[] = [];
 
@@ -122,7 +123,7 @@ function parseCliOptions(projectRoot: string): CliOptions {
 function printUsage(): void {
   log(
     "processAudioAssets.usage",
-    "bun run process:audio [--src assets/audio-src] [--out public/assets/audio] [--ffmpeg-bin ffmpeg] [--dry-run] [--only selector]",
+    "bun run process:audio [--src assets/audio-src] [--out public/assets/audio] [--ffmpeg-bin ffmpeg] [--dry-run] [--only selector]. FFmpeg resolution order: --ffmpeg-bin, FFMPEG_BIN/FFMPEG_PATH, local .tools/ffmpeg, PATH.",
   );
 }
 
@@ -443,9 +444,18 @@ function processAudioAssets(options: CliOptions): void {
 function main(): void {
   const projectRoot = resolve(import.meta.dirname, "..");
   const options = parseCliOptions(projectRoot);
+  const resolvedFfmpeg = resolveFfmpegBinary(projectRoot, options.ffmpegBin);
+  options.ffmpegBin = resolvedFfmpeg.binaryPath;
   log("processAudioAssets.main", "Source directory: " + options.sourceDir);
   log("processAudioAssets.main", "Output directory: " + options.outputDir);
-  log("processAudioAssets.main", "FFmpeg binary: " + options.ffmpegBin);
+  log(
+    "processAudioAssets.main",
+    "FFmpeg binary: " +
+      options.ffmpegBin +
+      " (" +
+      resolvedFfmpeg.source +
+      ")",
+  );
   processAudioAssets(options);
 }
 
