@@ -171,7 +171,7 @@ export class Game {
     onAdvancedSettingsChange?: (settings: AdvancedSettings) => void;
     onSystemMessage?: (message: string, durationMs?: number) => void;
     onMapChange?: (mapId: MapId) => void;
-    onLocalInputAction?: (action: "rotate" | "fire") => void;
+    onLocalInputAction?: (action: "rotate" | "fire" | "dash") => void;
   }): void {
     this.flowMgr.onPhaseChange = callbacks.onPhaseChange;
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
@@ -194,9 +194,12 @@ export class Game {
     | ((message: string, durationMs?: number) => void)
     | null = null;
   private _onMapChange: ((mapId: MapId) => void) | null = null;
-  private _onLocalInputAction: ((action: "rotate" | "fire") => void) | null =
+  private _onLocalInputAction: ((action: "rotate" | "fire" | "dash") => void) | null =
     null;
   private previousLocalInputButtons = { buttonA: false, buttonB: false };
+  // Demo-only input gates — only active when isDemoSession is true
+  private demoTutorialBlockDash = false;
+  private demoTutorialBlockFire = false;
   private lastTransportErrorCode: string | null = null;
   private lastTransportErrorMessage: string | null = null;
   private stickyMatchPlayerOrder: string[] = [];
@@ -652,12 +655,23 @@ export class Game {
 
   private handleLocalDash(): void {
     if (this.network.isSimulationAuthority()) {
+      // In local/demo mode the host IS the simulation authority. Still track
+      // the dash for tutorial counting (but don't send any network request).
+      if (this.isDemoSession && !this.demoTutorialBlockDash) {
+        this._onLocalInputAction?.("dash");
+      }
       return;
     }
 
     const myPlayerId = this.network.getMyPlayerId();
     if (!myPlayerId) return;
     if (!this.canRunLocalShipAction(myPlayerId)) return;
+
+    // Demo tutorial gate — block dash during steps that restrict it
+    if (this.isDemoSession && this.demoTutorialBlockDash) return;
+
+    // Emit dash action for tutorial tracking
+    this._onLocalInputAction?.("dash");
 
     if (this.network.getTransportMode() !== "online") {
       this.network.sendDashRequest();
@@ -827,6 +841,11 @@ export class Game {
       now,
       this.botMgr.useTouchForHost,
     );
+    // Demo tutorial gate — mask fire button if restricted during this step
+    if (this.isDemoSession && this.demoTutorialBlockFire && localInput.buttonB) {
+      localInput.buttonB = false;
+      this.inputResolver.maskButtonB();
+    }
     this.emitLocalInputActions(localInput);
     this.networkSync.captureLocalInput(localInput);
     const sentInput = this.inputResolver.sendLocalInputIfNeeded(
@@ -1610,6 +1629,21 @@ export class Game {
 
   setDemoSession(active: boolean): void {
     this.isDemoSession = active;
+    if (!active) {
+      // Always clear tutorial gates when leaving demo
+      this.demoTutorialBlockDash = false;
+      this.demoTutorialBlockFire = false;
+    }
+  }
+
+  /**
+   * Demo-only: block specific actions from registering in-game during tutorial steps.
+   * Has no effect when isDemoSession is false.
+   */
+  setDemoInputBlock(blocked: { dash: boolean; fire: boolean }): void {
+    if (!this.isDemoSession) return;
+    this.demoTutorialBlockDash = blocked.dash;
+    this.demoTutorialBlockFire = blocked.fire;
   }
 
   isDemoMode(): boolean {
@@ -1627,6 +1661,11 @@ export class Game {
 
   setSimPaused(paused: boolean): void {
     this.network.pauseSimulation(paused);
+  }
+
+  /** Freeze all non-host ships during tutorial action steps. Pass null to unfreeze. */
+  setDemoBotFreeze(hostId: string | null): void {
+    this.network.demoFreezeOthers(hostId);
   }
 
   demoRespawnPlayer(playerId: string): void {

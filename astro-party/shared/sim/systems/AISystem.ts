@@ -6,6 +6,8 @@ export function updateBots(sim: SimState): void {
   for (const playerId of sim.playerOrder) {
     const player = sim.players.get(playerId);
     if (!player || !player.isBot || player.botType !== "ai") continue;
+    // Demo tutorial: skip AI for frozen ships
+    if (sim.demoFrozenPlayerIds?.has(playerId)) continue;
     if (sim.nowMs - player.botLastDecisionMs < AI_CONFIG.REACTION_DELAY_MS) {
       player.input.buttonA = player.botCachedAction.buttonA;
       sim.setFireButtonState(player, player.botCachedAction.buttonB);
