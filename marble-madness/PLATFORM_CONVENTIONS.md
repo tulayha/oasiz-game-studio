@@ -22,6 +22,12 @@ This file defines the shared language for track generation so prompts map to det
   - Slope transitions should be eased, not instant.
   - Lateral transitions should use eased interpolation, not sharp corners.
 - Wall geometry should be integrated with floor shape (half-pipe style), not detached rails.
+- Endless progression rule:
+  - Generated runs increase authored platform count over time (4, then 5, then 6, ...).
+- Fixed start sequence rule:
+  - Every generated level must begin with `flat -> slope_down_steep -> flat`.
+  - Player spawn is on the first flat platform.
+  - Enemy pack spawn is on the second flat platform at the bottom of the opening ramp.
 
 ## Platform Build Architecture
 - Authoring model:
@@ -58,6 +64,10 @@ This file defines the shared language for track generation so prompts map to det
   - Use `gap_jump_short` as the default gap tool so launch and landing behavior are built in.
 - Validation:
   - If a prompt requests a gap without launch context, auto-insert a jump-prep slope before the gap.
+- Runtime generation constraints:
+  - `gap_short` must be short/jumpable (target short span, not long chasms).
+  - The platform immediately before a generated `gap_short` is force-upgraded to a steep launch section (`slope_down_steep`) when needed.
+  - The landing floor after a generated gap must be lower in `y` than the takeoff edge so speed can carry the marble across.
 
 ## Texture Rules
 - Platform textures are world-density based, not per-slice stretched.

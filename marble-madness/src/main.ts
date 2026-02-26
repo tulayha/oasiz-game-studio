@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 
-const BUILD_VERSION = "0.5.3";
+const BUILD_VERSION = "0.5.7";
 
 type GameState = "start" | "playing" | "gameOver";
 type HapticType = "light" | "medium" | "heavy" | "success" | "error";
@@ -77,6 +77,7 @@ interface PlatformSection {
 interface LevelConfig {
   platformCount: number;
   sections: PlatformSection[];
+  enemyPackCenterZ: number;
   fireworkZ: number;
 }
 
@@ -109,6 +110,9 @@ class MarbleMadnessStarter {
   private marbleMesh: THREE.Mesh;
   private marbleMaterial: THREE.MeshStandardMaterial;
   private trackMaterial: THREE.MeshStandardMaterial;
+  private enemyMaterial: THREE.MeshStandardMaterial;
+  private enemyMarbleMeshes: THREE.Mesh[] = [];
+  private enemyMarbleBodies: RAPIER.RigidBody[] = [];
 
   private gameState: GameState = "start";
   private settings: Settings;
@@ -140,9 +144,12 @@ class MarbleMadnessStarter {
   private readonly skyscraperTopY = -80;
   private readonly maxRunSeconds = 60;
   private readonly marbleRadius = 1;
+  private readonly enemyMarbleRadius = 0.95;
+  private readonly enemyMarbleCount = 50;
   private readonly startFlickSpeed = 16;
   private readonly nudgeImpulse = 1.35;
   private readonly downhillImpulse = 0.06;
+  private readonly enemyImpulseMultiplier = 0.7;
   private readonly speedMultiplier = 6;
   private readonly trackStep = 1.5;
   private readonly wallHeight = 3.6;
@@ -224,6 +231,11 @@ class MarbleMadnessStarter {
       roughness: 0.82,
       metalness: 0.02,
     });
+    this.enemyMaterial = new THREE.MeshStandardMaterial({
+      color: "#d83f4d",
+      roughness: 0.35,
+      metalness: 0.12,
+    });
     this.marbleMesh = new THREE.Mesh(marbleGeometry, this.marbleMaterial);
     this.marbleMesh.castShadow = true;
     this.marbleMesh.receiveShadow = true;
@@ -252,6 +264,7 @@ class MarbleMadnessStarter {
 
     this.createTrackPhysics();
     this.createMarblePhysics();
+    this.createEnemyMarblesPhysics();
     this.resetMarble();
 
     this.lastFrameSeconds = performance.now() / 1000;
@@ -421,7 +434,7 @@ class MarbleMadnessStarter {
         type,
         zStart,
         zEnd,
-        slope: this.randomRange(0.22, 0.34),
+        slope: this.randomRange(0.26, 0.38),
         width: this.trackWidth,
         hasFloor: true,
         detourDirection: 1,
@@ -445,7 +458,8 @@ class MarbleMadnessStarter {
         type,
         zStart,
         zEnd,
-        slope: this.randomRange(0.08, 0.14),
+        // Keep landing floor meaningfully lower than takeoff edge.
+        slope: this.randomRange(0.2, 0.3),
         width: this.trackWidth,
         hasFloor: false,
         detourDirection: 1,
@@ -468,10 +482,12 @@ class MarbleMadnessStarter {
     const platformCount = Math.min(24, 4 + this.loopsCompleted);
     const sections: PlatformSection[] = [];
 
-    const startLength = this.randomRange(18, 30);
+    const startLength = this.randomRange(16, 22);
+    const launchRampLength = this.randomRange(24, 34);
+    const enemyFlatLength = this.randomRange(18, 28);
     const finishLength = this.randomRange(18, 26);
-    const middleCount = Math.max(1, platformCount - 2);
-    const usableLength = Math.max(80, this.startZ - this.finishZ - startLength - finishLength);
+    const middleCount = Math.max(0, platformCount - 4);
+    const usableLength = Math.max(40, this.startZ - this.finishZ - startLength - launchRampLength - enemyFlatLength - finishLength);
     const weights: number[] = [];
     let weightSum = 0;
     for (let i = 0; i < middleCount; i += 1) {
@@ -484,16 +500,34 @@ class MarbleMadnessStarter {
     const startSectionEnd = currentZ - startLength;
     sections.push(this.createPlatformSection("flat", currentZ, startSectionEnd));
     currentZ = startSectionEnd;
+    const launchRampEnd = currentZ - launchRampLength;
+    sections.push(this.createPlatformSection("slope_down_steep", currentZ, launchRampEnd));
+    currentZ = launchRampEnd;
+    const enemyFlatEnd = currentZ - enemyFlatLength;
+    sections.push(this.createPlatformSection("flat", currentZ, enemyFlatEnd));
+    const enemyPackCenterZ = (currentZ + enemyFlatEnd) * 0.5;
+    currentZ = enemyFlatEnd;
 
     let previousType: PlatformType = "flat";
-    const typeLog: string[] = ["flat"];
+    const typeLog: string[] = ["flat", "slope_down_steep", "flat"];
     for (let i = 0; i < middleCount; i += 1) {
-      const length = Math.max(9, (weights[i] / Math.max(0.001, weightSum)) * usableLength);
-      const zEnd = Math.max(this.finishZ + finishLength, currentZ - length);
+      let length = Math.max(9, (weights[i] / Math.max(0.001, weightSum)) * usableLength);
       let type = this.pickMiddlePlatformType(previousType);
       if (type === "gap_short" && !(previousType === "slope_down_soft" || previousType === "slope_down_steep")) {
         type = "slope_down_soft";
       }
+      if (type === "gap_short") {
+        // Keep short gaps jumpable at speed.
+        length = this.randomRange(8, 12);
+
+        const launchIndex = sections.length - 1;
+        if (launchIndex >= 0 && sections[launchIndex].type !== "slope_down_steep") {
+          const launchSection = sections[launchIndex];
+          sections[launchIndex] = this.createPlatformSection("slope_down_steep", launchSection.zStart, launchSection.zEnd);
+          typeLog[launchIndex] = "slope_down_steep";
+        }
+      }
+      const zEnd = Math.max(this.finishZ + finishLength, currentZ - length);
       sections.push(this.createPlatformSection(type, currentZ, zEnd));
       typeLog.push(type);
       previousType = type;
@@ -518,6 +552,7 @@ class MarbleMadnessStarter {
     return {
       platformCount,
       sections,
+      enemyPackCenterZ,
       fireworkZ,
     };
   }
@@ -1136,6 +1171,77 @@ class MarbleMadnessStarter {
     console.log("[CreateMarblePhysics]", "Marble rigid body created");
   }
 
+  private createEnemyMarblesPhysics(): void {
+    if (!this.world) {
+      return;
+    }
+
+    const geometry = new THREE.SphereGeometry(this.enemyMarbleRadius, 20, 16);
+    this.enemyMarbleMeshes = [];
+    this.enemyMarbleBodies = [];
+    for (let i = 0; i < this.enemyMarbleCount; i += 1) {
+      const mesh = new THREE.Mesh(geometry, this.enemyMaterial);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.enemyMarbleMeshes.push(mesh);
+
+      const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(0, this.getTrackSurfaceY(this.startZ) + this.enemyMarbleRadius + 2, this.startZ - 8)
+        .setLinearDamping(0.04)
+        .setAngularDamping(0.03)
+        .setCanSleep(false)
+        .setCcdEnabled(true);
+      const body = this.world.createRigidBody(bodyDesc);
+      const collider = RAPIER.ColliderDesc.ball(this.enemyMarbleRadius)
+        .setFriction(1.25)
+        .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
+        .setRestitution(0)
+        .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min)
+        .setDensity(1.15);
+      this.world.createCollider(collider, body);
+      this.enemyMarbleBodies.push(body);
+    }
+    console.log("[CreateEnemyMarblesPhysics]", "Created " + String(this.enemyMarbleCount) + " enemy marbles");
+  }
+
+  private resetEnemyMarbles(): void {
+    if (!this.marbleBody) {
+      return;
+    }
+
+    const startX = this.sampleTrackX(this.startZ);
+    const groupCenterZ = this.levelConfig.enemyPackCenterZ;
+    const columns = 10;
+    const spacingX = 1.08;
+    const spacingZ = 1.15;
+    for (let i = 0; i < this.enemyMarbleBodies.length; i += 1) {
+      const col = i % columns;
+      const row = Math.floor(i / columns);
+      const x = startX + (col - (columns - 1) * 0.5) * spacingX;
+      const z = groupCenterZ - row * spacingZ;
+      const y = this.getTrackSurfaceY(z) + this.enemyMarbleRadius + 0.75;
+      const body = this.enemyMarbleBodies[i];
+      body.setTranslation({ x, y, z }, true);
+      body.setLinvel({ x: 0, y: 0, z: -this.startFlickSpeed * 0.95 }, true);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      body.wakeUp();
+    }
+    console.log("[ResetEnemyMarbles]", "Enemy marbles reset in a forward pack");
+  }
+
+  private syncEnemyMarbleMeshes(): void {
+    const count = Math.min(this.enemyMarbleMeshes.length, this.enemyMarbleBodies.length);
+    for (let i = 0; i < count; i += 1) {
+      const body = this.enemyMarbleBodies[i];
+      const position = body.translation();
+      const rotation = body.rotation();
+      const mesh = this.enemyMarbleMeshes[i];
+      mesh.position.set(position.x, position.y, position.z);
+      mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    }
+  }
+
   private bindUi(): void {
     document.getElementById("start-btn")?.addEventListener("click", () => {
       this.triggerLightHaptic();
@@ -1475,6 +1581,8 @@ class MarbleMadnessStarter {
 
     this.marbleMesh.position.set(startX, startY, this.startZ);
     this.marbleMesh.quaternion.identity();
+    this.resetEnemyMarbles();
+    this.syncEnemyMarbleMeshes();
 
     this.updateCamera(0.16);
     console.log("[ResetMarble]", "Marble reset to start");
@@ -1551,6 +1659,19 @@ class MarbleMadnessStarter {
       if (nearGroundBeforeStep) {
         this.marbleBody.applyImpulse({ x: 0, y: 0, z: -momentumBoost }, true);
       }
+      for (const enemyBody of this.enemyMarbleBodies) {
+        const enemyPosition = enemyBody.translation();
+        const enemySurfaceY = this.getTrackSurfaceY(enemyPosition.z);
+        const enemyClearance = enemyPosition.y - (enemySurfaceY + this.enemyMarbleRadius);
+        if (enemyClearance <= 0.9) {
+          const enemyTilt = this.getTrackTiltAtZ(enemyPosition.z);
+          const enemySlopeFactor = Math.max(0, Math.tan(enemyTilt));
+          const enemyBoost = (this.downhillImpulse + enemySlopeFactor * 0.52)
+            * this.speedMultiplier
+            * this.enemyImpulseMultiplier;
+          enemyBody.applyImpulse({ x: 0, y: 0, z: -enemyBoost }, true);
+        }
+      }
 
       this.world.step();
 
@@ -1566,10 +1687,24 @@ class MarbleMadnessStarter {
           this.marbleBody.applyImpulse({ x: 0, y: 0, z: -catchUpImpulse }, true);
         }
       }
+      for (const enemyBody of this.enemyMarbleBodies) {
+        const enemyPosition = enemyBody.translation();
+        const enemyVelocity = enemyBody.linvel();
+        const enemySurfaceY = this.getTrackSurfaceY(enemyPosition.z);
+        const enemyGroundClearance = enemyPosition.y - (enemySurfaceY + this.enemyMarbleRadius);
+        if (enemyGroundClearance <= 0.82) {
+          const targetEnemySpeed = this.getTrackTiltAtZ(enemyPosition.z) > 0.08 ? -34 : -26;
+          if (enemyVelocity.z > targetEnemySpeed) {
+            const enemyCatchUpImpulse = (enemyVelocity.z - targetEnemySpeed) * 0.06 * this.enemyImpulseMultiplier;
+            enemyBody.applyImpulse({ x: 0, y: 0, z: -enemyCatchUpImpulse }, true);
+          }
+        }
+      }
 
       const rotation = this.marbleBody.rotation();
       this.marbleMesh.position.set(position.x, position.y, position.z);
       this.marbleMesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+      this.syncEnemyMarbleMeshes();
 
       for (const row of this.fireworkRows) {
         if (!row.triggered && position.z <= row.activationZ) {
