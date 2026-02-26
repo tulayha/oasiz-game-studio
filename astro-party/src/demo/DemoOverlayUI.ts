@@ -19,6 +19,10 @@ export interface DemoOverlayCallbacks {
   getShipPos: () => { x: number; y: number } | null;
   /** Sets/clears the camera zoom boost */
   setZoom: (boost: number | null) => void;
+  /** Subscribes to local input actions (from the real game input pipeline). */
+  subscribeInputAction: (
+    handler: (action: "rotate" | "fire") => void,
+  ) => () => void;
 }
 
 export class DemoOverlayUI {
@@ -40,7 +44,10 @@ export class DemoOverlayUI {
   private cancelTypewriter: (() => void) | null = null;
 
   private boundOnTap: () => void;
+  private boundOnAttractPointerDown: (e: PointerEvent) => void;
   private boundOnKey: (e: KeyboardEvent) => void;
+  private boundOnSkipClick: (e: MouseEvent) => void;
+  private boundOnSkipPointerDown: (e: PointerEvent) => void;
 
   constructor(isMobile: boolean) {
     this.isMobile = isMobile;
@@ -63,7 +70,10 @@ export class DemoOverlayUI {
     ) as HTMLButtonElement;
 
     this.boundOnTap = this.handleTap.bind(this);
+    this.boundOnAttractPointerDown = this.handleAttractPointerDown.bind(this);
     this.boundOnKey = this.handleKey.bind(this);
+    this.boundOnSkipClick = this.handleAttractSkipClick.bind(this);
+    this.boundOnSkipPointerDown = this.handleAttractSkipPointerDown.bind(this);
 
     if (!isMobile) {
       this.tapText.textContent = "Press any key to Start";
@@ -76,24 +86,48 @@ export class DemoOverlayUI {
 
   showAttract(): void {
     this.attractOverlay.classList.remove("hidden");
+    this.attractOverlay.style.pointerEvents = "auto";
+    this.attractOverlay.style.touchAction = "manipulation";
 
+    this.attractOverlay.removeEventListener(
+      "pointerdown",
+      this.boundOnAttractPointerDown,
+    );
+    this.attractOverlay.addEventListener(
+      "pointerdown",
+      this.boundOnAttractPointerDown,
+    );
     this.attractOverlay.addEventListener("click", this.boundOnTap);
     document.addEventListener("keydown", this.boundOnKey);
 
-    this.skipBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.handleSkip();
-    });
+    this.skipBtn.removeEventListener("click", this.boundOnSkipClick);
+    this.skipBtn.removeEventListener(
+      "pointerdown",
+      this.boundOnSkipPointerDown,
+    );
+    this.skipBtn.addEventListener("click", this.boundOnSkipClick);
+    this.skipBtn.addEventListener("pointerdown", this.boundOnSkipPointerDown);
   }
 
   showTutorial(isMobile = this.isMobile): void {
     this.attractOverlay.classList.add("hidden");
     this.attractOverlay.removeEventListener("click", this.boundOnTap);
+    this.attractOverlay.removeEventListener(
+      "pointerdown",
+      this.boundOnAttractPointerDown,
+    );
+    this.attractOverlay.style.pointerEvents = "";
+    this.skipBtn.removeEventListener("click", this.boundOnSkipClick);
+    this.skipBtn.removeEventListener(
+      "pointerdown",
+      this.boundOnSkipPointerDown,
+    );
     document.removeEventListener("keydown", this.boundOnKey);
 
     // Inject diagram
     this.tutorialDiagram.innerHTML = createControlDiagram(isMobile);
 
+    this.tutorialOverlay.style.pointerEvents = "auto";
     this.tutorialOverlay.classList.remove("hidden");
 
     this.tutorialSkip.addEventListener("click", () => {
@@ -135,9 +169,20 @@ export class DemoOverlayUI {
     this.tutorialNext.classList.add("hidden");
     this.exitBtn.classList.add("hidden");
     this.attractOverlay.removeEventListener("click", this.boundOnTap);
+    this.attractOverlay.removeEventListener(
+      "pointerdown",
+      this.boundOnAttractPointerDown,
+    );
+    this.attractOverlay.style.pointerEvents = "";
+    this.skipBtn.removeEventListener("click", this.boundOnSkipClick);
+    this.skipBtn.removeEventListener(
+      "pointerdown",
+      this.boundOnSkipPointerDown,
+    );
     document.removeEventListener("keydown", this.boundOnKey);
     this.cancelTypewriter?.();
     this.tutorialRunning = false;
+    this.tutorialOverlay.style.pointerEvents = "";
   }
 
   destroy(): void {
@@ -148,6 +193,22 @@ export class DemoOverlayUI {
     if (this.transitioning) return;
     this.transitioning = true;
     this.callbacks?.onTapToStart();
+  }
+
+  private handleAttractPointerDown(e: PointerEvent): void {
+    if (e.target instanceof Node && this.skipBtn.contains(e.target)) {
+      return;
+    }
+    this.handleTap();
+  }
+
+  private handleAttractSkipClick(e: MouseEvent): void {
+    e.stopPropagation();
+    this.handleSkip();
+  }
+
+  private handleAttractSkipPointerDown(e: PointerEvent): void {
+    e.stopPropagation();
   }
 
   private handleKey(e: KeyboardEvent): void {
@@ -224,10 +285,12 @@ export class DemoOverlayUI {
   }
 
   private showPanel(): void {
+    this.tutorialOverlay.style.pointerEvents = "auto";
     this.tutorialPanel.classList.remove("panel-hidden");
   }
 
   private hidePanel(): void {
+    this.tutorialOverlay.style.pointerEvents = "none";
     this.tutorialPanel.classList.add("panel-hidden");
   }
 
@@ -324,30 +387,68 @@ export class DemoOverlayUI {
       };
 
       overlay.classList.remove("hidden");
+      overlay.style.pointerEvents = "none";
       setTimeout(positionRing, 120);
       const trackInterval = setInterval(positionRing, 50);
 
-      if (label) label.textContent = "Press ← / A to take control";
+      if (label) {
+        label.textContent = this.isMobile
+          ? "Hold left side to take control"
+          : "Press \u2190 / A to take control";
+      }
 
       let done = false;
+      let unsubscribeInputAction: (() => void) | null = null;
+      const clearLeftTouchZoneHighlight = this.startLeftTouchZoneHighlight();
       const finish = (): void => {
         if (done) return;
         done = true;
         clearInterval(trackInterval);
-        document.removeEventListener("keydown", onRotateKey);
+        clearLeftTouchZoneHighlight();
+        unsubscribeInputAction?.();
+        unsubscribeInputAction = null;
         overlay.classList.add("hidden");
+        overlay.style.pointerEvents = "";
         cb.setZoom(null);
         // Resume sim — player pressed A and can now fly freely
         cb.onResumeGame();
         setTimeout(resolve, 380);
       };
 
-      const ROTATE_KEYS = new Set(["a", "A", "ArrowLeft"]);
-      const onRotateKey = (e: KeyboardEvent): void => {
-        if (ROTATE_KEYS.has(e.key)) finish();
-      };
-      document.addEventListener("keydown", onRotateKey);
+      unsubscribeInputAction = cb.subscribeInputAction((action) => {
+        if (action === "rotate") {
+          finish();
+        }
+      });
     });
+  }
+
+  private startLeftTouchZoneHighlight(): () => void {
+    if (!this.isMobile) {
+      return () => {};
+    }
+
+    const selector = '#touchZones .touch-zone[data-slot="0"][data-button="A"]';
+    const applyHighlight = (): void => {
+      const zones = document.querySelectorAll<HTMLElement>(selector);
+      zones.forEach((zone) => {
+        zone.classList.add("demo-left-highlight");
+      });
+    };
+    const clearHighlight = (): void => {
+      const zones = document.querySelectorAll<HTMLElement>(selector);
+      zones.forEach((zone) => {
+        zone.classList.remove("demo-left-highlight");
+      });
+    };
+
+    applyHighlight();
+    const poll = window.setInterval(applyHighlight, 150);
+
+    return (): void => {
+      window.clearInterval(poll);
+      clearHighlight();
+    };
   }
 
   /**
@@ -360,30 +461,35 @@ export class DemoOverlayUI {
   ): Promise<void> {
     return new Promise((resolve) => {
       let resolved = false;
+      let unsubscribeInputAction: (() => void) | null = null;
 
       const done = (): void => {
         if (resolved) return;
         resolved = true;
-        document.removeEventListener("keydown", onKey);
+        unsubscribeInputAction?.();
+        unsubscribeInputAction = null;
         clearTimeout(autoTimeout);
         // Let player play freely before next panel
         setTimeout(resolve, 6000);
       };
 
-      const ROTATE_KEYS = new Set(["a", "A", "ArrowLeft"]);
-      const FIRE_KEYS = new Set(["d", "D", "ArrowRight", " "]);
+      unsubscribeInputAction = this.callbacks?.subscribeInputAction(
+        (localAction) => {
+          if (!this.tutorialRunning) {
+            done();
+            return;
+          }
+          if (localAction === action) {
+            done();
+          }
+        },
+      ) ?? null;
 
-      const onKey = (e: KeyboardEvent): void => {
+      if (unsubscribeInputAction === null) {
         if (!this.tutorialRunning) {
           done();
-          return;
         }
-        const key = e.key;
-        if (action === "rotate" && ROTATE_KEYS.has(key)) done();
-        if (action === "fire" && FIRE_KEYS.has(key)) done();
-      };
-
-      document.addEventListener("keydown", onKey);
+      }
 
       // Auto-advance so tutorial never gets stuck
       const autoTimeout = setTimeout(done, autoAdvanceMs);
