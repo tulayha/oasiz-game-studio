@@ -1021,3 +1021,37 @@ TODO / Next suggestions
   - docs-only update; no runtime code changes
   - `bun run typecheck` not rerun for this docs-only milestone
   - `bun run build` not rerun for this docs-only milestone
+## 2026-02-26 (Minimal room-code loadtest flow)
+- Added a new minimal Colyseus loadtest path dedicated to joining an existing room code.
+- Behavior:
+  - joins a specific code via `/match/join` + `consumeSeatReservation`
+  - waits for `PLAYING`
+  - reads `evt:snapshot` payloads and discards them
+  - spams `cmd:input` (`buttonA` + `buttonB`) at client-default debounce (`1000/60`) and aligns interval with server `tickDurationMs` when available
+- Files:
+  - added `server/loadtest/minimal-roomcode.loadtest.ts`
+  - added `server/loadtest/run-roomcode-loadtest.ts`
+  - updated `server/package.json` (`loadtest:roomcode`)
+  - updated root `package.json` (`loadtest:roomcode`)
+  - updated `server/README.md` with usage and flags
+- Validation:
+  - `astro-party/server`: `npm run typecheck` passed
+  - `astro-party/server`: `npm run build` passed
+## 2026-02-26 (Room-code loadtest pause/resume + legacy script removal)
+- Updated minimal room-code loadtest loop behavior:
+  - input spam loop now starts only during `PLAYING`
+  - spam loop is fully paused outside `PLAYING` and resumes if phase returns to `PLAYING`
+  - snapshot-based tick interval updates now restart the loop only when actively spamming
+- Added basic graceful disconnect handling:
+  - room `onError` now triggers a one-shot `leave(false)` attempt
+  - terminal cleanup still resolves via `onLeave`
+  - summary now tracks `serverDisconnects` (code `1006` or `4000-4999`)
+- Removed legacy loadtest script set:
+  - deleted `server/loadtest/astro-party.loadtest.ts`
+  - deleted `server/loadtest/run-loadtest.ts`
+  - removed old preset script entries from `server/package.json` and root `package.json`
+  - `loadtest` now aliases the room-code runner baseline
+- Updated `server/README.md` load-testing section to reflect room-code-only flow.
+- Validation:
+  - `astro-party/server`: `npm run typecheck` passed
+  - `astro-party/server`: `npm run build` passed
