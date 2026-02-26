@@ -40,3 +40,6 @@ audio/
 !astro-party/src/audio/**
 
 output/
+
+# Local FFmpeg bootstrap in Astro Party
+astro-party/.tools/ffmpeg/
