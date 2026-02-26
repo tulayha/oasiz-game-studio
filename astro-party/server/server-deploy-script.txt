@@ -1,9 +1,14 @@
 cat >/root/deploy-astro-party.sh <<'EOF'
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-BRANCH="astro-party-col"
-PM2_NAME="astro-party-colyseus"
+BRANCH="${BRANCH:-space-force-dev}"
+PM2_NAME="${PM2_NAME:-astro-party-colyseus}"
+LOCAL_HEALTH_URL="${LOCAL_HEALTH_URL:-http://127.0.0.1:2567/healthz}"
+PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://api.aiisourdaddy.com/healthz}"
+HEALTH_RETRIES="${HEALTH_RETRIES:-30}"
+HEALTH_SLEEP_SEC="${HEALTH_SLEEP_SEC:-1}"
+NPM_INSTALL_MODE="${NPM_INSTALL_MODE:-auto}" # auto|ci|install
 
 # Prefer /root/astro-party (new), fallback to old /root/astro-party-repo
 REPO_DIR="/root/astro-party"
@@ -11,10 +16,42 @@ if [ ! -d "${REPO_DIR}/.git" ]; then
   REPO_DIR="/root/astro-party-repo"
 fi
 
+log() {
+  echo "[deploy-astro-party] $*"
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+require_cmd git
+require_cmd npm
+require_cmd pm2
+require_cmd curl
+
+if [ ! -d "${REPO_DIR}/.git" ]; then
+  echo "Repo not found in /root/astro-party or /root/astro-party-repo" >&2
+  exit 1
+fi
 
 cd "${REPO_DIR}"
+log "Fetching branch ${BRANCH}"
+
+# Clear any drift from previous deploy runs before switching branches.
+git reset --hard
+git clean -fd
+
 git fetch origin "${BRANCH}"
-git checkout "${BRANCH}" || git checkout -b "${BRANCH}" "origin/${BRANCH}"
+
+if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+  git switch --discard-changes "${BRANCH}"
+else
+  git switch -c "${BRANCH}" "origin/${BRANCH}"
+fi
+
 git reset --hard "origin/${BRANCH}"
 git clean -fd
 
@@ -25,30 +62,60 @@ git sparse-checkout set astro-party/server astro-party/shared
 APP_DIR="${REPO_DIR}/astro-party"
 SERVER_DIR="${APP_DIR}/server"
 
-echo "installing server deps"
-cd "${SERVER_DIR}"
-npm install
+if [ ! -d "${SERVER_DIR}" ]; then
+  echo "Server directory missing: ${SERVER_DIR}" >&2
+  exit 1
+fi
 
+log "Installing server deps"
+cd "${SERVER_DIR}"
+if [ "${NPM_INSTALL_MODE}" = "ci" ]; then
+  npm ci
+elif [ "${NPM_INSTALL_MODE}" = "install" ]; then
+  npm install --no-package-lock
+else
+  if [ -f package-lock.json ]; then
+    if npm ci; then
+      log "npm ci succeeded"
+    else
+      log "npm ci failed, falling back to npm install"
+      npm install --no-package-lock
+    fi
+  else
+    npm install --no-package-lock
+  fi
+fi
+
+log "Building server"
 npm run build
 
 # Recreate process so cwd/script always points to new server path
 if pm2 describe "${PM2_NAME}" >/dev/null 2>&1; then
+  log "Replacing pm2 process ${PM2_NAME}"
   pm2 delete "${PM2_NAME}"
 fi
 pm2 start npm --name "${PM2_NAME}" --cwd "${SERVER_DIR}" -- start
 pm2 save
 
-echo "Waiting for backend to become healthy..."
-for i in $(seq 1 30); do
-  if curl -fsS http://127.0.0.1:2567/healthz >/dev/null 2>&1; then
+log "Waiting for backend to become healthy..."
+for i in $(seq 1 "${HEALTH_RETRIES}"); do
+  if curl -fsS "${LOCAL_HEALTH_URL}" >/dev/null 2>&1; then
     break
   fi
-  sleep 1
+  sleep "${HEALTH_SLEEP_SEC}"
 done
 
-curl -fsS http://127.0.0.1:2567/healthz
-curl -fsS https://api.aiisourdaddy.com/healthz
-echo "Deploy OK"
+if ! curl -fsS "${LOCAL_HEALTH_URL}" >/dev/null 2>&1; then
+  pm2 logs "${PM2_NAME}" --lines 80 --nostream || true
+  echo "Local health check failed: ${LOCAL_HEALTH_URL}" >&2
+  exit 1
+fi
+
+if ! curl -fsS "${PUBLIC_HEALTH_URL}" >/dev/null 2>&1; then
+  log "Public health check failed (non-fatal): ${PUBLIC_HEALTH_URL}"
+fi
+
+log "Deploy OK"
 EOF
 
 chmod +x /root/deploy-astro-party.sh

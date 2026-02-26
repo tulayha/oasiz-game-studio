@@ -1055,3 +1055,78 @@ TODO / Next suggestions
 - Validation:
   - `astro-party/server`: `npm run typecheck` passed
   - `astro-party/server`: `npm run build` passed
+## 2026-02-26 (Server Colyseus monitor integration)
+- Wired Colyseus Monitor into server bootstrap:
+  - mounted monitor middleware in `server/src/index.ts`
+  - optional Basic Auth gate via env vars
+  - safe config behavior: if only one of username/password is provided, monitor is disabled
+- Added monitor env handling:
+  - `COLYSEUS_MONITOR_ENABLED`
+  - `COLYSEUS_MONITOR_PATH`
+  - `COLYSEUS_MONITOR_USERNAME`
+  - `COLYSEUS_MONITOR_PASSWORD`
+- Added package dependency:
+  - `@colyseus/monitor` in `server/package.json` (+ lockfile update)
+- Updated docs:
+  - `server/README.md` with monitor usage and auth setup
+  - `ARCHITECTURE.md` server topology ownership line updated for monitor mounting/auth
+- Validation:
+  - `astro-party/server`: `npm run typecheck` passed
+  - `astro-party/server`: `npm run build` passed
+## 2026-02-26 (Deploy script hardening pass)
+- Refined `server/server-deploy-script.txt` for safer, more repeatable deploys:
+  - added preflight command checks (`git`, `npm`, `pm2`, `curl`)
+  - added explicit repo existence guard with clear failure
+  - switched branch logic to `git switch` + tracked local-branch creation flow
+  - parameterized key values via env defaults (`BRANCH`, `PM2_NAME`, health URLs/retries)
+  - switched install path to `npm ci` when lockfile exists (fallback to `npm install`)
+  - improved health-check handling:
+    - retries configurable
+    - local health failure now prints recent PM2 logs and exits
+    - public health check marked non-fatal
+  - added consistent deploy logging prefix for easier scanning
+- Validation:
+  - could not run `bash -n` in this environment (`/bin/bash` unavailable)
+  - no runtime deploy execution performed from this workspace
+## 2026-02-26 (Deploy npm install mode fallback)
+- Adjusted deploy dependency install strategy to avoid hard failure when `npm ci` is incompatible with server npm/lock state.
+- Added `NPM_INSTALL_MODE` env selector in `server/server-deploy-script.txt`:
+  - `auto` (default): try `npm ci`, then fallback to `npm install` on failure
+  - `ci`: force `npm ci`
+  - `install`: force `npm install`
+- Motivation:
+  - keep reproducibility benefits when possible
+  - avoid unnecessary server resets for npm version/lockfile mismatches
+- Validation:
+  - script-only change; not executed in this workspace
+## 2026-02-26 (Monitor setup helper script example)
+- Added a reusable example file for monitor setup automation:
+  - `server/monitor-setup-example.txt`
+- Contents:
+  - creates `/root/setup-astro-monitor.sh`
+  - upserts monitor env vars in server `.env`
+  - restarts PM2 process with `--update-env`
+  - runs local health check and monitor endpoint header check
+- Validation:
+  - docs/script-template only; not executed in this workspace
+## 2026-02-26 (Monitor setup script reliability update)
+- Updated `server/monitor-setup-example.txt` to reduce false negatives and improve diagnostics:
+  - added configurable health wait loop (`LOCAL_HEALTH_URL`, `HEALTH_RETRIES`, `HEALTH_SLEEP_SEC`)
+  - on health failure, prints recent PM2 logs before exiting
+  - added authenticated monitor header check when credentials are provided
+- Motivation:
+  - avoid immediate post-restart curl failures due startup timing
+  - make server-side failure cause visible without manual log commands
+- Validation:
+  - script-template update only; not executed in this workspace
+## 2026-02-26 (Deploy branch-switch + lockfile drift fix)
+- Hardened `server/server-deploy-script.txt` to prevent checkout failures from local deploy drift:
+  - added pre-switch `git reset --hard` + `git clean -fd`
+  - switched branch with `git switch --discard-changes`
+- Prevented fallback dependency install from modifying tracked lockfile:
+  - changed fallback installs to `npm install --no-package-lock`
+- Motivation:
+  - avoid recurring `Your local changes would be overwritten by checkout` failures on subsequent deploys
+  - keep deploy repo clean between runs even when `npm ci` fallback path is used
+- Validation:
+  - script update only; not executed in this workspace
