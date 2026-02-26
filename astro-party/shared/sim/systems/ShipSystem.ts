@@ -55,6 +55,17 @@ export function updateShips(sim: SimState, dtSec: number): void {
     if (!player) continue;
     const ship = player.ship;
     if (!ship.alive) continue;
+
+    // Demo tutorial: keep this ship completely frozen in place
+    if (sim.demoFrozenPlayerIds?.has(playerId)) {
+      ship.vx = 0;
+      ship.vy = 0;
+      player.angularVelocity = 0;
+      sim.setShipVelocity(playerId, 0, 0);
+      sim.setShipAngularVelocity(playerId, 0);
+      continue;
+    }
+
     const rotatingInputHeld = player.input.buttonA;
 
     if (player.dashQueued) {

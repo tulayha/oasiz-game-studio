@@ -226,7 +226,7 @@ async function init(): Promise<void> {
   let pendingDemoStartupAfterIntro: { showAttract: boolean } | null = null;
   let suppressNextStartPhaseEffects = false;
   const demoInputActionSubscribers = new Set<
-    (action: "rotate" | "fire") => void
+    (action: "rotate" | "fire" | "dash") => void
   >();
   // Demo state
   let demoController: DemoController | null = null;
@@ -447,6 +447,7 @@ async function init(): Promise<void> {
           demoInputActionSubscribers.delete(handler);
         };
       },
+      setDemoInputBlock: (blocked) => game.setDemoInputBlock(blocked),
     });
 
     startUI.setBeforeAction(teardownDemoForAction);

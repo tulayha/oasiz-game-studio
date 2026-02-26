@@ -1,69 +1,112 @@
-export type TutorialWaitFor = "rotate" | "fire" | null;
+export type TutorialWaitFor = "rotate" | "dash" | "fire" | null;
+
+/** Which mobile touch zone to highlight during this step */
+export type TutorialMobileHint = "rotate" | "dash" | "fire" | null;
 
 export interface TutorialStep {
   text: string;
-  /** null = auto-advance after holdMs; "rotate"/"fire" = wait for player input */
+  /** null = auto-advance after holdMs; "rotate"/"dash"/"fire" = wait for player input */
   waitFor: TutorialWaitFor;
   /** How long to hold the panel after typewriter finishes (only used when waitFor is null) */
   holdMs: number;
-  /** How long to let the player "try it" before auto-advancing to the next step (only when waitFor != null) */
+  /** How long to let the player "try it" before auto-advancing (only when waitFor != null) */
   tryDurationMs: number;
+  /** Number of times player must perform the action to advance (only when waitFor != null) */
+  requiredCount: number;
+  /** Whether to show the Next → button after typewriter completes */
+  showNext: boolean;
+  /** Which actions are BLOCKED during the try-it phase (demo-only gate) */
+  blockActions: ReadonlyArray<"dash" | "fire">;
+  /** Which mobile button to highlight above the overlay during this step */
+  mobileHint: TutorialMobileHint;
 }
 
 export function getTutorialSteps(isMobile: boolean): TutorialStep[] {
   if (isMobile) {
     return [
       {
-        text: "Welcome, pilot. Your ship always thrusts forward.",
+        text: "Welcome, pilot! Your ship always thrusts forward — use the controls to survive.",
         waitFor: null,
-        holdMs: 2500,
+        holdMs: 0,
         tryDurationMs: 0,
+        requiredCount: 1,
+        showNext: true,
+        blockActions: [],
+        mobileHint: null,
       },
       {
-        text: "Hold the left side to rotate your ship. Give it a try!",
+        text: "Hold the rotate button to steer your ship. Try rotating a few times!",
         waitFor: "rotate",
         holdMs: 0,
-        tryDurationMs: 3000,
+        tryDurationMs: 15000,
+        requiredCount: 3,
+        showNext: false,
+        blockActions: ["dash", "fire"],
+        mobileHint: "rotate",
       },
       {
-        text: "Tap the right side to fire. Double-tap left to dodge!",
+        text: "Nice steering! Double-tap the rotate button to dash and dodge. Try it 3 times!",
+        waitFor: "dash",
+        holdMs: 0,
+        tryDurationMs: 20000,
+        requiredCount: 3,
+        showNext: false,
+        blockActions: ["fire"],
+        mobileHint: "dash",
+      },
+      {
+        text: "Great dodges! Now tap the fire button to shoot. Fire 3 times!",
         waitFor: "fire",
         holdMs: 0,
-        tryDurationMs: 3000,
-      },
-      {
-        text: "Destroy ships to eject pilots. Eliminate pilots to score!",
-        waitFor: null,
-        holdMs: 3000,
-        tryDurationMs: 0,
+        tryDurationMs: 15000,
+        requiredCount: 3,
+        showNext: false,
+        blockActions: [],
+        mobileHint: "fire",
       },
     ];
   }
 
   return [
     {
-      text: "Welcome, pilot. Your ship always thrusts forward.",
+      text: "Welcome, pilot! Your ship always thrusts forward — use the controls to survive.",
       waitFor: null,
-      holdMs: 2500,
+      holdMs: 0,
       tryDurationMs: 0,
+      requiredCount: 1,
+      showNext: true,
+      blockActions: [],
+      mobileHint: null,
     },
     {
-      text: "Press A or ← to rotate your ship. Give it a try!",
+      text: "Hold A or ← to rotate your ship. Try rotating 3 times!",
       waitFor: "rotate",
       holdMs: 0,
-      tryDurationMs: 3000,
+      tryDurationMs: 15000,
+      requiredCount: 3,
+      showNext: false,
+      blockActions: ["dash", "fire"],
+      mobileHint: null,
     },
     {
-      text: "Press D, → or Space to fire. Double-tap A to dodge!",
+      text: "Nice! Double-tap A to dash and dodge danger. Try dashing 3 times!",
+      waitFor: "dash",
+      holdMs: 0,
+      tryDurationMs: 20000,
+      requiredCount: 3,
+      showNext: false,
+      blockActions: ["fire"],
+      mobileHint: null,
+    },
+    {
+      text: "Great moves! Press D, → or Space to fire. Shoot 3 times!",
       waitFor: "fire",
       holdMs: 0,
-      tryDurationMs: 3000,
-    },
-    {
-      text: "Destroy ships to eject pilots. Eliminate pilots to score!",
-      waitFor: null,
-      holdMs: 3000,
-      tryDurationMs: 0,
+      tryDurationMs: 15000,
+      requiredCount: 3,
+      showNext: false,
+      blockActions: [],
+      mobileHint: null,
     },
   ];
 }
@@ -102,8 +145,28 @@ export function typewriteText(
   };
 }
 
-export function createControlDiagram(isMobile: boolean): string {
+export function createControlDiagram(
+  isMobile: boolean,
+  step: "rotate" | "dash" | "fire" | "all" = "all",
+): string {
   if (isMobile) {
+    if (step === "rotate" || step === "dash") {
+      const label = step === "rotate" ? "ROTATE" : "DASH";
+      const hint = step === "rotate" ? "Hold left side" : "Double-tap left";
+      return `<svg viewBox="0 0 200 72" xmlns="http://www.w3.org/2000/svg" class="demo-diagram-svg">
+        <rect x="4" y="4" width="88" height="64" rx="10" fill="rgba(0,240,255,0.12)" stroke="#00f0ff" stroke-width="2"/>
+        <text x="48" y="32" text-anchor="middle" fill="#00f0ff" font-family="Orbitron,sans-serif" font-size="9">${label}</text>
+        <text x="48" y="50" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="sans-serif" font-size="9">${hint}</text>
+      </svg>`;
+    }
+    if (step === "fire") {
+      return `<svg viewBox="0 0 200 72" xmlns="http://www.w3.org/2000/svg" class="demo-diagram-svg">
+        <rect x="108" y="4" width="88" height="64" rx="10" fill="rgba(255,0,170,0.12)" stroke="#ff00aa" stroke-width="2"/>
+        <text x="152" y="32" text-anchor="middle" fill="#ff00aa" font-family="Orbitron,sans-serif" font-size="9">FIRE</text>
+        <text x="152" y="50" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="sans-serif" font-size="9">Tap right side</text>
+      </svg>`;
+    }
+    // "all"
     return `<svg viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg" class="demo-diagram-svg">
       <rect x="4" y="4" width="88" height="72" rx="10" fill="rgba(0,240,255,0.07)" stroke="#00f0ff" stroke-width="1.5"/>
       <text x="48" y="34" text-anchor="middle" fill="#00f0ff" font-family="Orbitron,sans-serif" font-size="9">ROTATE</text>
@@ -113,6 +176,30 @@ export function createControlDiagram(isMobile: boolean): string {
       <text x="152" y="54" text-anchor="middle" fill="rgba(255,255,255,0.6)" font-family="sans-serif" font-size="9">Tap right side</text>
     </svg>`;
   }
+
+  // Desktop
+  if (step === "rotate") {
+    return `<svg viewBox="0 0 220 72" xmlns="http://www.w3.org/2000/svg" class="demo-diagram-svg">
+      <rect x="4" y="4" width="212" height="64" rx="10" fill="rgba(0,240,255,0.1)" stroke="#00f0ff" stroke-width="2"/>
+      <text x="110" y="30" text-anchor="middle" fill="#00f0ff" font-family="Orbitron,sans-serif" font-size="9">ROTATE</text>
+      <text x="110" y="50" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="sans-serif" font-size="10">A  /  ←</text>
+    </svg>`;
+  }
+  if (step === "dash") {
+    return `<svg viewBox="0 0 220 72" xmlns="http://www.w3.org/2000/svg" class="demo-diagram-svg">
+      <rect x="4" y="4" width="212" height="64" rx="10" fill="rgba(0,240,255,0.1)" stroke="#00f0ff" stroke-width="2"/>
+      <text x="110" y="30" text-anchor="middle" fill="#00f0ff" font-family="Orbitron,sans-serif" font-size="9">DASH / DODGE</text>
+      <text x="110" y="50" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="sans-serif" font-size="10">Double-tap A  /  ←</text>
+    </svg>`;
+  }
+  if (step === "fire") {
+    return `<svg viewBox="0 0 220 72" xmlns="http://www.w3.org/2000/svg" class="demo-diagram-svg">
+      <rect x="4" y="4" width="212" height="64" rx="10" fill="rgba(255,0,170,0.1)" stroke="#ff00aa" stroke-width="2"/>
+      <text x="110" y="30" text-anchor="middle" fill="#ff00aa" font-family="Orbitron,sans-serif" font-size="9">FIRE</text>
+      <text x="110" y="50" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="sans-serif" font-size="10">D  /  →  /  Space</text>
+    </svg>`;
+  }
+  // "all"
   return `<svg viewBox="0 0 220 80" xmlns="http://www.w3.org/2000/svg" class="demo-diagram-svg">
     <rect x="4" y="4" width="96" height="72" rx="10" fill="rgba(0,240,255,0.07)" stroke="#00f0ff" stroke-width="1.5"/>
     <text x="52" y="30" text-anchor="middle" fill="#00f0ff" font-family="Orbitron,sans-serif" font-size="9">ROTATE</text>

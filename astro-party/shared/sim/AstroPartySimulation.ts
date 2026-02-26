@@ -199,6 +199,7 @@ export class AstroPartySimulation implements SimState {
   nextAsteroidSpawnAtMs: number | null = null;
   leaderPlayerId: string | null = null;
   roundEndMs = 0;
+  demoFrozenPlayerIds: Set<string> | null = null;
   private physics: Physics;
   private shipBodies = new Map<string, Matter.Body>();
   private asteroidBodies = new Map<string, Matter.Body>();
@@ -568,6 +569,23 @@ export class AstroPartySimulation implements SimState {
    * Respawns a player's ship mid-round at their assigned corner.
    * Demo use only — should not be called during normal gameplay.
    */
+  /**
+   * Freeze every player except the host so their ships stay stationary during
+   * tutorial action steps. Pass `null` to unfreeze everyone.
+   * Demo use only.
+   */
+  demoFreezeOthers(hostSessionId: string | null): void {
+    if (hostSessionId === null) {
+      this.demoFrozenPlayerIds = null;
+      return;
+    }
+    const frozen = new Set<string>();
+    for (const id of this.players.keys()) {
+      if (id !== hostSessionId) frozen.add(id);
+    }
+    this.demoFrozenPlayerIds = frozen;
+  }
+
   demoRespawnPlayer(playerId: string): void {
     if (this.phase !== "PLAYING") return;
     const player = this.players.get(playerId);
