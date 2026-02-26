@@ -1,5 +1,7 @@
 Place raw audio source files in this folder, then run:
 
+- `bun run ffmpeg:install` (one-time per machine/repo clone, installs local binary into `.tools/ffmpeg`)
+- `bun run ffmpeg:check` (optional verification)
 - `bun run process:audio`
 
 The script reads expected output filenames from `src/audio/assetManifest.ts` and converts
@@ -20,6 +22,12 @@ Useful options:
 - `bun run process:audio -- --only sfxFight`
 - `bun run process:audio -- --only sfx-fight.ogg`
 - `bun run process:audio -- --only sfx-fight.ogg,sfx-fire.ogg`
+
+FFmpeg resolution order:
+- `--ffmpeg-bin <path>`
+- `FFMPEG_BIN` or `FFMPEG_PATH`
+- local `.tools/ffmpeg/ffmpeg` (or `.exe` on Windows)
+- `ffmpeg` from system `PATH`
 
 Expected output filenames in `public/assets/audio`:
 - music-cue-splash.ogg

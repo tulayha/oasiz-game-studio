@@ -81,6 +81,8 @@ Process audio into runtime assets with:
 
 ```bash
 cd astro-party
+bun run ffmpeg:install
+bun run ffmpeg:check
 bun run process:audio
 ```
 

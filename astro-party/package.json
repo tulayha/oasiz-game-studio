@@ -6,6 +6,8 @@
   "scripts": {
     "generate:entities": "bun run scripts/generate-entity-assets.ts",
     "generate:ship-skins": "bun run scripts/generate-ship-skins.ts",
+    "ffmpeg:install": "bun run scripts/install-ffmpeg.ts",
+    "ffmpeg:check": "bun run scripts/check-ffmpeg.ts",
     "process:audio": "bun run scripts/process-audio-assets.ts",
     "generate:ship-skins:warn": "bun -e \"process.env.SHIP_SKIN_VALIDATION='warn'; await import('./scripts/generate-ship-skins.ts');\"",
     "generate:ship-skins:off": "bun -e \"process.env.SHIP_SKIN_VALIDATION='off'; await import('./scripts/generate-ship-skins.ts');\"",
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@types/matter-js": "^0.19.7",
+    "ffmpeg-static": "^5.2.0",
     "prettier": "^3.7.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.0",
