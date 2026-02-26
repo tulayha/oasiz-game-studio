@@ -88,6 +88,15 @@ export class PlayerInputResolver {
     return this.localInputState;
   }
 
+  /**
+   * Demo-only: force buttonB to false in the captured local input state so
+   * the next sendLocalInputIfNeeded won't send fire. Has no effect outside the
+   * demo tutorial (caller is responsible for only invoking when appropriate).
+   */
+  maskButtonB(): void {
+    this.localInputState.buttonB = false;
+  }
+
   private emptyInput(): PlayerInput {
     return {
       buttonA: false,

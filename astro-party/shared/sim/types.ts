@@ -508,6 +508,9 @@ export interface SimState {
   leaderPlayerId: string | null;
   roundEndMs: number;
 
+  /** Demo tutorial: IDs of non-host players whose ships are frozen in place. */
+  demoFrozenPlayerIds: Set<string> | null;
+
   // Hooks
   hooks: Hooks;
 
