@@ -33,32 +33,38 @@ pm2 logs astro-party-colyseus --time --lines 0
 pm2 logs astro-party-colyseus --time --lines 0 | grep -E "AstroPartyRoom.onLeave|consented=false"
 ```
 
-### 4) Kernel crash/OOM watcher
+### 4) Critical lifecycle/error stream (tank/restart signal)
+
+```bash
+pm2 logs astro-party-colyseus --time --lines 0 | grep -E "Server.lifecycle|Uncaught exception|Unhandled promise rejection|HTTP server error|AstroPartyRoom.onLeave.*consented=false"
+```
+
+### 5) Kernel crash/OOM watcher
 
 ```bash
 sudo dmesg -wT | grep -Ei "killed process|out of memory|oom|segfault"
 ```
 
-### 5) Ops stats quick watcher (no token)
+### 6) Ops stats quick watcher (no token)
 
 ```bash
 watch -n 1 'curl -fsS http://127.0.0.1:2567/ops/stats | jq "{t:.generatedAtIso, active:.clients.active, leftTotal:.clients.leftTotal, leftConsented:.clients.leftConsentedTotal, leftUnconsented:.clients.leftUnconsentedTotal, lastUnconsented:(.clients.recentLeaves|map(select(.consented==false))|last), rooms:.rooms.active, rttP95:.rttMs.p95}"'
 ```
 
-### 6) Ops stats quick watcher (with token)
+### 7) Ops stats quick watcher (with token)
 
 ```bash
 OPS_TOKEN="replace-with-ops-token"
 watch -n 1 "curl -fsS -H 'x-ops-token: ${OPS_TOKEN}' http://127.0.0.1:2567/ops/stats | jq '{t:.generatedAtIso, active:.clients.active, leftTotal:.clients.leftTotal, leftConsented:.clients.leftConsentedTotal, leftUnconsented:.clients.leftUnconsentedTotal, lastUnconsented:(.clients.recentLeaves|map(select(.consented==false))|last), rooms:.rooms.active, rttP95:.rttMs.p95}'"
 ```
 
-### 7) One-off compact ops snapshot
+### 8) One-off compact ops snapshot
 
 ```bash
 curl -fsS http://127.0.0.1:2567/ops/stats | jq '{t:.generatedAtIso, clients:.clients, rooms:.rooms, rtt:.rttMs}'
 ```
 
-### 8) Persist PM2 logs to file (ongoing)
+### 9) Persist PM2 logs to file (ongoing)
 
 Keep this running during test. Stop with `Ctrl+C`.
 
@@ -66,13 +72,13 @@ Keep this running during test. Stop with `Ctrl+C`.
 pm2 logs astro-party-colyseus --time --lines 0 | tee -a /tmp/astro-party-colyseus-live.log
 ```
 
-### 9) Host load quick view
+### 10) Host load quick view
 
 ```bash
 vmstat 1
 ```
 
-### 10) Correlation stream logger (ongoing)
+### 11) Correlation stream logger (ongoing)
 
 Requirements: `jq` installed on droplet.  
 Optional: set `OPS_TOKEN` if `/ops/stats` requires token.
@@ -132,19 +138,19 @@ done | tee -a "${LOG}"
 
 ## Local Commands (loadtest machine)
 
-### 11) Run lobbyfill loadtest
+### 12) Run lobbyfill loadtest
 
 ```bash
 npm run loadtest:lobbyfill -- --numClients 40 --usersPerRoom 4 --delay 300 --durationSec 360 --summaryIntervalMs 5000
 ```
 
-### 12) Find disconnect signals in local loadtest logs
+### 13) Find disconnect signals in local loadtest logs
 
 ```bash
 rg -n "leaveCode=1006|isServerDisconnect=true|disconnectCodes=|serverDisconnects=[1-9]|roomErrorCode" loadtest-logs/loadtest-lobbyfill-*.log
 ```
 
-### 13) Compare with droplet unconsented leave stream
+### 14) Compare with droplet unconsented leave stream
 
 Tab A (droplet):
 
@@ -160,7 +166,7 @@ rg -n "leaveCode=1006|isServerDisconnect=true" loadtest-logs/loadtest-lobbyfill-
 
 Correlate by ISO timestamps (`ts=...` in loadtest and `--time` in PM2 logs).
 
-### 14) Pull droplet artifacts and correlate locally
+### 15) Pull droplet artifacts and correlate locally
 
 ```bash
 scp astro-droplet:/tmp/astro-correlation-*.log .

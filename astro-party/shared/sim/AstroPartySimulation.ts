@@ -638,13 +638,6 @@ export class AstroPartySimulation implements SimState {
     const newMapId = otherMaps[randomIndex];
     this.mapId = newMapId;
     this.mapPowerUpsSpawned = false;
-    console.log(
-      "[AstroPartySimulation] Map rotated to:",
-      newMapId,
-      "(previous was:",
-      previousMapId,
-      ")",
-    );
   }
 
   addAIBot(sessionId: string): void {
