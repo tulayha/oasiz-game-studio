@@ -1205,3 +1205,40 @@ TODO / Next suggestions
   - `astro-party/server`: `npm run typecheck` passed
   - `astro-party/server`: `npm run build` passed
   - smoke run: `npm run loadtest:lobbyfill -- --numClients 4 --delay 250 --durationSec 20` produced `Successful connections: 4`
+## 2026-02-27 (Disconnect correlation telemetry improvements)
+- Improved loadtest timeline readability in `server/loadtest/lobbyfill.loadtest.ts`:
+  - summary lines now include absolute ISO timestamp (`ts=...`) in addition to uptime
+  - `onLeave` logging now includes `ts`, `client`, `roomId`, `leaveCode`, `phase`, `inputSequence`, and `isServerDisconnect`
+  - `onError` logging now includes `ts`, `client`, `roomId`, and error code/message
+- Added server-side leave diagnostics in `server/src/rooms/AstroPartyRoom.ts`:
+  - `onLeave` now captures Colyseus `consented` flag
+  - unconsented leaves emit a focused warning log with `roomId`, `sessionId`, `phase`, and remaining clients
+- Extended `/ops/stats` payload in `server/src/monitoring/OpsStats.ts`:
+  - `clients.leftConsentedTotal`
+  - `clients.leftUnconsentedTotal`
+  - `clients.recentLeaves[]` (ring buffer of recent leave events with `atIso`, `roomId`, `sessionId`, `consented`, `phase`)
+- Validation:
+  - `astro-party/server`: `npm run typecheck` passed
+  - `astro-party/server`: `npm run build` passed
+## 2026-02-27 (Deploy script ops-stats post-check)
+- Updated `server/server-deploy-script.txt` to include post-deploy ops snapshot verification:
+  - new env vars:
+    - `OPS_STATS_URL` (default `http://127.0.0.1:2567/ops/stats`)
+    - `OPS_STATS_TOKEN` (optional; sent as `x-ops-token`)
+    - `OPS_STATS_REQUIRED` (`true|false`, default `false`)
+  - deploy now logs checked commit hash after checkout
+  - after health checks, script fetches and prints a compact ops summary:
+    - clients active/joined/left
+    - consented/unconsented leave totals
+    - rooms active/created/disposed
+    - RTT p95 + sample count
+  - latest unconsented leave event (if present)
+  - when `OPS_STATS_REQUIRED=true`, failed fetch/parse fails deploy
+## 2026-02-27 (Monitoring command reference doc)
+- Added `server/monitoring-command-reference.txt` with ready-to-run operational commands for:
+  - PM2 monitor/log views
+  - unconsented leave focused server log stream
+  - `/ops/stats` watch (token + non-token variants)
+  - dmesg OOM/segfault watcher
+  - lobbyfill loadtest run command
+  - post-run correlation grep commands for `1006` / server disconnect signals

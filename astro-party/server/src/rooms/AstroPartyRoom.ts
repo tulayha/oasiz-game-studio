@@ -343,8 +343,28 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     }
   }
 
-  onLeave(client: Client): void {
-    opsStats.recordClientLeft(client.sessionId);
+  onLeave(client: Client, consented: boolean): void {
+    const remainingClients = Math.max(0, this.clients.length - 1);
+    opsStats.recordClientLeft(client.sessionId, {
+      roomId: this.roomId,
+      consented,
+      phase: this.simulation.phase,
+    });
+    if (!consented) {
+      console.warn(
+        "[AstroPartyRoom.onLeave]",
+        "roomId=" +
+          this.roomId +
+          " sessionId=" +
+          client.sessionId +
+          " consented=" +
+          consented +
+          " phase=" +
+          this.simulation.phase +
+          " remainingClients=" +
+          remainingClients,
+      );
+    }
     this.simulation.removeSession(client.sessionId);
     this.asteroidColliderSentBySession.delete(client.sessionId);
   }

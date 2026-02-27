@@ -166,6 +166,8 @@ The server exposes a lightweight ops endpoint for app-level metrics:
 - default path: `/ops/stats`
 - payload includes:
   - room/client counters
+  - consented vs unconsented leave totals
+  - recent leave event ring buffer (`clients.recentLeaves`) with timestamp, roomId, sessionId, consented flag, and phase
   - input/ping/snapshot fanout totals and rates
   - rolling RTT summary (`p50`, `p95`, `p99`) from client-reported `rttMs`
   - process memory + load averages
