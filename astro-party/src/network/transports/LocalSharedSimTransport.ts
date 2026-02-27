@@ -390,6 +390,10 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.simPaused = paused;
   }
 
+  demoFreezeOthers(hostSessionId: string | null): void {
+    this.simulation?.demoFreezeOthers(hostSessionId);
+  }
+
   demoRespawnPlayer(playerId: string): void {
     this.simulation?.demoRespawnPlayer(playerId);
   }

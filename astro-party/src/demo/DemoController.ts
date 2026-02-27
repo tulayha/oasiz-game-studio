@@ -103,6 +103,10 @@ export class DemoController {
 
     // Enable keyboard/touch input
     this.game.setKeyboardInputEnabled(true);
+
+    // Freeze all bot ships — only the player's ship moves during tutorial
+    const myId = this.game.getMyPlayerId();
+    this.game.setDemoBotFreeze(myId);
   }
 
   /** Player finished tutorial and is now free-playing the demo. */
@@ -112,6 +116,8 @@ export class DemoController {
     this.applyDemoAudioMix();
     // Sim was paused for the "You're ready!" panel — resume it
     this.game.setSimPaused(false);
+    // Unfreeze bots so the full battle resumes
+    this.game.setDemoBotFreeze(null);
   }
 
   /** Pause simulation (while tutorial panel is showing dialogue). */
@@ -140,6 +146,8 @@ export class DemoController {
 
     // Unpause sim (in case we were paused during a tutorial step)
     this.game.setSimPaused(false);
+    // Unfreeze bots (in case tutorial was active)
+    this.game.setDemoBotFreeze(null);
 
     // Return host to AI so the background battle continues autonomously
     this.game.setHostAI(true);

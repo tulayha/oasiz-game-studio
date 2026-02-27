@@ -2,6 +2,7 @@ import {
   getTutorialSteps,
   typewriteText,
   createControlDiagram,
+  TutorialMobileHint,
 } from "./demoTutorial";
 import { AudioManager } from "../AudioManager";
 
@@ -21,8 +22,10 @@ export interface DemoOverlayCallbacks {
   setZoom: (boost: number | null) => void;
   /** Subscribes to local input actions (from the real game input pipeline). */
   subscribeInputAction: (
-    handler: (action: "rotate" | "fire") => void,
+    handler: (action: "rotate" | "fire" | "dash") => void,
   ) => () => void;
+  /** Demo-only: block specific actions so the player can't perform them in-game */
+  setDemoInputBlock: (blocked: { fire: boolean; dash: boolean }) => void;
 }
 
 export class DemoOverlayUI {
@@ -37,17 +40,29 @@ export class DemoOverlayUI {
   private tutorialNext: HTMLButtonElement;
   private exitBtn: HTMLButtonElement;
 
+  // Spotlight (player-intro overlay) elements
+  private spotlightOverlay: HTMLElement;
+  private spotlightRing: HTMLElement;
+
   private callbacks: DemoOverlayCallbacks | null = null;
   private isMobile: boolean;
   private transitioning = false;
   private tutorialRunning = false;
   private cancelTypewriter: (() => void) | null = null;
 
+  // Spotlight state
+  private spotlightActive = false;
+  private spotlightTrackInterval: ReturnType<typeof setInterval> | null = null;
+  private spotlightFirstActionTriggered = false;
+
   private boundOnTap: () => void;
   private boundOnAttractPointerDown: (e: PointerEvent) => void;
   private boundOnKey: (e: KeyboardEvent) => void;
   private boundOnSkipClick: (e: MouseEvent) => void;
   private boundOnSkipPointerDown: (e: PointerEvent) => void;
+
+  /** Cleanup for the active mobile touch highlight */
+  private clearActiveMobileHighlight: (() => void) | null = null;
 
   constructor(isMobile: boolean) {
     this.isMobile = isMobile;
@@ -68,6 +83,12 @@ export class DemoOverlayUI {
     this.exitBtn = document.getElementById(
       "demoExitBtn",
     ) as HTMLButtonElement;
+    this.spotlightOverlay = document.getElementById(
+      "demoPlayerIntroOverlay",
+    )!;
+    this.spotlightRing = document.getElementById(
+      "demoPlayerIntroRing",
+    )!;
 
     this.boundOnTap = this.handleTap.bind(this);
     this.boundOnAttractPointerDown = this.handleAttractPointerDown.bind(this);
@@ -124,9 +145,6 @@ export class DemoOverlayUI {
     );
     document.removeEventListener("keydown", this.boundOnKey);
 
-    // Inject diagram
-    this.tutorialDiagram.innerHTML = createControlDiagram(isMobile);
-
     this.tutorialOverlay.style.pointerEvents = "auto";
     this.tutorialOverlay.classList.remove("hidden");
 
@@ -134,7 +152,7 @@ export class DemoOverlayUI {
       this.handleSkip();
     });
 
-    void this.runTutorial();
+    void this.runTutorial(isMobile);
   }
 
   /** Shows the Exit Demo button (top-left). Call after tutorial completes. */
@@ -183,6 +201,13 @@ export class DemoOverlayUI {
     this.cancelTypewriter?.();
     this.tutorialRunning = false;
     this.tutorialOverlay.style.pointerEvents = "";
+
+    // Clear spotlight, mobile highlight, zoom, and input blocks on cleanup
+    this.stopSpotlight();
+    this.clearActiveMobileHighlight?.();
+    this.clearActiveMobileHighlight = null;
+    this.callbacks?.setZoom(null);
+    this.callbacks?.setDemoInputBlock({ fire: false, dash: false });
   }
 
   destroy(): void {
@@ -225,59 +250,201 @@ export class DemoOverlayUI {
   private handleSkip(): void {
     this.cancelTypewriter?.();
     this.tutorialRunning = false;
+
+    this.stopSpotlight();
+    this.clearActiveMobileHighlight?.();
+    this.clearActiveMobileHighlight = null;
+    this.callbacks?.setZoom(null);
+    this.callbacks?.setDemoInputBlock({ fire: false, dash: false });
+
     this.callbacks?.onSkipToMenu();
+  }
+
+  // -------------------------------------------------------------------------
+  // Spotlight management — dark overlay with ship-centered circular hole
+  // -------------------------------------------------------------------------
+
+  private startSpotlight(): void {
+    if (!this.callbacks) return;
+    const overlay = this.spotlightOverlay;
+    const ring = this.spotlightRing;
+    const cb = this.callbacks;
+
+    const shipColor = cb.getShipColor();
+    ring.style.borderColor = shipColor;
+    ring.style.boxShadow = `0 0 24px ${shipColor}, 0 0 48px ${shipColor}55`;
+
+    const positionRing = (): void => {
+      const pos = cb.getShipPos();
+      if (pos) {
+        ring.style.left = `${pos.x}px`;
+        ring.style.top = `${pos.y}px`;
+        overlay.style.setProperty("--spot-x", `${pos.x}px`);
+        overlay.style.setProperty("--spot-y", `${pos.y}px`);
+      }
+    };
+
+    // Start with a tight circle (inline override beats the class value)
+    // After a short delay, remove the override → CSS transition expands to spot-panel size
+    overlay.style.setProperty("--spot-r", "52px");
+    overlay.classList.remove("hidden", "spot-action", "spot-panel");
+    overlay.style.pointerEvents = "none";
+
+    // Ring starts small to match the tight spotlight
+    ring.style.width = "75px";
+    ring.style.height = "75px";
+
+    setTimeout(positionRing, 80);
+    this.spotlightTrackInterval = window.setInterval(positionRing, 50);
+    this.spotlightActive = true;
+
+    // After 200 ms the camera tween has started — remove inline override so
+    // the CSS transition (0.45 s) expands the circle to spot-panel radius
+    setTimeout(() => {
+      if (!this.spotlightActive) return;
+      overlay.style.removeProperty("--spot-r");
+      overlay.classList.add("spot-panel");
+      this.applyRingSize("panel");
+    }, 200);
+  }
+
+  /**
+   * Switch spotlight between "panel" (wide hole while tip text is showing)
+   * and "action" (tighter focus while player is performing the action).
+   */
+  private setSpotlightMode(mode: "panel" | "action"): void {
+    if (!this.spotlightActive) return;
+    this.spotlightOverlay.classList.toggle("spot-panel", mode === "panel");
+    this.spotlightOverlay.classList.toggle("spot-action", mode === "action");
+    this.applyRingSize(mode);
+  }
+
+  /** Smoothly resize the ring to match the spotlight hole. */
+  private applyRingSize(mode: "panel" | "action"): void {
+    // Ring diameter ≈ 2 × spotlight-radius × 0.9  (sits just inside fade edge)
+    const diameter = mode === "panel" ? 210 : 130;
+    this.spotlightRing.style.width = `${diameter}px`;
+    this.spotlightRing.style.height = `${diameter}px`;
+  }
+
+  private stopSpotlight(): void {
+    if (this.spotlightTrackInterval !== null) {
+      clearInterval(this.spotlightTrackInterval);
+      this.spotlightTrackInterval = null;
+    }
+    this.spotlightOverlay.classList.add("hidden");
+    this.spotlightOverlay.classList.remove("spot-panel", "spot-action", "spot-dimmed");
+    this.spotlightOverlay.style.removeProperty("--spot-r");
+    this.spotlightActive = false;
+  }
+
+  /** Called on the player's first action — reduces overlay opacity and expands spotlight radius. */
+  private dimSpotlight(): void {
+    if (!this.spotlightActive) return;
+    this.spotlightOverlay.classList.add("spot-dimmed");
+    // Override --spot-r inline so the expanded radius wins over spot-panel/spot-action classes
+    this.spotlightOverlay.style.setProperty("--spot-r", "195px");
+    this.applyRingSize("panel");
   }
 
   // -------------------------------------------------------------------------
   // Interactive tutorial flow
   // -------------------------------------------------------------------------
 
-  private async runTutorial(): Promise<void> {
+  private async runTutorial(isMobile: boolean): Promise<void> {
     this.tutorialRunning = true;
-    const steps = getTutorialSteps(this.isMobile);
-    let rotateStepDone = false;
+    this.spotlightFirstActionTriggered = false;
+    const steps = getTutorialSteps(isMobile);
 
-    for (const step of steps) {
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
       if (!this.tutorialRunning) break;
 
-      // Show panel, pause sim while dialogue is playing
+      // --- Zoom + spotlight activate before the first action step ---
+      if (i === 1) {
+        // Step 1: snap to tight zoom so the ship fills the screen
+        this.callbacks?.setZoom(2.5);
+        await this.wait(300);
+        if (!this.tutorialRunning) break;
+
+        // Step 2: spotlight appears as a tight circle at the ship
+        this.startSpotlight();
+
+        // Step 3: simultaneously zoom out slightly + let circle expand
+        // (CSS @property transition handles the --spot-r expansion over 0.45 s)
+        await this.tweenZoom(2.5, 1.7, 650);
+        if (!this.tutorialRunning) break;
+
+        await this.wait(150);
+        if (!this.tutorialRunning) break;
+      }
+
+      // --- Apply input restrictions for this step ---
+      if (step.waitFor !== null) {
+        const blockDash = step.blockActions.includes("dash");
+        const blockFire = step.blockActions.includes("fire");
+        this.callbacks?.setDemoInputBlock({ dash: blockDash, fire: blockFire });
+      }
+
+      // --- Show diagram for this step ---
+      this.tutorialDiagram.innerHTML = createControlDiagram(
+        isMobile,
+        step.waitFor ?? "all",
+      );
+
+      // --- Mobile button highlight applied BEFORE showPanel so the button is
+      //     visible and tappable even while the player is reading the tip. ---
+      this.clearActiveMobileHighlight?.();
+      this.clearActiveMobileHighlight = null;
+      if (isMobile && step.mobileHint !== null) {
+        this.clearActiveMobileHighlight = this.startMobileButtonHighlight(
+          step.mobileHint,
+        );
+      }
+
+      // --- Show panel with typewriter, spotlight in panel-wide mode ---
       this.showPanel();
       this.callbacks?.onPauseGame();
-
       this.tutorialDialogue.textContent = "";
       await this.typeStep(step.text);
       if (!this.tutorialRunning) break;
 
-      // Always wait for player to click "Next" before proceeding
-      await this.waitForNextButton();
-      if (!this.tutorialRunning) break;
+      // --- Wait for Next button if required (welcome step) ---
+      if (step.showNext) {
+        await this.waitForNextButton();
+        if (!this.tutorialRunning) break;
+        continue;
+      }
+
+      // --- Action step: keep panel visible, make overlay pass-through, resume sim ---
+      // Bot ships are frozen in the simulation (demoFrozenPlayerIds); only the
+      // player's ship responds. emitLocalInputActions() counts button presses.
+      this.setPanelPassthrough();
+      this.callbacks?.onResumeGame();
 
       if (step.waitFor !== null) {
-        // After the rotate step, show the player intro zoom
-        if (step.waitFor === "rotate" && !rotateStepDone) {
-          rotateStepDone = true;
-          this.hidePanel();
-          // Keep sim paused — runPlayerIntro will resume it when player presses A
-          await this.runPlayerIntro();
-          if (!this.tutorialRunning) break;
-          // After intro, wait for the actual rotate input
-          await this.waitForInput(step.waitFor, step.tryDurationMs);
-          if (!this.tutorialRunning) break;
-        } else {
-          // "Try it" phase: hide panel, resume sim, wait for input
-          this.hidePanel();
-          this.callbacks?.onResumeGame();
-          await this.waitForInput(step.waitFor, step.tryDurationMs);
-          if (!this.tutorialRunning) break;
-        }
+        await this.waitForInputCount(
+          step.waitFor,
+          step.requiredCount,
+        );
+        if (!this.tutorialRunning) break;
       }
-      // (waitFor: null steps just continue after Next click — no extra delay)
+
+      // Clear mobile highlight before next step
+      this.clearActiveMobileHighlight?.();
+      this.clearActiveMobileHighlight = null;
     }
 
     if (!this.tutorialRunning) return;
 
-    // All steps done — show a "Start Playing" panel
+    // All action steps done — clear restrictions
+    this.callbacks?.setDemoInputBlock({ fire: false, dash: false });
+    this.clearActiveMobileHighlight?.();
+    this.clearActiveMobileHighlight = null;
+
+    // Show final "Start Playing" panel (spotlight stays wide, zoom stays)
     this.tutorialRunning = false;
+    this.tutorialDiagram.innerHTML = "";
     this.showPanel();
     this.callbacks?.onPauseGame();
     this.tutorialDialogue.textContent = "You're ready. Good luck, Cadet!";
@@ -286,25 +453,39 @@ export class DemoOverlayUI {
 
   private showPanel(): void {
     this.tutorialOverlay.style.pointerEvents = "auto";
+    this.tutorialPanel.style.pointerEvents = "";
     this.tutorialPanel.classList.remove("panel-hidden");
+    this.setSpotlightMode("panel");
+  }
+
+  /**
+   * Keeps the panel VISIBLE but makes the overlay background pass-through so
+   * touch/mouse events reach the game canvas underneath. The panel itself still
+   * receives pointer events (Skip button stays tappable).
+   */
+  private setPanelPassthrough(): void {
+    this.tutorialOverlay.style.pointerEvents = "none";
+    this.tutorialPanel.style.pointerEvents = "auto";
+    // Spotlight stays wide — panel is still showing
+    this.setSpotlightMode("panel");
   }
 
   private hidePanel(): void {
     this.tutorialOverlay.style.pointerEvents = "none";
     this.tutorialPanel.classList.add("panel-hidden");
+    this.setSpotlightMode("action");
   }
 
   private showStartPlayingButton(): void {
-    // Replace the skip button with a prominent "Start Playing" button
-    this.tutorialSkip.textContent = "Start Playing";
-    this.tutorialSkip.classList.add("demo-start-playing-btn");
-    // Remove old listeners and wire a one-shot complete callback
     const fresh = this.tutorialSkip.cloneNode(true) as HTMLButtonElement;
     this.tutorialSkip.parentNode?.replaceChild(fresh, this.tutorialSkip);
     this.tutorialSkip = fresh;
     this.tutorialSkip.textContent = "Start Playing";
     this.tutorialSkip.classList.add("demo-start-playing-btn");
     this.tutorialSkip.addEventListener("click", () => {
+      // Stop spotlight and zoom before free-play
+      this.stopSpotlight();
+      this.callbacks?.setZoom(null);
       this.tutorialOverlay.classList.add("hidden");
       this.callbacks?.onTutorialComplete();
     });
@@ -336,109 +517,79 @@ export class DemoOverlayUI {
   }
 
   /**
-   * Shows a zoom-in spotlight on the player's ship and waits for them to press
-   * rotate (A / ←) before resolving. Uses callbacks supplied by main.ts.
+   * Waits for the player to perform an action N times before resolving.
+   * Only advances when the required count is fully met — no auto-timeout.
    */
-  private runPlayerIntro(): Promise<void> {
+  private waitForInputCount(
+    action: "rotate" | "dash" | "fire",
+    requiredCount: number,
+  ): Promise<void> {
     return new Promise((resolve) => {
-      const cb = this.callbacks;
-      if (!cb) {
-        resolve();
-        return;
-      }
-
-      const overlay = document.getElementById(
-        "demoPlayerIntroOverlay",
-      ) as HTMLElement | null;
-      const ring = document.getElementById(
-        "demoPlayerIntroRing",
-      ) as HTMLElement | null;
-      const label = overlay?.querySelector(
-        ".demo-player-intro-label",
-      ) as HTMLElement | null;
-
-      if (!overlay || !ring) {
-        resolve();
-        return;
-      }
-
-      const shipColor = cb.getShipColor();
-
-      // Apply ship color to ring
-      ring.style.borderColor = shipColor;
-      ring.style.boxShadow = `0 0 28px ${shipColor}, 0 0 56px ${shipColor}55`;
-      ring.style.animation = "none";
-      void ring.offsetWidth; // reflow to restart animation
-      ring.style.animation = "";
-
-      // Zoom the camera in on the player's ship
-      cb.setZoom(2.2);
-
-      const positionRing = (): void => {
-        const pos = cb.getShipPos();
-        if (pos && ring) {
-          ring.style.left = `${pos.x}px`;
-          ring.style.top = `${pos.y}px`;
-          const r = ring.getBoundingClientRect().width / 2;
-          overlay.style.setProperty("--spot-x", `${pos.x}px`);
-          overlay.style.setProperty("--spot-y", `${pos.y}px`);
-          overlay.style.setProperty("--spot-r", `${Math.max(r, 48)}px`);
-        }
-      };
-
-      overlay.classList.remove("hidden");
-      overlay.style.pointerEvents = "none";
-      setTimeout(positionRing, 120);
-      const trackInterval = setInterval(positionRing, 50);
-
-      if (label) {
-        label.textContent = this.isMobile
-          ? "Hold left side to take control"
-          : "Press \u2190 / A to take control";
-      }
-
-      let done = false;
+      let resolved = false;
+      let count = 0;
       let unsubscribeInputAction: (() => void) | null = null;
-      const clearLeftTouchZoneHighlight = this.startLeftTouchZoneHighlight();
-      const finish = (): void => {
-        if (done) return;
-        done = true;
-        clearInterval(trackInterval);
-        clearLeftTouchZoneHighlight();
+
+      const done = (): void => {
+        if (resolved) return;
+        resolved = true;
         unsubscribeInputAction?.();
         unsubscribeInputAction = null;
-        overlay.classList.add("hidden");
-        overlay.style.pointerEvents = "";
-        cb.setZoom(null);
-        // Resume sim — player pressed A and can now fly freely
-        cb.onResumeGame();
-        setTimeout(resolve, 380);
+        // Brief pause to let the last action animate before advancing
+        setTimeout(resolve, 800);
       };
 
-      unsubscribeInputAction = cb.subscribeInputAction((action) => {
-        if (action === "rotate") {
-          finish();
-        }
-      });
+      unsubscribeInputAction = this.callbacks?.subscribeInputAction(
+        (localAction) => {
+          if (!this.tutorialRunning) {
+            done();
+            return;
+          }
+          if (localAction === action) {
+            // On the very first action, dim the spotlight overlay
+            if (!this.spotlightFirstActionTriggered) {
+              this.spotlightFirstActionTriggered = true;
+              this.dimSpotlight();
+            }
+            count++;
+            if (count >= requiredCount) {
+              done();
+            }
+          }
+        },
+      ) ?? null;
+
+      if (unsubscribeInputAction === null) {
+        done();
+        return;
+      }
     });
   }
 
-  private startLeftTouchZoneHighlight(): () => void {
-    if (!this.isMobile) {
-      return () => {};
-    }
+  // -------------------------------------------------------------------------
+  // Mobile touch button highlighting (raised above overlay)
+  // -------------------------------------------------------------------------
 
-    const selector = '#touchZones .touch-zone[data-slot="0"][data-button="A"]';
+  private startMobileButtonHighlight(hint: TutorialMobileHint): () => void {
+    if (!this.isMobile || hint === null) return () => {};
+
+    const buttonAttr = hint === "fire" ? "B" : "A";
+    const selector = `#touchZones .touch-zone[data-slot="0"][data-button="${buttonAttr}"]`;
+    const container = document.getElementById("touchZones");
+
     const applyHighlight = (): void => {
+      // Elevate the whole container so individual zones can appear above the
+      // tutorial overlay (z-500). Per-child z-index is trapped by parent stacking.
+      container?.classList.add("demo-touch-elevated");
       const zones = document.querySelectorAll<HTMLElement>(selector);
       zones.forEach((zone) => {
-        zone.classList.add("demo-left-highlight");
+        zone.classList.add("demo-left-highlight", "demo-tutorial-above");
       });
     };
     const clearHighlight = (): void => {
+      container?.classList.remove("demo-touch-elevated");
       const zones = document.querySelectorAll<HTMLElement>(selector);
       zones.forEach((zone) => {
-        zone.classList.remove("demo-left-highlight");
+        zone.classList.remove("demo-left-highlight", "demo-tutorial-above");
       });
     };
 
@@ -452,47 +603,25 @@ export class DemoOverlayUI {
   }
 
   /**
-   * Waits for the player to perform a specific action (rotate or fire),
-   * then auto-advances after tryDurationMs to ensure forward progress.
+   * Smoothly interpolates the camera zoom from `from` to `to` over `durationMs`.
+   * Uses ease-out cubic so the zoom-out feels natural and cinematic.
    */
-  private waitForInput(
-    action: "rotate" | "fire",
-    autoAdvanceMs: number,
-  ): Promise<void> {
+  private tweenZoom(from: number, to: number, durationMs: number): Promise<void> {
     return new Promise((resolve) => {
-      let resolved = false;
-      let unsubscribeInputAction: (() => void) | null = null;
-
-      const done = (): void => {
-        if (resolved) return;
-        resolved = true;
-        unsubscribeInputAction?.();
-        unsubscribeInputAction = null;
-        clearTimeout(autoTimeout);
-        // Let player play freely before next panel
-        setTimeout(resolve, 6000);
-      };
-
-      unsubscribeInputAction = this.callbacks?.subscribeInputAction(
-        (localAction) => {
-          if (!this.tutorialRunning) {
-            done();
-            return;
-          }
-          if (localAction === action) {
-            done();
-          }
-        },
-      ) ?? null;
-
-      if (unsubscribeInputAction === null) {
-        if (!this.tutorialRunning) {
-          done();
+      const startMs = performance.now();
+      const tick = (): void => {
+        const elapsed = performance.now() - startMs;
+        const t = Math.min(elapsed / durationMs, 1);
+        // Ease-out cubic
+        const eased = 1 - Math.pow(1 - t, 3);
+        this.callbacks?.setZoom(from + (to - from) * eased);
+        if (t < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          resolve();
         }
-      }
-
-      // Auto-advance so tutorial never gets stuck
-      const autoTimeout = setTimeout(done, autoAdvanceMs);
+      };
+      requestAnimationFrame(tick);
     });
   }
 

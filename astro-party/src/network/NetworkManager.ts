@@ -277,6 +277,10 @@ export class NetworkManager {
     this.transport.pauseSimulation?.(paused);
   }
 
+  demoFreezeOthers(hostSessionId: string | null): void {
+    this.transport.demoFreezeOthers?.(hostSessionId);
+  }
+
   demoRespawnPlayer(playerId: string): void {
     this.transport.demoRespawnPlayer?.(playerId);
   }
