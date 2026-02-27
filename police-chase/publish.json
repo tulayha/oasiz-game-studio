@@ -1,13 +1,5 @@
 {
   "title": "Police Chase",
   "description": "Drive freely across infinite procedural biomes, outrun the cops and make police cars crash!",
-  "category": "arcade",
-  "scoreConfig": {
-    "anchors": [
-      { "raw": 446, "normalized": 100 },
-      { "raw": 1078, "normalized": 300 },
-      { "raw": 2005, "normalized": 600 },
-      { "raw": 2906, "normalized": 950 }
-    ]
-  }
+  "category": "arcade"
 }

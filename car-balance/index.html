@@ -378,6 +378,28 @@
         pointer-events: none;
       }
 
+      .hud-top {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .coin-display {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        background: rgba(255, 255, 255, 0.8);
+        padding: 5px 15px;
+        border-radius: 20px;
+        border: 2px solid #222;
+        font-family: "Fredoka", sans-serif;
+        font-weight: 600;
+        font-size: 1.2rem;
+        color: #222;
+        pointer-events: auto;
+      }
+
       /* Push timer down on mobile */
       @media (max-width: 768px), (pointer: coarse) {
         #hud {
@@ -595,6 +617,11 @@
         background: #90ee90;
         border-color: #228b22;
         box-shadow: 2px 2px 0 #228b22;
+      }
+
+      .car-option.locked {
+        opacity: 0.7;
+        filter: grayscale(0.8);
       }
 
       .car-option canvas {
@@ -832,7 +859,13 @@
 
     <!-- HUD -->
     <div id="hud" class="hidden">
-      <div class="timer" id="timer">0.0s</div>
+      <div class="hud-top">
+        <div class="timer" id="timer">0.0s</div>
+        <div class="coin-display">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="#ffd700" stroke="#b8860b" stroke-width="2"><circle cx="12" cy="12" r="10"/><text x="12" y="16" font-family="Arial" font-weight="bold" font-size="12" text-anchor="middle" fill="#b8860b" stroke="none">C</text></svg>
+          <span id="hud-coins">0</span>
+        </div>
+      </div>
     </div>
 
     <!-- Control Buttons (Mobile Only) -->
@@ -865,6 +898,11 @@
       <div class="start-content">
         <h1>Car Balance</h1>
         <p>Keep the car balanced as long as you can</p>
+        
+        <div class="coin-display" style="margin-bottom: 1.5rem; background: rgba(255,255,255,0.9);">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="#ffd700" stroke="#b8860b" stroke-width="2"><circle cx="12" cy="12" r="10"/><text x="12" y="16" font-family="Arial" font-weight="bold" font-size="12" text-anchor="middle" fill="#b8860b" stroke="none">C</text></svg>
+          <span id="start-coins">0</span>
+        </div>
 
         <!-- Animated illustration -->
         <div class="start-illustration">
@@ -880,6 +918,7 @@
         </div>
 
         <button class="start-btn" id="start-btn">Start the Engine</button>
+        <button class="gallery-btn" id="start-shop-btn" style="margin-top: 15px; z-index: 3; background: #fff8dc; border: 3px solid #222; box-shadow: 3px 3px 0 #222;">Garage & Shop</button>
       </div>
 
       <!-- Water at bottom -->
@@ -899,10 +938,18 @@
 
     <!-- Gallery Screen -->
     <div id="gallery" class="overlay hidden">
-      <h2>Choose Your Car</h2>
+      <div style="display: flex; justify-content: space-between; width: 100%; max-width: 360px; align-items: center; margin-bottom: 1rem;">
+        <h2>Garage</h2>
+        <div class="coin-display">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="#ffd700" stroke="#b8860b" stroke-width="2"><circle cx="12" cy="12" r="10"/><text x="12" y="16" font-family="Arial" font-weight="bold" font-size="12" text-anchor="middle" fill="#b8860b" stroke="none">C</text></svg>
+          <span id="shop-coins">0</span>
+        </div>
+      </div>
       <div class="car-preview" id="car-preview">
         <canvas id="preview-canvas" width="200" height="120"></canvas>
         <div class="preview-name" id="preview-name">Classic</div>
+        <div id="preview-price" style="text-align: center; font-family: 'Fredoka', sans-serif; font-weight: 600; color: #b8860b; margin-top: 5px;"></div>
+        <button id="buy-btn" class="start-btn" style="display: none; width: 100%; margin-top: 10px; padding: 0.5rem; font-size: 1.2rem;">Buy</button>
       </div>
       <div class="gallery-grid" id="gallery-grid">
         <!-- Car options will be populated by JavaScript -->
