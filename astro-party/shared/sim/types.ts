@@ -510,6 +510,8 @@ export interface SimState {
 
   /** Demo tutorial: IDs of non-host players whose ships are frozen in place. */
   demoFrozenPlayerIds: Set<string> | null;
+  /** When true the simulation never ends rounds or increments scores (demo mode). */
+  isDemo: boolean;
 
   // Hooks
   hooks: Hooks;
