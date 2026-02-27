@@ -324,10 +324,11 @@ The upload script will:
 
 #### 4. Test on the App
 
-Once uploaded, your game will be available in the Oasiz app for testing. Check that:
+Once uploaded, open the Oasiz app and navigate to **Profile → Drafts** to find your game. Tap it to launch and verify:
+
 - The game loads correctly
 - Touch controls work on mobile
-- Score submission works
+- Score submission works on game over
 - The overall experience matches your local testing
 
 ### Testing Checklist
