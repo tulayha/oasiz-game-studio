@@ -149,7 +149,12 @@ export class DemoOverlayUI {
     this.tutorialOverlay.classList.remove("hidden");
 
     this.tutorialSkip.addEventListener("click", () => {
-      this.handleSkip();
+      // During tutorial: only cancel the typewriter so the full text appears.
+      // The player must still complete the required action to advance.
+      if (this.cancelTypewriter !== null) {
+        this.cancelTypewriter();
+        this.cancelTypewriter = null;
+      }
     });
 
     void this.runTutorial(isMobile);
@@ -338,6 +343,40 @@ export class DemoOverlayUI {
     this.spotlightActive = false;
   }
 
+  /**
+   * Dissolve the spotlight by blooming the circular hole outward from the
+   * ship's current position until it fills the viewport, then clean up.
+   * Used by "Start Playing" so the transition feels ship-centered.
+   */
+  private fadeOutSpotlightFromShip(): void {
+    if (!this.spotlightActive) return;
+
+    // Stop position tracking — pin the hole at the ship's last known position
+    if (this.spotlightTrackInterval !== null) {
+      clearInterval(this.spotlightTrackInterval);
+      this.spotlightTrackInterval = null;
+    }
+    this.spotlightActive = false;
+
+    const overlay = this.spotlightOverlay;
+
+    // Use ease-out so the bloom accelerates quickly from the ship, then
+    // gently fills the screen edges; fade the dark veil out simultaneously
+    overlay.style.transition =
+      "--spot-r 0.65s ease-out, --spot-bg-alpha 0.5s ease-in, opacity 0.35s ease, visibility 0.35s ease";
+    overlay.style.setProperty("--spot-r", "200vmax");
+    overlay.style.setProperty("--spot-bg-alpha", "0");
+
+    // After transitions finish, clean up fully
+    setTimeout(() => {
+      overlay.classList.add("hidden");
+      overlay.classList.remove("spot-panel", "spot-action", "spot-dimmed");
+      overlay.style.removeProperty("--spot-r");
+      overlay.style.removeProperty("--spot-bg-alpha");
+      overlay.style.removeProperty("transition");
+    }, 750);
+  }
+
   /** Called on the player's first action — reduces overlay opacity and expands spotlight radius. */
   private dimSpotlight(): void {
     if (!this.spotlightActive) return;
@@ -483,8 +522,8 @@ export class DemoOverlayUI {
     this.tutorialSkip.textContent = "Start Playing";
     this.tutorialSkip.classList.add("demo-start-playing-btn");
     this.tutorialSkip.addEventListener("click", () => {
-      // Stop spotlight and zoom before free-play
-      this.stopSpotlight();
+      // Bloom the spotlight outward from the ship, then hand off to free-play
+      this.fadeOutSpotlightFromShip();
       this.callbacks?.setZoom(null);
       this.tutorialOverlay.classList.add("hidden");
       this.callbacks?.onTutorialComplete();

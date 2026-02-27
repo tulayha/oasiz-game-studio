@@ -439,6 +439,8 @@ async function init(): Promise<void> {
         syncAudioToPhase(currentPhase, currentPhase);
         syncDemoTouchLayoutForState();
         markDemoSeen();
+        // Give the player 5 s of invincibility when they first enter free-play
+        game.demoSetPlayerInvincible(5000);
         demoOverlay!.showExitButton(() => {
           // Keep the battle running — transition to MENU state (same as skip)
           demoOverlay?.hideAll();
@@ -467,7 +469,22 @@ async function init(): Promise<void> {
         const myPlayer = myId ? players.find((p) => p.id === myId) : players[0];
         return myPlayer?.color.primary ?? "#00f0ff";
       },
-      getShipPos: () => game.getLocalShipViewportPos(),
+      getShipPos: () => {
+        const pos = game.getLocalShipViewportPos();
+        if (!pos) return null;
+        // On portrait mobile the game canvas is CSS-rotated -90deg so the
+        // logical game coords don't map directly to viewport CSS pixels.
+        const isPortraitMobile =
+          window.matchMedia("(pointer: coarse)").matches &&
+          window.matchMedia("(orientation: portrait)").matches;
+        if (!isPortraitMobile) return pos;
+        const vw = window.innerWidth;   // short edge (portrait)
+        const vh = window.innerHeight;  // long edge (portrait)
+        return {
+          x: pos.y * (vw / vh),
+          y: vh - pos.x * (vh / vw),
+        };
+      },
       setZoom: (boost) => game.setDemoZoomBoost(boost),
       subscribeInputAction: (handler) => {
         demoInputActionSubscribers.add(handler);

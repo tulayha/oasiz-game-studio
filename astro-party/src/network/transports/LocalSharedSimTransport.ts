@@ -85,6 +85,7 @@ export class LocalSharedSimTransport implements NetworkTransport {
   private lastDebugSessionTainted: boolean | null = null;
   private lastMapId: number | null = null;
   private roomCodeFallbackRng = new SeededRNG(Date.now() >>> 0);
+  private isDemoMode = false;
 
   setCallbacks(callbacks: NetworkCallbacks): void {
     this.callbacks = callbacks;
@@ -143,6 +144,7 @@ export class LocalSharedSimTransport implements NetworkTransport {
       { debugToolsEnabled: isClientDebugToolsRequested() },
     );
 
+    this.simulation.isDemo = this.isDemoMode;
     this.simulation.addHuman(
       this.mySessionId,
       this.readInjectedPlayerName() ?? undefined,
@@ -400,6 +402,15 @@ export class LocalSharedSimTransport implements NetworkTransport {
 
   demoCleanupStalePilots(maxAgeMs: number): void {
     this.simulation?.demoCleanupStalePilots(maxAgeMs);
+  }
+
+  demoSetPlayerInvincible(playerId: string, durationMs: number): void {
+    this.simulation?.demoSetPlayerInvincible(playerId, durationMs);
+  }
+
+  setDemoMode(active: boolean): void {
+    this.isDemoMode = active;
+    if (this.simulation) this.simulation.isDemo = active;
   }
 
   getMyPlayerId(): string | null {

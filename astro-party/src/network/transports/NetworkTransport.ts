@@ -146,6 +146,8 @@ export interface NetworkTransport {
   demoRespawnPlayer?(playerId: string): void;
   demoCleanupStalePilots?(maxAgeMs: number): void;
   demoFreezeOthers?(hostSessionId: string | null): void;
+  demoSetPlayerInvincible?(playerId: string, durationMs: number): void;
+  setDemoMode?(active: boolean): void;
 
   getMyPlayerId(): string | null;
   isHost(): boolean;
