@@ -145,6 +145,7 @@ export interface NetworkTransport {
   pauseSimulation?(paused: boolean): void;
   demoRespawnPlayer?(playerId: string): void;
   demoCleanupStalePilots?(maxAgeMs: number): void;
+  demoFreezeOthers?(hostSessionId: string | null): void;
 
   getMyPlayerId(): string | null;
   isHost(): boolean;

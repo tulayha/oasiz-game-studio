@@ -2401,7 +2401,9 @@
     }
 
     /* ============= ADAPTIVE TOUCH ZONES ============= */
-    /* Container for dynamically created touch zones */
+    /* Container for dynamically created touch zones.
+       Lives outside #game-wrapper so its z-index participates in the root
+       stacking context (game-wrapper creates a stacking context at z-1). */
     .touch-zones {
       position: fixed;
       top: var(--box-top);
@@ -2449,6 +2451,20 @@
       to {
         box-shadow: 0 0 24px rgba(0, 240, 255, 0.76), inset 0 0 24px rgba(0, 240, 255, 0.34);
       }
+    }
+
+    /* Raised above the demo tutorial overlay so the player can see + tap the button */
+    .touch-zone.demo-tutorial-above {
+      opacity: 0.85 !important;
+      pointer-events: auto !important;
+    }
+
+    /* Elevate the ENTIRE container above the tutorial overlay (z-500).
+       Per-child z-index doesn't escape the parent stacking context, so we
+       must raise the container itself. Applied/removed alongside demo-tutorial-above. */
+    .touch-zones.demo-touch-elevated {
+      z-index: 560 !important;
+      display: block !important;
     }
 
     .touch-zone-label {
@@ -3341,67 +3357,98 @@
       }
     }
 
-    /* Player intro overlay — "your ship" spotlight */
+    /* Allow --spot-r and --spot-bg-alpha to be animatable via CSS transitions */
+    @property --spot-r {
+      syntax: '<length>';
+      inherits: true;
+      initial-value: 85px;
+    }
+    @property --spot-bg-alpha {
+      syntax: '<number>';
+      inherits: true;
+      initial-value: 0.84;
+    }
+
+    /* Player intro / tutorial spotlight overlay */
     .demo-player-intro-overlay {
       /* Dark vignette with a circular spotlight punched out at --spot-x / --spot-y */
       --spot-x: 50%;
       --spot-y: 50%;
-      --spot-r: 72px;
-      background: rgba(0, 0, 0, 0.82);
+      --spot-r: 85px;
+      --spot-bg-alpha: 0.84;
+      background: rgba(0, 0, 0, var(--spot-bg-alpha));
       -webkit-mask-image: radial-gradient(
         circle var(--spot-r) at var(--spot-x) var(--spot-y),
-        transparent 68%,
+        transparent 62%,
         black 100%
       );
       mask-image: radial-gradient(
         circle var(--spot-r) at var(--spot-x) var(--spot-y),
-        transparent 68%,
+        transparent 62%,
         black 100%
       );
-      z-index: 550;
-      transition: opacity 0.35s ease, visibility 0.35s ease;
+      /* Below tutorial panel overlay (500) so panel is always readable */
+      z-index: 490;
+      transition: opacity 0.35s ease, visibility 0.35s ease, --spot-r 0.45s ease, --spot-bg-alpha 0.5s ease;
     }
     .demo-player-intro-overlay.hidden {
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
     }
+    /* Wider hole when the tip panel is showing */
+    .demo-player-intro-overlay.spot-panel {
+      --spot-r: 130px;
+    }
+    /* Tighter focus during "try it" action phase */
+    .demo-player-intro-overlay.spot-action {
+      --spot-r: 85px;
+    }
+    /* After player's first action: dim the veil and expand the spotlight */
+    .demo-player-intro-overlay.spot-dimmed {
+      --spot-bg-alpha: 0.42;
+    }
     /* The ring is absolutely positioned via JS at the ship's screen coords */
     .demo-player-intro-ring {
       position: fixed;
-      width: clamp(64px, 13vmin, 96px);
-      height: clamp(64px, 13vmin, 96px);
+      width: 120px;
+      height: 120px;
       border-radius: 50%;
       border: 2.5px solid #00f0ff;
       transform: translate(-50%, -50%);
-      /* box-shadow set dynamically */
-      animation: playerIntroPulse 0.55s ease-in-out infinite alternate;
+      /* box-shadow set dynamically — size transitions in JS */
+      animation: playerIntroPulse 0.65s ease-in-out infinite alternate;
       pointer-events: none;
+      transition: width 0.45s ease, height 0.45s ease;
     }
     @keyframes playerIntroPulse {
-      from { transform: translate(-50%, -50%) scale(0.88); opacity: 0.6; }
-      to   { transform: translate(-50%, -50%) scale(1.14); opacity: 1; }
+      from { transform: translate(-50%, -50%) scale(0.9); opacity: 0.55; }
+      to   { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
     }
+    /* "YOUR SHIP" label — hidden in tutorial flow (panel tip text is sufficient) */
     .demo-player-intro-inner {
-      /* The label is centered at the bottom of the screen, not the ship */
-      position: fixed;
-      bottom: max(var(--safe-bottom, 0px), 3rem);
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0;
-      pointer-events: none;
+      display: none;
     }
-    .demo-player-intro-label {
-      font-family: 'Orbitron', sans-serif;
-      font-size: clamp(0.75rem, 3vmin, 1rem);
-      color: rgba(255, 255, 255, 0.88);
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      opacity: 0;
-      animation: demoTapFadeIn 400ms ease 300ms forwards;
+
+    /* Wrapper — gives the guide image a relative positioning parent (the panel) */
+    .demo-panel-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 440px;
+    }
+    /* Guide image: positioned relative to the wrapper, translated up so it sits
+       just above the panel's top-right corner with a tiny 6px overlap — "attached" look */
+    .demo-guide-img-float {
+      position: absolute;
+      top: 0;
+      right: 0;
+      transform: translateY(calc(-100% + 6px));
+      width: clamp(120px, 32vw, 196px);
+      height: auto;
+      border-radius: 6px 6px 0 0;
+      opacity: 0.9;
+      pointer-events: none;
+      z-index: 2;
     }
 
     /* Landscape: keep tutorial panel anchored at the bottom */
@@ -3795,10 +3842,11 @@
     </div>
   </div>
 
-  <!-- Adaptive Touch Zones (for local multiplayer on mobile) -->
-  <div class="touch-zones" id="touchZones"></div>
-
   </div><!-- /game-wrapper -->
+
+  <!-- Adaptive Touch Zones — lives OUTSIDE game-wrapper so its z-index is in
+       the root stacking context and can appear above demo overlays (z-500). -->
+  <div class="touch-zones" id="touchZones"></div>
 
   <!-- Rotate Device Overlay (portrait mode on mobile) -->
   <div class="rotate-overlay" id="rotateOverlay">
@@ -3825,12 +3873,17 @@
 
   <!-- Demo Tutorial Overlay -->
   <div id="demoTutorialOverlay" class="demo-overlay hidden">
-    <div class="demo-tutorial-panel" id="demoTutorialPanel">
-      <div class="demo-tutorial-diagram" id="demoTutorialDiagram"></div>
-      <div class="demo-tutorial-dialogue" id="demoTutorialDialogue"></div>
-      <div class="demo-tutorial-actions">
-        <button class="demo-skip-btn demo-tutorial-skip-btn" id="demoTutorialSkip">Skip</button>
-        <button class="demo-next-btn hidden" id="demoTutorialNext">Next →</button>
+    <!-- Wrapper gives the guide image a relative parent so it can attach to the panel corner -->
+    <div class="demo-panel-wrap">
+      <!-- Guide image sits just above the panel's top-right corner, outside the panel box -->
+      <img class="demo-guide-img-float" src="./shared/assets/Demo_Guide/Demo_Guide.svg" alt="Controls Guide">
+      <div class="demo-tutorial-panel" id="demoTutorialPanel">
+        <div class="demo-tutorial-diagram" id="demoTutorialDiagram"></div>
+        <div class="demo-tutorial-dialogue" id="demoTutorialDialogue"></div>
+        <div class="demo-tutorial-actions">
+          <button class="demo-skip-btn demo-tutorial-skip-btn" id="demoTutorialSkip">Skip</button>
+          <button class="demo-next-btn hidden" id="demoTutorialNext">Next →</button>
+        </div>
       </div>
     </div>
   </div>
