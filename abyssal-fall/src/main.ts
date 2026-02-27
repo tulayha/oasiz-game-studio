@@ -695,6 +695,33 @@ class Game {
     const vv = (window as any).visualViewport;
     return vv ? Math.round(vv.width) : window.innerWidth;
   }
+
+  /** Get CSS display height of the canvas (not the buffer height) */
+  private getDisplayHeight(): number {
+    const vv = (window as any).visualViewport;
+    return vv ? Math.round(vv.height) : window.innerHeight;
+  }
+
+  /** Returns mobile button positions in CSS pixel coordinates */
+  private getMobileButtons() {
+    const w = this.getDisplayWidth();
+    const h = this.getDisplayHeight();
+    const r = 44;
+    const margin = 28;
+    const gap = 18;
+    const clusterY = h - margin - r;
+    return {
+      left:   { cx: margin + r,             cy: clusterY, r },
+      right:  { cx: margin + r * 3 + gap,   cy: clusterY, r },
+      action: { cx: w - margin - r,         cy: clusterY, r },
+    };
+  }
+
+  private inCircle(x: number, y: number, btn: { cx: number; cy: number; r: number }): boolean {
+    const dx = x - btn.cx;
+    const dy = y - btn.cy;
+    return dx * dx + dy * dy <= btn.r * btn.r;
+  }
   
   private updateInputFromTouches(): void {
     // Reset input
@@ -702,49 +729,20 @@ class Game {
     this.input.right = false;
     this.input.shoot = false;
     this.input.jump = false;
-    
-    // Use CSS pixel screen width (not buffer width which is DPR-scaled)
-    const screenWidth = this.getDisplayWidth();
-    const leftZone = screenWidth * 0.33;
-    const rightZone = screenWidth * 0.67;
-    
+
+    const btns = this.getMobileButtons();
     for (const touch of this.touches.values()) {
-      // Left third = move left
-      if (touch.x < leftZone) {
-        this.input.left = true;
-      } 
-      // Right third = move right
-      else if (touch.x > rightZone) {
-        this.input.right = true;
-      } 
-      // Center third = tap action (jump if grounded, shoot if airborne)
-      else {
-        // Set both - player controller will decide based on grounded state
-        this.input.jump = true;
-        this.input.shoot = true;
-      }
+      if (this.inCircle(touch.x, touch.y, btns.left))   this.input.left = true;
+      if (this.inCircle(touch.x, touch.y, btns.right))  this.input.right = true;
+      if (this.inCircle(touch.x, touch.y, btns.action)) { this.input.jump = true; this.input.shoot = true; }
     }
   }
   
   private handleMouseInput(clientX: number, clientY: number): void {
-    // Use CSS pixel screen width (not buffer width which is DPR-scaled)
-    const screenWidth = this.getDisplayWidth();
-    const leftZone = screenWidth * 0.33;
-    const rightZone = screenWidth * 0.67;
-    
-    // Left third = move left
-    if (clientX < leftZone) {
-      this.input.left = true;
-    } 
-    // Right third = move right
-    else if (clientX > rightZone) {
-      this.input.right = true;
-    } 
-    // Center third = tap action (jump if grounded, shoot if airborne)
-    else {
-      this.input.jump = true;
-      this.input.shoot = true;
-    }
+    const btns = this.getMobileButtons();
+    if (this.inCircle(clientX, clientY, btns.left))   this.input.left = true;
+    if (this.inCircle(clientX, clientY, btns.right))  this.input.right = true;
+    if (this.inCircle(clientX, clientY, btns.action)) { this.input.jump = true; this.input.shoot = true; }
   }
 
   private clearInputState(): void {
@@ -1347,7 +1345,7 @@ class Game {
   
   private playLaserSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.laserBuffer, this.UNIFORM_SFX_VOLUME);
+    this.playSfx(this.laserBuffer, this.UNIFORM_SFX_VOLUME * 0.35);
   }
 
   private playGemSound(): void {
@@ -1504,12 +1502,12 @@ class Game {
 
   private playBlastSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.blastBuffer, this.UNIFORM_SFX_VOLUME);
+    this.playSfx(this.blastBuffer, this.UNIFORM_SFX_VOLUME * 0.35);
   }
 
   private playLightningSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.lightningBuffer, this.UNIFORM_SFX_VOLUME);
+    this.playSfx(this.lightningBuffer, this.UNIFORM_SFX_VOLUME * 0.35);
   }
 
   private playShieldSound(): void {
@@ -3564,6 +3562,9 @@ class Game {
   
   private resolveCollisions(): void {
     const player = this.playerController.getPlayer();
+    // Capture vy BEFORE platform resolution so stomp detection isn't broken
+    // by stopVertical() zeroing vy before the enemy collision check runs.
+    const vyBeforeResolve = player.vy;
     const prevX = player.x - player.vx;
     const prevY = player.y - player.vy;
     const minLandingOverlap = player.width * 0.5;
@@ -3758,9 +3759,9 @@ class Game {
         continue;
       }
       
-      // Player bounces if falling downward (vy > 0 means moving down)
-      // This is the primary stomp mechanic - if player is falling, they stomp
-      if (player.vy > 0) {
+      // Player bounces if falling downward — use vyBeforeResolve because
+      // platform collision may have zeroed vy before this check runs.
+      if (vyBeforeResolve > 0) {
         // Bounce mechanic - player lands on enemy from above
         this.bounceOnEnemy(enemy, i);
       } else if (!this.playerController.isInvulnerable()) {
@@ -5126,10 +5127,7 @@ class Game {
         this.drawDebugHitboxes();
       }
       this.drawPowerUpBarAbovePlayer();
-      if (this.deathFreezeFrames > 0) {
-        this.drawDeathFreezeHighlight();
-      }
-      
+
       // Draw powerup effects (on top of player)
       this.drawShields();
       this.drawBlastExplosions();
@@ -5164,12 +5162,9 @@ class Game {
       this.drawWorldDoorwayDebugOverlay();
     }
     
-    // Death freeze full-screen darkness — drawn after ALL transforms are restored
-    // so it covers the entire canvas including letterbox strips
+    // Death freeze spotlight — drawn after ALL transforms are restored, in screen space
     if (this.deathFreezeFrames > 0) {
-      const freezeProgress = (this.DEATH_FREEZE_DURATION_FRAMES - this.deathFreezeFrames) / this.DEATH_FREEZE_DURATION_FRAMES;
-      ctx.fillStyle = `rgba(4, 12, 22, ${0.55 + freezeProgress * 0.25})`;
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.drawDeathFreezeHighlight();
     }
 
     // Apply dithering effect as post-process
@@ -5663,12 +5658,18 @@ class Game {
       (this.DEATH_FREEZE_DURATION_FRAMES - this.deathFreezeFrames) /
       this.DEATH_FREEZE_DURATION_FRAMES;
     const pulse = 0.65 + Math.sin(this.frameCount * 0.2) * 0.35;
-    const viewTop = this.cameraY - 32;
-    const viewHeight = CONFIG.INTERNAL_HEIGHT + 64;
-    const viewLeft = -32;
-    const viewWidth = CONFIG.INTERNAL_WIDTH + 64;
+    const zoom = this.getDeathFreezeZoom();
 
-    ctx.save();
+    // Convert a game-space point to canvas buffer pixel coordinates.
+    // Must account for the death-freeze zoom applied around the player.
+    const toScreen = (gx: number, gy: number) => {
+      const zx = (gx - p.x) * zoom + p.x;
+      const zy = (gy - p.y) * zoom + p.y;
+      return {
+        x: (zx + this.screenShakeX) * this.scale + this.offsetX,
+        y: (zy - this.cameraY + this.screenShakeY) * this.scale + this.offsetY,
+      };
+    };
 
     const diverRadius = Math.max(this.DIVER_DRAW_SIZE * 0.46, Math.max(p.width, p.height) + 16);
     const threatRadius = 36;
@@ -5685,32 +5686,37 @@ class Game {
       focusRadius = Math.max(52, dist * 0.5 + Math.max(diverRadius, threatRadius) + 16);
     }
 
-    ctx.fillStyle = `rgba(4, 12, 22, ${0.32 + freezeProgress * 0.12})`;
+    const sf = toScreen(focusX, focusY);
+    const screenRadius = focusRadius * zoom * this.scale;
+
+    ctx.save();
+
+    // Full-canvas darkness with spotlight cutout, covering letterbox strips too
+    ctx.fillStyle = `rgba(4, 12, 22, ${0.55 + freezeProgress * 0.25})`;
     ctx.beginPath();
-    ctx.rect(viewLeft, viewTop, viewWidth, viewHeight);
-    ctx.moveTo(focusX + focusRadius, focusY);
-    ctx.arc(focusX, focusY, focusRadius, 0, Math.PI * 2);
+    ctx.rect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.arc(sf.x, sf.y, screenRadius, 0, Math.PI * 2);
     ctx.fill("evenodd");
 
-    // Single circular boundary around the hit event focus.
-    const outlineRadius = focusRadius + pulse * 2.1;
-    const dash = 5;
-    const gap = 7;
+    // Dashed outline ring
+    const outlineRadius = screenRadius + pulse * 2.1 * this.scale;
+    const dash = 5 * this.scale;
+    const gap = 7 * this.scale;
     const pattern = dash + gap;
     const dashOffset = -((this.frameCount * 0.8) % pattern);
     ctx.strokeStyle = "rgba(255, 235, 190, 0.92)";
-    ctx.lineWidth = 2.4;
+    ctx.lineWidth = 2.4 * this.scale;
     ctx.lineCap = "round";
     ctx.setLineDash([dash, gap]);
     ctx.lineDashOffset = dashOffset;
     ctx.beginPath();
-    ctx.arc(focusX, focusY, outlineRadius, 0, Math.PI * 2);
+    ctx.arc(sf.x, sf.y, outlineRadius, 0, Math.PI * 2);
     ctx.stroke();
-    // Second phase-shifted pass hides the visible seam on one side of the loop.
+    // Phase-shifted second pass hides the seam
     ctx.strokeStyle = "rgba(255, 245, 210, 0.42)";
     ctx.lineDashOffset = dashOffset - pattern * 0.5;
     ctx.beginPath();
-    ctx.arc(focusX, focusY, outlineRadius, 0, Math.PI * 2);
+    ctx.arc(sf.x, sf.y, outlineRadius, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.lineDashOffset = 0;
@@ -5726,8 +5732,8 @@ class Game {
     const crabW = 96 * crabScale;
     const crabH = 96 * crabScale;
     const crabX = CONFIG.INTERNAL_WIDTH / 2 - crabW / 2;
-    // Keep crab and diver below the instruction block area
-    const crabY = CONFIG.INTERNAL_HEIGHT - crabH - 20;
+    // Push characters to the very bottom so they don't overlap HTML text
+    const crabY = CONFIG.INTERNAL_HEIGHT - crabH + 10;
     
     // Draw bobbing character above the crab
     if (this.playerAnimLoaded.idle && this.playerAnimImages.idle) {
@@ -7162,35 +7168,53 @@ class Game {
   
   private drawTouchZones(): void {
     const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    const leftZone = w * 0.33;
-    const rightZone = w * 0.67;
-    
-    // Semi-transparent zone indicators - full screen
-    ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
-    
-    // Left zone (move left)
-    ctx.fillRect(0, 0, leftZone, h);
-    
-    // Right zone (move right)
-    ctx.fillRect(rightZone, 0, w - rightZone, h);
-    
-    // Center zone (tap action - jump/shoot)
-    ctx.fillStyle = "rgba(0, 255, 0, 0.03)";
-    ctx.fillRect(leftZone, 0, rightZone - leftZone, h);
-    
-    // Zone labels - scale font for DPR
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const fontSize = Math.round(10 * dpr);
-    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
-    ctx.font = `${fontSize}px 'Press Start 2P'`;
-    ctx.textAlign = "center";
-    
-    const labelY = h - Math.round(20 * dpr);
-    ctx.fillText("LEFT", w * 0.165, labelY);
-    ctx.fillText("TAP", w * 0.5, labelY);
-    ctx.fillText("RIGHT", w * 0.835, labelY);
+    const btns = this.getMobileButtons();
+
+    this.drawMobileButton(ctx, btns.left.cx * dpr,   btns.left.cy * dpr,   btns.left.r * dpr,   this.input.left,  "left");
+    this.drawMobileButton(ctx, btns.right.cx * dpr,  btns.right.cy * dpr,  btns.right.r * dpr,  this.input.right, "right");
+    this.drawMobileButton(ctx, btns.action.cx * dpr, btns.action.cy * dpr, btns.action.r * dpr, this.input.jump || this.input.shoot, "action");
+  }
+
+  private drawMobileButton(
+    ctx: CanvasRenderingContext2D,
+    cx: number, cy: number, r: number,
+    active: boolean,
+    type: "left" | "right" | "action"
+  ): void {
+    ctx.save();
+
+    // Background circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = active ? "rgba(255, 255, 255, 0.30)" : "rgba(0, 0, 0, 0.50)";
+    ctx.fill();
+    ctx.strokeStyle = active ? "rgba(255, 255, 255, 0.85)" : "rgba(255, 255, 255, 0.30)";
+    ctx.lineWidth = Math.max(2, r * 0.06);
+    ctx.stroke();
+
+    // Arrow icon
+    ctx.fillStyle = active ? "rgba(255, 255, 255, 1.0)" : "rgba(255, 255, 255, 0.65)";
+    const a = r * 0.42;
+    ctx.beginPath();
+    if (type === "left") {
+      ctx.moveTo(cx - a, cy);
+      ctx.lineTo(cx + a * 0.55, cy - a);
+      ctx.lineTo(cx + a * 0.55, cy + a);
+    } else if (type === "right") {
+      ctx.moveTo(cx + a, cy);
+      ctx.lineTo(cx - a * 0.55, cy - a);
+      ctx.lineTo(cx - a * 0.55, cy + a);
+    } else {
+      // Up arrow for jump/shoot
+      ctx.moveTo(cx, cy - a);
+      ctx.lineTo(cx + a, cy + a * 0.55);
+      ctx.lineTo(cx - a, cy + a * 0.55);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
   }
   
   private gameLoop(timestamp: number = 0): void {
