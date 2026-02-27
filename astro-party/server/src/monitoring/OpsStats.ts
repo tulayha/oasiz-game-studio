@@ -15,6 +15,14 @@ interface NumericSummary {
   p99: number | null;
 }
 
+interface RecentClientLeaveEvent {
+  atIso: string;
+  roomId: string;
+  sessionId: string;
+  consented: boolean | null;
+  phase: string | null;
+}
+
 interface OpsStatsSnapshot {
   generatedAtIso: string;
   uptimeSec: number;
@@ -39,8 +47,11 @@ interface OpsStatsSnapshot {
     active: number;
     joinedTotal: number;
     leftTotal: number;
+    leftConsentedTotal: number;
+    leftUnconsentedTotal: number;
     joinsRate: RateSnapshot;
     leavesRate: RateSnapshot;
+    recentLeaves: RecentClientLeaveEvent[];
   };
   messages: {
     inputTotal: number;
@@ -156,10 +167,12 @@ function toRateSnapshot(counter: RollingCounter): RateSnapshot {
 
 export class OpsStats {
   private readonly startedAtMs = Date.now();
+  private readonly maxRecentLeaves = 200;
   private readonly activeRoomIds = new Set<string>();
   private readonly activeSessionIds = new Set<string>();
   private readonly commandCounts = new Map<string, number>();
   private readonly roomErrorByCode = new Map<string, number>();
+  private readonly recentLeaves: RecentClientLeaveEvent[] = [];
 
   private readonly joinsCounter = new RollingCounter(120);
   private readonly leavesCounter = new RollingCounter(120);
@@ -172,6 +185,8 @@ export class OpsStats {
   private roomDisposedTotal = 0;
   private clientJoinedTotal = 0;
   private clientLeftTotal = 0;
+  private clientLeftConsentedTotal = 0;
+  private clientLeftUnconsentedTotal = 0;
   private inputTotal = 0;
   private pingTotal = 0;
   private snapshotFanoutTotal = 0;
@@ -197,12 +212,43 @@ export class OpsStats {
     this.joinsCounter.increment(1);
   }
 
-  recordClientLeft(sessionId: string): void {
+  recordClientLeft(
+    sessionId: string,
+    details?: {
+      roomId?: string;
+      consented?: boolean;
+      phase?: string | null;
+    },
+  ): void {
     if (sessionId.trim().length > 0) {
       this.activeSessionIds.delete(sessionId);
     }
     this.clientLeftTotal += 1;
     this.leavesCounter.increment(1);
+
+    if (typeof details?.consented === "boolean") {
+      if (details.consented) {
+        this.clientLeftConsentedTotal += 1;
+      } else {
+        this.clientLeftUnconsentedTotal += 1;
+      }
+    }
+
+    const event: RecentClientLeaveEvent = {
+      atIso: new Date().toISOString(),
+      roomId: details?.roomId?.trim() ?? "",
+      sessionId: sessionId.trim(),
+      consented:
+        typeof details?.consented === "boolean" ? details.consented : null,
+      phase:
+        typeof details?.phase === "string" && details.phase.trim().length > 0
+          ? details.phase.trim()
+          : null,
+    };
+    this.recentLeaves.push(event);
+    if (this.recentLeaves.length > this.maxRecentLeaves) {
+      this.recentLeaves.splice(0, this.recentLeaves.length - this.maxRecentLeaves);
+    }
   }
 
   recordCommand(command: string): void {
@@ -265,8 +311,11 @@ export class OpsStats {
         active: this.activeSessionIds.size,
         joinedTotal: this.clientJoinedTotal,
         leftTotal: this.clientLeftTotal,
+        leftConsentedTotal: this.clientLeftConsentedTotal,
+        leftUnconsentedTotal: this.clientLeftUnconsentedTotal,
         joinsRate: toRateSnapshot(this.joinsCounter),
         leavesRate: toRateSnapshot(this.leavesCounter),
+        recentLeaves: [...this.recentLeaves],
       },
       messages: {
         inputTotal: this.inputTotal,

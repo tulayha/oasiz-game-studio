@@ -143,7 +143,9 @@ function formatDuration(ms: number): string {
 
 function summaryLine(): string {
   return (
-    "uptime=" +
+    "ts=" +
+    new Date().toISOString() +
+    " uptime=" +
     formatDuration(Date.now() - METRICS.startedAtMs) +
     " attempted=" +
     METRICS.attemptedClients +
@@ -610,7 +612,20 @@ function attachInputLoop(
 
     console.log(
       "[LoadTest.lobbyfill.attachInputLoop]",
-      "Client " + clientId + " left with code " + code,
+      "ts=" +
+        new Date().toISOString() +
+        " client=" +
+        clientId +
+        " roomId=" +
+        room.roomId +
+        " leaveCode=" +
+        code +
+        " phase=" +
+        phase +
+        " inputSequence=" +
+        inputSequence +
+        " isServerDisconnect=" +
+        isServerDisconnectCode(code),
     );
     maybeExitWhenRunIsComplete();
   });
@@ -619,11 +634,15 @@ function attachInputLoop(
     incrementMapCounter(METRICS.roomErrors, code.toString());
     console.log(
       "[LoadTest.lobbyfill.attachInputLoop]",
-      "Client " +
+      "ts=" +
+        new Date().toISOString() +
+        " client=" +
         clientId +
-        " room error " +
+        " roomId=" +
+        room.roomId +
+        " roomErrorCode=" +
         code +
-        " message " +
+        " message=" +
         (message ?? ""),
     );
     requestGracefulLeave("room_error_" + code.toString());

@@ -6,6 +6,9 @@ BRANCH="${BRANCH:-space-force-dev}"
 PM2_NAME="${PM2_NAME:-astro-party-colyseus}"
 LOCAL_HEALTH_URL="${LOCAL_HEALTH_URL:-http://127.0.0.1:2567/healthz}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://api.aiisourdaddy.com/healthz}"
+OPS_STATS_URL="${OPS_STATS_URL:-http://127.0.0.1:2567/ops/stats}"
+OPS_STATS_TOKEN="${OPS_STATS_TOKEN:-}"
+OPS_STATS_REQUIRED="${OPS_STATS_REQUIRED:-false}"
 HEALTH_RETRIES="${HEALTH_RETRIES:-30}"
 HEALTH_SLEEP_SEC="${HEALTH_SLEEP_SEC:-1}"
 NPM_INSTALL_MODE="${NPM_INSTALL_MODE:-auto}" # auto|ci|install
@@ -54,6 +57,7 @@ fi
 
 git reset --hard "origin/${BRANCH}"
 git clean -fd
+log "Using commit $(git rev-parse --short HEAD)"
 
 git sparse-checkout init --cone
 git sparse-checkout set astro-party/server astro-party/shared
@@ -113,6 +117,81 @@ fi
 
 if ! curl -fsS "${PUBLIC_HEALTH_URL}" >/dev/null 2>&1; then
   log "Public health check failed (non-fatal): ${PUBLIC_HEALTH_URL}"
+fi
+
+if [ -n "${OPS_STATS_URL}" ]; then
+  log "Fetching ops stats snapshot from ${OPS_STATS_URL}"
+  set +e
+  if [ -n "${OPS_STATS_TOKEN}" ]; then
+    OPS_JSON="$(curl -fsS -H "x-ops-token: ${OPS_STATS_TOKEN}" "${OPS_STATS_URL}")"
+  else
+    OPS_JSON="$(curl -fsS "${OPS_STATS_URL}")"
+  fi
+  OPS_STATUS=$?
+  set -e
+
+  if [ "${OPS_STATUS}" -ne 0 ]; then
+    if [ "${OPS_STATS_REQUIRED}" = "true" ]; then
+      echo "Ops stats check failed: ${OPS_STATS_URL}" >&2
+      exit 1
+    fi
+    log "Ops stats check failed (non-fatal): ${OPS_STATS_URL}"
+  else
+    echo "${OPS_JSON}" | node -e '
+      let data = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (chunk) => data += chunk);
+      process.stdin.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          const generatedAtIso = parsed?.generatedAtIso ?? "n/a";
+          const clients = parsed?.clients ?? {};
+          const rooms = parsed?.rooms ?? {};
+          const rtt = parsed?.rttMs ?? {};
+          const leaves = Array.isArray(clients.recentLeaves) ? clients.recentLeaves : [];
+          const lastUnconsented = [...leaves].reverse().find((e) => e && e.consented === false) ?? null;
+
+          console.log("[deploy-astro-party] ops generatedAtIso=" + generatedAtIso);
+          console.log(
+            "[deploy-astro-party] ops clients.active=" + (clients.active ?? "n/a") +
+            " joinedTotal=" + (clients.joinedTotal ?? "n/a") +
+            " leftTotal=" + (clients.leftTotal ?? "n/a") +
+            " leftConsentedTotal=" + (clients.leftConsentedTotal ?? "n/a") +
+            " leftUnconsentedTotal=" + (clients.leftUnconsentedTotal ?? "n/a")
+          );
+          console.log(
+            "[deploy-astro-party] ops rooms.active=" + (rooms.active ?? "n/a") +
+            " createdTotal=" + (rooms.createdTotal ?? "n/a") +
+            " disposedTotal=" + (rooms.disposedTotal ?? "n/a")
+          );
+          console.log(
+            "[deploy-astro-party] ops rtt.p95=" + (rtt.p95 ?? "n/a") +
+            "ms samples=" + (rtt.samples ?? "n/a")
+          );
+
+          if (lastUnconsented) {
+            console.log(
+              "[deploy-astro-party] ops lastUnconsentedLeave at=" + (lastUnconsented.atIso ?? "n/a") +
+              " roomId=" + (lastUnconsented.roomId ?? "") +
+              " sessionId=" + (lastUnconsented.sessionId ?? "") +
+              " phase=" + (lastUnconsented.phase ?? "n/a")
+            );
+          } else {
+            console.log("[deploy-astro-party] ops lastUnconsentedLeave none");
+          }
+        } catch (error) {
+          console.log("[deploy-astro-party] ops parse failed: " + String(error));
+          process.exit(1);
+        }
+      });
+    ' || {
+      if [ "${OPS_STATS_REQUIRED}" = "true" ]; then
+        echo "Ops stats parse failed" >&2
+        exit 1
+      fi
+      log "Ops stats parse failed (non-fatal)"
+    }
+  fi
 fi
 
 log "Deploy OK"
