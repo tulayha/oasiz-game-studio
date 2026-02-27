@@ -265,14 +265,16 @@ export class DemoController {
     if (!this.isDemoActive()) return;
     if (this.game.getPhase() !== "PLAYING") return;
 
+    const myPlayerId = this.game.getMyPlayerId();
     const players = this.game.getPlayers();
     for (const player of players) {
       if (
         player.state === "SPECTATING" &&
         !this.respawnTimers.has(player.id)
       ) {
-        // Respawn after 5–8 s (random spread so ships don't all pop at once)
-        const delayMs = 5000 + Math.random() * 3000;
+        // Player ship respawns faster (3 s); AI bots have a random 5–8 s delay
+        const isPlayer = player.id === myPlayerId;
+        const delayMs = isPlayer ? 3000 : 5000 + Math.random() * 3000;
         const timer = setTimeout(() => {
           this.respawnTimers.delete(player.id);
           if (this.isDemoActive() && this.game.getPhase() === "PLAYING") {

@@ -3175,13 +3175,14 @@
       pointer-events: none;
     }
     .demo-attract-content {
-      position: relative;
+      position: absolute;
+      inset: 0;
       z-index: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: clamp(1rem, 3vw, 2rem);
-      padding: max(var(--safe-top, 0px), 120px) 0 max(var(--safe-bottom, 0px), 2rem);
+      justify-content: flex-start;
+      padding-top: max(var(--safe-top, 0px), 80px);
       cursor: pointer;
       user-select: none;
     }
@@ -3203,6 +3204,10 @@
       to { opacity: 1; transform: translateY(0); }
     }
     .demo-tap-text {
+      position: absolute;
+      top: 73%;
+      left: 50%;
+      white-space: nowrap;
       font-family: 'Orbitron', sans-serif;
       font-size: clamp(1rem, 3.5vw, 1.6rem);
       color: #00f0ff;
@@ -3211,12 +3216,14 @@
       animation: demoTapFadeIn 600ms ease 1200ms forwards, demoPulse 1.8s ease-in-out 1800ms infinite;
     }
     @keyframes demoTapFadeIn {
-      to { opacity: 1; }
+      from { opacity: 0; transform: translateX(-50%); }
+      to   { opacity: 1; transform: translateX(-50%); }
     }
     @keyframes demoPulse {
-      0%, 100% { opacity: 0.65; transform: scale(1); }
-      50% { opacity: 1; transform: scale(1.04); }
+      0%, 100% { opacity: 0.65; transform: translateX(-50%) scale(1); }
+      50%       { opacity: 1;    transform: translateX(-50%) scale(1.04); }
     }
+    /* Shared visual styles for all "Skip"-style buttons */
     .demo-skip-btn {
       font-family: 'Exo 2', sans-serif;
       font-size: 0.8rem;
@@ -3232,6 +3239,14 @@
     .demo-skip-btn:hover {
       color: rgba(255,255,255,0.75);
       border-color: rgba(255,255,255,0.35);
+    }
+    /* Attract overlay: position the Skip button below the Tap-to-Start text */
+    .demo-attract-content .demo-skip-btn {
+      position: absolute;
+      top: calc(73% + 3.2rem);
+      left: 50%;
+      transform: translateX(-50%);
+      white-space: nowrap;
     }
 
     /* Tutorial overlay */
@@ -3308,27 +3323,33 @@
     }
 
     /* "Start Playing" button — prominent CTA */
-    /* Exit Demo button — top-left, shown during free-play phase */
+    /* Exit Demo button — positioned at the same screen location as the in-game Leave button */
     .demo-exit-btn {
       position: fixed;
-      top: max(var(--safe-top, 0px), 16px);
-      left: 16px;
+      /* Matches .leave-btn position: box offset + hud padding/gap */
+      top: calc(var(--box-top) + var(--hud-top-pad));
+      left: calc(var(--box-left) + var(--hud-side-gap) + var(--back-btn-shift-x) + var(--mobile-landscape-left-offset));
+      width: var(--leave-btn-size);
+      height: var(--leave-btn-size);
       z-index: 600;
-      background: rgba(0, 0, 0, 0.55);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: rgba(255, 255, 255, 0.75);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 80, 80, 0.12);
+      border: 1px solid rgba(255, 120, 120, 0.45);
+      color: #ffd0d0;
       font-family: 'Orbitron', sans-serif;
-      font-size: 0.7rem;
-      letter-spacing: 0.08em;
-      padding: 7px 14px;
-      border-radius: 6px;
+      font-size: 0.6rem;
+      letter-spacing: 0.06em;
+      text-align: center;
+      border-radius: 12px;
       cursor: pointer;
       transition: background 0.2s, color 0.2s, border-color 0.2s;
     }
     .demo-exit-btn:hover {
-      background: rgba(0, 240, 255, 0.12);
-      border-color: rgba(0, 240, 255, 0.5);
-      color: #00f0ff;
+      background: rgba(255, 80, 80, 0.28);
+      border-color: rgba(255, 120, 120, 0.75);
+      color: #fff;
     }
     .demo-exit-btn.hidden {
       display: none;
@@ -3349,7 +3370,7 @@
 
     @media (pointer: coarse) {
       .demo-attract-content {
-        padding-top: max(var(--safe-top, 0px), 140px);
+        padding-top: max(var(--safe-top, 0px), 100px);
       }
       .demo-skip-btn {
         min-height: 44px;

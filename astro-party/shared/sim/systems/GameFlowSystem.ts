@@ -230,6 +230,8 @@ export function updatePendingEliminationChecks(sim: SimState): void {
 
 export function checkEliminationWin(sim: SimState): void {
   if (sim.phase !== "PLAYING") return;
+  // Demo mode: endless battle — ships respawn via DemoController, never end rounds
+  if (sim.isDemo) return;
   const alive = sim.playerOrder
     .map((playerId) => sim.players.get(playerId))
     .filter((player): player is RuntimePlayer => Boolean(player))

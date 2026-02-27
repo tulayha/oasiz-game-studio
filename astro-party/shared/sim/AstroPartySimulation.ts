@@ -200,6 +200,7 @@ export class AstroPartySimulation implements SimState {
   leaderPlayerId: string | null = null;
   roundEndMs = 0;
   demoFrozenPlayerIds: Set<string> | null = null;
+  isDemo = false;
   private physics: Physics;
   private shipBodies = new Map<string, Matter.Body>();
   private asteroidBodies = new Map<string, Matter.Body>();
@@ -584,6 +585,13 @@ export class AstroPartySimulation implements SimState {
       if (id !== hostSessionId) frozen.add(id);
     }
     this.demoFrozenPlayerIds = frozen;
+  }
+
+  /** Demo-only: make the player's ship invulnerable for durationMs milliseconds. */
+  demoSetPlayerInvincible(playerId: string, durationMs: number): void {
+    const player = this.players.get(playerId);
+    if (!player?.ship.alive) return;
+    player.ship.invulnerableUntil = this.nowMs + durationMs;
   }
 
   demoRespawnPlayer(playerId: string): void {
