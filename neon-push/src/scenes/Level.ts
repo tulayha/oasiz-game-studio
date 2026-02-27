@@ -2,6 +2,7 @@
 /* START OF COMPILED CODE */
 
 /* START-USER-IMPORTS */
+import { oasiz } from "@oasiz/sdk";
 /* END-USER-IMPORTS */
 
 
@@ -195,6 +196,7 @@ export default class Level extends Phaser.Scene {
 	private hasStarted = false;
 
 	private gapWidth = 210;
+	private gapWidthMin = 120;
 	private barrierHeight = 28;
 	private nextBarrierSpawnY = 0;
 	private spawnAheadMin = 140;
@@ -243,6 +245,10 @@ export default class Level extends Phaser.Scene {
 	private isGameStarted = false;
 	private readonly launchBoost = 1.5;
 	private readonly flightDistanceBoost = 1.31;
+
+	private settings: { music: boolean; fx: boolean; haptics: boolean } = { music: true, fx: true, haptics: true };
+	private offPause?: () => void;
+	private offResume?: () => void;
 	private readonly onPointerDown = () => {
 		if (!this.isGameStarted) return;
 
@@ -389,12 +395,29 @@ export default class Level extends Phaser.Scene {
 		this.input.on("pointerdown", this.onPointerDown, this);
 		this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
 			this.input.off("pointerdown", this.onPointerDown, this);
+			this.offPause?.();
+			this.offResume?.();
 		});
 
 		this.fillBarriersAhead();
 		this.ensureBgMusicPlaying();
 		this.initUI();
 		this.toggleMainMenu(true);
+
+		this.offPause?.();
+		this.offResume?.();
+		this.offPause = oasiz.onPause(() => {
+			if (this.isGameStarted && !this.isGameOver) {
+				this.scene.pause();
+				if (this.bgMusic?.isPlaying) this.bgMusic.pause();
+			}
+		});
+		this.offResume = oasiz.onResume(() => {
+			if (this.isGameStarted && !this.isGameOver) {
+				this.scene.resume();
+				if (this.settings.music && this.bgMusic && !this.bgMusic.isPlaying) this.bgMusic.play();
+			}
+		});
 	}
 
 	update(_: number, delta: number) {
@@ -1095,9 +1118,15 @@ export default class Level extends Phaser.Scene {
 
 	}
 
+	private getDifficulty(): number {
+		const height = Math.max(0, this.startY - this.ball.y);
+		return Phaser.Math.Clamp(height / 10000, 0, 1);
+	}
+
 	private updateWorld(dt: number) {
 		this.floorY -= this.floorRiseSpeed * dt;
-		this.floorRiseSpeed += 2.2 * dt;
+		const d = this.getDifficulty();
+		this.floorRiseSpeed += (2.2 + d * 1.5) * dt;
 
 		this.maxHeightScore = Math.max(this.maxHeightScore, Math.floor(this.startY - this.ball.y));
 
@@ -1336,9 +1365,12 @@ export default class Level extends Phaser.Scene {
 	private fillBarriersAhead() {
 		const topY = this.cameras.main.scrollY;
 		const spawnEndY = topY - this.spawnAheadMax;
+		const d = this.getDifficulty();
+		const spacingMin = this.barrierSpacingMin - Math.floor(d * 40);
+		const spacingMax = this.barrierSpacingMax - Math.floor(d * 60);
 		while (this.nextBarrierSpawnY >= spawnEndY) {
 			this.spawnBarrier(this.nextBarrierSpawnY);
-			this.nextBarrierSpawnY -= Phaser.Math.Between(this.barrierSpacingMin, this.barrierSpacingMax);
+			this.nextBarrierSpawnY -= Phaser.Math.Between(spacingMin, spacingMax);
 		}
 	}
 
@@ -1442,8 +1474,9 @@ export default class Level extends Phaser.Scene {
 			? Phaser.Math.Between(safeLeft, safeRight)
 			: (leftWall + rightWall) * 0.5;
 		const radius = 52;
+		const d = this.getDifficulty();
 		const turretAngle = Math.random() * Math.PI * 2;
-		const turretAngularVelocity = Phaser.Math.FloatBetween(0.45, 0.95) * (Math.random() > 0.5 ? 1 : -1);
+		const turretAngularVelocity = Phaser.Math.FloatBetween(0.45 + d * 0.3, 0.95 + d * 0.5) * (Math.random() > 0.5 ? 1 : -1);
 
 		const glow = this.add.graphics()
 			.setDepth(26)
@@ -1465,13 +1498,13 @@ export default class Level extends Phaser.Scene {
 			turretAngle,
 			turretAngularVelocity,
 			turretShootTimer: Phaser.Math.FloatBetween(0.35, 0.9),
-			turretShootInterval: Phaser.Math.FloatBetween(0.7, 1.05),
+			turretShootInterval: Phaser.Math.FloatBetween(0.7 - d * 0.2, 1.05 - d * 0.25),
 			turretShotIndex: Phaser.Math.Between(0, 5),
 			turretGraphics: body,
 			turretGlowGraphics: glow,
 			turretProjectiles: [],
-			turretProjectileSpeed: Phaser.Math.Between(160, 220),
-			turretProjectileLife: Phaser.Math.FloatBetween(1.7, 2.35)
+			turretProjectileSpeed: Phaser.Math.Between(160 + Math.floor(d * 60), 220 + Math.floor(d * 80)),
+			turretProjectileLife: Phaser.Math.FloatBetween(1.7 + d * 0.3, 2.35 + d * 0.4)
 		});
 	}
 
@@ -1673,9 +1706,10 @@ export default class Level extends Phaser.Scene {
 	}
 
 	private spawnMagnetCore(spawnY: number) {
+		const d = this.getDifficulty();
 		const leftWall = this.getSideWallX(spawnY, true);
 		const rightWall = this.getSideWallX(spawnY, false);
-		const influenceRadius = Phaser.Math.Between(210, 280);
+		const influenceRadius = Phaser.Math.Between(210 + Math.floor(d * 40), 280 + Math.floor(d * 50));
 		const coreRadius = Phaser.Math.Between(24, 31);
 		const sidePadding = Math.min(130, influenceRadius * 0.38);
 		const safeLeft = leftWall + sidePadding;
@@ -1709,9 +1743,9 @@ export default class Level extends Phaser.Scene {
 			magnetCenterX: centerX,
 			magnetInfluenceRadius: influenceRadius,
 			magnetCoreRadius: coreRadius,
-			magnetForce: Phaser.Math.Between(1400, 1950),
+			magnetForce: Phaser.Math.Between(1400 + Math.floor(d * 600), 1950 + Math.floor(d * 800)),
 			magnetPolarity: Math.random() > 0.5 ? 1 : -1,
-			magnetPhaseDuration: Phaser.Math.FloatBetween(1.45, 2.1),
+			magnetPhaseDuration: Phaser.Math.FloatBetween(1.45 - d * 0.4, 2.1 - d * 0.5),
 			magnetPhaseTimer: Phaser.Math.FloatBetween(0.4, 1.1),
 			magnetCore: core,
 			magnetGlow: glow,
@@ -1830,11 +1864,12 @@ export default class Level extends Phaser.Scene {
 	}
 
 	private spawnLaserGrid(spawnY: number) {
-		const beamCount = 4;
+		const d = this.getDifficulty();
+		const beamCount = 4 + Math.floor(d * 2);
 		const bandHeight = Phaser.Math.Between(210, 250);
 		const thickness = Phaser.Math.Between(12, 16);
-		const perBeamDuration = Phaser.Math.FloatBetween(0.32, 0.48);
-		const allOffDuration = 3;
+		const perBeamDuration = Phaser.Math.FloatBetween(0.32 - d * 0.08, 0.48 - d * 0.1);
+		const allOffDuration = 3 - d * 1.2;
 		const units: LaserBeamUnit[] = [];
 
 		for (let i = 0; i < beamCount; i++) {
@@ -1937,9 +1972,10 @@ export default class Level extends Phaser.Scene {
 			130,
 			280
 		);
+		const d = this.getDifficulty();
 		const startRadius = 24;
 		const bandWidth = Phaser.Math.Between(22, 30);
-		const speed = Phaser.Math.Between(170, 245);
+		const speed = Phaser.Math.Between(170 + Math.floor(d * 80), 245 + Math.floor(d * 100));
 
 		const glow = this.add.circle(centerX, spawnY, maxRadius * 0.38, this.neonBlue, 0.1)
 			.setBlendMode(Phaser.BlendModes.ADD)
@@ -2177,7 +2213,8 @@ export default class Level extends Phaser.Scene {
 	}
 
 	private spawnGravityFlipZone(spawnY: number) {
-		const zoneHeight = Phaser.Math.Between(240, 300);
+		const d = this.getDifficulty();
+		const zoneHeight = Phaser.Math.Between(240 + Math.floor(d * 60), 300 + Math.floor(d * 80));
 		const zoneGraphics = this.add.graphics()
 			.setBlendMode(Phaser.BlendModes.ADD)
 			.setDepth(20);
@@ -2193,7 +2230,7 @@ export default class Level extends Phaser.Scene {
 			gravityZoneHeight: zoneHeight,
 			gravityCurrentScale: initialScale,
 			gravityTargetScale: initialScale,
-			gravityScaleInterval: Phaser.Math.FloatBetween(1.35, 2.1),
+			gravityScaleInterval: Phaser.Math.FloatBetween(1.35 - d * 0.35, 2.1 - d * 0.5),
 			gravityScaleTimer: Phaser.Math.FloatBetween(0.35, 1.0),
 			gravityZoneGraphics: zoneGraphics,
 			gravityWaveGraphics: waveGraphics
@@ -2282,11 +2319,13 @@ export default class Level extends Phaser.Scene {
 	}
 
 	private spawnStaticBarrier(spawnY: number) {
+		const d = this.getDifficulty();
 		const gapMargin = 65;
 		const leftWall = this.getSideWallX(spawnY, true);
 		const rightWall = this.getSideWallX(spawnY, false);
 		const inTriangleZone = this.getSideWallOffset(spawnY) > 0.5;
-		const desiredGapWidth = this.gapWidth * (inTriangleZone ? 3 : 2);
+		const scaledGap = Phaser.Math.Linear(this.gapWidth, this.gapWidthMin, d);
+		const desiredGapWidth = scaledGap * (inTriangleZone ? 3 : 2);
 		const rawMaxGap = (rightWall - leftWall) - gapMargin * 2;
 		let gapWidth = Math.min(desiredGapWidth, Math.max(40, rawMaxGap));
 		let halfGap = gapWidth / 2;
@@ -2343,9 +2382,10 @@ export default class Level extends Phaser.Scene {
 	}
 
 	private spawnWindZone(spawnY: number) {
+		const d = this.getDifficulty();
 		const height = 240;
-		const direction = Math.random() > 0.5 ? 1 : -1; // 1: Right, -1: Left
-		const windForce = 1400 * direction;
+		const direction = Math.random() > 0.5 ? 1 : -1;
+		const windForce = (1400 + Math.floor(d * 600)) * direction;
 
 		// Visual container
 		const g = this.add.graphics();
@@ -2453,10 +2493,11 @@ export default class Level extends Phaser.Scene {
 	}
 
 	private spawnSideMover(spawnY: number, spawnDouble: boolean) {
+		const d = this.getDifficulty();
 		const size = 44;
 		const padding = 28;
-		const speed = Phaser.Math.Between(180, 260);
-		const waitAtEnd = 1.0;
+		const speed = Phaser.Math.Between(180 + Math.floor(d * 60), 260 + Math.floor(d * 80));
+		const waitAtEnd = Math.max(0.3, 1.0 - d * 0.4);
 		const verticalGap = size + 90;
 		const offsets = spawnDouble ? [-(verticalGap * 0.5), verticalGap * 0.5] : [0];
 		const units: SideMoverUnit[] = [];
@@ -2544,9 +2585,12 @@ export default class Level extends Phaser.Scene {
 	}
 
 	private spawnRotatingBar(spawnY: number, centerX: number) {
+		const d = this.getDifficulty();
 		const len = 240;
 		const thickness = 22;
-		const angularVel = Phaser.Math.FloatBetween(0.8, 1.8) * (Math.random() > 0.5 ? 1 : -1);
+		const baseMin = 0.8 + d * 0.6;
+		const baseMax = 1.8 + d * 0.8;
+		const angularVel = Phaser.Math.FloatBetween(baseMin, baseMax) * (Math.random() > 0.5 ? 1 : -1);
 
 		const barG = this.add.graphics();
 		barG.setDepth(30);
@@ -3142,22 +3186,20 @@ export default class Level extends Phaser.Scene {
 				volume: 0.45
 			});
 		}
-		if (!this.bgMusic.isPlaying) {
+		if (this.settings.music && !this.bgMusic.isPlaying) {
 			this.bgMusic.play();
 		}
 	}
 
 	private playSfx(key: string) {
-		this.sound.play(key, { volume: 0.85 });
+		if (this.settings.fx) {
+			this.sound.play(key, { volume: 0.85 });
+		}
 	}
 
 	private triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error") {
-		const fn = (window as any).triggerHaptic;
-		if (typeof fn === "function") {
-			const enabled = localStorage.getItem("setting_haptic") !== "false";
-			if (enabled) {
-				fn(type);
-			}
+		if (this.settings.haptics) {
+			oasiz.triggerHaptic(type);
 		}
 	}
 
@@ -3186,21 +3228,24 @@ export default class Level extends Phaser.Scene {
 			this.isGameStarted = true;
 			this.hintText.setVisible(true);
 			this.ensureBgMusicPlaying();
+			this.triggerHaptic("light");
 		};
 
 		if (restartPauseBtn) restartPauseBtn.onclick = () => {
+			this.triggerHaptic("light");
 			this.resumeGame();
 			this.scene.restart();
 		};
 
 		if (restartGameOverBtn) restartGameOverBtn.onclick = () => {
-			// Hide UI before restart
+			this.triggerHaptic("light");
 			gameOverMenu?.classList.add("hidden");
 			document.getElementById("hud")?.classList.remove("hidden");
 			this.scene.restart();
 		};
 
 		if (quitBtn) quitBtn.onclick = () => {
+			this.triggerHaptic("light");
 			location.reload();
 		};
 
@@ -3219,12 +3264,16 @@ export default class Level extends Phaser.Scene {
 		this.scene.pause();
 		document.getElementById("pause-menu")?.classList.remove("hidden");
 		document.getElementById("hud")?.classList.add("hidden");
+		if (this.bgMusic?.isPlaying) this.bgMusic.pause();
+		this.triggerHaptic("light");
 	}
 
 	private resumeGame() {
 		this.scene.resume();
 		document.getElementById("pause-menu")?.classList.add("hidden");
 		document.getElementById("hud")?.classList.remove("hidden");
+		if (this.settings.music && this.bgMusic && !this.bgMusic.isPlaying) this.bgMusic.play();
+		this.triggerHaptic("light");
 	}
 
 	private showGameOverScreen() {
@@ -3237,27 +3286,44 @@ export default class Level extends Phaser.Scene {
 		hud?.classList.add("hidden");
 		gameOverMenu?.classList.remove("hidden");
 
-		// Submit score
-		if (typeof (window as any).submitScore === "function") {
-			(window as any).submitScore(this.score);
-		}
+		oasiz.submitScore(this.score);
 	}
 
 	private toggleSetting(key: string) {
-		const storeKey = `setting_${key}`;
-		const current = localStorage.getItem(storeKey) !== "false";
+		const settingKey = key === "sfx" ? "fx" : key === "haptic" ? "haptics" : key;
+		const current = this.settings[settingKey as keyof typeof this.settings];
 		const next = !current;
-		localStorage.setItem(storeKey, next.toString());
+		(this.settings as Record<string, boolean>)[settingKey] = next;
+		this.saveSettings();
 		this.applySettings(key, next);
 		this.updateSettingUI(key, next);
+		this.triggerHaptic("light");
 	}
 
 	private loadSettings() {
-		["music", "sfx", "haptic"].forEach(key => {
-			const enabled = localStorage.getItem(`setting_${key}`) !== "false";
-			this.applySettings(key, enabled);
-			this.updateSettingUI(key, enabled);
-		});
+		const saved = localStorage.getItem("gameSettings");
+		if (saved) {
+			try {
+				const parsed = JSON.parse(saved);
+				this.settings = {
+					music: parsed.music !== false,
+					fx: parsed.fx !== false,
+					haptics: parsed.haptics !== false,
+				};
+			} catch {
+				this.settings = { music: true, fx: true, haptics: true };
+			}
+		}
+		this.applySettings("music", this.settings.music);
+		this.updateSettingUI("music", this.settings.music);
+		this.applySettings("sfx", this.settings.fx);
+		this.updateSettingUI("sfx", this.settings.fx);
+		this.applySettings("haptic", this.settings.haptics);
+		this.updateSettingUI("haptic", this.settings.haptics);
+	}
+
+	private saveSettings() {
+		localStorage.setItem("gameSettings", JSON.stringify(this.settings));
 	}
 
 	private updateSettingUI(key: string, enabled: boolean) {
@@ -3275,7 +3341,7 @@ export default class Level extends Phaser.Scene {
 
 		const iconName = key === "music" ? (enabled ? "music_note" : "music_off") :
 			key === "sfx" ? (enabled ? "volume_up" : "volume_off") :
-				(enabled ? "smartphone" : "smartphone"); // Material Symbols Rounded
+				(enabled ? "vibration" : "smartphone");
 
 		if (icon) icon.innerText = iconName;
 		if (iconMain) iconMain.innerText = iconName;
@@ -3302,9 +3368,7 @@ export default class Level extends Phaser.Scene {
 				if (enabled && !this.bgMusic.isPlaying) this.bgMusic.play();
 				if (!enabled && this.bgMusic.isPlaying) this.bgMusic.pause();
 			}
-			this.sound.mute = !enabled && (localStorage.getItem("setting_sfx") === "false"); // Simple check
 		}
-		// SFX is handled in playSfx
 	}
 
 	/* END-USER-CODE */

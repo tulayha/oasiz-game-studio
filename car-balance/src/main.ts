@@ -2,6 +2,7 @@
 // Keep the car balanced on a seesaw platform while dodging bombs!
 
 import Matter from 'matter-js';
+import { oasiz } from '@oasiz/sdk';
 
 const { Engine, World, Bodies, Body, Events, Composite, Constraint } = Matter;
 
@@ -212,6 +213,32 @@ let themeMusic: HTMLAudioElement | null = null;
 let gameOverMusic: HTMLAudioElement | null = null;
 let waterParticles: WaterParticle[] = [];
 
+// Settings
+interface Settings {
+  music: boolean;
+  fx: boolean;
+  haptics: boolean;
+}
+
+function loadSettings(): Settings {
+  try {
+    const raw = localStorage.getItem('carbalance_settings');
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<Settings>;
+      return { music: p.music ?? true, fx: p.fx ?? true, haptics: p.haptics ?? true };
+    }
+  } catch (_) {
+    console.log('[loadSettings]', 'Parse error, using defaults');
+  }
+  return { music: true, fx: true, haptics: true };
+}
+
+function saveSettings(): void {
+  localStorage.setItem('carbalance_settings', JSON.stringify(settings));
+}
+
+let settings: Settings = loadSettings();
+
 let holdingLeft = false;
 let holdingRight = false;
 
@@ -380,6 +407,16 @@ function init(): void {
   gameOverMusic.loop = false;
   gameOverMusic.volume = 0.4;
   
+  oasiz.onPause(() => {
+    if (themeMusic) themeMusic.pause();
+  });
+
+  oasiz.onResume(() => {
+    if (gamePhase === 'playing' && themeMusic) {
+      themeMusic.play().catch(() => {});
+    }
+  });
+
   // Start game loop
   requestAnimationFrame(gameLoop);
 }
@@ -505,6 +542,20 @@ function resizeCanvas(): void {
 }
 
 // ============================================================================
+// SETTINGS HELPERS
+// ============================================================================
+
+function haptic(type: 'light' | 'medium' | 'heavy' | 'success' | 'error'): void {
+  if (!settings.haptics) return;
+  oasiz.triggerHaptic(type);
+}
+
+function playFx(fn: () => void): void {
+  if (!settings.fx) return;
+  fn();
+}
+
+// ============================================================================
 // INPUT HANDLING
 // ============================================================================
 
@@ -533,18 +584,18 @@ function setupInputHandlers(): void {
   const btnRight = document.getElementById('btn-right')!;
   
   // Left button - tilts beam so left side goes DOWN (holdingRight action)
-  btnLeft.addEventListener('mousedown', () => { holdingRight = true; btnLeft.classList.add('active'); });
+  btnLeft.addEventListener('mousedown', () => { holdingRight = true; btnLeft.classList.add('active'); haptic('light'); });
   btnLeft.addEventListener('mouseup', () => { holdingRight = false; btnLeft.classList.remove('active'); });
   btnLeft.addEventListener('mouseleave', () => { holdingRight = false; btnLeft.classList.remove('active'); });
-  btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); holdingRight = true; btnLeft.classList.add('active'); }, { passive: false });
+  btnLeft.addEventListener('touchstart', (e) => { e.preventDefault(); holdingRight = true; btnLeft.classList.add('active'); haptic('light'); }, { passive: false });
   btnLeft.addEventListener('touchend', () => { holdingRight = false; btnLeft.classList.remove('active'); });
   btnLeft.addEventListener('touchcancel', () => { holdingRight = false; btnLeft.classList.remove('active'); });
   
   // Right button - tilts beam so right side goes DOWN (holdingLeft action)
-  btnRight.addEventListener('mousedown', () => { holdingLeft = true; btnRight.classList.add('active'); });
+  btnRight.addEventListener('mousedown', () => { holdingLeft = true; btnRight.classList.add('active'); haptic('light'); });
   btnRight.addEventListener('mouseup', () => { holdingLeft = false; btnRight.classList.remove('active'); });
   btnRight.addEventListener('mouseleave', () => { holdingLeft = false; btnRight.classList.remove('active'); });
-  btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); holdingLeft = true; btnRight.classList.add('active'); }, { passive: false });
+  btnRight.addEventListener('touchstart', (e) => { e.preventDefault(); holdingLeft = true; btnRight.classList.add('active'); haptic('light'); }, { passive: false });
   btnRight.addEventListener('touchend', () => { holdingLeft = false; btnRight.classList.remove('active'); });
   btnRight.addEventListener('touchcancel', () => { holdingLeft = false; btnRight.classList.remove('active'); });
 }
@@ -564,6 +615,56 @@ function setupUIHandlers(): void {
   galleryBtn.addEventListener('click', openGallery);
   backBtn.addEventListener('click', closeGallery);
   
+  // Settings
+  const settingsBtn = document.getElementById('settings-btn')!;
+  const settingsPanel = document.getElementById('settings-panel')!;
+  const settingsCloseBtn = document.getElementById('settings-close-btn')!;
+  const toggleMusic = document.getElementById('toggle-music') as HTMLInputElement;
+  const toggleFx = document.getElementById('toggle-fx') as HTMLInputElement;
+  const toggleHaptics = document.getElementById('toggle-haptics') as HTMLInputElement;
+
+  toggleMusic.checked = settings.music;
+  toggleFx.checked = settings.fx;
+  toggleHaptics.checked = settings.haptics;
+
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsPanel.classList.remove('hidden');
+    haptic('light');
+  });
+
+  settingsCloseBtn.addEventListener('click', () => {
+    settingsPanel.classList.add('hidden');
+    haptic('light');
+  });
+
+  settingsPanel.addEventListener('click', (e) => {
+    if (e.target === settingsPanel) settingsPanel.classList.add('hidden');
+  });
+
+  toggleMusic.addEventListener('change', () => {
+    settings.music = toggleMusic.checked;
+    saveSettings();
+    haptic('light');
+    if (settings.music && gamePhase === 'playing' && themeMusic) {
+      themeMusic.play().catch(() => {});
+    } else if (!settings.music && themeMusic) {
+      themeMusic.pause();
+    }
+  });
+
+  toggleFx.addEventListener('change', () => {
+    settings.fx = toggleFx.checked;
+    saveSettings();
+    haptic('light');
+  });
+
+  toggleHaptics.addEventListener('change', () => {
+    settings.haptics = toggleHaptics.checked;
+    saveSettings();
+    haptic('light');
+  });
+
   // Initialize gallery with car options
   initGallery();
 }
@@ -671,6 +772,7 @@ function drawCarPreview(canvas: HTMLCanvasElement, style: CarStyle, scale: numbe
 
 function selectCar(style: CarStyle): void {
   console.log('[selectCar] Selected:', style.name);
+  haptic('light');
   selectedCarStyle = style;
   
   // Update selection UI
@@ -700,11 +802,12 @@ function closeGallery(): void {
 function startGame(): void {
   console.log('[startGame] Starting game');
   
+  haptic('light');
   gamePhase = 'playing';
   gameTime = 0;
   
   // Start theme music
-  if (themeMusic) {
+  if (themeMusic && settings.music) {
     themeMusic.currentTime = 0;
     themeMusic.play().catch(() => {});
   }
@@ -739,9 +842,11 @@ function startGame(): void {
   // Apply initial tilt to bar
   Body.setAngle(barBody, targetBarAngle);
   
-  // Show HUD and controls
+  // Show HUD, controls, and settings
   document.getElementById('start-screen')!.classList.add('hidden');
   document.getElementById('hud')!.classList.remove('hidden');
+  document.getElementById('settings-btn')!.classList.remove('hidden');
+  document.getElementById('settings-panel')!.classList.add('hidden');
   if (isMobile) {
     document.getElementById('controls')!.classList.remove('hidden');
   }
@@ -750,6 +855,7 @@ function startGame(): void {
 function restartGame(): void {
   console.log('[restartGame] Restarting game');
   
+  haptic('light');
   document.getElementById('game-over')!.classList.add('hidden');
   startGame();
 }
@@ -810,6 +916,7 @@ function endGame(): void {
   console.log('[endGame] Game over at', (gameTime / 1000).toFixed(1), 'seconds');
   
   gamePhase = 'gameOver';
+  haptic('error');
   
   // Stop theme music
   if (themeMusic) {
@@ -817,11 +924,11 @@ function endGame(): void {
   }
   
   // Play splash sound
-  playSplashSound();
+  if (settings.fx) playSplashSound();
   
   // Play game over music after a short delay
   setTimeout(() => {
-    if (gameOverMusic) {
+    if (gameOverMusic && settings.music) {
       gameOverMusic.currentTime = 0;
       gameOverMusic.play().catch(() => {});
     }
@@ -829,9 +936,7 @@ function endGame(): void {
   
   // Submit score
   const score = Math.floor(gameTime / 100); // Score in tenths of seconds
-  if (typeof (window as any).submitScore === 'function') {
-    (window as any).submitScore(score);
-  }
+  oasiz.submitScore(score);
   
   // Create splash particles at car position
   createSplash(car.body.position.x, waterLevel);
@@ -839,6 +944,8 @@ function endGame(): void {
   // Update UI
   document.getElementById('hud')!.classList.add('hidden');
   document.getElementById('controls')!.classList.add('hidden');
+  document.getElementById('settings-btn')!.classList.add('hidden');
+  document.getElementById('settings-panel')!.classList.add('hidden');
   document.getElementById('final-time')!.textContent = (gameTime / 1000).toFixed(1) + 's';
   
   // Delay showing game over screen for splash effect
@@ -1064,11 +1171,12 @@ function updateBombs(dt: number): void {
 }
 
 function createExplosion(x: number, y: number): void {
+  haptic('heavy');
   explosions.push({
     x,
     y,
     time: 0,
-    maxTime: 500  // 500ms explosion animation
+    maxTime: 500
   });
 }
 
@@ -1111,6 +1219,7 @@ function checkGameOver(): void {
 // ============================================================================
 
 function createSplash(x: number, y: number): void {
+  haptic('medium');
   const particleCount = 30;
   for (let i = 0; i < particleCount; i++) {
     const angle = Math.PI + (Math.random() - 0.5) * Math.PI;

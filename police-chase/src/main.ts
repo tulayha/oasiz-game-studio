@@ -2,6 +2,7 @@
 // Drive freely across infinite procedural biomes, make police cars crash!
 
 import * as Tone from "tone";
+import { oasiz } from "@oasiz/sdk";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -627,16 +628,33 @@ function init(): void {
 
   isMobile = window.matchMedia("(pointer: coarse)").matches;
 
+  oasiz.emitScoreConfig({
+    anchors: [
+      { raw: 446, normalized: 100 },
+      { raw: 1078, normalized: 300 },
+      { raw: 2005, normalized: 600 },
+      { raw: 2906, normalized: 950 },
+    ],
+  });
+
+  oasiz.onPause(() => {
+    if (bgMusic) bgMusic.pause();
+  });
+
+  oasiz.onResume(() => {
+    if (bgMusic && settings.music && gamePhase === "playing") {
+      bgMusic.play().catch(() => {});
+    }
+  });
+
   window.addEventListener("resize", resizeCanvas);
   resizeCanvas();
 
-  // Initialize player and chunks for start screen background
   chunks.clear();
   loadedChunks = [];
   initPlayer();
   updateLoadedChunks();
   
-  // Initialize music (will play on first user interaction)
   initMusic();
   
   setupInputHandlers();
@@ -1194,16 +1212,12 @@ function setupUIHandlers(): void {
 
 function triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error"): void {
   if (!settings.haptics) return;
-  if (typeof (window as any).triggerHaptic === "function") {
-    (window as any).triggerHaptic(type);
-  }
+  oasiz.triggerHaptic(type);
 }
 
 function submitFinalScore(): void {
   console.log("[submitFinalScore] Submitting score:", score);
-  if (typeof (window as any).submitScore === "function") {
-    (window as any).submitScore(score);
-  }
+  oasiz.submitScore(score);
 }
 
 // ============================================================================
@@ -1236,7 +1250,6 @@ function startGame(): void {
   screenShake = 0;
   freezeFrame = 0;
 
-  // Clear and regenerate chunks
   chunks.clear();
   loadedChunks = [];
   
@@ -1248,10 +1261,9 @@ function startGame(): void {
   document.getElementById("start-screen")!.classList.add("hidden");
   document.getElementById("hud")!.classList.remove("hidden");
 
-  // Start background music
   playMusic();
-
   updateScoreDisplay();
+  oasiz.gameplayStart();
 }
 
 function restartGame(): void {
@@ -1264,8 +1276,8 @@ function endGame(): void {
   console.log("[endGame] Game over! Survival score:", Math.floor(survivalScore), "Crashes:", crashCount);
 
   gamePhase = "gameOver";
+  oasiz.gameplayStop();
   
-  // Calculate final score: survival points + crash bonus
   const survivalPoints = Math.floor(survivalScore);
   const crashBonus = crashCount * 100;
   score = survivalPoints + crashBonus;
@@ -1827,10 +1839,7 @@ function createExplosion(x: number, y: number): void {
   // Play explosion sound effect
   playExplosionSound();
   
-  // Trigger haptic feedback
-  if (settings.haptics && typeof (window as any).triggerHaptic === "function") {
-    (window as any).triggerHaptic("heavy");
-  }
+  triggerHaptic("heavy");
   
   const particles: Particle[] = [];
   const debris: Debris[] = [];

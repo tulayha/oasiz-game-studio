@@ -319,32 +319,32 @@
             localStorage.setItem('musicEnabled', enabled.toString());
             setToggleState(musicToggle, enabled);
             if (window.toggleMusic) window.toggleMusic(enabled);
-            if (window.triggerHaptic) window.triggerHaptic('light');
+            sdkHaptic('light');
         };
         fxToggle.onclick = function() {
             var enabled = !window.platform.fxEnabled;
             window.platform.fxEnabled = enabled;
             localStorage.setItem('fxEnabled', enabled.toString());
             setToggleState(fxToggle, enabled);
-            if (window.triggerHaptic) window.triggerHaptic('light');
+            sdkHaptic('light');
         };
         hapticsToggle.onclick = function() {
             var enabled = !window.platform.hapticsEnabled;
             window.platform.hapticsEnabled = enabled;
             localStorage.setItem('hapticsEnabled', enabled.toString());
             setToggleState(hapticsToggle, enabled);
-            if (window.triggerHaptic) window.triggerHaptic('light');
+            sdkHaptic('light');
         };
 
         // --- Settings Open/Close ---
         function openSettings() {
             settingsModal.classList.remove('hidden');
-            if (window.triggerHaptic) window.triggerHaptic('light');
+            sdkHaptic('light');
             if (window.pauseGame) window.pauseGame();
         }
         function closeSettingsFn() {
             settingsModal.classList.add('hidden');
-            if (window.triggerHaptic) window.triggerHaptic('light');
+            sdkHaptic('light');
             if (window.resumeGame) window.resumeGame();
         }
         settingsBtn.onclick = openSettings;
@@ -353,7 +353,7 @@
 
         // --- Restart ---
         restartBtn.onclick = function() {
-            if (window.triggerHaptic) window.triggerHaptic('medium');
+            sdkHaptic('medium');
             gameOverModal.classList.add('hidden');
             mainMenu.classList.remove('menu-hidden');
             if (window.restartGame) window.restartGame();
@@ -371,7 +371,7 @@
         };
         playBtn.onclick = function() {
             if (playBtn.disabled) return;
-            if (window.triggerHaptic) window.triggerHaptic('medium');
+            sdkHaptic('medium');
             if (window.startGame) window.startGame();
             mainMenu.classList.add('menu-hidden');
         };
@@ -386,17 +386,12 @@
             gameOverModal.classList.remove('hidden');
         };
 
-        // Platform overrides these; fallbacks for local dev only
-        if (typeof window.submitScore !== 'function') {
-            window.submitScore = function(score) {
-                console.log("[Game] Submitting score:", score);
-            };
-        }
-        if (typeof window.triggerHaptic !== 'function') {
-            window.triggerHaptic = function(type) {
-                if (!window.platform.hapticsEnabled) return;
-                if (navigator.vibrate) navigator.vibrate(10);
-            };
+        function sdkHaptic(type) {
+            if (window.__oasiz) {
+                window.__oasiz.triggerHaptic(type);
+            } else if (typeof window.triggerHaptic === 'function') {
+                window.triggerHaptic(type);
+            }
         }
 
         // --- Button Click SFX ---

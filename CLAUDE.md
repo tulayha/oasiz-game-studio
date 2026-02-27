@@ -65,26 +65,39 @@ game-name/
 - **TypeScript** - All game logic
 - **Optional**: Phaser 3, Matter.js, Tone.js, PlayroomKit (multiplayer)
 
-## Platform Integration (CRITICAL)
+## Platform Integration via Oasiz SDK (CRITICAL)
+
+Every game MUST install the SDK: `bun add @oasiz/sdk` and import: `import { oasiz } from "@oasiz/sdk";`
+
+For no-build HTML games: `<script src="https://www.oasiz.gg/sdk/v1/oasiz.min.js"></script>` (exposes `window.oasiz`)
 
 ### Score Submission
 
-Call ONLY on game over with a non-negative integer:
-
 ```typescript
-if (typeof (window as any).submitScore === "function") {
-  (window as any).submitScore(this.score);
-}
+oasiz.submitScore(this.score);  // Floats floored, negatives clamped to 0
 ```
 
+**When to call**: Once at game over (endless), end of each level (level-based), or periodically + game over (long sessions).
+
 **Never** track high scores locally - the platform handles leaderboards.
+
+### Score Normalization (call once during init)
+
+```typescript
+oasiz.emitScoreConfig({
+  anchors: [
+    { raw: 10,  normalized: 100 },   // Beginner
+    { raw: 30,  normalized: 300 },   // Good
+    { raw: 75,  normalized: 600 },   // Great
+    { raw: 200, normalized: 950 },   // Godlike
+  ],
+});
+```
 
 ### Haptic Feedback
 
 ```typescript
-if (typeof (window as any).triggerHaptic === "function") {
-  (window as any).triggerHaptic("medium"); // light, medium, heavy, success, error
-}
+oasiz.triggerHaptic("medium"); // light, medium, heavy, success, error
 ```
 
 | Type | Use Case |
@@ -94,6 +107,39 @@ if (typeof (window as any).triggerHaptic === "function") {
 | `heavy` | Explosions, major collisions |
 | `success` | Level complete, achievements |
 | `error` | Damage, game over |
+
+### Gameplay Start / Stop
+
+```typescript
+oasiz.gameplayStart();  // Game starts, resume after pause
+oasiz.gameplayStop();   // Entering menu, pausing, game over
+```
+
+### Lifecycle Events
+
+```typescript
+const offPause = oasiz.onPause(() => { this.gameLoop.stop(); });
+const offResume = oasiz.onResume(() => { this.gameLoop.start(); });
+```
+
+### Game State Persistence
+
+```typescript
+const state = oasiz.loadGameState();           // Returns {} if empty
+oasiz.saveGameState({ level: 3, coins: 50 });  // Debounced (2s)
+oasiz.flushGameState();                         // Force immediate write (use at game over)
+```
+
+**Never** use `localStorage` for cross-session progress — use `oasiz.saveGameState`.
+
+### Player Identity (read-only, undefined in local dev)
+
+```typescript
+oasiz.playerName;   // string | undefined
+oasiz.playerAvatar; // string | undefined
+oasiz.gameId;       // string | undefined
+oasiz.roomCode;     // string | undefined (from invite link)
+```
 
 ### Settings Modal (MANDATORY)
 
@@ -123,9 +169,7 @@ const isMobile = window.matchMedia('(pointer: coarse)').matches;
 
 Reference `draw-the-thing/` for patterns. Broadcast room code to platform:
 ```typescript
-if (typeof (window as any).shareRoomCode === "function") {
-  (window as any).shareRoomCode(getRoomCode()); // or null when leaving
-}
+oasiz.shareRoomCode(getRoomCode()); // or null when leaving
 ```
 
 ## Common Pitfalls
@@ -141,7 +185,10 @@ if (typeof (window as any).shareRoomCode === "function") {
 **Do:**
 
 - Test on mobile AND desktop
-- Call `window.submitScore()` on game over
+- Install `@oasiz/sdk` and use `oasiz.*` methods (not raw `window.*` calls)
+- Call `oasiz.submitScore()` on game over
+- Call `oasiz.emitScoreConfig()` once during init
+- Call `oasiz.gameplayStart()` / `oasiz.gameplayStop()` on play/pause transitions
 - Implement haptic feedback for all interactions
 - Pre-calculate random values and store as object properties
 

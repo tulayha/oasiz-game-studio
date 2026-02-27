@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <script src="https://cdn.tailwindcss.com?plugins=forms,typography,container-queries"></script>
     <link href="https://fonts.googleapis.com" rel="preconnect" />
     <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect" />
@@ -175,6 +176,12 @@
             transform: translate(3px, 3px);
             box-shadow: 0px 0px 0px 0px;
         }
+
+        @media (pointer: coarse) {
+            #hud {
+                top: 120px !important;
+            }
+        }
     </style>
 </head>
 
@@ -248,8 +255,8 @@
             </div>
 
             <!-- HUD Layer -->
-            <div id="hud" class="absolute top-6 right-6 pointer-events-auto z-50">
-                <button id="btn-pause" class="hud-btn w-14 h-14 flex items-center justify-center shadow-lg">
+            <div id="hud" class="absolute right-5 pointer-events-auto z-50" style="top: 45px;">
+                <button id="btn-pause" class="hud-btn w-14 h-14 flex items-center justify-center">
                     <span class="material-symbols-sharp text-3xl">pause</span>
                 </button>
             </div>

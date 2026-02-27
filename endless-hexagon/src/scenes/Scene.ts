@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { oasis } from '@oasiz/sdk';
 
 interface Wall {
     distance: number;
@@ -267,6 +268,32 @@ export default class Scene extends Phaser.Scene {
                     }
                 }
             };
+
+            oasis.emitScoreConfig({
+                anchors: [
+                    { raw: 100, normalized: 100 },
+                    { raw: 500, normalized: 300 },
+                    { raw: 1500, normalized: 600 },
+                    { raw: 5000, normalized: 950 },
+                ],
+            });
+
+            oasis.onPause(() => {
+                this.scene.pause();
+                if (this.bgMusic && this.bgMusic.isPlaying) this.bgMusic.pause();
+            });
+
+            oasis.onResume(() => {
+                this.scene.resume();
+                if (this.gameState === 'MENU') {
+                    if ((window as any).platform?.musicEnabled && this.bgMusic && !this.bgMusic.isPlaying) this.bgMusic.resume();
+                    return;
+                }
+                if (this.isResuming) return;
+                this.isGameRunning = false;
+                this.isResuming = true;
+                this.startResumeCountdown();
+            });
 
             // Signal HTML that Game is Ready
             if ((window as any).onGameReady) {
@@ -895,8 +922,9 @@ export default class Scene extends Phaser.Scene {
                     wall.onHitCenter();
                 }
 
-                // Haptic on impact
-                if ((window as any).platform?.hapticsEnabled && typeof (window as any).triggerHaptic === "function") (window as any).triggerHaptic("medium");
+                if ((window as any).platform?.hapticsEnabled) {
+                    oasis.triggerHaptic("medium");
+                }
 
                 // Retro Pulse Effect
                 this.playPulseEffect();
@@ -1179,13 +1207,11 @@ export default class Scene extends Phaser.Scene {
         this.cameras.main.shake(500, 0.05);
         this.cameras.main.flash(500, 255, 0, 0);
 
-        // Haptic
-        if ((window as any).platform?.hapticsEnabled && typeof (window as any).triggerHaptic === "function") (window as any).triggerHaptic("error");
-
-        // Submit Score
-        if ((window as any).submitScore) {
-            (window as any).submitScore(this.score);
+        if ((window as any).platform?.hapticsEnabled) {
+            oasis.triggerHaptic("error");
         }
+
+        oasis.submitScore(Math.floor(this.score));
 
         // Show HTML UI
         if ((window as any).showGameOver) {

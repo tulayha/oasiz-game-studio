@@ -1,6 +1,9 @@
 import Phaser from "phaser";
+import { oasis } from "@oasiz/sdk";
 import Scene from "./scenes/Scene";
 import Preload from "./scenes/Preload";
+
+(window as any).__oasiz = oasis;
 
 class Boot extends Phaser.Scene {
 
