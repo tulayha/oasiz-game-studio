@@ -34,6 +34,11 @@ const monitorPassword = readOptionalEnv(process.env.COLYSEUS_MONITOR_PASSWORD);
 const opsStatsEnabled = parseBooleanEnv(process.env.OPS_STATS_ENABLED, true);
 const opsStatsPath = normalizeOpsPath(process.env.OPS_STATS_PATH);
 const opsStatsToken = readOptionalEnv(process.env.OPS_STATS_TOKEN);
+const bootStartedAtMs = Date.now();
+const bootStartedAtIso = new Date(bootStartedAtMs).toISOString();
+const bootId =
+  process.env.SERVER_BOOT_ID ??
+  process.pid.toString() + "-" + bootStartedAtMs.toString();
 
 if (
   monitorEnabled &&
@@ -138,12 +143,59 @@ function createOpsTokenMiddleware(token: string | null): RequestHandler {
   };
 }
 
+function logLifecycle(event: string, details?: Record<string, unknown>): void {
+  const uptimeSec = Math.max(
+    0,
+    Math.floor((Date.now() - bootStartedAtMs) / 1000),
+  );
+  const payload = {
+    event,
+    bootId,
+    pid: process.pid,
+    uptimeSec,
+    ...details,
+  };
+  console.log("[Server.lifecycle]", JSON.stringify(payload));
+}
+
 process.on("unhandledRejection", (reason) => {
   console.error("[Server] Unhandled promise rejection", reason);
+  logLifecycle("unhandledRejection");
 });
 
 process.on("uncaughtException", (error) => {
   console.error("[Server] Uncaught exception", error);
+  logLifecycle("uncaughtException", {
+    name: error.name,
+    message: error.message,
+  });
+});
+
+process.on("warning", (warning) => {
+  console.warn(
+    "[Server] Process warning",
+    warning.name + ": " + warning.message,
+  );
+  logLifecycle("processWarning", {
+    name: warning.name,
+    message: warning.message,
+  });
+});
+
+process.on("beforeExit", (code) => {
+  logLifecycle("beforeExit", { code });
+});
+
+process.on("exit", (code) => {
+  logLifecycle("exit", { code });
+});
+
+process.on("SIGTERM", () => {
+  logLifecycle("signal", { signal: "SIGTERM" });
+});
+
+process.on("SIGINT", () => {
+  logLifecycle("signal", { signal: "SIGINT" });
 });
 
 const app = express();
@@ -153,6 +205,13 @@ app.use(express.json());
 const httpServer = createServer(app);
 httpServer.on("connection", (socket) => {
   socket.setNoDelay(true);
+});
+httpServer.on("error", (error) => {
+  console.error("[Server] HTTP server error", error);
+  logLifecycle("httpServerError", {
+    message: error.message,
+    name: error.name,
+  });
 });
 
 const gameServer = new Server({
@@ -236,6 +295,9 @@ if (opsStatsEnabled) {
 
 app.get("/healthz", (_req, res) => {
   res.json({ ok: true });
+});
+gameServer.onShutdown(() => {
+  logLifecycle("colyseusShutdown");
 });
 
 app.post("/match/create", async (req, res) => {
@@ -342,5 +404,16 @@ app.post("/match/join", async (req, res) => {
 
 httpServer.listen(port, () => {
   console.log("[Server] Astro Party Colyseus server listening on port", port);
+  logLifecycle("boot", {
+    startedAtIso: bootStartedAtIso,
+    nodeVersion: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    port,
+    monitorEnabled,
+    monitorPath: monitorEnabled ? monitorPath : null,
+    opsStatsEnabled,
+    opsStatsPath: opsStatsEnabled ? opsStatsPath : null,
+  });
 });
 
