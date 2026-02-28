@@ -10,7 +10,7 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
   - `AGENTS.md`: execution policy and durable guardrails.
   - `ARCHITECTURE.md`: current system ownership and architecture map.
   - `.agents/learning.md`: agent-specific implementation learnings and anti-repeat patterns.
-  - `progress.md`: append-only milestone timeline with validation status.
+  - `progress.md`: living task reference + milestone journal.
 
 ## Delivery Discipline (Hard-line)
 
@@ -53,14 +53,42 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
 
 ## Progress Log Contract (`progress.md`)
 
-- `progress.md` is append-only.
-- Never rewrite historical milestones; append dated entries.
-- Use established style:
-  - date heading
-  - concise scope
-  - key file/module changes
-  - validation section (or explicit reason not run)
-  - follow-ups where relevant
+- `progress.md` has two layers:
+  - `Active Task Threads` (living): for prompts requiring planned work, track original prompt, intent, plan, progress updates, validation, and outcome. Update this in-place while the task is active.
+  - `Milestone Journal` (historical): append-only dated summaries of shipped outcomes and validation.
+- For planned prompts, always create or update an active task thread before deep implementation.
+- When work ships, fold the final result into a dated milestone entry and close the active thread.
+- Do not rewrite closed historical milestone entries except explicit condensation/archive passes.
+
+## Reusable Activity: Agent Doc Cleanup
+
+- Trigger phrase:
+  - `agent doc cleanup activity`
+- Execution rule:
+  - When the user asks for this activity (or equivalent wording), run this workflow end-to-end without requiring extra prompt decomposition unless scope is explicitly ambiguous.
+- Required inputs:
+  - `AGENTS.md`
+  - `ARCHITECTURE.md`
+  - `.agents/learning.md`
+  - `progress.md`
+- Workflow:
+  - extract recurring issues/signals from `progress.md` (active threads + recent milestones)
+  - convert qualifying recurring issues into/through `.agents/learning.md` entries (assumption -> signal -> corrected approach -> guardrail)
+  - promote stable repeated learnings from `.agents/learning.md` into concrete AGENTS guardrails
+  - remove/merge duplicate or vague guardrails
+  - update architecture ownership notes if platform/runtime constraints changed
+  - update `progress.md` active task thread + milestone entry for the cleanup run
+  - if progress became noisy, run a focused condense pass while preserving/archiving history
+- Required outputs:
+  - updated policy guardrails in `AGENTS.md`
+  - aligned ownership constraints in `ARCHITECTURE.md` (if changed)
+  - updated `progress.md` records for the cleanup task
+  - updated `.agents/learning.md` when new recurring issues were distilled from progress
+  - traceability note listing what was promoted (`progress -> learning -> AGENTS`)
+- Done criteria:
+  - no conflicting guidance between AGENTS/ARCHITECTURE/learning/progress
+  - recurring issues converted into explicit, testable guardrail language
+  - cleanup run is documented in `progress.md`
 
 ## Context Bootstrap (Before Deep File Exploration)
 
@@ -73,7 +101,7 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
   - server task: `server/README.md`
   - general flow/build task: root `README.md`
 - Check `.agents/learning.md` for related anti-repeat guardrails before coding.
-- After implementation, append milestone + validation status in `progress.md`.
+- For planned prompts, write/update the active task thread first, then append milestone + validation status in `progress.md` on completion.
 
 ## Readme Contract (Read/Update Rules)
 
@@ -110,6 +138,24 @@ Update when behavior/process changes:
 - Tutorial gating should consume local input action events from the canonical pipeline.
 - Mobile touch controls must come from `MultiInputManager` / `TouchZoneManager`.
 - Overlays must not block touch zones during control/try-it phases.
+- Any coarse-pointer tap action with state changes must use a shared tap guard (`preventDefault`, `stopPropagation`, cooldown/debounce) to prevent double-fire.
+
+## UI + Layout Guardrails
+
+- Platform is the owner of forced landscape orientation behavior.
+- Do not reintroduce client-side portrait-to-landscape forced rotation workarounds for normal gameplay/start/lobby flows.
+- UI work should focus on safe placement in landscape:
+  - respect platform top HUD overlay space
+  - respect notch/device safe zones on either landscape orientation
+- For top-corner interactive controls, budget explicit top offset from the effective safe top zone before polish.
+
+## Implementation Planning Guardrails
+
+- Responsive/UI-heavy changes must start with one coherent layout model and a fixed viewport test matrix before incremental polish.
+- Loadtest changes must declare primary objective up front:
+  - gameplay-path parity, or
+  - observability/panel diagnostics
+- Process/tooling automation must be validated against real source-of-truth boundaries before being promoted into policy.
 
 ## Validation Matrix
 
