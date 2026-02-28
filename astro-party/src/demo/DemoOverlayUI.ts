@@ -52,7 +52,7 @@ export class DemoOverlayUI {
 
   // Spotlight state
   private spotlightActive = false;
-  private spotlightTrackInterval: ReturnType<typeof setInterval> | null = null;
+  private spotlightTrackInterval: number | null = null;
   private spotlightFirstActionTriggered = false;
 
   private boundOnTap: () => void;

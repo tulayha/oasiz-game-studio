@@ -20,16 +20,20 @@ import {
 import { DemoController } from "./demo/DemoController";
 import { DemoOverlayUI } from "./demo/DemoOverlayUI";
 import { elements } from "./ui/elements";
+import {
+  gameplayStart as platformGameplayStart,
+  gameplayStop as platformGameplayStop,
+  getPlayerName as getPlatformPlayerName,
+  getRoomCode as getPlatformRoomCode,
+  loadGameState as loadPlatformGameState,
+  saveGameState as savePlatformGameState,
+} from "./platform/oasizBridge";
 
 declare const __APP_VERSION__: string;
 declare const __APP_BUILD_TAG__: string;
 
-// Declare platform-injected variables
 declare global {
   interface Window {
-    __ROOM_CODE__?: string;
-    __PLAYER_NAME__?: string;
-    __PLAYER_AVATAR__?: string;
     getCurrentSeed?: () => number | null;
     setNextSeed?: (seed: number) => void;
   }
@@ -41,11 +45,8 @@ const DEMO_SEEN_KEY = "astro-party-demo-seen";
 function isDemoSeen(): boolean {
   if (localStorage.getItem(DEMO_SEEN_KEY)) return true;
   try {
-    const saved = (window as any).loadGameState?.() as
-      | Record<string, unknown>
-      | null
-      | undefined;
-    if (saved?.demo_seen) return true;
+    const saved = loadPlatformGameState();
+    if (saved.demo_seen === true) return true;
   } catch {
     // platform API unavailable — fall back to localStorage only
   }
@@ -56,10 +57,8 @@ function isDemoSeen(): boolean {
 function markDemoSeen(): void {
   localStorage.setItem(DEMO_SEEN_KEY, "1");
   try {
-    const existing =
-      ((window as any).loadGameState?.() as Record<string, unknown> | null) ??
-      {};
-    (window as any).saveGameState?.({ ...existing, demo_seen: true });
+    const existing = loadPlatformGameState();
+    savePlatformGameState({ ...existing, demo_seen: true });
   } catch {
     // platform API unavailable — localStorage persists the flag locally
   }
@@ -359,6 +358,23 @@ async function init(): Promise<void> {
     void AudioManager.playSceneMusic(nextScene);
   };
 
+  const syncPlatformGameplayActivity = (): void => {
+    const demoState = demoController?.isDemoActive()
+      ? demoController.getState()
+      : null;
+    const isInteractiveDemo =
+      demoState === "TUTORIAL" || demoState === "FREEPLAY";
+    const isGameplayPhase =
+      currentPhase === "COUNTDOWN" ||
+      currentPhase === "PLAYING" ||
+      currentPhase === "ROUND_END";
+    if (isGameplayPhase && (demoState === null || isInteractiveDemo)) {
+      platformGameplayStart();
+      return;
+    }
+    platformGameplayStop();
+  };
+
   async function teardownDemoAndShowMenu(): Promise<void> {
     if (!demoController?.isDemoActive()) return;
     demoOverlay?.hideAll();
@@ -370,6 +386,7 @@ async function init(): Promise<void> {
     starfieldInitializedForDemo = false;
     // Remove demo-specific starfield state
     elements.starsContainer.classList.remove("demo-stars", "active");
+    syncPlatformGameplayActivity();
     screenController.showScreen("start");
     startUI.resetStartButtons(false);
     startUI.setBeforeAction(null);
@@ -386,6 +403,7 @@ async function init(): Promise<void> {
     demoOverlay = null;
     starfieldInitializedForDemo = false;
     elements.starsContainer.classList.remove("demo-stars", "active");
+    syncPlatformGameplayActivity();
     startUI.setBeforeAction(null);
     if (viewport.isMobile) {
       game.clearTouchLayout();
@@ -431,6 +449,7 @@ async function init(): Promise<void> {
         demoController!.enterTutorial();
         syncAudioToPhase(currentPhase, currentPhase);
         syncDemoTouchLayoutForState();
+        syncPlatformGameplayActivity();
         demoOverlay!.showTutorial(viewport.isMobile);
       },
       onTutorialComplete: () => {
@@ -438,6 +457,7 @@ async function init(): Promise<void> {
         demoController!.enterFreePlay();
         syncAudioToPhase(currentPhase, currentPhase);
         syncDemoTouchLayoutForState();
+        syncPlatformGameplayActivity();
         markDemoSeen();
         // Give the player 5 s of invincibility when they first enter free-play
         game.demoSetPlayerInvincible(5000);
@@ -447,6 +467,7 @@ async function init(): Promise<void> {
           demoController?.enterMenu();
           syncAudioToPhase(currentPhase, currentPhase);
           syncDemoTouchLayoutForState();
+          syncPlatformGameplayActivity();
           screenController.showScreen("start");
           startUI.resetStartButtons(true);
         });
@@ -457,6 +478,7 @@ async function init(): Promise<void> {
         demoController?.enterMenu();
         syncAudioToPhase(currentPhase, currentPhase);
         syncDemoTouchLayoutForState();
+        syncPlatformGameplayActivity();
         screenController.showScreen("start");
         startUI.resetStartButtons(true);
         markDemoSeen();
@@ -500,6 +522,7 @@ async function init(): Promise<void> {
     await demoController.startDemo();
     syncAudioToPhase(currentPhase, currentPhase);
     syncDemoTouchLayoutForState();
+    syncPlatformGameplayActivity();
 
     // Activate the starfield immediately so it's visible in the attract overlay.
     // forceDemoStarfield bypasses the activeScreen guard in screens.ts.
@@ -516,6 +539,7 @@ async function init(): Promise<void> {
       demoController.enterMenu();
       syncAudioToPhase(currentPhase, currentPhase);
       syncDemoTouchLayoutForState();
+      syncPlatformGameplayActivity();
       screenController.showScreen("start");
       startUI.resetStartButtons(false);
     }
@@ -530,6 +554,7 @@ async function init(): Promise<void> {
     demoInputActionSubscribers.clear();
     demoController = null;
     demoOverlay = null;
+    syncPlatformGameplayActivity();
     screenController.showScreen("start");
     startUI.resetStartButtons(false);
     startUI.setBeforeAction(null);
@@ -669,6 +694,7 @@ async function init(): Promise<void> {
       currentPhase = phase;
       syncScreenToPhase(phase, true, previousPhase);
       syncAudioToPhase(phase, previousPhase);
+      syncPlatformGameplayActivity();
     },
 
     onPlayersUpdate: (players: PlayerData[]) => {
@@ -736,6 +762,7 @@ async function init(): Promise<void> {
   screenController.showScreen("start");
   startUI.resetStartButtons(true);
   syncAudioToPhase(currentPhase, null);
+  syncPlatformGameplayActivity();
 
   SettingsManager.subscribe((settings) => {
     if (settings.music) {
@@ -768,15 +795,17 @@ async function init(): Promise<void> {
 
   setInterval(screenController.updateNetworkStats, 250);
 
-  if (window.__ROOM_CODE__) {
-    console.log("[Main] Platform injected room code:", window.__ROOM_CODE__);
+  const injectedRoomCode = getPlatformRoomCode()?.toUpperCase() ?? "";
+  if (injectedRoomCode.length > 0) {
+    console.log("[Main] Platform injected room code:", injectedRoomCode);
     try {
       game.setSessionMode("online");
-      const success = await game.joinRoom(window.__ROOM_CODE__);
+      const success = await game.joinRoom(injectedRoomCode);
       if (success) {
-        if (window.__PLAYER_NAME__) {
-          console.log("[Main] Setting player name:", window.__PLAYER_NAME__);
-          game.setPlayerName(window.__PLAYER_NAME__);
+        const playerName = getPlatformPlayerName();
+        if (playerName) {
+          console.log("[Main] Setting player name:", playerName);
+          game.setPlayerName(playerName);
         }
       } else {
         console.log("[Main] Failed to auto-join room, staying on start screen");

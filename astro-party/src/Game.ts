@@ -51,6 +51,11 @@ import {
 } from "../shared/sim/scoring.js";
 import { getShipTrailWorldPoint } from "../shared/geometry/ShipRenderAnchors";
 import { isClientDebugToolsRequested } from "./debug/debugTools";
+import {
+  onPause as onPlatformPause,
+  onResume as onPlatformResume,
+  submitScore as submitPlatformScore,
+} from "./platform/oasizBridge";
 
 export class Game {
   private renderer: Renderer;
@@ -78,10 +83,24 @@ export class Game {
   private wasLocalFireHeld = false;
   private lastPredictedFireAtMs = 0;
   private lastPredictedDashAtMs = 0;
+  private rafId = 0;
   private resizeListenerAttached = false;
+  private lifecycleHandlersAttached = false;
   private readonly resizeHandler = (): void => {
     this.renderer.resize();
   };
+  private readonly visibilityChangeHandler = (): void => {
+    if (document.hidden) {
+      this.stopLoop();
+      return;
+    }
+    this.startLoop();
+  };
+  private readonly loopFrame = (timestamp: number): void => {
+    this.loop(timestamp);
+  };
+  private offPlatformPause: (() => void) | null = null;
+  private offPlatformResume: (() => void) | null = null;
   private controlledInputSequenceByPlayer = new Map<string, number>();
   private isIntentionalDisconnect = false;
 
@@ -824,16 +843,47 @@ export class Game {
       this.resizeListenerAttached = true;
     }
 
-    this.lastTime = performance.now();
-    requestAnimationFrame((t) => this.loop(t));
+    this.ensureLoopLifecycleHooks();
+    this.startLoop();
   }
 
   handleResize(): void {
     this.resizeHandler();
   }
 
+  private ensureLoopLifecycleHooks(): void {
+    if (this.lifecycleHandlersAttached) {
+      return;
+    }
+    document.addEventListener("visibilitychange", this.visibilityChangeHandler);
+    this.offPlatformPause = onPlatformPause(() => {
+      this.stopLoop();
+    });
+    this.offPlatformResume = onPlatformResume(() => {
+      this.startLoop();
+    });
+    this.lifecycleHandlersAttached = true;
+  }
+
+  private startLoop(): void {
+    if (this.rafId !== 0) {
+      return;
+    }
+    this.lastTime = 0;
+    this.rafId = requestAnimationFrame(this.loopFrame);
+  }
+
+  private stopLoop(): void {
+    if (this.rafId === 0) {
+      return;
+    }
+    cancelAnimationFrame(this.rafId);
+    this.rafId = 0;
+  }
+
   private loop(timestamp: number): void {
-    const frameDt = Math.min((timestamp - this.lastTime) / 1000, 0.1);
+    const frameDt =
+      this.lastTime > 0 ? Math.min((timestamp - this.lastTime) / 1000, 0.1) : 0;
     this.lastTime = timestamp;
 
     const now = performance.now();
@@ -873,7 +923,7 @@ export class Game {
     this.renderer.updateScreenShake(frameDt);
     this.render(frameDt, frameRenderState);
 
-    requestAnimationFrame((t) => this.loop(t));
+    this.rafId = requestAnimationFrame(this.loopFrame);
   }
 
   private emitLocalInputActions(input: PlayerInput): void {
@@ -1571,6 +1621,7 @@ export class Game {
   }
 
   destroy(): void {
+    this.stopLoop();
     if (this.flowMgr.countdownInterval) {
       clearInterval(this.flowMgr.countdownInterval);
       this.flowMgr.countdownInterval = null;
@@ -1578,6 +1629,17 @@ export class Game {
     if (this.resizeListenerAttached) {
       window.removeEventListener("resize", this.resizeHandler);
       this.resizeListenerAttached = false;
+    }
+    if (this.lifecycleHandlersAttached) {
+      document.removeEventListener(
+        "visibilitychange",
+        this.visibilityChangeHandler,
+      );
+      this.offPlatformPause?.();
+      this.offPlatformPause = null;
+      this.offPlatformResume?.();
+      this.offPlatformResume = null;
+      this.lifecycleHandlersAttached = false;
     }
     this.input.destroy();
   }
@@ -1914,18 +1976,8 @@ export class Game {
 
     const score = this.resolveScoreForSubmission(myId);
 
-    if (
-      typeof (window as unknown as { submitScore?: (value: number) => void })
-        .submitScore === "function"
-    ) {
-      (
-        window as unknown as { submitScore: (value: number) => void }
-      ).submitScore(score);
-      console.log("[Game] Submitted authoritative final score:", score);
-      this.finalScoreSubmittedForMatch = true;
-      return;
-    }
-
+    submitPlatformScore(score);
+    console.log("[Game] Submitted authoritative final score:", score);
     this.finalScoreSubmittedForMatch = true;
   }
 
@@ -1946,12 +1998,7 @@ export class Game {
 
     const score = this.resolveScoreForSubmission(myId);
 
-    const submitScore = (
-      window as unknown as { submitScore?: (value: number) => void }
-    ).submitScore;
-    if (typeof submitScore !== "function") return;
-
-    submitScore(score);
+    submitPlatformScore(score);
     this.finalScoreSubmittedForMatch = true;
     console.log("[Game] Submitted exit score:", score);
   }

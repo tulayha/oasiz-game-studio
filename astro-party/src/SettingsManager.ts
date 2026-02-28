@@ -2,6 +2,7 @@
 // Singleton class for managing game settings across all modules
 
 import type { Settings } from "./types";
+import { triggerHaptic as triggerPlatformHaptic } from "./platform/oasizBridge";
 
 const STORAGE_KEY = "astro-party-settings";
 const DEFAULT_SETTINGS: Settings = {
@@ -75,15 +76,8 @@ class SettingsManagerClass {
   triggerHaptic(
     type: "light" | "medium" | "heavy" | "success" | "error",
   ): void {
-    if (
-      this.settings.haptics &&
-      typeof (window as unknown as { triggerHaptic?: (type: string) => void })
-        .triggerHaptic === "function"
-    ) {
-      (
-        window as unknown as { triggerHaptic: (type: string) => void }
-      ).triggerHaptic(type);
-    }
+    if (!this.settings.haptics) return;
+    triggerPlatformHaptic(type);
   }
 
   // Helper for playing sound effects with settings check
