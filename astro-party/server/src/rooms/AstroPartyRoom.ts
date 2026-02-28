@@ -62,6 +62,12 @@ interface DevGrantPowerUpMessage {
 }
 interface DevEjectPilotMessage {}
 
+interface SocketCloseContext {
+  closeCode: number | null;
+  closeReason: string | null;
+  transportState: string | null;
+}
+
 const DEV_GRANT_POWERUP_TYPES: ReadonlySet<DevGrantPowerUpMessage["type"]> =
   new Set([
     "LASER",
@@ -345,10 +351,14 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
 
   onLeave(client: Client, consented: boolean): void {
     const remainingClients = Math.max(0, this.clients.length - 1);
+    const closeContext = this.resolveSocketCloseContext(client);
     opsStats.recordClientLeft(client.sessionId, {
       roomId: this.roomId,
       consented,
       phase: this.simulation.phase,
+      closeCode: closeContext.closeCode,
+      closeReason: closeContext.closeReason,
+      transportState: closeContext.transportState,
     });
     if (!consented) {
       console.warn(
@@ -361,6 +371,12 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
           consented +
           " phase=" +
           this.simulation.phase +
+          " closeCode=" +
+          (closeContext.closeCode ?? -1) +
+          " closeReason=" +
+          (closeContext.closeReason ?? "n/a") +
+          " transportState=" +
+          (closeContext.transportState ?? "unknown") +
           " remainingClients=" +
           remainingClients,
       );
@@ -585,5 +601,78 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     const rawClient = client as unknown as { ref?: { bufferedAmount?: number } };
     const bufferedAmount = rawClient.ref?.bufferedAmount;
     return Number.isFinite(bufferedAmount) ? (bufferedAmount as number) : 0;
+  }
+
+  private resolveSocketCloseContext(client: Client): SocketCloseContext {
+    const rawClient = client as unknown as {
+      leaveCode?: number;
+      ref?: {
+        closeCode?: number;
+        _closeCode?: number;
+        closeReason?: string | Uint8Array;
+        _closeMessage?: string | Uint8Array;
+        readyState?: number;
+      };
+    };
+    const socketRef = rawClient.ref;
+    const closeCode = this.pickCloseCode(
+      rawClient.leaveCode,
+      socketRef?.closeCode,
+      socketRef?._closeCode,
+    );
+    const closeReason = this.resolveSocketCloseReason(
+      socketRef?.closeReason,
+      socketRef?._closeMessage,
+    );
+    const transportState = this.resolveTransportState(socketRef?.readyState);
+    return {
+      closeCode,
+      closeReason,
+      transportState,
+    };
+  }
+
+  private pickCloseCode(...candidates: Array<number | undefined>): number | null {
+    for (const candidate of candidates) {
+      if (typeof candidate !== "number" || !Number.isFinite(candidate)) continue;
+      if (candidate < 0) continue;
+      return Math.floor(candidate);
+    }
+    return null;
+  }
+
+  private resolveSocketCloseReason(
+    ...candidates: Array<string | Uint8Array | undefined>
+  ): string | null {
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed.length > 0) return trimmed;
+        continue;
+      }
+      if (candidate instanceof Uint8Array && candidate.length > 0) {
+        const decoded = Buffer.from(candidate).toString("utf8").trim();
+        if (decoded.length > 0) return decoded;
+      }
+    }
+    return null;
+  }
+
+  private resolveTransportState(readyState: number | undefined): string | null {
+    if (typeof readyState !== "number" || !Number.isFinite(readyState)) {
+      return null;
+    }
+    switch (Math.floor(readyState)) {
+      case 0:
+        return "CONNECTING";
+      case 1:
+        return "OPEN";
+      case 2:
+        return "CLOSING";
+      case 3:
+        return "CLOSED";
+      default:
+        return "STATE_" + Math.floor(readyState).toString();
+    }
   }
 }

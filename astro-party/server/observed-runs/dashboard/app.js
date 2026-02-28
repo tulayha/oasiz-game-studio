@@ -2,6 +2,10 @@ const METRICS = [
   { key: "opsClients", label: "ops.clients", unit: "clients" },
   { key: "opsRooms", label: "ops.rooms", unit: "rooms" },
   { key: "opsLeftUnconsented", label: "ops.leftUnconsented", unit: "count" },
+  { key: "opsClose1006Total", label: "ops.close1006Total", unit: "count" },
+  { key: "opsClose4000Total", label: "ops.close4000Total", unit: "count" },
+  { key: "opsEventLoopP95Ms", label: "ops.eventLoopP95ms", unit: "ms" },
+  { key: "opsEventLoopMaxMs", label: "ops.eventLoopMaxMs", unit: "ms" },
   { key: "pm2MemMb", label: "pm2.memMB", unit: "MB" },
   { key: "pm2CpuPct", label: "pm2.cpuPct", unit: "%" },
   { key: "pm2Restarts", label: "pm2.restarts", unit: "count" },
@@ -17,7 +21,10 @@ const INCIDENT_MARKER_TYPES = new Set([
   "crash_signal",
   "mass_drop",
   "unconsented_jump",
+  "ops_close1006_jump",
   "restart_event",
+  "event_loop_lag_spike",
+  "server_unconsented_leave",
 ]);
 
 const RUN_COLORS = [
@@ -133,6 +140,10 @@ function renderRunList() {
     const failed = formatCount(run.summary?.failedJoins);
     const peakClients = formatCount(run.summary?.peakOpsClients);
     const unconsentedDelta = formatCount(run.summary?.opsLeftUnconsentedDelta);
+    const close1006Delta = formatCount(run.summary?.opsClose1006Delta);
+    const peakEventLoopP95Raw = formatCompactNumber(run.summary?.peakOpsEventLoopP95Ms);
+    const peakEventLoopP95 =
+      peakEventLoopP95Raw === "n/a" ? "n/a" : peakEventLoopP95Raw + "ms";
     const abnormalDisconnects = formatCount(
       run.summary?.abnormalDisconnects ?? run.summary?.serverDisconnects,
     );
@@ -160,6 +171,10 @@ function renderRunList() {
       peakClients +
       " unconsentedDelta=" +
       unconsentedDelta +
+      " close1006Delta=" +
+      close1006Delta +
+      " eventLoopP95=" +
+      peakEventLoopP95 +
       " disconnectsTotal=" +
       formatCount(run.summary?.disconnected) +
       " abnormal1005/1006=" +
@@ -244,7 +259,7 @@ function renderComparisonTable(selectedRunIds) {
   let html =
     "<table class='compare-table'>" +
     "<thead><tr>" +
-    "<th>Run</th><th>Start</th><th>Clients</th><th>Failed</th><th>Total Disconnects</th><th>Abnormal (1005/1006)</th><th>Consented (4000)</th><th>Peak Clients</th><th>Unconsented Delta</th><th>PM2 Status</th><th>PM2 Restarts</th>" +
+    "<th>Run</th><th>Start</th><th>Clients</th><th>Failed</th><th>Total Disconnects</th><th>Abnormal (1005/1006)</th><th>Consented (4000)</th><th>Peak Clients</th><th>Unconsented Delta</th><th>Server 1006 Delta</th><th>Server 4000 Delta</th><th>Peak Event-Loop p95 (ms)</th><th>onLeave consented=false</th><th>PM2 Status</th><th>PM2 Restarts</th>" +
     "</tr></thead><tbody>";
 
   for (const runId of selectedRunIds) {
@@ -286,6 +301,18 @@ function renderComparisonTable(selectedRunIds) {
       "</td>" +
       "<td>" +
       formatCount(run.summary?.opsLeftUnconsentedDelta) +
+      "</td>" +
+      "<td>" +
+      formatCount(run.summary?.opsClose1006Delta) +
+      "</td>" +
+      "<td>" +
+      formatCount(run.summary?.opsClose4000Delta) +
+      "</td>" +
+      "<td>" +
+      formatCompactNumber(run.summary?.peakOpsEventLoopP95Ms) +
+      "</td>" +
+      "<td>" +
+      formatCount(run.summary?.pm2UnconsentedLeaveMarkers) +
       "</td>" +
       "<td>" +
       pm2Status +

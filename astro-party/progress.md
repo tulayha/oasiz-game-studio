@@ -1297,3 +1297,36 @@ TODO / Next suggestions
   - `astro-party/server`: `npm run build` passed
   - `astro-party`: `bun run build` passed
   - `astro-party`: `bun run typecheck` failed due pre-existing error in `src/demo/DemoOverlayUI.ts` (`Type 'number' is not assignable to type 'Timeout'`)
+## 2026-02-28 (Observed loadtest event-loop lag + websocket close context)
+- Added server-side observability fields in `server/src/monitoring/OpsStats.ts`:
+  - `eventLoopLagMs` summary (`p50/p95/p99/max`)
+  - `clients.closeCodeTotalByCode`
+  - `clients.recentLeaves[]` close context (`closeCode`, `closeReason`, `transportState`)
+- Added websocket close-context capture in `server/src/rooms/AstroPartyRoom.ts`:
+  - `onLeave` now extracts close code/reason/transport state from transport ref
+  - unconsented leave logs now include close context fields
+  - close context is forwarded into ops stats counters/ring buffer
+- Extended observer metrics capture in `server/loadtest/astro-observe.sh`:
+  - `ops.eventLoopP95ms`, `ops.eventLoopMaxMs`
+  - `ops.close1006Total`, `ops.close4000Total`
+- Extended observed index builder in `server/loadtest/build-observed-runs-index.ts`:
+  - parses the new metrics tokens
+  - summary now includes event-loop peaks and server close-code deltas
+  - incidents now include server `closeCode=1006` jumps, lag spikes, and `onLeave consented=false` markers
+- Updated dashboard (`server/observed-runs/dashboard/app.js`, `server/observed-runs/dashboard/index.html`) to chart/show new observability signals.
+- Updated server docs (`server/README.md`) for new `/ops/stats` fields.
+- Validation:
+  - `astro-party/server`: `npm install` (required because local `tsc` was missing)
+  - `astro-party/server`: `npm run typecheck` passed
+  - `astro-party/server`: `npm run build` passed
+  - `astro-party/server`: `npm run observed:index -- --runId 20260228-012833` passed, reported run folder missing, and wrote empty `server/observed-runs/index.json`
+## 2026-02-28 (Deploy script branch override options)
+- Updated `server/server-deploy-script.txt` to support optional branch selection via CLI while preserving existing env/default behavior.
+- Branch precedence is now:
+  - `--branch <name>` (or first positional arg)
+  - `BRANCH` env var
+  - default `space-force-dev`
+- Added usage/help handling and input validation for empty/invalid branch args.
+- Updated `server/README.md` deploy note with branch override examples.
+- Validation:
+  - script/docs-only update; no runtime build/typecheck required for this milestone

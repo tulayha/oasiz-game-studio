@@ -1,4 +1,5 @@
 import os from "node:os";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 
 interface RateSnapshot {
   perSec10s: number;
@@ -21,6 +22,19 @@ interface RecentClientLeaveEvent {
   sessionId: string;
   consented: boolean | null;
   phase: string | null;
+  closeCode: number | null;
+  closeReason: string | null;
+  transportState: string | null;
+}
+
+interface EventLoopLagSnapshot {
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+  p50: number | null;
+  p95: number | null;
+  p99: number | null;
+  exceeds: number;
 }
 
 interface OpsStatsSnapshot {
@@ -49,6 +63,7 @@ interface OpsStatsSnapshot {
     leftTotal: number;
     leftConsentedTotal: number;
     leftUnconsentedTotal: number;
+    closeCodeTotalByCode: Record<string, number>;
     joinsRate: RateSnapshot;
     leavesRate: RateSnapshot;
     recentLeaves: RecentClientLeaveEvent[];
@@ -67,6 +82,7 @@ interface OpsStatsSnapshot {
     roomErrorByCode: Record<string, number>;
   };
   rttMs: NumericSummary;
+  eventLoopLagMs: EventLoopLagSnapshot;
 }
 
 class RollingCounter {
@@ -165,6 +181,14 @@ function toRateSnapshot(counter: RollingCounter): RateSnapshot {
   };
 }
 
+function normalizeEventLoopLagMs(valueNs: number): number | null {
+  if (!Number.isFinite(valueNs)) return null;
+  if (valueNs < 0) return null;
+  // Ignore sentinel/invalid values emitted before meaningful samples exist.
+  if (valueNs >= 3_600_000_000_000) return null;
+  return valueNs / 1_000_000;
+}
+
 export class OpsStats {
   private readonly startedAtMs = Date.now();
   private readonly maxRecentLeaves = 200;
@@ -172,7 +196,9 @@ export class OpsStats {
   private readonly activeSessionIds = new Set<string>();
   private readonly commandCounts = new Map<string, number>();
   private readonly roomErrorByCode = new Map<string, number>();
+  private readonly closeCodeByCode = new Map<string, number>();
   private readonly recentLeaves: RecentClientLeaveEvent[] = [];
+  private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 
   private readonly joinsCounter = new RollingCounter(120);
   private readonly leavesCounter = new RollingCounter(120);
@@ -191,6 +217,10 @@ export class OpsStats {
   private pingTotal = 0;
   private snapshotFanoutTotal = 0;
   private roomErrorTotal = 0;
+
+  constructor() {
+    this.eventLoopDelay.enable();
+  }
 
   recordRoomCreated(roomId: string): void {
     if (roomId.trim().length <= 0) return;
@@ -218,6 +248,9 @@ export class OpsStats {
       roomId?: string;
       consented?: boolean;
       phase?: string | null;
+      closeCode?: number | null;
+      closeReason?: string | null;
+      transportState?: string | null;
     },
   ): void {
     if (sessionId.trim().length > 0) {
@@ -234,6 +267,15 @@ export class OpsStats {
       }
     }
 
+    if (
+      typeof details?.closeCode === "number" &&
+      Number.isFinite(details.closeCode) &&
+      details.closeCode >= 0
+    ) {
+      const code = Math.floor(details.closeCode).toString();
+      this.closeCodeByCode.set(code, (this.closeCodeByCode.get(code) ?? 0) + 1);
+    }
+
     const event: RecentClientLeaveEvent = {
       atIso: new Date().toISOString(),
       roomId: details?.roomId?.trim() ?? "",
@@ -243,6 +285,22 @@ export class OpsStats {
       phase:
         typeof details?.phase === "string" && details.phase.trim().length > 0
           ? details.phase.trim()
+          : null,
+      closeCode:
+        typeof details?.closeCode === "number" &&
+        Number.isFinite(details.closeCode) &&
+        details.closeCode >= 0
+          ? Math.floor(details.closeCode)
+          : null,
+      closeReason:
+        typeof details?.closeReason === "string" &&
+        details.closeReason.trim().length > 0
+          ? details.closeReason.trim()
+          : null,
+      transportState:
+        typeof details?.transportState === "string" &&
+        details.transportState.trim().length > 0
+          ? details.transportState.trim()
           : null,
     };
     this.recentLeaves.push(event);
@@ -286,6 +344,16 @@ export class OpsStats {
   snapshot(): OpsStatsSnapshot {
     const memory = process.memoryUsage();
     const loadAvg = os.loadavg();
+    const eventLoopLagMs: EventLoopLagSnapshot = {
+      min: normalizeEventLoopLagMs(this.eventLoopDelay.min),
+      max: normalizeEventLoopLagMs(this.eventLoopDelay.max),
+      avg: normalizeEventLoopLagMs(this.eventLoopDelay.mean),
+      p50: normalizeEventLoopLagMs(this.eventLoopDelay.percentile(50)),
+      p95: normalizeEventLoopLagMs(this.eventLoopDelay.percentile(95)),
+      p99: normalizeEventLoopLagMs(this.eventLoopDelay.percentile(99)),
+      exceeds: this.eventLoopDelay.exceeds,
+    };
+    this.eventLoopDelay.reset();
 
     return {
       generatedAtIso: new Date().toISOString(),
@@ -313,6 +381,7 @@ export class OpsStats {
         leftTotal: this.clientLeftTotal,
         leftConsentedTotal: this.clientLeftConsentedTotal,
         leftUnconsentedTotal: this.clientLeftUnconsentedTotal,
+        closeCodeTotalByCode: mapToRecord(this.closeCodeByCode),
         joinsRate: toRateSnapshot(this.joinsCounter),
         leavesRate: toRateSnapshot(this.leavesCounter),
         recentLeaves: [...this.recentLeaves],
@@ -331,6 +400,7 @@ export class OpsStats {
         roomErrorByCode: mapToRecord(this.roomErrorByCode),
       },
       rttMs: this.rttWindow.snapshot(),
+      eventLoopLagMs,
     };
   }
 }

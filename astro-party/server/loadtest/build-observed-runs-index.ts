@@ -29,6 +29,10 @@ interface MetricsSample {
   opsRooms: number | null;
   opsLeftUnconsented: number | null;
   opsRttP95Ms: number | null;
+  opsEventLoopP95Ms: number | null;
+  opsEventLoopMaxMs: number | null;
+  opsClose1006Total: number | null;
+  opsClose4000Total: number | null;
   netRxBps: number | null;
   netTxBps: number | null;
 }
@@ -94,9 +98,12 @@ interface IncidentEvent {
   type:
     | "mass_drop"
     | "unconsented_jump"
+    | "ops_close1006_jump"
     | "restart_event"
     | "leave1006_burst"
+    | "event_loop_lag_spike"
     | "process_boot"
+    | "server_unconsented_leave"
     | "crash_signal";
   title: string;
   details: string;
@@ -125,6 +132,14 @@ interface ParsedEventsFile {
     opsLeftUnconsentedStart: number | null;
     opsLeftUnconsentedEnd: number | null;
     opsLeftUnconsentedDelta: number | null;
+    peakOpsEventLoopP95Ms: number | null;
+    peakOpsEventLoopMaxMs: number | null;
+    opsClose1006Start: number | null;
+    opsClose1006End: number | null;
+    opsClose1006Delta: number | null;
+    opsClose4000Start: number | null;
+    opsClose4000End: number | null;
+    opsClose4000Delta: number | null;
     peakPm2MemMb: number | null;
     peakPm2CpuPct: number | null;
     peakPm2Restarts: number | null;
@@ -133,6 +148,7 @@ interface ParsedEventsFile {
     abnormalDisconnects: number | null;
     consentedLeaves: number | null;
     serverDisconnects: number | null;
+    pm2UnconsentedLeaveMarkers: number | null;
     loadtestExitCode: number | null;
   };
   timelines: {
@@ -345,6 +361,10 @@ function parseMetricsLog(metricsLogPath: string): MetricsSample[] {
       opsRooms: parseNumber(tokens["ops.rooms"]),
       opsLeftUnconsented: parseNumber(tokens["ops.leftUnconsented"]),
       opsRttP95Ms: parseNumber(tokens["ops.rttP95ms"]),
+      opsEventLoopP95Ms: parseNumber(tokens["ops.eventLoopP95ms"]),
+      opsEventLoopMaxMs: parseNumber(tokens["ops.eventLoopMaxMs"]),
+      opsClose1006Total: parseNumber(tokens["ops.close1006Total"]),
+      opsClose4000Total: parseNumber(tokens["ops.close4000Total"]),
       netRxBps: parseNumber(tokens["net.rxBps"]),
       netTxBps: parseNumber(tokens["net.txBps"]),
     });
@@ -677,6 +697,46 @@ function buildIncidents(
     }
 
     if (
+      previous.opsClose1006Total !== null &&
+      current.opsClose1006Total !== null &&
+      current.opsClose1006Total - previous.opsClose1006Total >= 2
+    ) {
+      incidents.push({
+        id: nextId(),
+        tsIso: current.tsIso,
+        type: "ops_close1006_jump",
+        title: "Server closeCode=1006 jump",
+        details:
+          "ops.close1006Total increased from " +
+          previous.opsClose1006Total.toString() +
+          " to " +
+          current.opsClose1006Total.toString(),
+        severity: "high",
+        metric: "ops.close1006Total",
+        value: current.opsClose1006Total - previous.opsClose1006Total,
+      });
+    }
+
+    if (
+      current.opsEventLoopP95Ms !== null &&
+      current.opsEventLoopP95Ms >= 80
+    ) {
+      incidents.push({
+        id: nextId(),
+        tsIso: current.tsIso,
+        type: "event_loop_lag_spike",
+        title: "Event-loop lag spike",
+        details:
+          "ops.eventLoopP95ms reached " +
+          current.opsEventLoopP95Ms.toFixed(1) +
+          "ms",
+        severity: current.opsEventLoopP95Ms >= 150 ? "high" : "warn",
+        metric: "ops.eventLoopP95ms",
+        value: current.opsEventLoopP95Ms,
+      });
+    }
+
+    if (
       previous.pm2Restarts !== null &&
       current.pm2Restarts !== null &&
       current.pm2Restarts > previous.pm2Restarts
@@ -729,6 +789,17 @@ function buildIncidents(
         title: marker.title,
         details: marker.details,
         severity: marker.severity,
+      });
+      continue;
+    }
+    if (marker.type === "pm2_unconsented_leave") {
+      incidents.push({
+        id: nextId(),
+        tsIso: marker.tsIso,
+        type: "server_unconsented_leave",
+        title: "Server onLeave consented=false",
+        details: marker.details,
+        severity: "info",
       });
       continue;
     }
@@ -868,6 +939,29 @@ function buildRunData(
     opsLeftUnconsentedStart !== null && opsLeftUnconsentedEnd !== null
       ? Math.max(0, opsLeftUnconsentedEnd - opsLeftUnconsentedStart)
       : null;
+  const opsClose1006Start = firstNonNegative(
+    metrics.map((sample) => sample.opsClose1006Total),
+  );
+  const opsClose1006End = lastNonNegative(
+    metrics.map((sample) => sample.opsClose1006Total),
+  );
+  const opsClose1006Delta =
+    opsClose1006Start !== null && opsClose1006End !== null
+      ? Math.max(0, opsClose1006End - opsClose1006Start)
+      : null;
+  const opsClose4000Start = firstNonNegative(
+    metrics.map((sample) => sample.opsClose4000Total),
+  );
+  const opsClose4000End = lastNonNegative(
+    metrics.map((sample) => sample.opsClose4000Total),
+  );
+  const opsClose4000Delta =
+    opsClose4000Start !== null && opsClose4000End !== null
+      ? Math.max(0, opsClose4000End - opsClose4000Start)
+      : null;
+  const pm2UnconsentedLeaveMarkers = pm2Markers.filter(
+    (marker) => marker.type === "pm2_unconsented_leave",
+  ).length;
 
   return {
     runId,
@@ -891,6 +985,18 @@ function buildRunData(
       opsLeftUnconsentedStart,
       opsLeftUnconsentedEnd,
       opsLeftUnconsentedDelta,
+      peakOpsEventLoopP95Ms: maxNullable(
+        metrics.map((sample) => sample.opsEventLoopP95Ms),
+      ),
+      peakOpsEventLoopMaxMs: maxNullable(
+        metrics.map((sample) => sample.opsEventLoopMaxMs),
+      ),
+      opsClose1006Start,
+      opsClose1006End,
+      opsClose1006Delta,
+      opsClose4000Start,
+      opsClose4000End,
+      opsClose4000Delta,
       peakPm2MemMb: maxNullable(metrics.map((sample) => sample.pm2MemMb)),
       peakPm2CpuPct: maxNullable(metrics.map((sample) => sample.pm2CpuPct)),
       peakPm2Restarts: maxNullable(metrics.map((sample) => sample.pm2Restarts)),
@@ -908,6 +1014,7 @@ function buildRunData(
         abnormalDisconnectsFromCodes > 0
           ? abnormalDisconnectsFromCodes
           : lastSummary?.abnormalDisconnects ?? abnormalDisconnectsFromLeaves,
+      pm2UnconsentedLeaveMarkers,
       loadtestExitCode:
         typeof runMeta?.loadtestExitCode === "number"
           ? runMeta.loadtestExitCode

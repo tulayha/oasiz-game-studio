@@ -235,21 +235,25 @@ while true; do
   else
     ops_json="\$(curl -fsS "\$OPS_URL" 2>/dev/null || echo '{}')"
   fi
-  ops_values="-1 -1 -1 -1"
+  ops_values="-1 -1 -1 -1 -1 -1 -1 -1"
   if [[ "\$HAS_JQ" -eq 1 ]]; then
     ops_values="\$(printf '%s' "\$ops_json" | jq -r '
       [
         (.clients.active // -1),
         (.rooms.active // -1),
         (.clients.leftUnconsentedTotal // -1),
-        (.rttMs.p95 // -1)
+        (.rttMs.p95 // -1),
+        (.eventLoopLagMs.p95 // -1),
+        (.eventLoopLagMs.max // -1),
+        (.clients.closeCodeTotalByCode["1006"] // -1),
+        (.clients.closeCodeTotalByCode["4000"] // -1)
       ] | @tsv
-    ' 2>/dev/null | tr '\t' ' ' || echo '-1 -1 -1 -1')"
+    ' 2>/dev/null | tr '\t' ' ' || echo '-1 -1 -1 -1 -1 -1 -1 -1')"
     if [[ -z "\$ops_values" ]]; then
-      ops_values="-1 -1 -1 -1"
+      ops_values="-1 -1 -1 -1 -1 -1 -1 -1"
     fi
   fi
-  read -r ops_clients ops_rooms ops_unconsented ops_rtt_p95 <<< "\$ops_values"
+  read -r ops_clients ops_rooms ops_unconsented ops_rtt_p95 ops_event_loop_p95 ops_event_loop_max ops_close_1006 ops_close_4000 <<< "\$ops_values"
 
   read -r rx tx <<< "\$(read_iface_counters)"
   drx=\$((rx - prev_rx))
@@ -261,7 +265,7 @@ while true; do
   rx_bps=\$((drx / INTERVAL_SEC))
   tx_bps=\$((dtx / INTERVAL_SEC))
 
-  echo "\$ts host.load1=\$load1 host.memUsedMB=\$mem_used_mb host.memUsedPct=\$mem_used_pct pm2.cpuPct=\$pm2_cpu pm2.memMB=\$pm2_mem_mb pm2.restarts=\$pm2_restarts ops.clients=\$ops_clients ops.rooms=\$ops_rooms ops.leftUnconsented=\$ops_unconsented ops.rttP95ms=\$ops_rtt_p95 net.rxBps=\$rx_bps net.txBps=\$tx_bps" >> "\$METRICS_LOG"
+  echo "\$ts host.load1=\$load1 host.memUsedMB=\$mem_used_mb host.memUsedPct=\$mem_used_pct pm2.cpuPct=\$pm2_cpu pm2.memMB=\$pm2_mem_mb pm2.restarts=\$pm2_restarts ops.clients=\$ops_clients ops.rooms=\$ops_rooms ops.leftUnconsented=\$ops_unconsented ops.rttP95ms=\$ops_rtt_p95 ops.eventLoopP95ms=\$ops_event_loop_p95 ops.eventLoopMaxMs=\$ops_event_loop_max ops.close1006Total=\$ops_close_1006 ops.close4000Total=\$ops_close_4000 net.rxBps=\$rx_bps net.txBps=\$tx_bps" >> "\$METRICS_LOG"
   sleep "\$INTERVAL_SEC"
 done
 EOF

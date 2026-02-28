@@ -230,9 +230,11 @@ Production recommendation:
 - payload includes:
   - room/client counters
   - consented vs unconsented leave totals
-  - recent leave event ring buffer (`clients.recentLeaves`) with timestamp, roomId, sessionId, consented flag, and phase
+  - close-code totals (`clients.closeCodeTotalByCode`, e.g. `1006`, `4000`)
+  - recent leave event ring buffer (`clients.recentLeaves`) with timestamp, roomId, sessionId, consented flag, phase, close code/reason, and transport state
   - input/ping/snapshot fanout totals and rates
   - rolling RTT summary (`p50`, `p95`, `p99`) from client-reported `rttMs`
+  - rolling event-loop lag summary (`eventLoopLagMs.p50/p95/p99/max`)
   - process memory + load averages
   - current matchMaker room/client snapshot
 
@@ -371,3 +373,7 @@ Client debug tools are enabled in either case:
 ## Deploy note
 
 `server-deploy-script.txt` contains a PM2-based deployment script used in production workflows.
+
+Branch override options:
+- env: `BRANCH=<branch> /root/deploy-astro-party.sh`
+- cli: `/root/deploy-astro-party.sh --branch <branch>` (or `/root/deploy-astro-party.sh <branch>`)

@@ -2,7 +2,11 @@ cat >/root/deploy-astro-party.sh <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-BRANCH="${BRANCH:-space-force-dev}"
+# Branch selection precedence:
+# 1) CLI arg: --branch <name> (or first positional arg)
+# 2) BRANCH env var
+# 3) default: space-force-dev
+TARGET_BRANCH="${BRANCH:-space-force-dev}"
 PM2_NAME="${PM2_NAME:-astro-party-colyseus}"
 LOCAL_HEALTH_URL="${LOCAL_HEALTH_URL:-http://127.0.0.1:2567/healthz}"
 PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://api.aiisourdaddy.com/healthz}"
@@ -22,6 +26,63 @@ fi
 log() {
   echo "[deploy-astro-party] $*"
 }
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  deploy-astro-party.sh [--branch <name>]
+  deploy-astro-party.sh <branch>
+USAGE
+}
+
+parse_args() {
+  local positional_branch_set=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -b|--branch)
+        if [ "$#" -lt 2 ]; then
+          echo "Missing value for $1" >&2
+          usage
+          exit 1
+        fi
+        TARGET_BRANCH="$2"
+        shift 2
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --)
+        shift
+        ;;
+      -*)
+        echo "Unknown option: $1" >&2
+        usage
+        exit 1
+        ;;
+      *)
+        if [ "${positional_branch_set}" -eq 0 ]; then
+          TARGET_BRANCH="$1"
+          positional_branch_set=1
+          shift
+        else
+          echo "Unexpected argument: $1" >&2
+          usage
+          exit 1
+        fi
+        ;;
+    esac
+  done
+}
+
+parse_args "$@"
+
+if [ -z "${TARGET_BRANCH//[[:space:]]/}" ]; then
+  echo "Branch cannot be empty" >&2
+  exit 1
+fi
+
+BRANCH="${TARGET_BRANCH}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
