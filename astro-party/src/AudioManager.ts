@@ -16,6 +16,8 @@ import {
 
 interface PlayMusicOptions {
   restart?: boolean;
+  /** Override the fade-in duration in ms. Defaults to MUSIC_FADE_IN_MS. */
+  fadeInMs?: number;
 }
 
 function collectBackgroundMusicAssetIds(): ReadonlySet<AudioAssetId> {
@@ -32,6 +34,8 @@ function collectBackgroundMusicAssetIds(): ReadonlySet<AudioAssetId> {
 const BACKGROUND_MUSIC_ASSET_IDS = collectBackgroundMusicAssetIds();
 const MUSIC_FADE_IN_MS = 220;
 const MUSIC_FADE_OUT_MS = 180;
+/** Slow fade-in used only for the gameplay BGM (not menu/results music). */
+const GAMEPLAY_BGM_FADE_IN_MS = 2500;
 const GAMEPLAY_FX_ASSET_IDS: ReadonlySet<AudioAssetId> = new Set<AudioAssetId>([
   "sfxFire",
   "sfxExplosion",
@@ -714,8 +718,11 @@ class AudioManagerClass {
     }
 
     const targetVolume = definition.volume;
+    const fadeInMs =
+      options.fadeInMs ??
+      (assetId === "gameplayLoop" ? GAMEPLAY_BGM_FADE_IN_MS : MUSIC_FADE_IN_MS);
     player.volume(0, soundId);
-    player.fade(0, targetVolume, MUSIC_FADE_IN_MS, soundId);
+    player.fade(0, targetVolume, fadeInMs, soundId);
     this.activeMusicAssetId = assetId;
     this.activeMusicSoundId = soundId;
   }
@@ -725,7 +732,12 @@ class AudioManagerClass {
   }
 
   async playGameplayMusic(options: PlayMusicOptions = {}): Promise<void> {
-    await this.playMusicAsset("gameplayLoop", options);
+    // Gameplay BGM fades in slowly so it doesn't hit suddenly (2.5 s ramp).
+    // SFX and other music tracks are not affected.
+    await this.playMusicAsset("gameplayLoop", {
+      ...options,
+      fadeInMs: options.fadeInMs ?? GAMEPLAY_BGM_FADE_IN_MS,
+    });
   }
 
   async playResultsSting(options: PlayMusicOptions = {}): Promise<void> {

@@ -289,6 +289,14 @@ export class NetworkManager {
     this.transport.demoCleanupStalePilots?.(maxAgeMs);
   }
 
+  demoSetPlayerInvincible(playerId: string, durationMs: number): void {
+    this.transport.demoSetPlayerInvincible?.(playerId, durationMs);
+  }
+
+  setDemoMode(active: boolean): void {
+    this.transport.setDemoMode?.(active);
+  }
+
   isPlayerBot(playerId: string): boolean {
     return this.transport.isPlayerBot(playerId);
   }

@@ -1629,6 +1629,7 @@ export class Game {
 
   setDemoSession(active: boolean): void {
     this.isDemoSession = active;
+    this.network.setDemoMode(active);
     if (!active) {
       // Always clear tutorial gates when leaving demo
       this.demoTutorialBlockDash = false;
@@ -1670,6 +1671,13 @@ export class Game {
 
   demoRespawnPlayer(playerId: string): void {
     this.network.demoRespawnPlayer(playerId);
+  }
+
+  /** Demo-only: grant the local player's ship 5 s of invulnerability. */
+  demoSetPlayerInvincible(durationMs: number): void {
+    const myId = this.getMyPlayerId();
+    if (!myId) return;
+    this.network.demoSetPlayerInvincible(myId, durationMs);
   }
 
   demoCleanupStalePilots(maxAgeMs: number): void {

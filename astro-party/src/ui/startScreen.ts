@@ -144,10 +144,10 @@ export function createStartScreenUI(
     }
   });
 
-  elements.joinRoomBtn.addEventListener("click", async () => {
+  elements.joinRoomBtn.addEventListener("click", () => {
     feedback.subtle();
-    if (beforeAction) await beforeAction();
-    game.setSessionMode("online");
+    // Don't call beforeAction here — just showing the join form doesn't commit
+    // to any action; the demo should keep running until the user actually submits.
     showJoinSection();
   });
 
@@ -190,7 +190,6 @@ export function createStartScreenUI(
   });
 
   elements.submitJoinBtn.addEventListener("click", async () => {
-    game.setSessionMode("online");
     const code = elements.roomCodeInput.value.trim().toUpperCase();
 
     if (code.length < 4) {
@@ -199,6 +198,10 @@ export function createStartScreenUI(
       feedback.error();
       return;
     }
+
+    // Commit: tear down demo and set session mode now that the user is actually joining
+    if (beforeAction) await beforeAction();
+    game.setSessionMode("online");
 
     feedback.button();
     elements.submitJoinBtn.disabled = true;
