@@ -2,6 +2,7 @@ import { Game } from "../Game";
 import { elements } from "./elements";
 import { createUIFeedback } from "../feedback/uiFeedback";
 import { AudioManager } from "../AudioManager";
+import { getPlayerName as getPlatformPlayerName } from "../platform/oasizBridge";
 
 export interface StartScreenUI {
   resetStartButtons: (replayTitleIntro?: boolean) => void;
@@ -113,10 +114,10 @@ export function createStartScreenUI(
   }
 
   function resetStartButtons(replayTitleIntro = true): void {
-    elements.createRoomBtn.disabled = false;
+    setStartActionLock(false);
     elements.createRoomBtn.textContent = "Create Room";
-    elements.localMatchBtn.disabled = false;
     elements.localMatchBtn.textContent = "Local Match";
+    elements.submitJoinBtn.textContent = "Join";
     hideJoinSection();
     if (replayTitleIntro) {
       playTitleIntro();
@@ -124,21 +125,23 @@ export function createStartScreenUI(
   }
 
   elements.createRoomBtn.addEventListener("click", async () => {
+    if (startActionInFlight) return;
     feedback.button();
-    if (beforeAction) await beforeAction();
-    game.setSessionMode("online");
-    elements.createRoomBtn.disabled = true;
+    setStartActionLock(true);
     elements.createRoomBtn.textContent = "Creating...";
 
     try {
+      if (beforeAction) await beforeAction();
+      game.setSessionMode("online");
       const code = await game.createRoom();
       console.log("[Main] Room created:", code);
-      if (window.__PLAYER_NAME__) {
-        game.setPlayerName(window.__PLAYER_NAME__);
+      const playerName = getInjectedPlayerName();
+      if (playerName !== null) {
+        game.setPlayerName(playerName);
       }
     } catch (e) {
       console.error("[Main] Failed to create room:", e);
-      elements.createRoomBtn.disabled = false;
+      setStartActionLock(false);
       elements.createRoomBtn.textContent = "Create Room";
     }
   });
@@ -151,21 +154,23 @@ export function createStartScreenUI(
   });
 
   elements.localMatchBtn.addEventListener("click", async () => {
+    if (startActionInFlight) return;
     feedback.button();
-    if (beforeAction) await beforeAction();
-    game.setSessionMode("local");
-    elements.localMatchBtn.disabled = true;
+    setStartActionLock(true);
     elements.localMatchBtn.textContent = "Starting...";
 
     try {
+      if (beforeAction) await beforeAction();
+      game.setSessionMode("local");
       const code = await game.createRoom();
       console.log("[Main] Local room created:", code);
-      if (window.__PLAYER_NAME__) {
-        game.setPlayerName(window.__PLAYER_NAME__);
+      const playerName = getInjectedPlayerName();
+      if (playerName !== null) {
+        game.setPlayerName(playerName);
       }
     } catch (e) {
       console.error("[Main] Failed to start local match:", e);
-      elements.localMatchBtn.disabled = false;
+      setStartActionLock(false);
       elements.localMatchBtn.textContent = "Local Match";
     }
   });
@@ -189,6 +194,7 @@ export function createStartScreenUI(
   });
 
   elements.submitJoinBtn.addEventListener("click", async () => {
+    if (startActionInFlight) return;
     const code = elements.roomCodeInput.value.trim().toUpperCase();
 
     if (code.length < 4) {
@@ -198,35 +204,38 @@ export function createStartScreenUI(
       return;
     }
 
-    // Commit: tear down demo and set session mode now that the user is actually joining
-    if (beforeAction) await beforeAction();
-    game.setSessionMode("online");
-
     feedback.button();
-    elements.submitJoinBtn.disabled = true;
+    setStartActionLock(true);
     elements.submitJoinBtn.textContent = "Joining...";
 
     try {
+      // Commit: tear down demo and set session mode now that the user is actually joining
+      if (beforeAction) await beforeAction();
+      game.setSessionMode("online");
       const success = await game.joinRoom(code);
       if (success) {
-        if (window.__PLAYER_NAME__) {
-          game.setPlayerName(window.__PLAYER_NAME__);
+        const playerName = getInjectedPlayerName();
+        if (playerName !== null) {
+          game.setPlayerName(playerName);
         }
       } else {
         elements.joinError.textContent =
           game.consumeLastTransportErrorMessage() ?? "Could not join room";
         elements.joinError.classList.add("active");
         feedback.error();
+        setStartActionLock(false);
       }
     } catch (e) {
       console.error("[Main] Failed to join room:", e);
       elements.joinError.textContent = "Connection failed";
       elements.joinError.classList.add("active");
       feedback.error();
+      setStartActionLock(false);
     }
 
-    elements.submitJoinBtn.disabled = false;
-    elements.submitJoinBtn.textContent = "Join";
+    if (!startActionInFlight) {
+      elements.submitJoinBtn.textContent = "Join";
+    }
   });
 
   function setBeforeAction(fn: (() => Promise<void>) | null): void {

@@ -58,6 +58,67 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - Outcome:
   - Closed. New guardrails and architecture contract are now explicit and durable.
 
+### 2026-02-28 - Demo flow/runtime fixes (loop lifecycle + SDK + tap race guard) (Closed)
+
+- Original prompt:
+  - Review issues and fix items 1 to 4 from the demo flow/performance findings.
+- Intent:
+  - Remove background loop waste, align platform integration with SDK policy, clear compile blocker, and prevent duplicate start/join actions during demo teardown.
+- Plan:
+  - Add explicit RAF lifecycle ownership and background stop/resume hooks.
+  - Replace direct bridge usage with `@oasiz/sdk` in runtime touchpoints.
+  - Fix demo timer typing mismatch.
+  - Add start-screen action locking so buttons disable before async teardown/network work.
+- Progress updates:
+  - Added `startLoop`/`stopLoop`, RAF handle tracking, `visibilitychange` and `oasiz.onPause/onResume` wiring in `src/Game.ts`.
+  - Migrated score submit, haptics, room share, and injected player identity/state paths to `oasiz.*`.
+  - Added SDK dependency (`@oasiz/sdk`) to `package.json`.
+  - Fixed `DemoOverlayUI` interval typing to unblock typecheck.
+  - Added start-screen action lock and early disable path in `src/ui/startScreen.ts`.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Closed. Findings 1-4 were implemented and validated in local checks.
+
+### 2026-02-28 - Central SDK adapter refactor (Closed)
+
+- Original prompt:
+  - Instead of importing SDK directly in many files, centralize integration in one wrapper.
+- Intent:
+  - Improve maintainability and reduce churn risk from SDK API updates by routing platform calls through one adapter module.
+- Plan:
+  - Create a platform bridge module as the single `@oasiz/sdk` import location.
+  - Refactor current call sites to consume bridge methods.
+  - Validate compile/build and ensure no direct SDK imports remain outside the bridge.
+- Progress updates:
+  - Added `src/platform/oasizBridge.ts` with wrappers for score submit, haptics, room share, lifecycle hooks, gameplay activity, and injected room/player properties.
+  - Refactored `Game`, `main`, `SettingsManager`, UI haptics/start flow, and transport files to call bridge methods.
+  - Removed direct `@oasiz/sdk` imports from feature files.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Closed. Platform SDK integration now has a single import/adapter boundary.
+
+### 2026-02-28 - Remaining issues doc capture (Closed)
+
+- Original prompt:
+  - Document the remaining unresolved issues into an `.md` file.
+- Intent:
+  - Preserve the post-fix open issues in a single actionable reference.
+- Plan:
+  - Reconfirm unresolved findings from the previous review.
+  - Create a dedicated markdown file with severity, impact, evidence, and suggested fixes.
+- Progress updates:
+  - Created `remaining-issues.md` with the two still-open items:
+    - orientation ownership mismatch
+    - top safe-area offset budget not enforced for top interactive controls
+- Validation:
+  - Docs-only update; no runtime commands rerun.
+- Outcome:
+  - Closed. Remaining issues are now documented and linkable.
+
 ## Recurring Patterns Filtered Out
 
 - Iterative UI micro-patches were repeatedly applied to the same lobby/start layouts.
@@ -212,3 +273,57 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
   - promotion mapping must be documented as `progress -> learning -> AGENTS`
 - Validation:
   - Docs-only update; no runtime commands rerun.
+
+## 2026-02-28 - Demo/runtime flow hardening for findings 1-4
+
+- Added explicit game loop lifecycle control in `src/Game.ts`:
+  - RAF handle ownership (`startLoop`/`stopLoop`)
+  - background stop/resume on `document.visibilitychange`
+  - platform pause/resume wiring through `oasiz.onPause` / `oasiz.onResume`
+- Replaced direct bridge usage with SDK integration:
+  - score submission via `oasiz.submitScore`
+  - haptics via `oasiz.triggerHaptic`
+  - room sharing via `oasiz.shareRoomCode`
+  - injected room/player identity + persisted demo-seen state via `oasiz.roomCode`, `oasiz.playerName`, `oasiz.loadGameState`, `oasiz.saveGameState`
+- Fixed compile blocker in `src/demo/DemoOverlayUI.ts` by correcting interval handle typing.
+- Added start-screen action lock to prevent duplicate create/local/join actions before async demo teardown/network operations complete.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-02-28 - Centralized Oasiz SDK adapter boundary
+
+- Added `src/platform/oasizBridge.ts` as the single `@oasiz/sdk` import boundary.
+- Moved platform integration calls behind bridge wrappers:
+  - score submit
+  - haptics
+  - load/save game state
+  - room-code sharing
+  - injected room/player identity reads
+  - lifecycle pause/resume + gameplay activity hints
+- Refactored existing consumers (`Game`, `main`, `SettingsManager`, UI, transports) to use bridge methods.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-02-28 - Remaining open issues documented
+
+- Added `remaining-issues.md` as a dedicated open-issues reference after fixes 1-4.
+- Captured unresolved items with concrete evidence and suggested fixes:
+  - orientation ownership mismatch vs architecture contract
+  - top safe-area offset budget gap for interactive top controls
+- Validation:
+  - Docs-only update; no runtime commands rerun.
+
+## 2026-02-28 - Agent Mistake Log: Uncalled-for cache workaround (constraint violation)
+
+- Issue:
+  - An unrequested runtime cache-busting redirect workaround was added to `src/main.ts` during discussion.
+- Why this was a bad call:
+  - It violated the active collaboration constraint: user did not ask for a new workaround implementation.
+  - It introduced behavior-changing code in a path where the user asked for diagnosis and direct answers.
+- Corrective action taken:
+  - The unrequested `main.ts` workaround block was fully reverted without resetting unrelated staged changes.
+- Durable learning:
+  - Do not implement speculative fixes without explicit user approval when the user has set hard constraints.
+  - In escalation threads, respond with verified analysis first; wait for explicit implementation instruction before editing code.

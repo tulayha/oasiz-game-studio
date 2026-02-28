@@ -1,5 +1,9 @@
 import { Client, Room, getStateCallbacks } from "colyseus.js";
 import {
+  getPlayerName as getPlatformPlayerName,
+  shareRoomCode as sharePlatformRoomCode,
+} from "../../platform/oasizBridge";
+import {
   AdvancedSettingsSync,
   AsteroidColliderSync,
   DebugPhysicsTuningPayload,
@@ -1316,19 +1320,10 @@ export class ColyseusTransport implements NetworkTransport {
   }
 
   private readInjectedPlayerName(): string | null {
-    const name = (window as unknown as { __PLAYER_NAME__?: string })
-      .__PLAYER_NAME__;
-    if (typeof name !== "string") return null;
-    const normalized = name.trim();
-    return normalized.length > 0 ? normalized : null;
+    return getPlatformPlayerName();
   }
 
   private shareRoomCode(code: string | null): void {
-    const win = window as unknown as {
-      shareRoomCode?: (code: string | null) => void;
-    };
-    if (typeof win.shareRoomCode === "function") {
-      win.shareRoomCode(code);
-    }
+    sharePlatformRoomCode(code);
   }
 }

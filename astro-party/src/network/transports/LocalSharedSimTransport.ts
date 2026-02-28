@@ -1,4 +1,5 @@
 import { AstroPartySimulation } from "../../../shared/sim/AstroPartySimulation";
+import { getPlayerName as getPlatformPlayerName } from "../../platform/oasizBridge";
 import type {
   AdvancedSettingsSync,
   DebugPhysicsTuningPayload,
@@ -697,11 +698,7 @@ export class LocalSharedSimTransport implements NetworkTransport {
   }
 
   private readInjectedPlayerName(): string | null {
-    const name = (window as unknown as { __PLAYER_NAME__?: string })
-      .__PLAYER_NAME__;
-    if (typeof name !== "string") return null;
-    const normalized = name.trim();
-    return normalized.length > 0 ? normalized : null;
+    return getPlatformPlayerName();
   }
 
 }
