@@ -96,6 +96,14 @@ Rendering assets:
 - Entity/ship geometry originates in shared asset manifests and generation scripts.
 - Runtime render asset stores use generated/shared inputs.
 
+Platform orientation + safe-area contract:
+- Platform now enforces landscape orientation for runtime presentation.
+- Client UI should not own forced portrait-rotation transforms as a normal compatibility path.
+- Client layout ownership is safe placement within landscape:
+  - respect platform top HUD overlay bounds
+  - respect device notch/safe zones for both landscape directions
+  - keep top-corner interactive UI offset by effective safe-top spacing
+
 ## Asset Mapping + URL Contract
 
 Runtime URL contract:
