@@ -43,3 +43,7 @@ output/
 
 # Local FFmpeg bootstrap in Astro Party
 astro-party/.tools/ffmpeg/
+astro-party/server/observed-runs/*
+!astro-party/server/observed-runs/dashboard/
+!astro-party/server/observed-runs/dashboard/**
+!astro-party/server/observed-runs/index.json
