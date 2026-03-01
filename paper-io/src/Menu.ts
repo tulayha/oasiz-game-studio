@@ -23,24 +23,6 @@ export class Menu {
   }
 
   private setupMenu(): void {
-    // Bot count buttons
-    document.querySelectorAll('#bot-count-group button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#bot-count-group button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.config.botCount = parseInt((btn as HTMLElement).dataset.val!);
-      });
-    });
-
-    // Difficulty buttons
-    document.querySelectorAll('#difficulty-group button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#difficulty-group button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.config.difficulty = (btn as HTMLElement).dataset.val as Difficulty;
-      });
-    });
-
     // Play button
     document.getElementById('play-btn')!.addEventListener('click', () => {
       this.onPlay?.(this.config);

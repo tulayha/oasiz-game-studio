@@ -7,8 +7,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #f5f0e8; font-family: 'Quicksand', sans-serif; color: #5A5A5A; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #f5f0e8; font-family: 'Quicksand', sans-serif; color: #5A5A5A; display: flex; align-items: center; justify-content: center; }
 
+    #game-wrapper {
+      width: min(100vw, 56.25vh); /* 9:16 portrait */
+      height: min(100vh, 177.78vw); /* 16:9 inverse */
+      position: relative; overflow: hidden;
+    }
     #game-canvas { width: 100%; height: 100%; display: block; }
 
     /* ─── Menu ─── */
@@ -18,18 +23,9 @@
     }
     #menu-screen h1 {
       font-family: 'Quicksand', sans-serif; font-size: 2.8rem; font-weight: 700;
-      color: #E8736C; margin-bottom: 2rem; letter-spacing: 2px;
+      color: #E8736C; margin-bottom: 0.5rem; letter-spacing: 2px;
     }
-    .menu-row { display: flex; align-items: center; gap: 12px; margin: 10px 0; font-size: 1rem; }
-    .menu-row label { min-width: 100px; text-align: right; opacity: 0.6; font-weight: 600; }
-    .menu-btn-group { display: flex; gap: 6px; }
-    .menu-btn-group button {
-      background: #EDE6D9; border: 2px solid #DED6C8; color: #5A5A5A; padding: 8px 18px;
-      border-radius: 10px; cursor: pointer; font-family: 'Quicksand', sans-serif; font-size: 0.9rem;
-      font-weight: 600; transition: all 0.2s;
-    }
-    .menu-btn-group button.active { background: #E8736C; color: #fff; border-color: #D05550; font-weight: 700; }
-    .menu-btn-group button:hover { border-color: #E8736C; }
+    .game-desc { font-size: 0.95rem; opacity: 0.5; font-weight: 500; margin-bottom: 2rem; text-align: center; }
 
     #play-btn {
       margin-top: 2rem; padding: 14px 60px; font-family: 'Quicksand', sans-serif;
@@ -124,26 +120,13 @@
   </style>
 </head>
 <body>
+<div id="game-wrapper">
   <canvas id="game-canvas"></canvas>
 
   <!-- Menu -->
   <div id="menu-screen">
     <h1>Paper.io</h1>
-    <div class="menu-row">
-      <label>Bots</label>
-      <div class="menu-btn-group" id="bot-count-group">
-        <button data-val="3">3</button>
-        <button data-val="5" class="active">5</button>
-      </div>
-    </div>
-    <div class="menu-row">
-      <label>Difficulty</label>
-      <div class="menu-btn-group" id="difficulty-group">
-        <button data-val="easy">Easy</button>
-        <button data-val="medium" class="active">Medium</button>
-        <button data-val="hard">Hard</button>
-      </div>
-    </div>
+    <p class="game-desc">Conquer territory by drawing loops. Don't get caught!</p>
     <button id="play-btn">Play</button>
     <div class="how-to-play" id="how-to-toggle">How to Play</div>
     <div id="how-to-content">
@@ -190,6 +173,7 @@
     <div class="dpad-btn dpad-left" data-dir="LEFT">◄</div>
     <div class="dpad-btn dpad-right" data-dir="RIGHT">►</div>
   </div>
+</div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

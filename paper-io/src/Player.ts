@@ -94,7 +94,8 @@ function screenToGround(
   screenX: number, screenY: number,
   camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement,
 ): Vec2 | null {
-  _ndcVec.set((screenX / canvas.clientWidth) * 2 - 1, -(screenY / canvas.clientHeight) * 2 + 1);
+  const rect = canvas.getBoundingClientRect();
+  _ndcVec.set(((screenX - rect.left) / rect.width) * 2 - 1, -((screenY - rect.top) / rect.height) * 2 + 1);
   _raycaster.setFromCamera(_ndcVec, camera);
 
   const hit = _raycaster.ray.intersectPlane(_groundPlane, _hitTarget);

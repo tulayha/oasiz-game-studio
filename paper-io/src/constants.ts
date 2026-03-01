@@ -3,9 +3,9 @@ export const MAP_SIZE = 60;
 export const MAP_HALF = MAP_SIZE / 2;
 export const MAP_RADIUS = MAP_HALF; // circular arena radius
 export const PLAYER_SPEED = 10; // units per second
-export const TRAIL_SAMPLE_DIST = 0.4;
+export const TRAIL_SAMPLE_DIST = 0.25;
 export const START_RADIUS = 3;
-export const START_TERRITORY_SEGMENTS = 16;
+export const START_TERRITORY_SEGMENTS = 32;
 
 // ─── Directions ───
 export enum Direction {
@@ -53,11 +53,11 @@ export const PLAYER_COLOR_STRINGS = [
   '#00E5FF', '#FF3D71', '#FFAA00', '#00E096', '#A259FF', '#FF6B35',
 ];
 
-export const BOARD_COLOR = 0x0D0D12;
-export const GRID_LINE_COLOR = 0x1A1A28;
-export const BG_COLOR = 0x07070F;
+export const BOARD_COLOR = 0xDBF1FF;  // slightly off-white arena
+export const GRID_LINE_COLOR = 0xDED6C8; // warm cream grid lines
+export const BG_COLOR = 0xFFFFFF;  // white sky
 
-export const TERRITORY_OPACITY = 0.55;
+export const TERRITORY_OPACITY = 1.0;
 export const TRAIL_OPACITY = 0.85;
 
 // ─── Spawn Points (evenly spaced around circle at radius 20) ───

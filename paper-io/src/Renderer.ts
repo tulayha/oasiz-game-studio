@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAP_RADIUS, BOARD_COLOR, BG_COLOR, GRID_LINE_COLOR, TERRITORY_OPACITY, TRAIL_OPACITY, type Vec2 } from './constants.ts';
+import { MAP_RADIUS, BOARD_COLOR, BG_COLOR, GRID_LINE_COLOR, TRAIL_OPACITY, type Vec2 } from './constants.ts';
 
 /**
  * Winding number point-in-polygon test.
@@ -33,7 +33,7 @@ function pointInPolygonWinding(point: Vec2, polygon: Vec2[]): boolean {
 
 const TERRITORY_Y = 0.03;
 const TRAIL_Y = 0.06;
-const CELL_SIZE = 0.3; // grid resolution for territory rendering
+const CELL_SIZE = 0.05; // grid resolution for territory rendering
 
 export class Renderer {
   scene: THREE.Scene;
@@ -41,7 +41,7 @@ export class Renderer {
   renderer: THREE.WebGLRenderer;
 
   private territoryObjects: Map<number, THREE.Mesh> = new Map();
-  private territoryMaterials: Map<number, THREE.MeshLambertMaterial> = new Map();
+  private territoryMaterials: Map<number, THREE.MeshBasicMaterial> = new Map();
   private territoryPolyCount: Map<number, number> = new Map(); // track polygon count to skip unchanged
   private trailMeshes: Map<number, THREE.Mesh> = new Map();
   private trailLengths: Map<number, number> = new Map(); // track trail length to skip unchanged
@@ -54,16 +54,17 @@ export class Renderer {
     this.scene.background = new THREE.Color(BG_COLOR);
     this.scene.fog = new THREE.Fog(BG_COLOR, 30, 55);
 
-    this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
+    const wrapper = document.getElementById('game-wrapper')!;
+    const w = wrapper.clientWidth;
+    const h = wrapper.clientHeight;
+
+    this.camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 200);
     this.camera.position.set(0, 20, 12.5);
     this.camera.lookAt(0, 0, 0);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(w, h);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-
     this.createBoard();
     this.createLighting();
 
@@ -76,7 +77,6 @@ export class Renderer {
     const boardMat = new THREE.MeshLambertMaterial({ color: BOARD_COLOR });
     const board = new THREE.Mesh(boardGeo, boardMat);
     board.rotation.x = -Math.PI / 2;
-    board.receiveShadow = true;
     this.scene.add(board);
 
     // Concentric ring grid lines
@@ -101,33 +101,23 @@ export class Renderer {
     this.scene.add(border);
   }
 
+
   private createLighting(): void {
-    const ambient = new THREE.AmbientLight(0x1a1a2e, 0.6);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
     this.scene.add(ambient);
 
-    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
     dir.position.set(20, 40, 20);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
-    dir.shadow.camera.left = -40;
-    dir.shadow.camera.right = 40;
-    dir.shadow.camera.top = 40;
-    dir.shadow.camera.bottom = -40;
     this.scene.add(dir);
-
-    const point = new THREE.PointLight(0x00E5FF, 0.4, 80);
-    point.position.set(0, 10, 0);
-    this.scene.add(point);
   }
 
-  createAvatar(id: number, color: number): THREE.Group {
+  createAvatar(id: number, color: number, name?: string): THREE.Group {
     const group = new THREE.Group();
 
     const bodyGeo = new THREE.BoxGeometry(0.7, 0.35, 0.7);
-    const bodyMat = new THREE.MeshToonMaterial({ color });
+    const bodyMat = new THREE.MeshLambertMaterial({ color });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.position.y = 0.175;
-    body.castShadow = true;
     group.add(body);
 
     const ringGeo = new THREE.TorusGeometry(0.45, 0.04, 8, 24);
@@ -137,9 +127,43 @@ export class Renderer {
     ring.position.y = 0.4;
     group.add(ring);
 
+    // Name label sprite
+    if (name) {
+      const label = this.createTextSprite(name);
+      label.position.y = 1.1;
+      group.add(label);
+    }
+
     this.scene.add(group);
     this.avatars.set(id, group);
     return group;
+  }
+
+  private createTextSprite(text: string): THREE.Sprite {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    canvas.width = 256;
+    canvas.height = 64;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = '600 36px Quicksand, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Shadow for readability
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillText(text, canvas.width / 2 + 1, canvas.height / 2 + 1);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(2, 0.5, 1);
+    return sprite;
   }
 
   updateAvatar(id: number, pos: Vec2, time: number, moveDir?: Vec2): void {
@@ -169,6 +193,41 @@ export class Renderer {
     if (avatar) avatar.visible = false;
   }
 
+  setRingColor(id: number, color: number): void {
+    const avatar = this.avatars.get(id);
+    if (!avatar) return;
+    const ring = avatar.children[1] as THREE.Mesh;
+    if (ring?.material instanceof THREE.MeshBasicMaterial) {
+      ring.material.color.setHex(color);
+    }
+  }
+
+  showCrown(id: number): void {
+    const avatar = this.avatars.get(id);
+    if (!avatar) return;
+
+    const crownGroup = new THREE.Group();
+    crownGroup.position.y = 0.5;
+
+    // Crown band
+    const bandGeo = new THREE.CylinderGeometry(0.3, 0.32, 0.12, 6);
+    const goldMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 });
+    const band = new THREE.Mesh(bandGeo, goldMat);
+    crownGroup.add(band);
+
+    // Crown points (5 small cones around the band)
+    const pointCount = 5;
+    for (let i = 0; i < pointCount; i++) {
+      const angle = (Math.PI * 2 * i) / pointCount;
+      const coneGeo = new THREE.ConeGeometry(0.06, 0.18, 4);
+      const cone = new THREE.Mesh(coneGeo, goldMat);
+      cone.position.set(Math.cos(angle) * 0.28, 0.12, Math.sin(angle) * 0.28);
+      crownGroup.add(cone);
+    }
+
+    avatar.add(crownGroup);
+  }
+
   /**
    * Grid-scan territory with marching-squares contour for smooth edges.
    * 1. Rasterize all polygons onto a fine grid using pointInPolygon (handles any shape).
@@ -195,14 +254,11 @@ export class Renderer {
       return;
     }
 
-    // Reuse or create material per player
+    // Reuse or create material per player — MeshBasicMaterial to match trail color exactly
     let mat = this.territoryMaterials.get(id);
     if (!mat) {
-      const boardCol = new THREE.Color(BOARD_COLOR);
-      const playerCol = new THREE.Color(color);
-      const blended = boardCol.lerp(playerCol, TERRITORY_OPACITY);
-      mat = new THREE.MeshLambertMaterial({
-        color: blended,
+      mat = new THREE.MeshBasicMaterial({
+        color: color,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
@@ -417,7 +473,6 @@ export class Renderer {
     geo.computeVertexNormals();
 
     const mesh = new THREE.Mesh(geo, mat!);
-    mesh.receiveShadow = true;
     this.scene.add(mesh);
     this.territoryObjects.set(id, mesh);
   }
@@ -521,9 +576,12 @@ export class Renderer {
   }
 
   private onResize(): void {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const wrapper = document.getElementById('game-wrapper')!;
+    const w = wrapper.clientWidth;
+    const h = wrapper.clientHeight;
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(w, h);
   }
 
   cleanupPlayer(id: number): void {

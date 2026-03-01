@@ -28,6 +28,7 @@ export class Game {
   private gameTime = 0;
   private lastFrameTime = 0;
   private hudUpdateTimer = 0;
+  private currentLeaderId = -1;
 
   constructor() {
     const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -84,7 +85,7 @@ export class Game {
         PLAYER_NAMES[i], sp.x, sp.z, i === 0,
       );
       this.players.push(player);
-      this.renderer.createAvatar(i, PLAYER_COLORS[i]);
+      this.renderer.createAvatar(i, PLAYER_COLORS[i], PLAYER_NAMES[i]);
     }
 
     // Bot AI
@@ -244,6 +245,26 @@ export class Game {
     if (this.hudUpdateTimer >= 0.1) {
       this.hudUpdateTimer = 0;
       this.hud.update(this.players);
+
+      // Gold ring for the leader
+      let leaderId = -1;
+      let bestArea = -1;
+      for (const p of this.players) {
+        if (!p.alive) continue;
+        const area = p.territory.computeArea();
+        if (area > bestArea) { bestArea = area; leaderId = p.id; }
+      }
+      if (leaderId !== this.currentLeaderId) {
+        // Reset previous leader's ring to their own color
+        if (this.currentLeaderId >= 0) {
+          this.renderer.setRingColor(this.currentLeaderId, PLAYER_COLORS[this.currentLeaderId]);
+        }
+        // Set new leader's ring to gold
+        if (leaderId >= 0) {
+          this.renderer.setRingColor(leaderId, 0xFFD700);
+        }
+        this.currentLeaderId = leaderId;
+      }
     }
 
     // Check game over
@@ -271,6 +292,11 @@ export class Game {
 
     if (!human.alive || alive.length <= 1) {
       this.gameOver = true;
+
+      // Crown the winner (last alive, or top territory holder)
+      const winner = alive.length === 1 ? alive[0] : null;
+      if (winner) this.renderer.showCrown(winner.id);
+
       const { pct, rank } = this.hud.getHumanScore(this.players);
       this.menu.showGameOver(
         `${pct}%`,
