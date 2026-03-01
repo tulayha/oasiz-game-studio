@@ -20,6 +20,7 @@ import { getPilotDashWorldPoint } from "../../geometry/PilotRenderAnchors.js";
 
 // Keep both pilot dash trigger modes available for easy tuning/rollback.
 const PILOT_DASH_USE_EDGE_TRIGGER = false;
+const ENDLESS_RESPAWN_DELAY_MS = 3000;
 
 function awardPlayerScore(
   player: RuntimePlayer | undefined,
@@ -179,6 +180,9 @@ export function killPilot(sim: SimState, pilotPlayerId: string, killerId: string
   const player = sim.players.get(pilotPlayerId);
   if (player) {
     player.state = "SPECTATING";
+    if (sim.ruleset === "ENDLESS_RESPAWN") {
+      player.endlessRespawnAtMs = sim.nowMs + ENDLESS_RESPAWN_DELAY_MS;
+    }
   }
 
   if (killerId !== "asteroid") {
@@ -214,9 +218,48 @@ export function respawnFromPilot(sim: SimState, playerId: string, pilot: Runtime
   player.ship.reloadStartTime = sim.nowMs;
   player.ship.isReloading = false;
   player.state = "ACTIVE";
+  player.endlessRespawnAtMs = null;
 
   sim.hooks.onSound("respawn", player.id);
   sim.syncPlayers();
+}
+
+export function updateEndlessRespawns(sim: SimState): void {
+  if (sim.phase !== "PLAYING") return;
+  if (sim.ruleset !== "ENDLESS_RESPAWN") return;
+
+  let changed = false;
+  const points = getSpawnPoints(sim.playerOrder.length);
+  sim.playerOrder.forEach((playerId: string, index: number) => {
+    const player = sim.players.get(playerId);
+    if (!player) return;
+    if (player.state !== "SPECTATING") return;
+    if (player.endlessRespawnAtMs === null || sim.nowMs < player.endlessRespawnAtMs) {
+      return;
+    }
+
+    const spawn = points[index] ?? points[0];
+    player.ship.x = spawn.x;
+    player.ship.y = spawn.y;
+    player.ship.vx = 0;
+    player.ship.vy = 0;
+    player.ship.angle = spawn.angle;
+    player.ship.alive = true;
+    player.ship.invulnerableUntil = sim.nowMs + 2000;
+    player.angularVelocity = 0;
+    player.ship.ammo = MAX_AMMO;
+    player.ship.lastShotTime = sim.nowMs - sim.getGlobalConfig().FIRE_COOLDOWN_MS - 1;
+    player.ship.reloadStartTime = sim.nowMs;
+    player.ship.isReloading = false;
+    player.state = "ACTIVE";
+    player.endlessRespawnAtMs = null;
+    sim.hooks.onSound("respawn", player.id);
+    changed = true;
+  });
+
+  if (changed) {
+    sim.syncPlayers();
+  }
 }
 
 export function updatePendingEliminationChecks(sim: SimState): void {
@@ -230,8 +273,7 @@ export function updatePendingEliminationChecks(sim: SimState): void {
 
 export function checkEliminationWin(sim: SimState): void {
   if (sim.phase !== "PLAYING") return;
-  // Demo mode: endless battle — ships respawn via DemoController, never end rounds
-  if (sim.isDemo) return;
+  if (sim.ruleset === "ENDLESS_RESPAWN") return;
   const alive = sim.playerOrder
     .map((playerId) => sim.players.get(playerId))
     .filter((player): player is RuntimePlayer => Boolean(player))
@@ -321,6 +363,79 @@ function endGame(sim: SimState, winnerId: string, winnerName: string): void {
   sim.syncPlayers();
 }
 
+function endGameWithSnapshot(
+  sim: SimState,
+  winnerId?: string,
+  winnerName?: string,
+): void {
+  sim.phase = "GAME_END";
+  const roundWinsById: Record<string, number> = {};
+  const scoresById: Record<string, number> = {};
+  sim.playerOrder.forEach((playerId: string) => {
+    const player = sim.players.get(playerId);
+    if (!player) return;
+    roundWinsById[playerId] = player.roundWins;
+    scoresById[playerId] = player.score;
+  });
+  sim.hooks.onRoundResult({
+    roundNumber: sim.currentRound,
+    winnerId,
+    winnerName,
+    isTie: !winnerId,
+    roundWinsById,
+    scoresById,
+  });
+  sim.hooks.onPhase("GAME_END", winnerId, winnerName);
+  if (winnerId) {
+    sim.hooks.onSound("win", winnerId);
+  }
+  syncRoomMeta(sim);
+  sim.syncPlayers();
+}
+
+export function endMatchByScore(sim: SimState): void {
+  if (sim.phase !== "PLAYING") return;
+  let topPlayer: RuntimePlayer | null = null;
+  let tie = false;
+  for (const playerId of sim.playerOrder) {
+    const player = sim.players.get(playerId);
+    if (!player) continue;
+    if (!topPlayer) {
+      topPlayer = player;
+      tie = false;
+      continue;
+    }
+    if (player.score > topPlayer.score) {
+      topPlayer = player;
+      tie = false;
+      continue;
+    }
+    if (player.score === topPlayer.score) {
+      if (player.roundWins > topPlayer.roundWins) {
+        topPlayer = player;
+        tie = false;
+        continue;
+      }
+      if (player.roundWins === topPlayer.roundWins) {
+        if (player.kills > topPlayer.kills) {
+          topPlayer = player;
+          tie = false;
+          continue;
+        }
+        if (player.kills === topPlayer.kills) {
+          tie = true;
+        }
+      }
+    }
+  }
+
+  if (!topPlayer || tie) {
+    endGameWithSnapshot(sim);
+    return;
+  }
+  endGameWithSnapshot(sim, topPlayer.id, topPlayer.name);
+}
+
 export function beginPlaying(sim: SimState): void {
   if (sim.playerOrder.length < 2) {
     sim.phase = "LOBBY";
@@ -376,6 +491,7 @@ export function spawnAllShips(sim: SimState): void {
     player.dashVectorY = 0;
     player.recoilTimerSec = 0;
     player.angularVelocity = 0;
+    player.endlessRespawnAtMs = null;
     player.ship = {
       ...player.ship,
       x: spawn.x,
@@ -437,6 +553,8 @@ export function syncRoomMeta(sim: SimState): void {
     roomCode: sim.roomCode,
     leaderPlayerId: sim.leaderPlayerId,
     phase: sim.phase,
+    ruleset: sim.ruleset,
+    experienceContext: sim.experienceContext,
     mode: sim.mode,
     baseMode: sim.baseMode,
     settings: { ...sim.settings },

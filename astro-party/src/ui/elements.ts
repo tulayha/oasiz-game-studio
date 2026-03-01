@@ -38,6 +38,7 @@ export const elements = {
   hud: getElement<HTMLElement>("hud"),
   scoreTrack: getElement<HTMLElement>("scoreTrack"),
   leaveGameBtn: getElement<HTMLButtonElement>("leaveGameBtn"),
+  endMatchBtn: getElement<HTMLButtonElement>("endMatchBtn"),
   settingsCenterHotspot: getElement<HTMLButtonElement>("settingsCenterHotspot"),
 
   // Leave confirmation modal
@@ -75,6 +76,8 @@ export const elements = {
   gameModeSection: getElement<HTMLElement>("gameModeSection"),
   modeCycleBtn: getElement<HTMLButtonElement>("modeCycleBtn"),
   modeCycleValue: getElement<HTMLElement>("modeCycleValue"),
+  rulesetCycleBtn: getElement<HTMLButtonElement>("rulesetCycleBtn"),
+  rulesetCycleValue: getElement<HTMLElement>("rulesetCycleValue"),
 
   // Map selector
   mapSelectorSection: getElement<HTMLElement>("mapSelectorSection"),

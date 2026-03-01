@@ -23,6 +23,8 @@ export class AstroPartyRoomState extends Schema {
   @type("string") leaderPlayerId = "";
   @type("string") hostId = "";
   @type("string") phase = "LOBBY";
+  @type("string") ruleset = "ROUND_ELIMINATION";
+  @type("string") experienceContext = "LIVE_MATCH";
   @type("string") mode = "STANDARD";
   @type("string") baseMode = "STANDARD";
   @type("number") mapId = 0;

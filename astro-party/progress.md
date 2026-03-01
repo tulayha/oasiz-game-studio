@@ -21,6 +21,39 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 
 ## Active Task Threads
 
+### 2026-03-01 - One-shot ruleset/context runtime implementation + endless mode + demo hardening (Closed)
+
+- Original prompt:
+  - Implement the one-shot plan for canonical ruleset/context modeling, endless respawn + explicit end-match flow, UI/runtime refactor, and demo-flow hardening fixes.
+- Intent:
+  - Ship the locked decisions end-to-end in runtime code (shared sim, server, transports, client/game, UI, and demo lifecycle).
+- Plan:
+  - Add canonical `Ruleset`/`ExperienceContext` contracts and wire them through sim state + room meta.
+  - Implement authoritative endless respawn + leader-triggered endless end.
+  - Refactor runtime to separate tuning mode vs ruleset/context semantics.
+  - Add lobby/gameplay UI surfaces for ruleset selection + endless end-match.
+  - Apply demo regression fixes from evaluation (deferred-start race, tap guards, lifecycle/input gating).
+- Progress updates:
+  - Added canonical `Ruleset` + `ExperienceContext` types and room-meta propagation across shared sim/server/transports/client.
+  - Implemented authoritative endless behavior in shared sim (`ENDLESS_RESPAWN` respawn loop + explicit `endMatchByScore` transition to `GAME_END`).
+  - Added server command support for `cmd:set_ruleset` and `cmd:end_match`; synchronized state schema/meta.
+  - Added transport/network/game APIs for ruleset/context/end-match and wired callbacks/state updates.
+  - Refactored client runtime usage: demo/tutorial contexts now set explicit `ExperienceContext` and score submission is blocked outside `LIVE_MATCH`.
+  - Added lobby ruleset control + map whitelist enforcement and gameplay `End Match` button wiring for endless leader flow.
+  - Implemented demo hardening fixes:
+    - deferred demo startup canceled on committed start action,
+    - start-phase suppression wrapped in scoped teardown transaction (no leak),
+    - shared tap guard on demo state-changing actions,
+    - local sim pause/resume tied to visibility/platform lifecycle,
+    - local input capture/send halted while tutorial pauses sim.
+  - Added context-aware map validation so internal demo map `6` remains usable in non-live contexts while staying non-pickable for live matches.
+  - Removed residual demo timer-based respawn dependency in `DemoController`.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+- Outcome:
+  - Closed. One-shot ruleset/context + endless + demo hardening milestone implemented and typechecked.
+
 ### 2026-03-01 - Game modes source-of-truth doc integration (Closed)
 
 - Original prompt:

@@ -1,7 +1,7 @@
 import { Game } from "../Game";
-import { BaseGameMode, GameMode, MapId, PlayerData } from "../types";
+import { BaseGameMode, GameMode, MapId, PlayerData, Ruleset } from "../types";
 import { elements } from "./elements";
-import { getMapDefinition } from "../../shared/sim/maps.js";
+import { getMapDefinition, isMapAllowedForRuleset } from "../../shared/sim/maps.js";
 import { renderMapPreviewOnCanvas } from "./mapPreview";
 import { escapeHtml } from "./text";
 import { createUIFeedback } from "../feedback/uiFeedback";
@@ -9,6 +9,7 @@ import { createUIFeedback } from "../feedback/uiFeedback";
 export interface LobbyUI {
   updateLobbyUI: (players: PlayerData[]) => void;
   setModeUI: (mode: GameMode, source?: "local" | "remote") => void;
+  setRulesetUI: (ruleset: Ruleset, source?: "local" | "remote") => void;
   updateRoomCode: (code: string) => void;
   setMapUI: (mapId: MapId, source?: "local" | "remote") => void;
   updateMapSelector: () => void;
@@ -30,6 +31,10 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   const MODE_CYCLE_TAP_GUARD_MS = 340;
   const MAP_PICKER_ORDER: MapId[] = [0, 5, 1, 2, 3, 4];
   const MODE_CYCLE_ORDER: BaseGameMode[] = ["STANDARD", "SANE", "CHAOTIC"];
+  const RULESET_CYCLE_ORDER: Ruleset[] = [
+    "ROUND_ELIMINATION",
+    "ENDLESS_RESPAWN",
+  ];
   const mapPickerCards = new Map<MapId, HTMLButtonElement>();
 
   function beginAddButtonAction(): boolean {
@@ -266,8 +271,10 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     elements.gameModeSection.classList.toggle("hidden", false);
     elements.gameModeSection.classList.toggle("readonly", !isLeader);
     elements.modeCycleBtn.disabled = false;
+    elements.rulesetCycleBtn.disabled = false;
     elements.advancedSettingsBtn.disabled = false;
     setHostLocked(elements.modeCycleBtn, !isLeader);
+    setHostLocked(elements.rulesetCycleBtn, !isLeader);
     setHostLocked(elements.advancedSettingsBtn, !isLeader);
     elements.advancedSettingsBtn.title = isLeader
       ? "Open advanced settings"
@@ -277,6 +284,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
       actionsBox.classList.toggle("readonly", !isLeader);
     }
 
+    setRulesetUI(game.getRuleset(), "remote");
     updateMapSelector();
 
     attachRemoveBotHandlers();
@@ -312,8 +320,29 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     }
   }
 
+  function labelRuleset(ruleset: Ruleset): string {
+    return ruleset === "ENDLESS_RESPAWN" ? "ENDLESS" : "ROUND";
+  }
+
+  function setRulesetUI(
+    ruleset: Ruleset,
+    source: "local" | "remote" = "local",
+  ): void {
+    elements.rulesetCycleValue.textContent = labelRuleset(ruleset);
+    elements.rulesetCycleBtn.setAttribute("data-ruleset", ruleset);
+    if (source === "local") {
+      game.setRuleset(ruleset, "local");
+    }
+    updateMapSelector();
+  }
+
   function mapBehaviorLabel(mapId: MapId): string {
-    return mapId === 0 ? "Rotates each round" : "Fixed for this match";
+    if (mapId === 0) {
+      return game.getRuleset() === "ENDLESS_RESPAWN"
+        ? "Rotates endless-compatible maps"
+        : "Rotates each round";
+    }
+    return "Fixed for this match";
   }
 
   function closeMapPicker(): void {
@@ -388,9 +417,15 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
 
   function updateMapPickerState(selectedMapId: MapId): void {
     const isLeader = game.isLeader();
+    const ruleset = game.getRuleset();
     for (const [mapId, card] of mapPickerCards) {
+      const allowed = isMapAllowedForRuleset(mapId, ruleset);
       card.classList.toggle("active", mapId === selectedMapId);
-      card.disabled = false;
+      card.classList.toggle("disabled", !allowed);
+      card.disabled = !allowed;
+      card.title = allowed
+        ? ""
+        : "Unavailable for selected ruleset";
       setHostLocked(card, !isLeader);
     }
   }
@@ -569,6 +604,26 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     setModeUI(nextMode);
   });
 
+  elements.rulesetCycleBtn.addEventListener("click", () => {
+    if (isCoarsePointer) {
+      const now = performance.now();
+      if (now < modeCycleGuardUntilMs) {
+        return;
+      }
+      modeCycleGuardUntilMs = now + MODE_CYCLE_TAP_GUARD_MS;
+    }
+    if (!game.isLeader()) {
+      showHostOnlyActionToast();
+      return;
+    }
+    feedback.button();
+    const ruleset = game.getRuleset();
+    const currentIndex = RULESET_CYCLE_ORDER.indexOf(ruleset);
+    const nextRuleset =
+      RULESET_CYCLE_ORDER[(currentIndex + 1) % RULESET_CYCLE_ORDER.length];
+    setRulesetUI(nextRuleset, "local");
+  });
+
   elements.openMapPickerBtn.addEventListener("click", () => {
     if (!game.isLeader()) {
       showHostOnlyActionToast();
@@ -605,6 +660,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   return {
     updateLobbyUI,
     setModeUI,
+    setRulesetUI,
     setMapUI,
     updateMapSelector,
     updateRoomCode,

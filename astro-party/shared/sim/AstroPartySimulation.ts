@@ -2,6 +2,8 @@ import type {
   GamePhase,
   GameMode,
   BaseGameMode,
+  Ruleset,
+  ExperienceContext,
   MapId,
   PowerUpType,
   PlayerState,
@@ -52,6 +54,8 @@ import {
 import {
   getMapDefinition,
   CLASSIC_ROTATION_MAP_IDS,
+  ENDLESS_ALLOWED_MAP_IDS,
+  isMapAllowedForContext,
   type MapDefinition,
 } from "./maps.js";
 import {
@@ -145,8 +149,10 @@ import {
   onShipHit as flowOnShipHit,
   killPilot as flowKillPilot,
   respawnFromPilot as flowRespawnFromPilot,
+  updateEndlessRespawns,
   updatePendingEliminationChecks,
   checkEliminationWin,
+  endMatchByScore,
   beginPlaying,
   clearRoundEntities,
   syncRoomMeta,
@@ -180,6 +186,8 @@ export class AstroPartySimulation implements SimState {
 
   // ---- Game state ----
   phase: GamePhase = "LOBBY";
+  ruleset: Ruleset = "ROUND_ELIMINATION";
+  experienceContext: ExperienceContext = "LIVE_MATCH";
   hostTick = 0;
   nowMs = 0;
   settings: AdvancedSettings = { ...DEFAULT_ADVANCED_SETTINGS };
@@ -200,6 +208,7 @@ export class AstroPartySimulation implements SimState {
   leaderPlayerId: string | null = null;
   roundEndMs = 0;
   demoFrozenPlayerIds: Set<string> | null = null;
+  // Back-compat marker kept while client migrates to explicit context usage.
   isDemo = false;
   private physics: Physics;
   private shipBodies = new Map<string, Matter.Body>();
@@ -499,6 +508,49 @@ export class AstroPartySimulation implements SimState {
     this.hooks.onPlayers(this.buildPlayerPayload());
   }
 
+  setRuleset(sessionId: string, ruleset: Ruleset): void {
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
+    if (this.phase !== "LOBBY") {
+      this.hooks.onError(
+        sessionId,
+        "INVALID_PHASE",
+        "Ruleset can only be changed in lobby",
+      );
+      return;
+    }
+
+    this.ruleset = ruleset;
+    if (!isMapAllowedForContext(this.mapId, this.ruleset, this.experienceContext)) {
+      this.mapId = 0;
+      this.useClassicMapRotation = true;
+    }
+    syncRoomMeta(this);
+  }
+
+  setExperienceContext(context: ExperienceContext): void {
+    this.experienceContext = context;
+    this.isDemo = context !== "LIVE_MATCH";
+    if (!isMapAllowedForContext(this.mapId, this.ruleset, this.experienceContext)) {
+      this.mapId = 0;
+      this.useClassicMapRotation = true;
+      this.mapPowerUpsSpawned = false;
+    }
+    syncRoomMeta(this);
+  }
+
+  endMatch(sessionId: string): void {
+    if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
+    if (this.ruleset !== "ENDLESS_RESPAWN" || this.phase !== "PLAYING") {
+      this.hooks.onError(
+        sessionId,
+        "INVALID_PHASE",
+        "Can only end an endless match while playing",
+      );
+      return;
+    }
+    endMatchByScore(this);
+  }
+
   setAdvancedSettings(sessionId: string, payload: AdvancedSettingsSync): void {
     if (!ensureRoomLeader(this.createPlayerControlsContext(), sessionId)) return;
     const baseMode = sanitizeBaseMode(payload.baseMode, this.baseMode);
@@ -524,6 +576,14 @@ export class AstroPartySimulation implements SimState {
       return;
     }
     const nextMapId = mapId as MapId;
+    if (!isMapAllowedForContext(nextMapId, this.ruleset, this.experienceContext)) {
+      this.hooks.onError(
+        sessionId,
+        "INVALID_MAP",
+        "Map is unavailable for selected ruleset",
+      );
+      return;
+    }
     this.useClassicMapRotation = nextMapId === 0;
     this.mapId = nextMapId;
     this.mapPowerUpsSpawned = false;
@@ -559,6 +619,9 @@ export class AstroPartySimulation implements SimState {
         const player = this.players.get(playerId);
         if (player && player.state === "EJECTED") {
           player.state = "SPECTATING";
+          if (this.ruleset === "ENDLESS_RESPAWN") {
+            player.endlessRespawnAtMs = this.nowMs + 3000;
+          }
           changed = true;
         }
       }
@@ -617,6 +680,7 @@ export class AstroPartySimulation implements SimState {
     player.dashVectorY = 0;
     player.recoilTimerSec = 0;
     player.angularVelocity = 0;
+    player.endlessRespawnAtMs = null;
     player.ship = {
       ...player.ship,
       x: spawn.x,
@@ -638,7 +702,13 @@ export class AstroPartySimulation implements SimState {
 
   rotateToRandomMap(): void {
     const previousMapId = this.mapId;
-    const otherMaps = CLASSIC_ROTATION_MAP_IDS.filter(
+    const rotationPool =
+      this.ruleset === "ENDLESS_RESPAWN"
+        ? CLASSIC_ROTATION_MAP_IDS.filter((id) =>
+            ENDLESS_ALLOWED_MAP_IDS.includes(id),
+          )
+        : CLASSIC_ROTATION_MAP_IDS;
+    const otherMaps = rotationPool.filter(
       (id) => id !== previousMapId,
     );
     if (otherMaps.length === 0) return;
@@ -1009,6 +1079,7 @@ export class AstroPartySimulation implements SimState {
     updateTurretBullets(this, dtSec);
     this.applyMapFeatureKinematics(dtSec);
     cleanupExpiredEntities(this);
+    updateEndlessRespawns(this);
     updatePendingEliminationChecks(this);
     if (this.pendingEliminationCheckAtMs === null) {
       checkEliminationWin(this);
@@ -1535,6 +1606,7 @@ export class AstroPartySimulation implements SimState {
       player.dashVectorY = 0;
       player.recoilTimerSec = 0;
       player.angularVelocity = 0;
+      player.endlessRespawnAtMs = null;
       player.botThinkAtMs = 0;
       player.botLastDecisionMs = 0;
       player.botCachedAction = {
@@ -1608,6 +1680,7 @@ export class AstroPartySimulation implements SimState {
       dashVectorY: 0,
       recoilTimerSec: 0,
       angularVelocity: 0,
+      endlessRespawnAtMs: null,
       ship: {
         id: "ship_" + id,
         playerId: id,

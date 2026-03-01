@@ -5,9 +5,11 @@ import {
   DebugPhysicsTuningSnapshot,
   GamePhase,
   GameMode,
+  ExperienceContext,
   GameStateSync,
   PlayerInput,
   PowerUpType,
+  Ruleset,
   RoundResultPayload,
 } from "../../types";
 
@@ -62,6 +64,8 @@ export interface NetworkCallbacks {
   onPlayerListReceived: (playerOrder: string[], meta?: PlayerMetaMap) => void;
   onRoundResultReceived: (payload: RoundResultPayload) => void;
   onDevModeReceived: (enabled: boolean) => void;
+  onRulesetReceived?: (ruleset: Ruleset) => void;
+  onExperienceContextReceived?: (context: ExperienceContext) => void;
   onDebugStateReceived?: (payload: {
     enabled: boolean;
     tainted: boolean;
@@ -93,9 +97,12 @@ export interface NetworkTransport {
   pollHostInputs(): void;
   broadcastGameState(state: GameStateSync): void;
   startGame(): void;
+  endMatch?(): void;
   continueMatchSequence(): void;
   restartGame(): void;
   setMode(mode: GameMode): void;
+  setRuleset?(ruleset: Ruleset): void;
+  setExperienceContext?(context: ExperienceContext): void;
   setMap(mapId: number): void;
   setAdvancedSettings(payload: AdvancedSettingsSync): void;
   setDebugPhysicsTuning(payload: DebugPhysicsTuningPayload | null): void;

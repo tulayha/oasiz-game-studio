@@ -2,12 +2,14 @@ import {
   AdvancedSettingsSync,
   DebugPhysicsTuningPayload,
   DebugPhysicsTuningSnapshot,
+  ExperienceContext,
   GamePhase,
   GameMode,
   GameStateSync,
   PlayerData,
   PlayerInput,
   PowerUpType,
+  Ruleset,
   RoundResultPayload,
 } from "../types";
 import { createTransport } from "./transports/createTransport";
@@ -83,6 +85,10 @@ export class NetworkManager {
     this.transport.startGame();
   }
 
+  endMatch(): void {
+    this.transport.endMatch?.();
+  }
+
   continueMatchSequence(): void {
     this.transport.continueMatchSequence();
   }
@@ -93,6 +99,14 @@ export class NetworkManager {
 
   setMode(mode: GameMode): void {
     this.transport.setMode(mode);
+  }
+
+  setRuleset(ruleset: Ruleset): void {
+    this.transport.setRuleset?.(ruleset);
+  }
+
+  setExperienceContext(context: ExperienceContext): void {
+    this.transport.setExperienceContext?.(context);
   }
 
   setMap(mapId: number): void {
