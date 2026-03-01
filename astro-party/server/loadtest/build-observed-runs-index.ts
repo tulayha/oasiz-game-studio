@@ -33,6 +33,7 @@ interface MetricsSample {
   opsEventLoopMaxMs: number | null;
   opsClose1006Total: number | null;
   opsClose4000Total: number | null;
+  opsSnapshotSkippedBufferTotal: number | null;
   netRxBps: number | null;
   netTxBps: number | null;
 }
@@ -140,6 +141,9 @@ interface ParsedEventsFile {
     opsClose4000Start: number | null;
     opsClose4000End: number | null;
     opsClose4000Delta: number | null;
+    opsSnapshotSkippedBufferStart: number | null;
+    opsSnapshotSkippedBufferEnd: number | null;
+    opsSnapshotSkippedBufferDelta: number | null;
     peakPm2MemMb: number | null;
     peakPm2CpuPct: number | null;
     peakPm2Restarts: number | null;
@@ -259,6 +263,12 @@ function parseInteger(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeNonNegative(value: number | null): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < 0) return null;
+  return value;
+}
+
 function normalizeIso(raw: string | null): string | null {
   if (!raw) return null;
   const parsed = Date.parse(raw);
@@ -331,6 +341,11 @@ function parseMetricsLog(metricsLogPath: string): MetricsSample[] {
     const pm2CpuRaw = parseNumber(tokens["pm2.cpuPct"]);
     const pm2MemRaw = parseNumber(tokens["pm2.memMB"]);
     const pm2RestartsRaw = parseNumber(tokens["pm2.restarts"]);
+    const opsClose1006Raw = parseNumber(tokens["ops.close1006Total"]);
+    const opsClose4000Raw = parseNumber(tokens["ops.close4000Total"]);
+    const opsSnapshotSkippedBufferRaw = parseNumber(
+      tokens["ops.snapshotSkippedBufferTotal"],
+    );
     const pm2MemNormalized =
       pm2MemRaw !== null && Number.isFinite(pm2MemRaw) && pm2MemRaw > 0
         ? pm2MemRaw
@@ -363,8 +378,11 @@ function parseMetricsLog(metricsLogPath: string): MetricsSample[] {
       opsRttP95Ms: parseNumber(tokens["ops.rttP95ms"]),
       opsEventLoopP95Ms: parseNumber(tokens["ops.eventLoopP95ms"]),
       opsEventLoopMaxMs: parseNumber(tokens["ops.eventLoopMaxMs"]),
-      opsClose1006Total: parseNumber(tokens["ops.close1006Total"]),
-      opsClose4000Total: parseNumber(tokens["ops.close4000Total"]),
+      opsClose1006Total: normalizeNonNegative(opsClose1006Raw),
+      opsClose4000Total: normalizeNonNegative(opsClose4000Raw),
+      opsSnapshotSkippedBufferTotal: normalizeNonNegative(
+        opsSnapshotSkippedBufferRaw,
+      ),
       netRxBps: parseNumber(tokens["net.rxBps"]),
       netTxBps: parseNumber(tokens["net.txBps"]),
     });
@@ -522,16 +540,22 @@ function parseLoadtestLog(loadtestLogPath: string): LoadtestParsed {
   return result;
 }
 
-function parsePm2Log(pm2LogPath: string): MarkerEvent[] {
+function parsePm2Log(pm2LogPath: string, fallbackTsIso: string | null): MarkerEvent[] {
   const content = readTextFile(pm2LogPath);
   if (content.length <= 0) return [];
   const lines = content.split(/\r?\n/);
   const markers: MarkerEvent[] = [];
+  let lastTsIso: string | null = normalizeIso(fallbackTsIso);
 
   for (const rawLine of lines) {
     const line = stripAnsi(rawLine);
     if (line.length <= 0) continue;
-    const tsIso = parseIsoFromLine(line) ?? new Date().toISOString();
+    const parsedTsIso = parseIsoFromLine(line);
+    if (parsedTsIso) {
+      lastTsIso = parsedTsIso;
+    }
+    const tsIso = parsedTsIso ?? lastTsIso;
+    if (!tsIso) continue;
 
     if (line.includes("[Server.lifecycle]")) {
       const jsonStart = line.indexOf("{");
@@ -896,7 +920,10 @@ function buildRunData(
       : runnerDetected
         ? { runner: runnerDetected }
         : null;
-  const pm2Markers = parsePm2Log(path.join(runDir, "pm2.log"));
+  const pm2FallbackTsIso = normalizeIso(
+    rawRunMeta?.endedAtIso ?? rawRunMeta?.startedAtIso ?? null,
+  );
+  const pm2Markers = parsePm2Log(path.join(runDir, "pm2.log"), pm2FallbackTsIso);
   const kernelMarkers = parseKernelLog(path.join(runDir, "kernel.log"));
   const markers = [...pm2Markers, ...kernelMarkers].sort((a, b) =>
     a.tsIso.localeCompare(b.tsIso),
@@ -959,6 +986,16 @@ function buildRunData(
     opsClose4000Start !== null && opsClose4000End !== null
       ? Math.max(0, opsClose4000End - opsClose4000Start)
       : null;
+  const opsSnapshotSkippedBufferStart = firstNonNegative(
+    metrics.map((sample) => sample.opsSnapshotSkippedBufferTotal),
+  );
+  const opsSnapshotSkippedBufferEnd = lastNonNegative(
+    metrics.map((sample) => sample.opsSnapshotSkippedBufferTotal),
+  );
+  const opsSnapshotSkippedBufferDelta =
+    opsSnapshotSkippedBufferStart !== null && opsSnapshotSkippedBufferEnd !== null
+      ? Math.max(0, opsSnapshotSkippedBufferEnd - opsSnapshotSkippedBufferStart)
+      : null;
   const pm2UnconsentedLeaveMarkers = pm2Markers.filter(
     (marker) => marker.type === "pm2_unconsented_leave",
   ).length;
@@ -997,6 +1034,9 @@ function buildRunData(
       opsClose4000Start,
       opsClose4000End,
       opsClose4000Delta,
+      opsSnapshotSkippedBufferStart,
+      opsSnapshotSkippedBufferEnd,
+      opsSnapshotSkippedBufferDelta,
       peakPm2MemMb: maxNullable(metrics.map((sample) => sample.pm2MemMb)),
       peakPm2CpuPct: maxNullable(metrics.map((sample) => sample.pm2CpuPct)),
       peakPm2Restarts: maxNullable(metrics.map((sample) => sample.pm2Restarts)),

@@ -171,10 +171,10 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
           this.broadcastSnapshotToClients(payload);
         },
         onSound: (type: string, playerId: string) => {
-          this.broadcast("evt:sound", { type, playerId });
+          this.broadcastCosmeticToClients("evt:sound", { type, playerId });
         },
         onScreenShake: (intensity: number, duration: number) => {
-          this.broadcast("evt:screen_shake", { intensity, duration });
+          this.broadcastCosmeticToClients("evt:screen_shake", { intensity, duration });
         },
         onDashParticles: (payload: {
           playerId: string;
@@ -184,7 +184,7 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
           color: string;
           kind: "ship" | "pilot";
         }) => {
-          this.broadcast("evt:dash_particles", payload);
+          this.broadcastCosmeticToClients("evt:dash_particles", payload);
         },
         onDevMode: (enabled: boolean) => {
           this.state.devModeEnabled = enabled;
@@ -474,21 +474,42 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
 
   private broadcastSnapshotToClients(snapshot: SnapshotPayload): void {
     opsStats.recordSnapshotFanout(this.clients.length);
+    this.prepareColliderCache(snapshot);
+    const strippedSnapshot = this.stripAsteroidVertices(snapshot);
     for (const client of this.clients) {
-      this.sendSnapshotToClient(client, snapshot);
+      this.sendPreparedSnapshotToClient(client, snapshot, strippedSnapshot);
     }
   }
 
   private sendSnapshotToClient(client: Client, snapshot: SnapshotPayload): void {
+    this.prepareColliderCache(snapshot);
+    const strippedSnapshot = this.stripAsteroidVertices(snapshot);
+    this.sendPreparedSnapshotToClient(client, snapshot, strippedSnapshot);
+  }
+
+  private sendPreparedSnapshotToClient(
+    client: Client,
+    snapshot: SnapshotPayload,
+    strippedSnapshot: SnapshotPayload,
+  ): void {
     if (this.getClientBufferedAmount(client) > this.maxOutboundBufferBytes) {
+      opsStats.recordSnapshotSkippedBuffer();
       return;
     }
-    this.prepareColliderCache(snapshot);
     const pendingColliders = this.collectPendingColliders(client.sessionId, snapshot);
     if (pendingColliders.length > 0) {
       client.send("evt:asteroid_colliders", pendingColliders);
     }
-    client.send("evt:snapshot", this.stripAsteroidVertices(snapshot));
+    client.send("evt:snapshot", strippedSnapshot);
+  }
+
+  private broadcastCosmeticToClients<TPayload>(eventType: string, payload: TPayload): void {
+    for (const client of this.clients) {
+      if (this.getClientBufferedAmount(client) > this.maxOutboundBufferBytes) {
+        continue;
+      }
+      client.send(eventType, payload);
+    }
   }
 
   private prepareColliderCache(snapshot: SnapshotPayload): void {

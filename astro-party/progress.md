@@ -1330,3 +1330,81 @@ TODO / Next suggestions
 - Updated `server/README.md` deploy note with branch override examples.
 - Validation:
   - script/docs-only update; no runtime build/typecheck required for this milestone
+## 2026-02-28 (Observed runner endpoint passthrough + numeric exit code)
+- Fixed `server/loadtest/run-observed-loadtest.ps1` so observed runs can resolve endpoint before observer startup:
+  - new `-Endpoint` parameter
+  - fallback to `VITE_COLYSEUS_WS_URL`
+  - explicit failure when neither is set
+- `Run-Loadtest` now always forwards `--endpoint` to downstream loadtest runners.
+- Fixed loadtest exit-code capture to keep `run-meta.json.loadtestExitCode` numeric (no mixed command output array).
+- Added endpoint usage note in `server/README.md` observed orchestration flags.
+- Validation:
+  - pending `npm run typecheck` and `npm run build` in `astro-party/server`
+## 2026-02-28 (Observed runner endpoint requirement rollback)
+- Rolled back mandatory endpoint pre-validation in `server/loadtest/run-observed-loadtest.ps1`.
+- `-Endpoint` remains available as an optional override only.
+- When `-Endpoint` is not provided, observed runner now lets downstream loadtest runner resolve endpoint from `VITE_COLYSEUS_WS_URL` / env files (including `astro-party/.env` via `../.env`).
+- Kept numeric `loadtestExitCode` behavior and LF observer sync fix unchanged.
+- Updated `server/README.md` flag text to mark endpoint as optional override.
+- Validation:
+  - pending `npm run typecheck` and `npm run build` in `astro-party/server`
+## 2026-02-28 (Server stall-path fixes + backpressure observability)
+- Fixed snapshot broadcast hot path in `server/src/rooms/AstroPartyRoom.ts`:
+  - `prepareColliderCache(snapshot)` now runs once per broadcast tick, not once per client.
+  - stripped snapshot payload is now built once per tick and reused across client sends.
+  - added `sendPreparedSnapshotToClient(...)` to avoid repeated per-client preprocessing.
+- Added low-cost backpressure metric in `server/src/monitoring/OpsStats.ts`:
+  - `messages.snapshotSkippedBufferTotal`
+  - `messages.snapshotSkippedBufferRate`
+  - increments when snapshot send is skipped due to `CLIENT_MAX_OUTBOUND_BUFFER_BYTES` guard.
+- Extended observer metric capture in `server/loadtest/astro-observe.sh`:
+  - `ops.snapshotSkippedBufferTotal`
+  - changed close-code counter fallback defaults from `-1` to `0` (`ops.close1006Total`, `ops.close4000Total`) to remove fake negative baseline jumps.
+- Extended parser/index in `server/loadtest/build-observed-runs-index.ts`:
+  - parse `ops.snapshotSkippedBufferTotal`
+  - summary adds `opsSnapshotSkippedBufferStart/End/Delta`
+  - normalized negative close-code totals to null before incident math.
+- Updated dashboard in `server/observed-runs/dashboard/app.js`:
+  - new chart metric `ops.snapshotSkippedBufferTotal`
+  - run list + comparison table now show `snapshotSkippedDelta`.
+- Updated docs in `server/README.md` for new ops backpressure metric fields.
+- Validation:
+  - pending `npm run typecheck`
+  - pending `npm run build`
+  - pending `npm run observed:index -- --runId 20260228-035222`
+## 2026-02-28 (Observed index PM2 marker timestamp fallback fix)
+- Fixed `server/loadtest/build-observed-runs-index.ts` PM2 marker timestamp handling:
+  - removed parse-time `new Date()` fallback for lines without ISO timestamps.
+  - parser now reuses the most recent valid PM2 timestamp for subsequent lines.
+  - avoids incident cards being stamped at index-build time instead of event time.
+- Validation:
+  - pending `npm run observed:index -- --runId 20260228-035222` after patch
+## 2026-02-28 (Observed index PM2 marker fallback anchor)
+- Refined PM2 marker timestamp fallback in `server/loadtest/build-observed-runs-index.ts`:
+  - when PM2 lines lack ISO timestamps, parser now anchors to run metadata timestamp (`endedAtIso` then `startedAtIso`) instead of dropping markers.
+  - preserves `server_unconsented_leave` marker counts while avoiding parse-time `now` skew.
+- Validation:
+  - pending `npm run observed:index -- --runId 20260228-035222`
+## 2026-02-28 (Server-side collision-group accumulation guard)
+- Fixed per-player collision-group lifecycle in `shared/sim/physics/Physics.ts`:
+  - switched group allocation to monotonic IDs (`nextPlayerCollisionGroup`) instead of deriving from map size.
+  - added `releasePlayerCollisionGroup(playerId)` so player-scoped group entries can be removed safely.
+- Wired cleanup on player removal in `shared/sim/AstroPartySimulation.ts`:
+  - `removePlayerById(...)` now calls `this.physics.releasePlayerCollisionGroup(playerId)`.
+- Why:
+  - avoids unbounded growth of `playerCollisionGroups` in long-lived rooms with repeated join/leave churn.
+  - prevents collision-group ID reuse collisions that would occur if cleanup were added while still using `map.size` allocation.
+- Validation:
+  - `astro-party/server`: `npm run typecheck` passed
+  - `astro-party/server`: `npm run build` passed
+## 2026-02-28 (Cosmetic event backpressure guard)
+- Updated `server/src/rooms/AstroPartyRoom.ts` so cosmetic events are now per-client buffered-amount guarded:
+  - `evt:sound`
+  - `evt:screen_shake`
+  - `evt:dash_particles`
+- Behavior:
+  - if a client socket is over `CLIENT_MAX_OUTBOUND_BUFFER_BYTES`, cosmetic events are skipped for that client only.
+  - gameplay snapshots/authoritative state flow are unchanged.
+- Validation:
+  - `astro-party/server`: `npm run typecheck` passed
+  - `astro-party/server`: `npm run build` passed

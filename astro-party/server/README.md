@@ -124,6 +124,7 @@ Capacity sweep flags (`loadtest:capacity`):
 Observed orchestration flags (`loadtest:observed`, PowerShell parameter names):
 
 - `-Runner lobbyfill|roomcode` (default `lobbyfill`)
+- `-Endpoint <ws://...>` (optional override; otherwise downstream runner resolves via `VITE_COLYSEUS_WS_URL` / env files)
 - `-NumClients <n>`
 - `-UsersPerRoom <n>` (`lobbyfill` only, default `4`)
 - `-RoomCode <ABCD>` (`roomcode` only)
@@ -233,6 +234,7 @@ Production recommendation:
   - close-code totals (`clients.closeCodeTotalByCode`, e.g. `1006`, `4000`)
   - recent leave event ring buffer (`clients.recentLeaves`) with timestamp, roomId, sessionId, consented flag, phase, close code/reason, and transport state
   - input/ping/snapshot fanout totals and rates
+  - snapshot backpressure drop totals/rates (`messages.snapshotSkippedBufferTotal`, `messages.snapshotSkippedBufferRate`)
   - rolling RTT summary (`p50`, `p95`, `p99`) from client-reported `rttMs`
   - rolling event-loop lag summary (`eventLoopLagMs.p50/p95/p99/max`)
   - process memory + load averages

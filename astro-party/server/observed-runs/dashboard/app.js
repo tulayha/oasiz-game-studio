@@ -4,6 +4,11 @@ const METRICS = [
   { key: "opsLeftUnconsented", label: "ops.leftUnconsented", unit: "count" },
   { key: "opsClose1006Total", label: "ops.close1006Total", unit: "count" },
   { key: "opsClose4000Total", label: "ops.close4000Total", unit: "count" },
+  {
+    key: "opsSnapshotSkippedBufferTotal",
+    label: "ops.snapshotSkippedBufferTotal",
+    unit: "count",
+  },
   { key: "opsEventLoopP95Ms", label: "ops.eventLoopP95ms", unit: "ms" },
   { key: "opsEventLoopMaxMs", label: "ops.eventLoopMaxMs", unit: "ms" },
   { key: "pm2MemMb", label: "pm2.memMB", unit: "MB" },
@@ -141,6 +146,9 @@ function renderRunList() {
     const peakClients = formatCount(run.summary?.peakOpsClients);
     const unconsentedDelta = formatCount(run.summary?.opsLeftUnconsentedDelta);
     const close1006Delta = formatCount(run.summary?.opsClose1006Delta);
+    const snapshotSkippedDelta = formatCount(
+      run.summary?.opsSnapshotSkippedBufferDelta,
+    );
     const peakEventLoopP95Raw = formatCompactNumber(run.summary?.peakOpsEventLoopP95Ms);
     const peakEventLoopP95 =
       peakEventLoopP95Raw === "n/a" ? "n/a" : peakEventLoopP95Raw + "ms";
@@ -173,6 +181,8 @@ function renderRunList() {
       unconsentedDelta +
       " close1006Delta=" +
       close1006Delta +
+      " snapshotSkippedDelta=" +
+      snapshotSkippedDelta +
       " eventLoopP95=" +
       peakEventLoopP95 +
       " disconnectsTotal=" +
@@ -259,7 +269,7 @@ function renderComparisonTable(selectedRunIds) {
   let html =
     "<table class='compare-table'>" +
     "<thead><tr>" +
-    "<th>Run</th><th>Start</th><th>Clients</th><th>Failed</th><th>Total Disconnects</th><th>Abnormal (1005/1006)</th><th>Consented (4000)</th><th>Peak Clients</th><th>Unconsented Delta</th><th>Server 1006 Delta</th><th>Server 4000 Delta</th><th>Peak Event-Loop p95 (ms)</th><th>onLeave consented=false</th><th>PM2 Status</th><th>PM2 Restarts</th>" +
+    "<th>Run</th><th>Start</th><th>Clients</th><th>Failed</th><th>Total Disconnects</th><th>Abnormal (1005/1006)</th><th>Consented (4000)</th><th>Peak Clients</th><th>Unconsented Delta</th><th>Server 1006 Delta</th><th>Server 4000 Delta</th><th>Snapshot Skipped Delta</th><th>Peak Event-Loop p95 (ms)</th><th>onLeave consented=false</th><th>PM2 Status</th><th>PM2 Restarts</th>" +
     "</tr></thead><tbody>";
 
   for (const runId of selectedRunIds) {
@@ -307,6 +317,9 @@ function renderComparisonTable(selectedRunIds) {
       "</td>" +
       "<td>" +
       formatCount(run.summary?.opsClose4000Delta) +
+      "</td>" +
+      "<td>" +
+      formatCount(run.summary?.opsSnapshotSkippedBufferDelta) +
       "</td>" +
       "<td>" +
       formatCompactNumber(run.summary?.peakOpsEventLoopP95Ms) +

@@ -4,6 +4,7 @@ param(
   [int]$NumClients = 40,
   [int]$UsersPerRoom = 4,
   [string]$RoomCode = "",
+  [string]$Endpoint = "",
   [int]$Delay = 300,
   [int]$DurationSec = 180,
   [int]$WarmupSec = 15,
@@ -137,6 +138,7 @@ function Run-Loadtest {
     [string]$NpmCommand,
     [string]$RunnerMode,
     [string]$LogPath,
+    [string]$EndpointUrl,
     [int]$Clients,
     [int]$DelayMs,
     [int]$DurationSeconds,
@@ -166,6 +168,10 @@ function Run-Loadtest {
     $LogPath
   )
 
+  if (-not [string]::IsNullOrWhiteSpace($EndpointUrl)) {
+    $args += @("--endpoint", $EndpointUrl.Trim())
+  }
+
   if ($RunnerMode -eq "lobbyfill") {
     $args += @("--usersPerRoom", $UsersPerRoomCount.ToString())
   } else {
@@ -176,8 +182,8 @@ function Run-Loadtest {
   }
 
   Write-ObservedLog ("Running local loadtest via npm " + ($args -join " "))
-  & $NpmCommand @args
-  return $LASTEXITCODE
+  & $NpmCommand @args | Out-Host
+  return [int]$LASTEXITCODE
 }
 
 $runStartedAt = Get-Date
@@ -200,17 +206,29 @@ $remoteArchivePath = $RemoteObserveRoot.TrimEnd("/") + "/" + $runId + ".tar.gz"
 $observerLocalPath = Resolve-ObserverScriptPath
 
 Write-ObservedLog ("runId=" + $runId + " runner=" + $Runner + " host=" + $resolvedDropletHost)
+if (-not [string]::IsNullOrWhiteSpace($Endpoint)) {
+  Write-ObservedLog ("Using loadtest endpoint override " + $Endpoint.Trim())
+} else {
+  Write-ObservedLog ("Using loadtest endpoint from downstream runner resolution (cli/env/.env)")
+}
 
 $observerStarted = $false
 $loadtestExitCode = 1
 $artifactPulled = $false
+$tempObserverScriptPath = $null
 
 try {
   if ($SyncObserverScript) {
     if (-not (Test-Path -Path $observerLocalPath)) {
       throw ("Observer script not found at " + $observerLocalPath)
     }
-    Invoke-CommandChecked -Label "Sync observer script" -Command "scp" -Arguments @($observerLocalPath, ($resolvedDropletHost + ":" + $RemoteObserverPath))
+    $tempObserverScriptPath = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("astro-observe-" + $runId + ".sh")
+    $observerScriptRaw = Get-Content -Path $observerLocalPath -Raw
+    $observerScriptLf = ($observerScriptRaw -replace "`r`n", "`n") -replace "`r", ""
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($tempObserverScriptPath, $observerScriptLf, $utf8NoBom)
+
+    Invoke-CommandChecked -Label "Sync observer script" -Command "scp" -Arguments @($tempObserverScriptPath, ($resolvedDropletHost + ":" + $RemoteObserverPath))
     Invoke-CommandChecked -Label "Set observer script executable" -Command "ssh" -Arguments @($resolvedDropletHost, "chmod", "+x", $RemoteObserverPath)
   }
 
@@ -224,7 +242,7 @@ try {
     Start-Sleep -Seconds $WarmupSec
   }
 
-  $loadtestExitCode = Run-Loadtest -NpmCommand $npmCommand -RunnerMode $Runner -LogPath $loadtestLogPath -Clients $NumClients -DelayMs $Delay -DurationSeconds $DurationSec -UsersPerRoomCount $UsersPerRoom -RoomCodeValue $RoomCode -SummaryMs $SummaryIntervalMs -RequestTimeout $RequestTimeoutMs
+  $loadtestExitCode = Run-Loadtest -NpmCommand $npmCommand -RunnerMode $Runner -LogPath $loadtestLogPath -EndpointUrl $Endpoint -Clients $NumClients -DelayMs $Delay -DurationSeconds $DurationSec -UsersPerRoomCount $UsersPerRoom -RoomCodeValue $RoomCode -SummaryMs $SummaryIntervalMs -RequestTimeout $RequestTimeoutMs
   Write-ObservedLog ("Loadtest finished with exit code " + $loadtestExitCode)
 } finally {
   if ($observerStarted) {
@@ -266,6 +284,7 @@ try {
       warmupSec = $WarmupSec
       summaryIntervalMs = $SummaryIntervalMs
       requestTimeoutMs = $RequestTimeoutMs
+      endpoint = if ([string]::IsNullOrWhiteSpace($Endpoint)) { $null } else { $Endpoint.Trim() }
     }
     observer = [ordered]@{
       dropletHost = $resolvedDropletHost
@@ -294,6 +313,10 @@ try {
   & $npmCommand @indexArgs
   if ($LASTEXITCODE -ne 0) {
     Write-ObservedLog ("Observed index build failed with exit code " + $LASTEXITCODE)
+  }
+
+  if ($tempObserverScriptPath -and (Test-Path -Path $tempObserverScriptPath)) {
+    Remove-Item -Path $tempObserverScriptPath -Force -ErrorAction SilentlyContinue
   }
 }
 

@@ -72,9 +72,11 @@ interface OpsStatsSnapshot {
     inputTotal: number;
     pingTotal: number;
     snapshotFanoutTotal: number;
+    snapshotSkippedBufferTotal: number;
     inputRate: RateSnapshot;
     pingRate: RateSnapshot;
     snapshotFanoutRate: RateSnapshot;
+    snapshotSkippedBufferRate: RateSnapshot;
     commandsTotalByType: Record<string, number>;
   };
   errors: {
@@ -205,6 +207,7 @@ export class OpsStats {
   private readonly inputCounter = new RollingCounter(120);
   private readonly pingCounter = new RollingCounter(120);
   private readonly snapshotFanoutCounter = new RollingCounter(120);
+  private readonly snapshotSkippedBufferCounter = new RollingCounter(120);
   private readonly rttWindow = new QuantileWindow(6000);
 
   private roomCreatedTotal = 0;
@@ -216,6 +219,7 @@ export class OpsStats {
   private inputTotal = 0;
   private pingTotal = 0;
   private snapshotFanoutTotal = 0;
+  private snapshotSkippedBufferTotal = 0;
   private roomErrorTotal = 0;
 
   constructor() {
@@ -335,6 +339,14 @@ export class OpsStats {
     this.snapshotFanoutCounter.increment(count);
   }
 
+  recordSnapshotSkippedBuffer(skippedCount = 1): void {
+    if (!Number.isFinite(skippedCount)) return;
+    const count = Math.max(0, Math.floor(skippedCount));
+    if (count <= 0) return;
+    this.snapshotSkippedBufferTotal += count;
+    this.snapshotSkippedBufferCounter.increment(count);
+  }
+
   recordRoomError(code: string): void {
     this.roomErrorTotal += 1;
     if (code.trim().length <= 0) return;
@@ -390,9 +402,11 @@ export class OpsStats {
         inputTotal: this.inputTotal,
         pingTotal: this.pingTotal,
         snapshotFanoutTotal: this.snapshotFanoutTotal,
+        snapshotSkippedBufferTotal: this.snapshotSkippedBufferTotal,
         inputRate: toRateSnapshot(this.inputCounter),
         pingRate: toRateSnapshot(this.pingCounter),
         snapshotFanoutRate: toRateSnapshot(this.snapshotFanoutCounter),
+        snapshotSkippedBufferRate: toRateSnapshot(this.snapshotSkippedBufferCounter),
         commandsTotalByType: mapToRecord(this.commandCounts),
       },
       errors: {

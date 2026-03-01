@@ -1462,6 +1462,7 @@ export class AstroPartySimulation implements SimState {
     reason: PlayerRemovalReason = "left",
   ): void {
     this.identityAllocator.releasePlayer(playerId);
+    this.physics.releasePlayerCollisionGroup(playerId);
     this.shipTransformHistory.delete(playerId);
     this.players.delete(playerId);
     this.playerOrder = this.playerOrder.filter((id) => id !== playerId);
