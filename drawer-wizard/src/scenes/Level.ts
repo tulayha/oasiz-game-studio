@@ -63,6 +63,14 @@ export default class Level extends Phaser.Scene {
 
     private attractMode: boolean = false;
     private autoAimTimer: number = 0;
+    private attractDrawState: {
+        enemy: Enemy;
+        symbol: string;
+        path: Point[];
+        elapsedMs: number;
+        durationMs: number;
+    } | null = null;
+    private attractHintText?: Phaser.GameObjects.Text;
 
     constructor() {
         super("Level");
@@ -264,7 +272,14 @@ export default class Level extends Phaser.Scene {
         if (this.attractMode) {
             this.scoreText.setVisible(false);
             this.feedbackText.setVisible(false);
-            this.drawingGraphics.setVisible(false);
+            this.drawingGraphics.setVisible(true);
+            this.drawingGraphics.setAlpha(0.95);
+            this.attractHintText = this.add.text(w / 2, h * 0.76, "Draw the symbol to stop the enemies!", {
+                fontFamily: "Arial",
+                fontSize: "20px",
+                color: "#ffffff",
+                fontStyle: "bold",
+            }).setOrigin(0.5, 0.5).setAlpha(0.82);
         }
     }
 
@@ -671,6 +686,132 @@ export default class Level extends Phaser.Scene {
             this.isDrawing = false;
             this.analyzeAndJudge();
         });
+    }
+
+    private buildAttractPath(symbol: string): Point[] {
+        const w = this.scale.width;
+        const h = this.scale.height;
+        const cx = w * 0.5;
+        const cy = h * 0.68;
+        const s = Math.max(32, Math.min(w, h) * 0.08);
+
+        if (symbol === "Triangle") {
+            return [
+                { x: cx, y: cy - s },
+                { x: cx + s, y: cy + s },
+                { x: cx - s, y: cy + s },
+                { x: cx, y: cy - s },
+            ];
+        }
+        if (symbol === "Square") {
+            return [
+                { x: cx - s, y: cy - s },
+                { x: cx + s, y: cy - s },
+                { x: cx + s, y: cy + s },
+                { x: cx - s, y: cy + s },
+                { x: cx - s, y: cy - s },
+            ];
+        }
+        if (symbol === "Circle") {
+            const pts: Point[] = [];
+            const count = 28;
+            for (let i = 0; i <= count; i++) {
+                const a = (i / count) * Math.PI * 2;
+                pts.push({
+                    x: cx + Math.cos(a) * s,
+                    y: cy + Math.sin(a) * s,
+                });
+            }
+            return pts;
+        }
+        if (symbol === "Vertical Line") {
+            return [
+                { x: cx, y: cy - s * 1.2 },
+                { x: cx, y: cy + s * 1.2 },
+            ];
+        }
+        if (symbol === "Horizontal Line") {
+            return [
+                { x: cx - s * 1.2, y: cy },
+                { x: cx + s * 1.2, y: cy },
+            ];
+        }
+        if (symbol === "/") {
+            return [
+                { x: cx - s, y: cy + s },
+                { x: cx + s, y: cy - s },
+            ];
+        }
+        if (symbol === "\\") {
+            return [
+                { x: cx - s, y: cy - s },
+                { x: cx + s, y: cy + s },
+            ];
+        }
+        if (symbol === "V") {
+            return [
+                { x: cx - s, y: cy - s * 0.8 },
+                { x: cx, y: cy + s },
+                { x: cx + s, y: cy - s * 0.8 },
+            ];
+        }
+        return [
+            { x: cx - s, y: cy },
+            { x: cx + s, y: cy },
+        ];
+    }
+
+    private drawPartialPath(path: Point[], progress: number): void {
+        this.drawingGraphics.clear();
+        if (path.length < 2) return;
+
+        const clamped = Math.max(0, Math.min(1, progress));
+        this.drawingGraphics.lineStyle(6, 0xffffff, 1);
+        this.drawingGraphics.beginPath();
+        this.drawingGraphics.moveTo(path[0].x, path[0].y);
+
+        let totalLength = 0;
+        const segLengths: number[] = [];
+        for (let i = 1; i < path.length; i++) {
+            const dx = path[i].x - path[i - 1].x;
+            const dy = path[i].y - path[i - 1].y;
+            const len = Math.hypot(dx, dy);
+            segLengths.push(len);
+            totalLength += len;
+        }
+
+        const targetLength = totalLength * clamped;
+        let consumed = 0;
+        for (let i = 1; i < path.length; i++) {
+            const segLen = segLengths[i - 1];
+            if (consumed + segLen <= targetLength) {
+                this.drawingGraphics.lineTo(path[i].x, path[i].y);
+                consumed += segLen;
+                continue;
+            }
+
+            const remain = targetLength - consumed;
+            const t = segLen <= 0 ? 0 : remain / segLen;
+            const x = path[i - 1].x + (path[i].x - path[i - 1].x) * t;
+            const y = path[i - 1].y + (path[i].y - path[i - 1].y) * t;
+            this.drawingGraphics.lineTo(x, y);
+            break;
+        }
+
+        this.drawingGraphics.strokePath();
+    }
+
+    private startAttractDraw(enemy: Enemy): void {
+        if (!enemy.alive || enemy.hit || enemy.symbols.length === 0) return;
+        const symbol = enemy.symbols[0];
+        this.attractDrawState = {
+            enemy,
+            symbol,
+            path: this.buildAttractPath(symbol),
+            elapsedMs: 0,
+            durationMs: 560,
+        };
+        this.drawPartialPath(this.attractDrawState.path, 0);
     }
 
     private redrawPath(): void {
@@ -1161,31 +1302,48 @@ export default class Level extends Phaser.Scene {
 
         // Auto AI for attract mode
         if (this.attractMode && !this.isGameOver) {
-            this.autoAimTimer += delta;
-            if (this.autoAimTimer > 800 + Math.random() * 600) { // AI shoots every 0.8s - 1.4s
-                this.autoAimTimer = 0;
-                let target: Enemy | null = null;
-                let closest = Infinity;
-                for (const e of this.enemies) {
-                    if (!e.alive || e.hit || e.symbols.length === 0) continue;
-                    // AI waits until enemies are closer before shooting (about 70% of screen width)
-                    if (e.x < closest && e.x < wizardX + this.scale.width * 0.7) {
-                        closest = e.x;
-                        target = e;
+            if (this.attractDrawState) {
+                this.attractDrawState.elapsedMs += delta;
+                const progress = this.attractDrawState.elapsedMs / this.attractDrawState.durationMs;
+                this.drawPartialPath(this.attractDrawState.path, progress);
+
+                if (progress >= 1) {
+                    const target = this.attractDrawState.enemy;
+                    const symbol = this.attractDrawState.symbol;
+                    const idx = target.symbols.indexOf(symbol);
+
+                    if (target.alive && !target.hit && idx !== -1) {
+                        const headPos = this.getHeadWorldPos(target, idx);
+                        target.symbols.splice(idx, 1);
+                        this.points = this.attractDrawState.path.slice();
+                        this.flashDrawing();
+                        this.wizardAttack();
+
+                        if (target.symbols.length === 0) {
+                            target.hit = true;
+                            this.explodeEnemy(target);
+                        } else {
+                            this.popHead(headPos.x, headPos.y);
+                        }
                     }
+
+                    this.attractDrawState = null;
+                    this.autoAimTimer = 0;
                 }
-
-                if (target) {
-                    const idx = 0;
-                    const headPos = this.getHeadWorldPos(target, idx);
-                    target.symbols.splice(idx, 1);
-                    this.wizardAttack();
-
-                    if (target.symbols.length === 0) {
-                        target.hit = true;
-                        this.explodeEnemy(target);
-                    } else {
-                        this.popHead(headPos.x, headPos.y);
+            } else {
+                this.autoAimTimer += delta;
+                if (this.autoAimTimer > 950) {
+                    let target: Enemy | null = null;
+                    let closest = Infinity;
+                    for (const e of this.enemies) {
+                        if (!e.alive || e.hit || e.symbols.length === 0) continue;
+                        if (e.x < closest && e.x < wizardX + this.scale.width * 0.72) {
+                            closest = e.x;
+                            target = e;
+                        }
+                    }
+                    if (target) {
+                        this.startAttractDraw(target);
                     }
                 }
             }
