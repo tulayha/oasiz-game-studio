@@ -114,6 +114,10 @@ interface JoyState {
   baseY: number;
   dx: number;
   dy: number;
+  smoothedDx: number;
+  smoothedDy: number;
+  lastTouchX: number;
+  lastTouchY: number;
 }
 
 interface BoostCloudParticle {
@@ -927,8 +931,8 @@ class GoalDuelGame {
   private botInput: InputState = { throttle: 0, steer: 0, boost: false };
 
   private keys = new Set<string>();
-  private joy: JoyState = { active: false, id: null, baseX: 0, baseY: 0, dx: 0, dy: 0 };
-  private joyP2: JoyState = { active: false, id: null, baseX: 0, baseY: 0, dx: 0, dy: 0 };
+  private joy: JoyState = { active: false, id: null, baseX: 0, baseY: 0, dx: 0, dy: 0, smoothedDx: 0, smoothedDy: 0, lastTouchX: 0, lastTouchY: 0 };
+  private joyP2: JoyState = { active: false, id: null, baseX: 0, baseY: 0, dx: 0, dy: 0, smoothedDx: 0, smoothedDy: 0, lastTouchX: 0, lastTouchY: 0 };
   private boostTouch = false;
   private boostTouchP2 = false;
   private boostCharge = 1.0; // 0.0 to 1.0, starts full
@@ -963,6 +967,7 @@ class GoalDuelGame {
   private bumpParticles: BumpParticle[] = [];
   private tireTraces: TireTracePath[] = [];
   private lastTireTraceTime = 0;
+  private lastBoostCloudTime = 0; // Throttle boost cloud spawning
   private searchingScrollInterval: number | null = null;
   private searchingEaseInterval: number | null = null;
 
@@ -986,8 +991,9 @@ class GoalDuelGame {
   private camY = 0;
   private camVX = 0;
   private camVY = 0;
-  private currentZoom = 1.20;
-  private targetZoom = 1.20;
+  // Camera zoom (keep original zoom, background visibility fixed via viewport calculation)
+  private currentZoom = window.matchMedia("(pointer: coarse)").matches ? 1.50 : 1.20;
+  private targetZoom = window.matchMedia("(pointer: coarse)").matches ? 1.50 : 1.20;
 
   // Cached per-frame values (computed once, reused)
   private _isMobile = window.matchMedia("(pointer: coarse)").matches;
@@ -1022,8 +1028,10 @@ class GoalDuelGame {
   private botStopDuration = 0; // How long to stop
   private prevBallVel = { x: 0, y: 0 };
   private prevBallPos = { x: 0, y: 0 };
+  private _shakeFrameSkip = false; // Throttle camera shake random calls
 
   // DOM
+  private elGameplayBg = document.getElementById("gameplayBg") as HTMLDivElement;
   private elHudRoot = document.getElementById("hudRoot") as HTMLDivElement;
   private elHudPills = document.getElementById("hudPills") as HTMLDivElement;
   private elHudYou = document.getElementById("hudYou") as HTMLSpanElement;
@@ -1193,6 +1201,34 @@ class GoalDuelGame {
     });
     this.resize();
     window.addEventListener("resize", () => this.resize());
+    
+    // Lock orientation to landscape on mobile devices (for iOS app embedding)
+    if (this._isMobile) {
+      // Try to lock orientation to landscape
+      if (screen.orientation && (screen.orientation as any).lock) {
+        (screen.orientation as any).lock('landscape').catch((err: any) => {
+          console.log('[Game] Could not lock orientation:', err);
+        });
+      } else if ((screen as any).lockOrientation) {
+        (screen as any).lockOrientation('landscape');
+      } else if ((screen as any).mozLockOrientation) {
+        (screen as any).mozLockOrientation('landscape');
+      } else if ((screen as any).msLockOrientation) {
+        (screen as any).msLockOrientation('landscape');
+      }
+      
+      // The HTML script handles viewport rotation, we just need to ensure resize is called
+      const handleOrientationChange = () => {
+        setTimeout(() => {
+          this.resize();
+        }, 100);
+      };
+      
+      window.addEventListener('orientationchange', handleOrientationChange);
+      window.addEventListener('resize', () => {
+        this.resize();
+      });
+    }
 
     this.setState("MENU", true);
 
@@ -2315,60 +2351,25 @@ class GoalDuelGame {
       this.keys.delete(e.key.toLowerCase());
     });
 
-    // Mobile joystick - completely rewritten
+    // Mobile joystick - using dungeon-loop approach for stability
     const maxRadius = 30;
+    // Smoothing factor for exponential moving average (0-1, higher = less smoothing)
+    // Lower value = more smoothing, better for iOS WebView jitter
+    const smoothingFactor = 0.3;
+    // Deadzone on normalized values (like dungeon-loop uses 0.14)
+    const deadzone = 0.12;
     
     const updateJoystick = (dx: number, dy: number) => {
-      // Ensure playerCar exists before accessing its angle
-      if (!this.playerCar) {
-        console.warn("[Game] updateJoystick: playerCar not initialized");
-        return;
-      }
-      
-      const distance = Math.hypot(dx, dy);
-      const scale = distance > maxRadius ? maxRadius / distance : 1;
-      const px = dx * scale;
-      const py = dy * scale;
-      
-      if (this.elJoyStick) {
-        this.elJoyStick.style.transform = `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`;
-      }
-      
-      const normalizedX = clamp(px / maxRadius, -1, 1);
-      const normalizedY = clamp(py / maxRadius, -1, 1);
-      
-      // Calculate the desired direction angle from joystick input
-      // Reverse Y to fix direction mapping (down=up), keep X normal (left=left, right=right)
-      const desiredAngle = Math.atan2(normalizedY, normalizedX);
-      const joystickMagnitude = Math.hypot(normalizedX, normalizedY);
-      
-      // Only apply input if joystick is moved significantly
-      if (joystickMagnitude > 0.1) {
-        // Get current car angle
-        const carAngle = this.playerCar.angle;
-        
-        // Calculate angle difference between car's current facing and desired direction
-        let angleDiff = desiredAngle - carAngle;
-        
-        // Normalize angle to [-PI, PI]
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-        
-        // Convert to throttle and steering
-        // Throttle: magnitude of joystick push (how hard you're pushing)
-        // Steering: angle difference (how much we need to turn)
-        this.playerInput.throttle = joystickMagnitude; // Always forward when joystick is pushed
-        this.playerInput.steer = clamp(angleDiff / Math.PI, -1, 1); // Normalize angle diff to [-1, 1]
-      } else {
-        // Joystick released or at center
-        this.playerInput.throttle = 0;
-        this.playerInput.steer = 0;
-      }
+      // Use the class method for consistency
+      this.updateJoystickFromDeltas(dx, dy);
     };
 
     const handleJoystickStart = (x: number, y: number, pointerId: number) => {
       // Allow joystick during PLAYING, GOAL, and countdown (countdownActive is checked in applyCarControls)
       if (this.state !== "PLAYING" && this.state !== "GOAL") return;
+      
+      // Don't recalculate if joystick is already active with a different pointer
+      if (this.joy.active && this.joy.id !== pointerId) return;
       
       const rect = this.elJoyWrap.getBoundingClientRect();
       const centerX = rect.left + rect.width / 2;
@@ -2376,10 +2377,16 @@ class GoalDuelGame {
       
       this.joy.active = true;
       this.joy.id = pointerId;
+      // Store base position - this should remain stable during the touch session
+      // Lock base position to prevent recalculation during touch
       this.joy.baseX = centerX;
       this.joy.baseY = centerY;
       this.joy.dx = 0;
       this.joy.dy = 0;
+      this.joy.smoothedDx = 0;
+      this.joy.smoothedDy = 0;
+      this.joy.lastTouchX = x;
+      this.joy.lastTouchY = y;
       
       updateJoystick(0, 0);
       this.audio.ensure();
@@ -2388,12 +2395,21 @@ class GoalDuelGame {
     const handleJoystickMove = (x: number, y: number) => {
       if (!this.joy.active) return;
       
-      const dx = x - this.joy.baseX;
-      const dy = y - this.joy.baseY;
+      // Store last touch position for frame-based polling (dungeon-loop approach)
+      this.joy.lastTouchX = x;
+      this.joy.lastTouchY = y;
       
-      this.joy.dx = dx;
-      this.joy.dy = dy;
-      updateJoystick(dx, dy);
+      const rawDx = x - this.joy.baseX;
+      const rawDy = y - this.joy.baseY;
+      
+      // Apply exponential moving average smoothing to reduce jitter
+      this.joy.dx = rawDx;
+      this.joy.dy = rawDy;
+      this.joy.smoothedDx = this.joy.smoothedDx * (1 - smoothingFactor) + rawDx * smoothingFactor;
+      this.joy.smoothedDy = this.joy.smoothedDy * (1 - smoothingFactor) + rawDy * smoothingFactor;
+      
+      // Update joystick using smoothed values (deadzone is now applied in updateJoystick)
+      updateJoystick(this.joy.smoothedDx, this.joy.smoothedDy);
     };
 
     const handleJoystickEnd = () => {
@@ -2401,6 +2417,10 @@ class GoalDuelGame {
       this.joy.id = null;
       this.joy.dx = 0;
       this.joy.dy = 0;
+      this.joy.smoothedDx = 0;
+      this.joy.smoothedDy = 0;
+      this.joy.lastTouchX = 0;
+      this.joy.lastTouchY = 0;
       this.playerInput.throttle = 0;
       this.playerInput.steer = 0;
       
@@ -2554,8 +2574,20 @@ class GoalDuelGame {
         this.elJoyStickP2.style.transform = `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`;
       }
       
-      const normalizedX = clamp(px / maxRadius, -1, 1);
-      const normalizedY = clamp(py / maxRadius, -1, 1);
+      let normalizedX = clamp(px / maxRadius, -1, 1);
+      let normalizedY = clamp(py / maxRadius, -1, 1);
+      
+      // In portrait mode, rotate joystick input 90° clockwise to match rotated game
+      // Game is rotated 90° clockwise, so input needs to be rotated 90° clockwise
+      // BUT: skip rotation in LOCAL_2P mode (normal landscape layout)
+      const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+      if (isPortrait && this.matchMode !== "LOCAL_2P") {
+        // Rotate 90° clockwise: (x, y) -> (y, -x)
+        const rotatedX = normalizedY;
+        const rotatedY = -normalizedX;
+        normalizedX = rotatedX;
+        normalizedY = rotatedY;
+      }
       
       // Calculate the desired direction angle from joystick input
       // Reverse Y to fix direction mapping (down=up), keep X normal (left=left, right=right)
@@ -3011,7 +3043,7 @@ class GoalDuelGame {
     // Camera snap
     this.camX = this.playerCar.position.x;
     this.camY = this.playerCar.position.y;
-    const baseZoom = 1.20;
+    const baseZoom = this._isMobile ? 1.50 : 1.20; // Keep original zoom
     this.currentZoom = baseZoom;
     this.targetZoom = baseZoom;
     this.camVX = 0;
@@ -3271,6 +3303,14 @@ class GoalDuelGame {
       this.matchLimit = Math.max(10, Math.floor(limitSec ?? 90));
       this.boostCharge = 1.0; // Reset boost charge to full
       this.boostChargeP2 = 1.0; // Reset player 2 boost charge to full
+      this.lastBoostCloudTime = 0; // Reset boost cloud throttle
+      
+      // Set body class for LOCAL_2P mode (to disable rotation in CSS)
+      if (this.matchMode === "LOCAL_2P") {
+        document.body.classList.add("local-2p-mode");
+      } else {
+        document.body.classList.remove("local-2p-mode");
+      }
       
       // Reset bot stuck detection
       this.botPositionHistory = [];
@@ -3568,31 +3608,44 @@ class GoalDuelGame {
   }
 
   private launchCarsOnGoal(isPlayerScored: boolean): void {
-    // Launch cars with explosive force
+    // Launch cars with explosive force - optimized to reduce Vector operations
     const goalY = isPlayerScored ? -this.fieldH * 0.5 : this.fieldH * 0.5;
-    const explosionCenter = { x: 0, y: goalY };
+    const explosionCenterX = 0;
+    const explosionCenterY = goalY;
     
-    // Player car
-    const playerToGoal = Vector.sub(explosionCenter, this.playerCar.position);
-    const playerDist = Vector.magnitude(playerToGoal);
-    const playerDir = Vector.normalise(playerToGoal);
+    // Player car - cache calculations
+    const playerPos = this.playerCar.position;
+    const playerToGoalX = explosionCenterX - playerPos.x;
+    const playerToGoalY = explosionCenterY - playerPos.y;
+    const playerDist = Math.sqrt(playerToGoalX * playerToGoalX + playerToGoalY * playerToGoalY);
+    const playerDirX = playerDist > 0.001 ? playerToGoalX / playerDist : 0;
+    const playerDirY = playerDist > 0.001 ? playerToGoalY / playerDist : 0;
     const playerForce = Math.min(0.15 / (playerDist * 0.01 + 1), 0.08);
-    Body.applyForce(this.playerCar, this.playerCar.position, {
-      x: playerDir.x * playerForce,
-      y: playerDir.y * playerForce,
-    });
-    Body.setAngularVelocity(this.playerCar, (Math.random() - 0.5) * 0.3);
     
-    // Bot car
-    const botToGoal = Vector.sub(explosionCenter, this.botCar.position);
-    const botDist = Vector.magnitude(botToGoal);
-    const botDir = Vector.normalise(botToGoal);
-    const botForce = Math.min(0.15 / (botDist * 0.01 + 1), 0.08);
-    Body.applyForce(this.botCar, this.botCar.position, {
-      x: botDir.x * botForce,
-      y: botDir.y * botForce,
+    // Pre-calculate random values once
+    const rand1 = Math.random();
+    const rand2 = Math.random();
+    
+    Body.applyForce(this.playerCar, playerPos, {
+      x: playerDirX * playerForce,
+      y: playerDirY * playerForce,
     });
-    Body.setAngularVelocity(this.botCar, (Math.random() - 0.5) * 0.3);
+    Body.setAngularVelocity(this.playerCar, (rand1 - 0.5) * 0.3);
+    
+    // Bot car - cache calculations
+    const botPos = this.botCar.position;
+    const botToGoalX = explosionCenterX - botPos.x;
+    const botToGoalY = explosionCenterY - botPos.y;
+    const botDist = Math.sqrt(botToGoalX * botToGoalX + botToGoalY * botToGoalY);
+    const botDirX = botDist > 0.001 ? botToGoalX / botDist : 0;
+    const botDirY = botDist > 0.001 ? botToGoalY / botDist : 0;
+    const botForce = Math.min(0.15 / (botDist * 0.01 + 1), 0.08);
+    
+    Body.applyForce(this.botCar, botPos, {
+      x: botDirX * botForce,
+      y: botDirY * botForce,
+    });
+    Body.setAngularVelocity(this.botCar, (rand2 - 0.5) * 0.3);
   }
 
   private startReplay(): void {
@@ -3706,6 +3759,7 @@ class GoalDuelGame {
       this.elEnd.classList.add("hidden");
       this.elHudRoot.classList.add("hidden");
       this.elHudPills.classList.add("hidden");
+      this.elGameplayBg.classList.add("hidden");
       // Hide mobile controls in menu - hide the settings modal container and controls
       this.elSettingsModal.classList.remove("visible");
       this.elSettingsModal.setAttribute("inert", "");
@@ -3725,6 +3779,7 @@ class GoalDuelGame {
       this.elEnd.classList.add("hidden");
       this.elHudRoot.classList.add("hidden");
       this.elHudPills.classList.add("hidden");
+      this.elGameplayBg.classList.add("hidden");
       this.elMobileControls.classList.add("hidden");
       this.elSearchingOverlay.classList.remove("hidden");
       // Music continues playing
@@ -3733,6 +3788,7 @@ class GoalDuelGame {
       this.elEnd.classList.add("hidden");
       this.elHudRoot.classList.remove("hidden");
       this.elHudPills.classList.remove("hidden");
+      this.elGameplayBg.classList.remove("hidden");
       this.elSearchingOverlay.classList.add("hidden");
       // Show mobile controls when playing (same logic as settings - always show if playing)
       this.elMobileControls.classList.remove("hidden");
@@ -3743,6 +3799,7 @@ class GoalDuelGame {
       this.elStart.classList.add("hidden");
       this.elHudRoot.classList.add("hidden");
       this.elHudPills.classList.add("hidden");
+      this.elGameplayBg.classList.add("hidden");
       this.elMobileControls.classList.add("hidden");
       this.elPhysicsPanel?.classList.add("hidden");
       this.elUIPanel?.classList.add("hidden");
@@ -3816,6 +3873,7 @@ class GoalDuelGame {
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     const w = window.innerWidth;
     const h = window.innerHeight;
+    
     const oldW = this.canvas.width;
     const oldH = this.canvas.height;
     this.canvas.width = Math.floor(w * dpr);
@@ -3907,6 +3965,64 @@ class GoalDuelGame {
     // Removed (gameplay now uses a static stadium background image)
   }
 
+  private updateJoystickFromDeltas(dx: number, dy: number): void {
+    if (!this.playerCar) return;
+    
+    const maxRadius = 30;
+    const deadzone = 0.12;
+    
+    // Calculate distance and normalize (dungeon-loop approach)
+    const len = Math.hypot(dx, dy);
+    const clamped = Math.min(maxRadius, len);
+    const nx = len > 0 ? dx / len : 0;
+    const ny = len > 0 ? dy / len : 0;
+    
+    // Calculate normalized vector values (0 to 1)
+    const vx = nx * (clamped / maxRadius);
+    const vy = ny * (clamped / maxRadius);
+    
+    // Apply deadzone to normalized values (dungeon-loop approach)
+    const finalVx = Math.abs(vx) < deadzone ? 0 : vx;
+    const finalVy = Math.abs(vy) < deadzone ? 0 : vy;
+    
+    // Update visual position
+    if (this.elJoyStick) {
+      const px = nx * clamped;
+      const py = ny * clamped;
+      this.elJoyStick.style.transform = `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`;
+    }
+    
+    // Use normalized values for input
+    let normalizedX = finalVx;
+    let normalizedY = finalVy;
+    
+    // In portrait mode, rotate joystick input 90° clockwise to match rotated game
+    const isPortrait = window.matchMedia('(orientation: portrait)').matches;
+    if (isPortrait && this.matchMode !== "LOCAL_2P") {
+      const rotatedX = normalizedY;
+      const rotatedY = -normalizedX;
+      normalizedX = rotatedX;
+      normalizedY = rotatedY;
+    }
+    
+    // Calculate the desired direction angle from joystick input
+    const desiredAngle = Math.atan2(normalizedY, normalizedX);
+    const joystickMagnitude = Math.hypot(normalizedX, normalizedY);
+    
+    // Only apply input if joystick is moved significantly
+    if (joystickMagnitude > 0.1) {
+      const carAngle = this.playerCar.angle;
+      let angleDiff = desiredAngle - carAngle;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      this.playerInput.throttle = joystickMagnitude;
+      this.playerInput.steer = clamp(angleDiff / Math.PI, -1, 1);
+    } else {
+      this.playerInput.throttle = 0;
+      this.playerInput.steer = 0;
+    }
+  }
+
   private updateInputsFromKeyboard(): void {
     if (isMobile()) return;
 
@@ -3940,9 +4056,12 @@ class GoalDuelGame {
     const ball = this.ball;
     const carAngle = car.angle;
     
-    // Calculate distance to ball
-        const toBall = Vector.sub(ball.position, car.position);
-        const distToBall = Vector.magnitude(toBall);
+    // Calculate distance to ball (cache vector operations)
+    const ballPos = ball.position;
+    const carPos = car.position;
+    const toBallX = ballPos.x - carPos.x;
+    const toBallY = ballPos.y - carPos.y;
+    const distToBall = Math.sqrt(toBallX * toBallX + toBallY * toBallY);
     
     // Update timers
     this.botBackwardTimer += dt;
@@ -3994,18 +4113,26 @@ class GoalDuelGame {
       const botGoal = { x: 0, y: -this.fieldH * 0.5 - 60 };
       const playerGoal = { x: 0, y: this.fieldH * 0.5 + 60 };
       
-      // Check which direction the ball is heading
+      // Check which direction the ball is heading (cache vector operations)
       const ballVel = ball.velocity;
-      const ballSpeed = Vector.magnitude(ballVel);
-      const ballVelNorm = ballSpeed > 0.1 ? Vector.normalise(ballVel) : { x: 0, y: 0 };
+      const ballVelX = ballVel.x;
+      const ballVelY = ballVel.y;
+      const ballSpeed = Math.sqrt(ballVelX * ballVelX + ballVelY * ballVelY);
+      const ballVelNorm = ballSpeed > 0.1 ? { x: ballVelX / ballSpeed, y: ballVelY / ballSpeed } : { x: 0, y: 0 };
       
-      // Direction from ball to bot's goal (top)
-      const ballToBotGoal = Vector.sub(botGoal, ball.position);
-      const dirToBotGoal = Vector.normalise(ballToBotGoal);
+      // Direction from ball to bot's goal (top) - cache calculations
+      const ballPosX = ballPos.x;
+      const ballPosY = ballPos.y;
+      const ballToBotGoalX = botGoal.x - ballPosX;
+      const ballToBotGoalY = botGoal.y - ballPosY;
+      const ballToBotGoalDist = Math.sqrt(ballToBotGoalX * ballToBotGoalX + ballToBotGoalY * ballToBotGoalY);
+      const dirToBotGoal = ballToBotGoalDist > 0.001 ? { x: ballToBotGoalX / ballToBotGoalDist, y: ballToBotGoalY / ballToBotGoalDist } : { x: 0, y: 0 };
       
       // Direction from ball to player's goal (bottom)
-      const ballToPlayerGoal = Vector.sub(playerGoal, ball.position);
-      const dirToPlayerGoal = Vector.normalise(ballToPlayerGoal);
+      const ballToPlayerGoalX = playerGoal.x - ballPosX;
+      const ballToPlayerGoalY = playerGoal.y - ballPosY;
+      const ballToPlayerGoalDist = Math.sqrt(ballToPlayerGoalX * ballToPlayerGoalX + ballToPlayerGoalY * ballToPlayerGoalY);
+      const dirToPlayerGoal = ballToPlayerGoalDist > 0.001 ? { x: ballToPlayerGoalX / ballToPlayerGoalDist, y: ballToPlayerGoalY / ballToPlayerGoalDist } : { x: 0, y: 0 };
       
       // Check if ball is heading towards bot's goal (defensive situation)
       const ballHeadingToBotGoal = ballVelNorm.y * dirToBotGoal.y > 0.3 && ballSpeed > 1.0;
@@ -4019,21 +4146,28 @@ class GoalDuelGame {
         const interceptDistance = 100;
         // Go to the side of the ball (perpendicular to ball's velocity)
         const perpendicular = { x: -ballVelNorm.y, y: ballVelNorm.x }; // 90 degrees to velocity
-        // Choose side based on which is closer to car
-        const side1 = Vector.add(ball.position, Vector.mult(perpendicular, interceptDistance));
-        const side2 = Vector.add(ball.position, Vector.mult(perpendicular, -interceptDistance));
-        const distToSide1 = Vector.magnitude(Vector.sub(side1, car.position));
-        const distToSide2 = Vector.magnitude(Vector.sub(side2, car.position));
-        const targetPos = distToSide1 < distToSide2 ? side1 : side2;
+        // Choose side based on which is closer to car (cache calculations)
+        const side1X = ballPosX + perpendicular.x * interceptDistance;
+        const side1Y = ballPosY + perpendicular.y * interceptDistance;
+        const side2X = ballPosX - perpendicular.x * interceptDistance;
+        const side2Y = ballPosY - perpendicular.y * interceptDistance;
+        const distToSide1X = side1X - carPos.x;
+        const distToSide1Y = side1Y - carPos.y;
+        const distToSide2X = side2X - carPos.x;
+        const distToSide2Y = side2Y - carPos.y;
+        const distToSide1 = Math.sqrt(distToSide1X * distToSide1X + distToSide1Y * distToSide1Y);
+        const distToSide2 = Math.sqrt(distToSide2X * distToSide2X + distToSide2Y * distToSide2Y);
+        const targetPos = distToSide1 < distToSide2 ? { x: side1X, y: side1Y } : { x: side2X, y: side2Y };
         
-        const toTarget = Vector.sub(targetPos, car.position);
-        const angleToTarget = Math.atan2(toTarget.y, toTarget.x);
+        const toTargetX = targetPos.x - carPos.x;
+        const toTargetY = targetPos.y - carPos.y;
+        const angleToTarget = Math.atan2(toTargetY, toTargetX);
         const targetAngle = angleWrap(angleToTarget - carAngle);
         steer = clamp(targetAngle * 2.2, -1, 1);
         throttle = 0.7; // Faster when defending
       } else if (ballHeadingToPlayerGoal) {
         // OFFENSIVE: Ball heading towards player's goal - go straight at it
-        const dirToBall = distToBall > 0.1 ? Vector.normalise(toBall) : { x: 0, y: 0 };
+        const dirToBall = distToBall > 0.1 ? { x: toBallX / distToBall, y: toBallY / distToBall } : { x: 0, y: 0 };
         const angleToBall = Math.atan2(dirToBall.y, dirToBall.x);
         const targetAngle = angleWrap(angleToBall - carAngle);
         steer = clamp(targetAngle * 2.5, -1, 1);
@@ -4041,9 +4175,11 @@ class GoalDuelGame {
       } else {
         // Ball not clearly heading anywhere - default behavior: push towards bot's goal
         const pushDistance = 80;
-        const idealPos = Vector.add(ball.position, Vector.mult(dirToBotGoal, -pushDistance));
-        const toIdealPos = Vector.sub(idealPos, car.position);
-        const angleToIdeal = Math.atan2(toIdealPos.y, toIdealPos.x);
+        const idealPosX = ballPosX + dirToBotGoal.x * -pushDistance;
+        const idealPosY = ballPosY + dirToBotGoal.y * -pushDistance;
+        const toIdealPosX = idealPosX - carPos.x;
+        const toIdealPosY = idealPosY - carPos.y;
+        const angleToIdeal = Math.atan2(toIdealPosY, toIdealPosX);
         const targetAngle = angleWrap(angleToIdeal - carAngle);
         steer = clamp(targetAngle * 2.0, -1, 1);
         throttle = 0.6; // Moderate speed
@@ -4168,7 +4304,9 @@ class GoalDuelGame {
 
     const fwd = { x: Math.cos(body.angle), y: Math.sin(body.angle) };
 
-    const speed = Vector.magnitude(body.velocity);
+    // Cache velocity magnitude calculation
+    const vel = body.velocity;
+    const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
     const thr = clamp(input.throttle, -1, 1);
 
     // Apply throttle force
@@ -4187,10 +4325,10 @@ class GoalDuelGame {
     const steer = clamp(input.steer, -1, 1);
     Body.setAngularVelocity(body, lerp(body.angularVelocity, steer * turnRate, clamp(dt * 10, 0, 1)));
 
-    // Clamp speed
+    // Clamp speed (cache calculations)
     if (speed > maxSpeed) {
-      const v = Vector.mult(Vector.normalise(body.velocity), maxSpeed);
-      Body.setVelocity(body, v);
+      const scale = maxSpeed / speed;
+      Body.setVelocity(body, { x: vel.x * scale, y: vel.y * scale });
     }
 
     // Small sideways damping for "car feel"
@@ -4216,9 +4354,14 @@ class GoalDuelGame {
         }
       }
       
-      // Boost clouds (when boosting) - enhanced for cool nitro effect
+      // Boost clouds (when boosting) - throttled to reduce stutter during hard acceleration
       if (actualBoost && speed > 1) {
-        this.spawnBoostCloud(body.position.x, body.position.y, fwd, speed, isPlayer);
+        const now = Date.now();
+        // Only spawn boost clouds every 16ms (60fps) to prevent particle spam during hard acceleration
+        if (now - this.lastBoostCloudTime > 16) {
+          this.spawnBoostCloud(body.position.x, body.position.y, fwd, speed, isPlayer);
+          this.lastBoostCloudTime = now;
+        }
       }
       
       // Acceleration sounds (removed acceleration cloud VFX - only turbo fire now)
@@ -4289,26 +4432,37 @@ class GoalDuelGame {
 
   private spawnBoostCloud(x: number, y: number, fwd: { x: number; y: number }, speed: number, isPlayer: boolean): void {
     // Turbo/fire effect - spawn particles behind the car in a stream
+    // Optimized: reduce particle count and cache random values
+    if (!this.settings.vfxBoostClouds) return;
+    
     const intensity = this.settings.vfxBoostCloudIntensity;
-    const count = Math.floor(4 + speed * 0.5 * intensity);
+    // Cap particle count to prevent stutter during hard acceleration
+    const count = Math.min(Math.floor(4 + speed * 0.5 * intensity), 8); // Max 8 particles per spawn
+    
+    // Pre-calculate perpendicular vector once
+    const rightX = -fwd.y;
+    const rightY = fwd.x;
+    
     for (let i = 0; i < count; i++) {
-      // Spawn particles in a stream behind the car (along the reverse direction)
-      const dist = 8 + i * 12 + Math.random() * 8; // Staggered along the exhaust trail
-      const sideOffset = (Math.random() - 0.5) * 6; // Slight side variation
-      const rightX = -fwd.y; // Perpendicular to forward
-      const rightY = fwd.x;
-      const spd = 60 + Math.random() * 40;
+      // Use deterministic offsets based on index to reduce Math.random() calls
+      const iNorm = i / count;
+      const dist = 8 + i * 12 + iNorm * 8; // Use normalized index instead of random
+      const sideOffset = (iNorm - 0.5) * 6; // Deterministic side variation
+      const spd = 60 + iNorm * 40; // Deterministic speed
+      
+      // Use single random value for variation
+      const rand = Math.random();
       
       this.boostClouds.push({
         x: x - fwd.x * dist + rightX * sideOffset,
         y: y - fwd.y * dist + rightY * sideOffset,
-        vx: -fwd.x * spd + (Math.random() - 0.5) * 15,
-        vy: -fwd.y * spd + (Math.random() - 0.5) * 15,
+        vx: -fwd.x * spd + (rand - 0.5) * 15,
+        vy: -fwd.y * spd + (rand - 0.5) * 15,
         life: 0,
-        maxLife: 0.4 + Math.random() * 0.3,
-        size: 18 + Math.random() * 12, // Bigger size for more prominent fire
-        alpha: 0.8 + Math.random() * 0.2,
-        dirX: -fwd.x, // Store direction for turbo shape
+        maxLife: 0.4 + rand * 0.3,
+        size: 18 + rand * 12,
+        alpha: 0.8 + rand * 0.2,
+        dirX: -fwd.x,
         dirY: -fwd.y,
       });
     }
@@ -4452,15 +4606,22 @@ class GoalDuelGame {
       this.timeScale = Math.min(1.0, this.timeScale + dt * 0.8);
     }
 
-    // Update camera shake
+    // Update camera shake (throttle random calls for performance)
     if (this.cameraShake.intensity > 0) {
-      this.cameraShake.x = (Math.random() - 0.5) * this.cameraShake.intensity;
-      this.cameraShake.y = (Math.random() - 0.5) * this.cameraShake.intensity;
+      // Only update shake position every 2 frames to reduce Math.random() calls
+      if (!this._shakeFrameSkip) {
+        this.cameraShake.x = (Math.random() - 0.5) * this.cameraShake.intensity;
+        this.cameraShake.y = (Math.random() - 0.5) * this.cameraShake.intensity;
+        this._shakeFrameSkip = true;
+      } else {
+        this._shakeFrameSkip = false;
+      }
       this.cameraShake.intensity *= 0.92;
       if (this.cameraShake.intensity < 0.1) {
         this.cameraShake.intensity = 0;
         this.cameraShake.x = 0;
         this.cameraShake.y = 0;
+        this._shakeFrameSkip = false;
       }
     }
 
@@ -4583,6 +4744,32 @@ class GoalDuelGame {
         console.error("[Game.update] updateInputsFromKeyboard error:", err);
       }
       
+      // Frame-based joystick polling (dungeon-loop approach) - avoids lag from coalesced touch events
+      // Poll joystick position every frame to avoid lag from coalesced touch events in iOS WebView
+      if (this.joy.active && this._isMobile && this.elJoyWrap) {
+        try {
+          // Recalculate from last stored touch position (in case touch events were coalesced)
+          const rawDx = this.joy.lastTouchX - this.joy.baseX;
+          const rawDy = this.joy.lastTouchY - this.joy.baseY;
+          
+          // Apply exponential moving average smoothing
+          this.joy.smoothedDx = this.joy.smoothedDx * 0.7 + rawDx * 0.3;
+          this.joy.smoothedDy = this.joy.smoothedDy * 0.7 + rawDy * 0.3;
+          
+          // Update joystick using smoothed values - the updateJoystick closure will handle it
+          // We'll trigger it by updating the stored dx/dy values
+          this.joy.dx = this.joy.smoothedDx;
+          this.joy.dy = this.joy.smoothedDy;
+          
+          // Call the update function that's stored in the closure
+          // Since we can't access the closure directly, we'll need to store a reference
+          // For now, we'll update manually here using the same logic
+          this.updateJoystickFromDeltas(this.joy.smoothedDx, this.joy.smoothedDy);
+        } catch (err) {
+          console.error("[Game.update] joystick polling error:", err);
+        }
+      }
+      
       try {
         if (this.matchMode === "BOT") this.computeBotAI(scaledDt);
       } catch (err) {
@@ -4646,21 +4833,21 @@ class GoalDuelGame {
     // Dynamic camera zoom and follow
     const fixedFieldW = 720;
     const fixedFieldH = 1200;
-    
+
     // Calculate dynamic zoom adjustments based on speed and ball distance
     const playerSpeed = Vector.magnitude(this.playerCar.velocity);
     const maxSpeed = this.settings.carMaxSpeedBoost;
     const speedRatio = Math.min(playerSpeed / maxSpeed, 1.0);
-    
-    // Base zoom at 1.20
-    let baseZoom = 1.20;
-    
+
+    // Base zoom - higher on mobile for closer view
+    let baseZoom = this._isMobile ? 1.50 : 1.20; // Increased from 1.20 to 1.50 on mobile
+
     // In BOT mode: intense zoom when accelerating (subtract from zoom to zoom IN)
     if (this.matchMode === "BOT") {
       // Intense zoom: subtract from base zoom to zoom IN dramatically
       // Higher speed = more zoom in (lower zoom value = closer view)
       const intenseZoomAmount = speedRatio * 0.45; // 45% zoom in at max speed (very dramatic)
-      baseZoom = 1.20 - intenseZoomAmount; // Subtract to zoom IN
+      baseZoom = baseZoom - intenseZoomAmount; // Subtract to zoom IN
       // Clamp to prevent zooming too close
       baseZoom = Math.max(0.75, baseZoom); // Don't zoom closer than 0.75
     } else {
@@ -4675,7 +4862,7 @@ class GoalDuelGame {
     const ballZoomAdjust = (1.0 - distRatio) * this.settings.cameraZoomBallFactor;
     
       // Add adjustments (but these are small, so effect is minimal)
-      baseZoom = 1.20 + speedZoomAdjust + ballZoomAdjust;
+      baseZoom = baseZoom + speedZoomAdjust + ballZoomAdjust;
     }
     
     this.targetZoom = baseZoom;
@@ -4714,12 +4901,17 @@ class GoalDuelGame {
     // Ball trail (update-side so render stays deterministic)
     if (this.state === "PLAYING") {
       this.ballTrail.push({ x: this.ball.position.x, y: this.ball.position.y, life: 0, maxLife: 0.5 });
-      if (this.ballTrail.length > 26) this.ballTrail.shift(); // trail is short (26), shift cost is negligible
+      // Cap at 26 - use splice instead of shift for better performance when removing from front
+      if (this.ballTrail.length > 26) {
+        this.ballTrail.splice(0, 1);
+      }
     }
+    // Age and remove expired points (swap-pop for efficiency)
     for (let i = this.ballTrail.length - 1; i >= 0; i--) {
       this.ballTrail[i].life += dt;
       if (this.ballTrail[i].life >= this.ballTrail[i].maxLife) {
-        this.ballTrail.splice(i, 1);
+        this.ballTrail[i] = this.ballTrail[this.ballTrail.length - 1];
+        this.ballTrail.pop();
       }
     }
 
@@ -4766,33 +4958,51 @@ class GoalDuelGame {
     }
     
     // Update tire traces — age points, remove expired, prune empty segments/paths
+    // Optimized: batch remove expired points instead of shifting one by one
     for (const path of this.tireTraces) {
       for (const seg of path.segments) {
-        // Age left tire points from the front (oldest first) using shift for ordered fading
+        // Age all points
         for (let i = seg.left.length - 1; i >= 0; i--) {
           seg.left[i].life += dt;
         }
         for (let i = seg.right.length - 1; i >= 0; i--) {
           seg.right[i].life += dt;
         }
-        // Remove expired points from the front of each tire (oldest first)
-        // Add safety limit to prevent infinite loops
-        let shiftCount = 0;
-        while (seg.left.length > 0 && seg.left[0].life >= seg.left[0].maxLife && shiftCount < 1000) {
-          seg.left.shift();
-          shiftCount++;
+        // Batch remove expired points from front (more efficient than multiple shifts)
+        let leftRemoveCount = 0;
+        for (let i = 0; i < seg.left.length; i++) {
+          if (seg.left[i].life >= seg.left[i].maxLife) {
+            leftRemoveCount++;
+          } else {
+            break; // Stop at first non-expired point
+          }
         }
-        shiftCount = 0;
-        while (seg.right.length > 0 && seg.right[0].life >= seg.right[0].maxLife && shiftCount < 1000) {
-          seg.right.shift();
-          shiftCount++;
+        if (leftRemoveCount > 0) {
+          seg.left.splice(0, leftRemoveCount);
+        }
+        let rightRemoveCount = 0;
+        for (let i = 0; i < seg.right.length; i++) {
+          if (seg.right[i].life >= seg.right[i].maxLife) {
+            rightRemoveCount++;
+          } else {
+            break; // Stop at first non-expired point
+          }
+        }
+        if (rightRemoveCount > 0) {
+          seg.right.splice(0, rightRemoveCount);
         }
       }
-      // Remove empty segments from front - add safety limit
-      let segmentShiftCount = 0;
-      while (path.segments.length > 0 && path.segments[0].left.length === 0 && path.segments[0].right.length === 0 && segmentShiftCount < 1000) {
-        path.segments.shift();
-        segmentShiftCount++;
+      // Remove empty segments from front - batch remove
+      let emptySegCount = 0;
+      for (let i = 0; i < path.segments.length; i++) {
+        if (path.segments[i].left.length === 0 && path.segments[i].right.length === 0) {
+          emptySegCount++;
+        } else {
+          break; // Stop at first non-empty segment
+        }
+      }
+      if (emptySegCount > 0) {
+        path.segments.splice(0, emptySegCount);
       }
     }
     // Remove empty paths
@@ -5128,19 +5338,26 @@ class GoalDuelGame {
   }
 
   private spawnGoalBurst(isPlayer: boolean): void {
+    // Optimized: reduce particle count and cache trigonometric calculations
     const hue = isPlayer ? 190 : 330;
     const x = 0;
     const y = isPlayer ? -this.fieldH * 0.5 + 40 : this.fieldH * 0.5 - 40;
-    const n = 44;
+    const n = 32; // Reduced from 44 to 32 for better performance
     const base = isPlayer ? 1 : -1;
+    const angleStep = (Math.PI * 2) / n;
+    
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
+      const a = i * angleStep;
+      // Cache cos/sin calculations
+      const cosA = Math.cos(a);
+      const sinA = Math.sin(a);
       const sp = 150 + (i % 7) * 12;
+      
       this.goalBurst.push({
         x,
         y,
-        vx: Math.cos(a) * sp,
-        vy: Math.sin(a) * sp + base * 160,
+        vx: cosA * sp,
+        vy: sinA * sp + base * 160,
         life: 0,
         maxLife: 0.9,
         hue: hue + (i % 9) * 3,
@@ -5161,18 +5378,22 @@ class GoalDuelGame {
       ctx.clearRect(0, 0, w, h);
 
       // Gameplay camera (dynamic zoom view)
-      const pad = mob ? 18 : 26;
-      const topUI = mob ? 190 : 120;
-      const availH = Math.max(200, h - topUI - (mob ? 120 : 0) - pad);
+      // On mobile portrait+rotated, use maximum screen space so background, bounds, and cars all scale together
+      const pad = mob ? 4 : 26;
+      const topUI = mob ? 4 : 120;
+      // On mobile, use almost the entire screen (minimal padding for HUD/controls)
+      const availW = mob ? w - 8 : w - pad * 2;
+      const availH = mob ? h - 8 : Math.max(200, h - topUI - 80 - pad);
       // Use fixed field dimensions for camera (not adjustable bounds) so background doesn't move
       const fixedFieldW = 720;
       const fixedFieldH = 1200;
       const zoom = this.currentZoom;
       const viewW = fixedFieldW * zoom;
       const viewH = fixedFieldH * zoom;
-      const scale = Math.min((w - pad * 2) / viewW, availH / viewH);
+      // Scale to fit the larger viewport, showing more of the background
+      const scale = Math.min(availW / viewW, availH / viewH);
       const cx = w * 0.5;
-      const cy = topUI + availH * 0.5;
+      const cy = mob ? h * 0.5 : topUI + availH * 0.5; // Center vertically on mobile
 
       try {
         ctx.save();

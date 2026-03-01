@@ -5,6 +5,7 @@
  * Features event-driven architecture with object pooling for performance.
  */
 
+import { oasiz } from "@oasiz/sdk";
 import bgmNormal1Url from "../sfx/normal-1.mp3";
 import bgmNormal2Url from "../sfx/normal-2.mp3";
 import bgmBossUrl from "../sfx/boss.mp3";
@@ -1118,14 +1119,7 @@ class AudioManager {
 
   triggerHaptic(type: string): void {
     if (!this.settings.haptics) return;
-    if (
-      typeof (window as unknown as { triggerHaptic: (t: string) => void })
-        .triggerHaptic === "function"
-    ) {
-      (
-        window as unknown as { triggerHaptic: (t: string) => void }
-      ).triggerHaptic(type);
-    }
+    oasiz.triggerHaptic(type as "light" | "medium" | "heavy" | "success" | "error");
   }
 }
 
@@ -1661,6 +1655,16 @@ class PaperPlaneGame {
       CONFIG.ASTEROID_POOL_SIZE,
     );
 
+    // SDK: lifecycle hooks for background/foreground
+    oasiz.onPause(() => {
+      if (this.gameState === "PLAYING" || this.gameState === "BOSS") {
+        this.pauseGame();
+      }
+    });
+    oasiz.onResume(() => {
+      // Don't auto-resume; player resumes manually from pause screen
+    });
+
     // Setup events
     this.setupEventListeners();
     this.setupGameEvents();
@@ -2124,7 +2128,7 @@ class PaperPlaneGame {
   }
 
   pauseGame(): void {
-    if (this.gameState !== "PLAYING") return;
+    if (this.gameState !== "PLAYING" && this.gameState !== "BOSS") return;
     console.log("[pauseGame]");
     this.gameState = "PAUSED";
     document.getElementById("pauseScreen")?.classList.remove("hidden");
@@ -2150,17 +2154,10 @@ class PaperPlaneGame {
     this.audio.stopMusic();
     this.audio.triggerHaptic("error");
 
-    // Submit total points score
     const finalScore = Math.floor(this.score);
-    if (
-      typeof (window as unknown as { submitScore: (s: number) => void })
-        .submitScore === "function"
-    ) {
-      (window as unknown as { submitScore: (s: number) => void }).submitScore(
-        finalScore,
-      );
-      console.log("[gameOver] Score submitted:", finalScore);
-    }
+    oasiz.submitScore(finalScore);
+    oasiz.flushGameState();
+    console.log("[gameOver] Score submitted:", finalScore);
 
     // Update game over screen
     const mins = Math.floor(this.survivalTime / 60000);

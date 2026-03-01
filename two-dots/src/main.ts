@@ -2,6 +2,7 @@ console.log("[TwoDots] Game initialized");
 
 import { StartScreen } from "./StartScreen";
 import { LevelSelector } from "./LevelSelector";
+import { oasiz } from "@oasiz/sdk";
 
 // Types
 export type DotColor = "red" | "blue" | "green" | "yellow" | "purple";
@@ -225,20 +226,44 @@ let shakingObjectives = 0;
 let bestScores: Record<number, number> = {};
 let totalScore = 0;
 
-function loadBestScores(): void {
-  if (typeof (window as any).loadGameState === "function") {
-    const state = (window as any).loadGameState();
-    if (state && state.bestScores) {
-      bestScores = state.bestScores;
+function loadPersistentState(): void {
+  const state = oasiz.loadGameState();
+
+  if (state && state.bestScores) {
+    bestScores = state.bestScores as Record<number, number>;
+  }
+
+  if (state && typeof state.maxUnlockedLevel === "number") {
+    maxUnlockedLevel = state.maxUnlockedLevel;
+  } else {
+    const localSaved = localStorage.getItem("twoDotsMaxLevel");
+    if (localSaved) {
+      maxUnlockedLevel = parseInt(localSaved, 10);
+    } else {
+      const levels = Object.keys(bestScores).map(Number);
+      if (levels.length > 0) {
+        maxUnlockedLevel = Math.max(...levels) + 1;
+      } else {
+        maxUnlockedLevel = 1;
+      }
     }
   }
+
+  // Self-healing: Ensure maxUnlockedLevel is at least (highest completed level + 1)
+  const completedLevels = Object.keys(bestScores).map(Number);
+  if (completedLevels.length > 0) {
+    const highestCompleted = Math.max(...completedLevels);
+    if (maxUnlockedLevel <= highestCompleted) {
+      maxUnlockedLevel = highestCompleted + 1;
+    }
+  }
+
   recalcTotalScore();
 }
 
-function saveBestScores(): void {
-  if (typeof (window as any).saveGameState === "function") {
-    (window as any).saveGameState({ bestScores });
-  }
+function savePersistentState(): void {
+  oasiz.saveGameState({ bestScores, maxUnlockedLevel });
+  oasiz.flushGameState(); // Force immediate write to prevent data loss due to debouncing
 }
 
 function recalcTotalScore(): void {
@@ -262,23 +287,11 @@ function saveSettings(): void {
   localStorage.setItem("twoDotsSettings", JSON.stringify(settings));
 }
 
-function loadLevelProgress(): number {
-  const saved = localStorage.getItem("twoDotsMaxLevel");
-  return saved ? parseInt(saved, 10) : 1;
-}
-
-function saveLevelProgress(): void {
-  localStorage.setItem("twoDotsMaxLevel", maxUnlockedLevel.toString());
-}
-
 // Settings
 let settings: Settings = loadSettings();
 
 // ── Web Audio API for low-latency SFX ──
 let audioCtx: AudioContext | null = null;
-let popBuffer: AudioBuffer | null = null;
-let winBuffer: AudioBuffer | null = null;
-let tapBuffer: AudioBuffer | null = null;
 
 function getAudioContext(): AudioContext {
   if (!audioCtx) {
@@ -292,66 +305,83 @@ function getAudioContext(): AudioContext {
   return audioCtx;
 }
 
-async function loadAudioBuffer(url: string): Promise<AudioBuffer | null> {
-  try {
-    const ctx = getAudioContext();
-    const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    return await ctx.decodeAudioData(arrayBuffer);
-  } catch (err) {
-    console.log("[TwoDots] Failed to load audio buffer:", err);
-    return null;
-  }
-}
-
-function playSfx(buffer: AudioBuffer | null, volume: number): void {
-  if (!buffer || !audioCtx) return;
-  try {
-    const source = audioCtx.createBufferSource();
-    const gain = audioCtx.createGain();
-    gain.gain.value = volume;
-    source.buffer = buffer;
-    source.connect(gain);
-    gain.connect(audioCtx.destination);
-    source.start(0);
-  } catch (err) {
-    console.log("[TwoDots] SFX play failed:", err);
-  }
-}
-
-async function initAudioBuffers(): Promise<void> {
-  const popUrl = new URL("../assets/pop.mp3", import.meta.url).toString();
-  const winUrl = new URL("../assets/Win.mp3", import.meta.url).toString();
-  const tapUrl = new URL("../assets/tap.mp3", import.meta.url).toString();
-  const [p, w, t] = await Promise.all([
-    loadAudioBuffer(popUrl),
-    loadAudioBuffer(winUrl),
-    loadAudioBuffer(tapUrl),
-  ]);
-  popBuffer = p;
-  winBuffer = w;
-  tapBuffer = t;
-}
-
 function playPopFx(): void {
   if (!settings.fx) return;
-  playSfx(popBuffer, 0.65);
+  const ctx = getAudioContext();
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(300, t);
+    osc.frequency.exponentialRampToValueAtTime(1200, t + 0.05);
+    
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(1.0, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.06);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start(t);
+    osc.stop(t + 0.06);
+  } catch (_) {}
 }
 
 function playWinFx(): void {
   if (!settings.fx) return;
-  playSfx(winBuffer, 0.7);
+  const ctx = getAudioContext();
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(400, t);
+    osc.frequency.setValueAtTime(500, t + 0.1);
+    osc.frequency.setValueAtTime(600, t + 0.2);
+    osc.frequency.setValueAtTime(800, t + 0.3);
+    
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.5, t + 0.05);
+    gain.gain.setValueAtTime(0.5, t + 0.4);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start(t);
+    osc.stop(t + 0.5);
+  } catch (_) {}
 }
 
 function playTapFx(): void {
   if (!settings.fx) return;
-  playSfx(tapBuffer, 0.6);
+  const ctx = getAudioContext();
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(600, t);
+    osc.frequency.exponentialRampToValueAtTime(200, t + 0.05);
+    
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.5, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.06);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start(t);
+    osc.stop(t + 0.06);
+  } catch (_) {}
 }
 
 // Background music still uses HTMLAudioElement (needs looping/pause/resume)
-const bgMusic = new Audio(
-  new URL("../assets/Bg.mp3", import.meta.url).toString(),
-);
+const bgMusic = new Audio("https://assets.oasiz.ai/audio/puzzle-music.mp3");
 bgMusic.loop = true;
 bgMusic.preload = "auto";
 bgMusic.volume = 0.35;
@@ -372,9 +402,7 @@ async function applyMusicSetting(): Promise<void> {
 function hookFirstUserGestureForMusic(): void {
   const startOnGesture = () => {
     getAudioContext();
-    void initAudioBuffers();
     void applyMusicSetting();
-    resumeSfxContext();
   };
   document.addEventListener("pointerdown", startOnGesture, {
     once: true,
@@ -387,8 +415,8 @@ const startScreen = new StartScreen();
 
 // Level selector component
 let currentLevel = 1;
-let maxUnlockedLevel = loadLevelProgress();
-loadBestScores();
+let maxUnlockedLevel = 1;
+loadPersistentState();
 const levelSelector = new LevelSelector(
   20,
   (level: number) => {
@@ -1107,7 +1135,7 @@ function checkGameState(): void {
 
     if (isNewBest) {
       bestScores[currentLevel] = levelScore;
-      saveBestScores();
+      savePersistentState();
       recalcTotalScore();
     }
 
@@ -1116,9 +1144,9 @@ function checkGameState(): void {
     submitTotalScore();
     updateUI();
 
-    if (currentLevel === maxUnlockedLevel && currentLevel < 20) {
+    if (currentLevel >= maxUnlockedLevel && currentLevel < 20) {
       maxUnlockedLevel = currentLevel + 1;
-      saveLevelProgress();
+      savePersistentState();
       levelSelector.updateMaxUnlockedLevel(maxUnlockedLevel);
     }
 
@@ -1248,31 +1276,12 @@ function triggerHaptic(
   type: "light" | "medium" | "heavy" | "success" | "error",
 ): void {
   if (!settings.haptics) return;
-
-  // Use platform haptic function if available
-  if (typeof (window as any).triggerHaptic === "function") {
-    (window as any).triggerHaptic(type);
-    return;
-  }
-
-  // Fallback to Web Vibration API for local testing
-  if (navigator.vibrate) {
-    const vibrationPatterns: Record<string, number | number[]> = {
-      light: 10,
-      medium: 20,
-      heavy: 30,
-      success: [10, 50, 10, 50, 10],
-      error: [20, 100, 20],
-    };
-    navigator.vibrate(vibrationPatterns[type] || 10);
-  }
+  oasiz.triggerHaptic(type);
 }
 
 function submitTotalScore(): void {
   console.log("[TwoDots] Submitting total score:", totalScore);
-  if (typeof (window as any).submitScore === "function") {
-    (window as any).submitScore(totalScore);
-  }
+  oasiz.submitScore(totalScore);
 }
 
 // Game flow
@@ -1930,6 +1939,21 @@ function updateObjectiveShake(deltaTime: number): void {
   }
 }
 
+let rafId = 0;
+
+function startLoop(): void {
+  if (rafId) return;
+  lastFrameTime = performance.now();
+  rafId = requestAnimationFrame(gameLoop);
+}
+
+function stopLoop(): void {
+  if (rafId) {
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+}
+
 function gameLoop(): void {
   const now = performance.now();
   const deltaTime = now - lastFrameTime;
@@ -1956,10 +1980,35 @@ function gameLoop(): void {
     needsRedraw = false;
   }
 
-  requestAnimationFrame(gameLoop);
+  rafId = requestAnimationFrame(gameLoop);
 }
 
-gameLoop();
+// Lifecycle events
+oasiz.onPause(() => {
+  stopLoop();
+  if (!bgMusic.paused) bgMusic.pause();
+});
+
+oasiz.onResume(() => {
+  startLoop();
+  if (settings.music && gameState === "playing") {
+    bgMusic.play().catch(() => {});
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopLoop();
+    if (!bgMusic.paused) bgMusic.pause();
+  } else {
+    startLoop();
+    if (settings.music && gameState === "playing") {
+      bgMusic.play().catch(() => {});
+    }
+  }
+});
+
+startLoop();
 
 // Settings button
 function createSettingsButton(): void {
@@ -2059,7 +2108,10 @@ function openWinModal(
     "#next-level-btn",
   ) as HTMLButtonElement;
 
+  let isClosing = false;
   const closeModal = (callback?: () => void) => {
+    if (isClosing) return;
+    isClosing = true;
     modal.classList.add("closing");
     triggerHaptic("light");
     setTimeout(() => {
@@ -2070,14 +2122,18 @@ function openWinModal(
     }, 300);
   };
 
-  retryBtn.addEventListener("click", () => {
+  retryBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     triggerHaptic("light");
     closeModal(() => {
       restartGame();
     });
   });
 
-  nextLevelBtn.addEventListener("click", () => {
+  nextLevelBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     triggerHaptic("light");
     closeModal(() => {
       currentLevel++;
@@ -2183,11 +2239,13 @@ function openSettings(): void {
 createSettingsButton();
 
 // Start button with ripple effect
+let isStarting = false;
 const startBtn = document.getElementById("start-btn");
 if (startBtn) {
   startBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (gameState === "start") {
+    if (gameState === "start" && !isStarting) {
+      isStarting = true;
       // Create ripple effect
       const rect = startBtn.getBoundingClientRect();
       const ripple = document.createElement("span");
@@ -2218,20 +2276,26 @@ if (startBtn) {
         gameState = "levelSelect";
         levelSelector.reset();
         updateUI();
+        isStarting = false;
       }, 500);
     }
   });
 }
 
+let isBacking = false;
 const backBtn = document.getElementById("back-btn");
 if (backBtn) {
   backBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (gameState === "levelSelect") {
+    if (gameState === "levelSelect" && !isBacking) {
+      isBacking = true;
       playTapFx();
       triggerHaptic("light");
       void applyMusicSetting();
       startGame();
+      setTimeout(() => {
+        isBacking = false;
+      }, 300);
     }
   });
 }

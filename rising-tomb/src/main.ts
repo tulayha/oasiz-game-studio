@@ -12,11 +12,15 @@
  * - Score system
  */
 
+import { oasiz } from "@oasiz/sdk";
+
 import bgImageUrl from "../assets/Bg.webp";
 import bg2ImageUrl from "../assets/Bg2.webp";
 import bg3ImageUrl from "../assets/Bg3.webp";
 import bgMusicUrl from "../assets/Desert Glass Reverie.mp3";
 // SFX
+import dashMoveSfxUrl from "../assets/sfx/dash_pop.mp3";
+import boostedDashSfxUrl from "../assets/sfx/boosted_dash.mp3";
 import deathSandSfxUrl from "../assets/sfx/death_sand.mp3";
 import deathSpikeSfxUrl from "../assets/sfx/death_spike.mp3";
 import deathExplosionSfxUrl from "../assets/sfx/death_explosion.mp3";
@@ -286,6 +290,8 @@ class AudioFx {
   private audioContext: AudioContext | null = null;
   private musicEnabled = true;
   private bgm: HTMLAudioElement | null = null;
+  private dashMoveSound: HTMLAudioElement | null = null;
+  private boostedDashSound: HTMLAudioElement | null = null;
   private deathSandSound: HTMLAudioElement | null = null;
   private deathSpikeSound: HTMLAudioElement | null = null;
   private deathExplosionSound: HTMLAudioElement | null = null;
@@ -353,6 +359,14 @@ class AudioFx {
     } catch (e) {
       console.log("[AudioFx] WebAudio not available");
     }
+
+    this.dashMoveSound = new Audio(dashMoveSfxUrl);
+    this.dashMoveSound.preload = "auto";
+    this.dashMoveSound.volume = 0.85;
+
+    this.boostedDashSound = new Audio(boostedDashSfxUrl);
+    this.boostedDashSound.preload = "auto";
+    this.boostedDashSound.volume = 0.85;
 
     this.deathSandSound = new Audio(deathSandSfxUrl);
     this.deathSandSound.preload = "auto";
@@ -526,10 +540,79 @@ class AudioFx {
     } catch (_) {}
   }
 
+  private playPopSound(): void {
+    if (!this.fxEnabled || !this.audioContext) return;
+    try {
+      const t = this.audioContext.currentTime;
+      
+      // Main pop oscillator
+      const osc = this.audioContext.createOscillator();
+      const gain = this.audioContext.createGain();
+      
+      // A true bubble pop goes UP in frequency very quickly
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(300, t);
+      osc.frequency.exponentialRampToValueAtTime(1200, t + 0.05);
+      
+      // Quick volume envelope
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(1.0, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.06);
+      
+      osc.connect(gain);
+      gain.connect(this.audioContext.destination);
+      
+      osc.start(t);
+      osc.stop(t + 0.06);
+    } catch (_) {}
+  }
+
+  private playTeleportPopSound(): void {
+    if (!this.fxEnabled || !this.audioContext) return;
+    try {
+      const t = this.audioContext.currentTime;
+      
+      // Teleport sound: a double-pop (warp in, warp out)
+      
+      // First pop (warp in) - deeper and slightly longer
+      const osc1 = this.audioContext.createOscillator();
+      const gain1 = this.audioContext.createGain();
+      osc1.type = "sine";
+      osc1.frequency.setValueAtTime(800, t);
+      osc1.frequency.exponentialRampToValueAtTime(150, t + 0.08);
+      
+      gain1.gain.setValueAtTime(0, t);
+      gain1.gain.linearRampToValueAtTime(0.8, t + 0.01);
+      gain1.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+      
+      osc1.connect(gain1);
+      gain1.connect(this.audioContext.destination);
+      osc1.start(t);
+      osc1.stop(t + 0.1);
+
+      // Second pop (warp out) - higher and quicker
+      const osc2 = this.audioContext.createOscillator();
+      const gain2 = this.audioContext.createGain();
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(150, t + 0.1);
+      osc2.frequency.exponentialRampToValueAtTime(1200, t + 0.16);
+      
+      gain2.gain.setValueAtTime(0, t + 0.1);
+      gain2.gain.linearRampToValueAtTime(0.8, t + 0.11);
+      gain2.gain.exponentialRampToValueAtTime(0.01, t + 0.18);
+      
+      osc2.connect(gain2);
+      gain2.connect(this.audioContext.destination);
+      osc2.start(t + 0.1);
+      osc2.stop(t + 0.18);
+      
+    } catch (_) {}
+  }
+
   playCoinSound(): void {}
-  playSwooshSound(): void { this.playNextNote(); }
-  playBoostedDash(): void { this.playNextNote(); }
-  playTeleportGate(): void { this.playTeleportChord(); }
+  playSwooshSound(): void { this.playPopSound(); }
+  playBoostedDash(): void { this.playPopSound(); }
+  playTeleportGate(): void { this.playTeleportPopSound(); }
 }
 
 /**
@@ -1053,6 +1136,9 @@ class DashBroGame {
   private _viewW = window.innerWidth;
   private _viewH = window.innerHeight;
 
+  // Animation Loop
+  private rafId = 0;
+
   // Background Effects
   private bgParticles: {
     x: number;
@@ -1150,7 +1236,48 @@ class DashBroGame {
       console.log("[Perf] profiling enabled (?profile=1)");
     }
 
-    requestAnimationFrame(() => this.loop());
+    if (typeof oasiz.emitScoreConfig === 'function') {
+      oasiz.emitScoreConfig({
+        anchors: [
+          { raw: 100, normalized: 100 },
+          { raw: 500, normalized: 300 },
+          { raw: 1500, normalized: 600 },
+          { raw: 5000, normalized: 950 },
+        ],
+      });
+    }
+
+    oasiz.onPause(() => {
+      if (this.state === "PLAYING") this.pauseGame();
+      this.stopLoop();
+    });
+
+    oasiz.onResume(() => {
+      this.startLoop();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        this.stopLoop();
+      } else {
+        this.startLoop();
+      }
+    });
+
+    this.startLoop();
+  }
+
+  private startLoop(): void {
+    if (this.rafId) return;
+    this.lastT = performance.now();
+    this.rafId = requestAnimationFrame(() => this.loop());
+  }
+
+  private stopLoop(): void {
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
   }
 
   private viewW(): number {
@@ -3866,8 +3993,10 @@ CanvasOps/frame:
       0,
       this.shakeIntensity - this.shakeDecay * dt,
     );
-    this.shakeX = (Math.random() - 0.5) * this.shakeIntensity;
-    this.shakeY = (Math.random() - 0.5) * this.shakeIntensity;
+    // Use a deterministic pseudo-random function based on time to avoid Math.random() in render loop
+    const timeMs = performance.now();
+    this.shakeX = Math.sin(timeMs * 0.05) * this.shakeIntensity;
+    this.shakeY = Math.cos(timeMs * 0.04) * this.shakeIntensity;
 
     // Update wall hit bounce
     if (this.wallHitBounce > 0) {
@@ -3928,7 +4057,7 @@ CanvasOps/frame:
       if (
         this.pendingTrapDeath &&
         this.state === "PLAYING" &&
-        this.dashFlash.progress >= this.pendingTrapDeath.progressFraction
+        easedProgress >= this.pendingTrapDeath.progressFraction
       ) {
         const trap = this.pendingTrapDeath;
         this.pendingTrapDeath = null;
@@ -3936,8 +4065,14 @@ CanvasOps/frame:
         this.deathTimer = 0;
         this.audio.click("death_spike");
         this.triggerHaptic("error");
-        const trapPx = trap.tileX * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
-        const trapPy = trap.tileY * CONFIG.TILE_SIZE + CONFIG.TILE_SIZE / 2;
+        
+        // Snap exactly to the trap center
+        const spacing = CONFIG.TILE_SPACING;
+        const trapPx = trap.tileX * (CONFIG.TILE_SIZE + spacing) + CONFIG.TILE_SIZE / 2;
+        const trapPy = trap.tileY * (CONFIG.TILE_SIZE + spacing) + CONFIG.TILE_SIZE / 2;
+        this.playerX = trapPx;
+        this.playerY = trapPy;
+        
         this.spawnDeathParticles(trapPx, trapPy);
         this.dashFlash = null;
         this.isMoving = false;
@@ -3958,7 +4093,9 @@ CanvasOps/frame:
       } else if (this.dashFlash) {
         // Spawn dash particles during dash
         const dashParticleChance = this.isMobile ? 0.08 : 0.3;
-        if (Math.random() < dashParticleChance) {
+        const timeMs = performance.now();
+        const pseudoRandom = (Math.sin(timeMs * 0.1) * 0.5 + 0.5);
+        if (pseudoRandom < dashParticleChance) {
           this.spawnDashParticles(
             this.playerX,
             this.playerY,
@@ -4020,7 +4157,7 @@ CanvasOps/frame:
           clothStartY: this.playerY + clothOffsetY,
         };
 
-        this.audio.playNextNote();
+        this.audio.playSwooshSound();
 
         this.playerDirection = this.nextDirection;
         this.playerTileX = dashEnd.tileX;
@@ -4063,7 +4200,7 @@ CanvasOps/frame:
               this.pendingTrapDeath = {
                 tileX: currentX,
                 tileY: currentY,
-                progressFraction: totalSteps > 0 ? pathStep / totalSteps : 0,
+                progressFraction: totalSteps > 0 ? (pathStep + 0.5) / totalSteps : 0, // +0.5 to trigger when actually ON the tile
                 type: "trap",
               };
             }
@@ -4744,9 +4881,7 @@ CanvasOps/frame:
     type: "light" | "medium" | "heavy" | "success" | "error",
   ): void {
     if (!this.settings.haptics) return;
-    if (typeof (window as any).triggerHaptic === "function") {
-      (window as any).triggerHaptic(type);
-    }
+    if (typeof oasiz.triggerHaptic === 'function') oasiz.triggerHaptic(type);
   }
 
   private setupUI(): void {
@@ -4888,6 +5023,7 @@ CanvasOps/frame:
   }
 
   private start(): void {
+    if (typeof oasiz.gameplayStart === 'function') oasiz.gameplayStart();
     this.sandSlowPhaseStartS = performance.now() * 0.001;
     this.state = "PLAYING";
     this.audio.startMusic();
@@ -4902,6 +5038,7 @@ CanvasOps/frame:
 
   private pause(): void {
     if (this.state !== "PLAYING") return;
+    if (typeof oasiz.gameplayStop === 'function') oasiz.gameplayStop();
     this.state = "PAUSED";
     this.audio.stopMusic();
     this.teleportBtn?.classList.add("hidden");
@@ -4912,6 +5049,7 @@ CanvasOps/frame:
 
   private resume(): void {
     if (this.state !== "PAUSED") return;
+    if (typeof oasiz.gameplayStart === 'function') oasiz.gameplayStart();
     this.state = "PLAYING";
     this.audio.startMusic();
     this.pauseOverlay?.classList.add("hidden");
@@ -4919,6 +5057,7 @@ CanvasOps/frame:
 
   private restart(): void {
     this.resetGame();
+    if (typeof oasiz.gameplayStart === 'function') oasiz.gameplayStart();
     this.state = "PLAYING";
     this.audio.startMusic();
     this.gameOverOverlay?.classList.add("hidden");
@@ -4945,6 +5084,7 @@ CanvasOps/frame:
   }
 
   private gameOver(): void {
+    if (typeof oasiz.gameplayStop === 'function') oasiz.gameplayStop();
     this.state = "GAME_OVER";
 
     // Update game over overlay with score (matches leaderboard)
@@ -4957,8 +5097,8 @@ CanvasOps/frame:
     this.pauseBtn?.classList.add("uiHidden");
     this.settingsBtn?.classList.add("uiHidden");
 
-    if (typeof (window as any).submitScore === "function") {
-      (window as any).submitScore(this.score);
+    if (typeof oasiz.submitScore === 'function') {
+      oasiz.submitScore(this.score);
     }
   }
 
@@ -4978,6 +5118,7 @@ CanvasOps/frame:
       this.settingsPanel.classList.add("open");
       if (this.state === "PLAYING") {
         // Pause the game but don't show the pause overlay
+        if (typeof oasiz.gameplayStop === 'function') oasiz.gameplayStop();
         this.state = "PAUSED";
         this.audio.stopMusic();
         // Explicitly hide pause overlay to prevent it from showing
@@ -6667,7 +6808,7 @@ CanvasOps/frame:
     this.pendingTeleport = null;
 
     this.triggerHaptic("success");
-    this.audio.playTeleportChord();
+    this.audio.playTeleportGate();
 
     const warpScale = (CONFIG.TILE_SIZE * 2) / 100;
     this.spawnWarpVfx(this.playerX, this.playerY, warpScale);
@@ -6808,22 +6949,28 @@ CanvasOps/frame:
     }
   }
 
+  private bgParticleTimer = 0;
+
   private updateBackgroundParticles(dt: number): void {
     const w = this.viewW();
     const h = this.viewH();
 
     // Spawn golden dust particles (increased frequency for richer atmosphere)
     const maxParticles = this.isMobile ? 8 : 40;
-    const spawnChance = this.isMobile ? 0.012 : 0.03;
-    if (Math.random() < spawnChance && this.bgParticles.length < maxParticles) {
+    const spawnInterval = this.isMobile ? 1.0 : 0.3; // seconds between spawns
+    
+    this.bgParticleTimer += dt;
+    if (this.bgParticleTimer > spawnInterval && this.bgParticles.length < maxParticles) {
+      this.bgParticleTimer = 0;
+      const timeMs = performance.now();
       this.bgParticles.push({
-        x: Math.random() * w,
+        x: (Math.sin(timeMs * 0.01) * 0.5 + 0.5) * w,
         y: -20,
-        speed: 10 + Math.random() * 20, // Gentle falling
-        size: 1 + Math.random() * 2.5,
-        alpha: 0.15 + Math.random() * 0.25, // Visible golden motes
-        wobble: Math.random() * Math.PI * 2,
-        phase: 0.5 + Math.random() * 1.5,
+        speed: 10 + (timeMs % 20), // Gentle falling
+        size: 1 + (timeMs % 2.5),
+        alpha: 0.15 + (timeMs % 0.25), // Visible golden motes
+        wobble: (timeMs % (Math.PI * 2)),
+        phase: 0.5 + (timeMs % 1.5),
       });
     }
 
@@ -7415,13 +7562,14 @@ CanvasOps/frame:
 
       const spawnCount = this.isMobile ? 1 : 3;
       for (let i = 0; i < spawnCount; i++) {
+        const timeMs = performance.now() + i * 100;
         this.dashSpeedLines.push({
-          x: px + (Math.random() - 0.5) * w * 0.6,
-          y: py + (Math.random() - 0.5) * h * 0.4,
-          length: 20 + Math.random() * 40,
-          alpha: 0.15 + Math.random() * 0.2,
-          life: 0.15 + Math.random() * 0.1,
-          maxLife: 0.15 + Math.random() * 0.1,
+          x: px + (Math.sin(timeMs * 0.01) - 0.5) * w * 0.6,
+          y: py + (Math.cos(timeMs * 0.01) - 0.5) * h * 0.4,
+          length: 20 + (timeMs % 40),
+          alpha: 0.15 + (timeMs % 0.2),
+          life: 0.15 + (timeMs % 0.1),
+          maxLife: 0.15 + (timeMs % 0.1),
         });
       }
       const maxLines = this.isMobile ? 10 : 32;
@@ -7811,7 +7959,7 @@ CanvasOps/frame:
     this.perfRecordFrame(performance.now() - frameStartedAt);
     this.perfFlushIfNeeded(now);
 
-    requestAnimationFrame(() => this.loop());
+    this.rafId = requestAnimationFrame(() => this.loop());
   }
 }
 
