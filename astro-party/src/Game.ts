@@ -1305,6 +1305,24 @@ export class Game {
     });
   }
 
+  private getLocalHumanParticipantCountForScorePolicy(): number {
+    let humanCount = 0;
+    const playerIds = this.network.getPlayerIds();
+    for (const playerId of playerIds) {
+      const botType = this.network.getPlayerBotType(playerId);
+      const isHumanParticipant =
+        !this.network.isPlayerBot(playerId) || botType === "local";
+      if (isHumanParticipant) {
+        humanCount += 1;
+      }
+    }
+    return humanCount;
+  }
+
+  private isLocalSingleHumanSessionForScorePolicy(): boolean {
+    return this.getLocalHumanParticipantCountForScorePolicy() === 1;
+  }
+
   private updateVisualEffects(renderState: RenderNetworkState): void {
     renderState.networkShips.forEach((shipState) => {
       const joustPowerUp = this.playerPowerUps.get(shipState.playerId);
@@ -2152,6 +2170,12 @@ export class Game {
   private shouldSubmitScoreNow(hasEligibleLobbyBot: boolean): boolean {
     if (this.isDemoSession) return false;
     if (this.currentExperienceContext !== "LIVE_MATCH") return false;
+    if (
+      this.network.getTransportMode() === "local" &&
+      !this.isLocalSingleHumanSessionForScorePolicy()
+    ) {
+      return false;
+    }
     return shouldSubmitScoreToPlatform(
       hasEligibleLobbyBot,
       this.debugSessionTainted,
@@ -2218,3 +2242,4 @@ export class Game {
     }
   }
 }
+

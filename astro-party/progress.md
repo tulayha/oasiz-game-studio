@@ -20,6 +20,28 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - Once completed, close the thread and capture final outcome in a dated milestone entry.
 
 ## Active Task Threads
+### 2026-03-01 - Demo FREEPLAY cleanup + local score-submit eligibility fix (Closed)
+
+- Original prompt:
+  - Remove leftover freeplay complexity and fix local-mode score submission so single-human local sessions with bots submit.
+- Intent:
+  - Simplify demo runtime to the intended attract -> tutorial -> live transition and restore expected score submission behavior in eligible local matches.
+- Plan:
+  - Remove `FREEPLAY` from demo state contracts and all runtime gating checks.
+  - Keep tutorial completion on direct promotion to live match.
+  - Tighten local score submission policy to allow only live, non-demo, single-human local sessions.
+- Progress updates:
+  - Removed `FREEPLAY` state/method checks from `DemoController` and dependent `main.ts` gating branches (gameplay-activity, touch layout, and input-control routing).
+  - Updated tutorial transition messaging/comments in `DemoOverlayUI` to match direct live promotion semantics.
+  - Added local score policy helper in `Game.ts` to count human participants (including local split participants) and require exactly one human for local score submission eligibility.
+  - Kept attract/tutorial score blocking intact via existing `isDemoSession` and `experienceContext === LIVE_MATCH` gates.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+- Outcome:
+  - Closed. Freeplay branch removed and local score-submit eligibility aligned to single-human local sessions.
 
 ### 2026-03-01 - One-shot ruleset/context runtime implementation + endless mode + demo hardening (Closed)
 
@@ -454,3 +476,29 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 
 - Moved root `lobby-mocks/` into `.tools/ui-mocks/`.
 - Renamed and moved root `repulse-theme-swatches.html` to `.tools/ui-mocks/theme-swatches.html`.
+
+## 2026-03-01 - Tutorial-to-live promotion + score gating to live context
+
+- Gated score award events in shared sim to `experienceContext === LIVE_MATCH` only.
+  - Combat and win scoring no longer accrues during attract/tutorial contexts.
+- Replaced tutorial completion freeplay branch with direct promotion to normal live endless.
+  - On tutorial completion, demo routing is disabled, demo session is exited without teardown, and normal phase UI/HUD routing is resumed.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+## 2026-03-01 - Demo FREEPLAY cleanup + local score-submit eligibility fix
+
+- Removed remaining `FREEPLAY` runtime branching and state handling from demo flow (`src/demo/DemoController.ts`, `src/main.ts`).
+- Tutorial completion remains a direct promotion path into live endless; no separate freeplay state machine branch remains.
+- Updated tutorial completion flow copy in `src/demo/DemoOverlayUI.ts` to reflect live-match promotion.
+- Added local score-submission eligibility guard in `src/Game.ts`:
+  - local mode must be a single-human participant session,
+  - session must still satisfy existing live-context + bot-eligibility + debug-taint policy checks.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+

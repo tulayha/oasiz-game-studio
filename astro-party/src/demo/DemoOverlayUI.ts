@@ -541,7 +541,7 @@ export class DemoOverlayUI {
     this.tutorialSkip.classList.add("demo-start-playing-btn");
     this.tutorialSkip.addEventListener("click", (e) => {
       if (!this.guardStateTap(e)) return;
-      // Bloom the spotlight outward from the ship, then hand off to free-play
+      // Bloom the spotlight outward from the ship, then promote to live match
       this.fadeOutSpotlightFromShip();
       this.callbacks?.setZoom(null);
       this.tutorialOverlay.classList.add("hidden");
@@ -687,3 +687,4 @@ export class DemoOverlayUI {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
+
