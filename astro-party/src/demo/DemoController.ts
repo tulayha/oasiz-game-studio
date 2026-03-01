@@ -7,7 +7,6 @@ export type DemoState =
   | "STARTING"
   | "ATTRACT"
   | "TUTORIAL"
-  | "FREEPLAY"
   | "MENU"
   | "TEARING_DOWN"
   | "DONE";
@@ -39,7 +38,6 @@ export class DemoController {
       this.state === "STARTING" ||
       this.state === "ATTRACT" ||
       this.state === "TUTORIAL" ||
-      this.state === "FREEPLAY" ||
       this.state === "MENU"
     );
   }
@@ -80,7 +78,7 @@ export class DemoController {
     this.state = "TUTORIAL";
     this.applyDemoAudioMix();
 
-    // Show arena border in interactive tutorial/freeplay
+    // Show arena border in interactive tutorial
     this.game.setHideBorder(false);
 
     // Restore the host player to human control
@@ -94,16 +92,21 @@ export class DemoController {
     this.game.setDemoBotFreeze(myId);
   }
 
-  /** Player finished tutorial and is now free-playing the demo. */
-  enterFreePlay(): void {
+  /** Promote the tutorial session into a normal live match without teardown. */
+  promoteToLiveMatch(): void {
     if (this.state !== "TUTORIAL") return;
-    this.state = "FREEPLAY";
+    if (this.restartTimeout !== null) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
+    this.state = "DONE";
     this.game.setHideBorder(false);
-    this.applyDemoAudioMix();
-    // Sim was paused for the "You're ready!" panel — resume it
     this.game.setSimPaused(false);
-    // Unfreeze bots so the full battle resumes
     this.game.setDemoBotFreeze(null);
+    this.game.setHostAI(false);
+    this.game.setKeyboardInputEnabled(true);
+    this.game.setDemoSession(false);
+    this.applyDemoAudioMix();
   }
 
   /** Pause simulation (while tutorial panel is showing dialogue). */
@@ -121,12 +124,7 @@ export class DemoController {
    * background behind the start screen. Restore gameplay SFX.
    */
   enterMenu(): void {
-    if (
-      this.state !== "TUTORIAL" &&
-      this.state !== "ATTRACT" &&
-      this.state !== "FREEPLAY"
-    )
-      return;
+    if (this.state !== "TUTORIAL" && this.state !== "ATTRACT") return;
     this.state = "MENU";
     this.game.setHideBorder(true);
     this.applyDemoAudioMix();
@@ -188,3 +186,4 @@ export class DemoController {
     }
   }
 }
+

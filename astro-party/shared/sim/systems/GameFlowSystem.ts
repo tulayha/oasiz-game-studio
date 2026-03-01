@@ -23,10 +23,12 @@ const PILOT_DASH_USE_EDGE_TRIGGER = false;
 const ENDLESS_RESPAWN_DELAY_MS = 3000;
 
 function awardPlayerScore(
+  sim: SimState,
   player: RuntimePlayer | undefined,
   event: "SHIP_DESTROY" | "PILOT_KILL" | "ROUND_WIN" | "GAME_WIN",
 ): void {
   if (!player) return;
+  if (sim.experienceContext !== "LIVE_MATCH") return;
   player.score += getScoreAwardForEvent(event);
 }
 
@@ -166,7 +168,7 @@ export function onShipHit(sim: SimState, owner: RuntimePlayer | undefined, targe
     owner.id !== target.id &&
     shouldAwardCombatScore(owner, target)
   ) {
-    awardPlayerScore(owner, "SHIP_DESTROY");
+    awardPlayerScore(sim, owner, "SHIP_DESTROY");
   }
   sim.syncPlayers();
 }
@@ -190,7 +192,7 @@ export function killPilot(sim: SimState, pilotPlayerId: string, killerId: string
     if (killer && killer.id !== pilotPlayerId) {
       killer.kills += 1;
       if (shouldAwardCombatScore(killer, player)) {
-        awardPlayerScore(killer, "PILOT_KILL");
+        awardPlayerScore(sim, killer, "PILOT_KILL");
       }
     }
   }
@@ -297,7 +299,7 @@ export function endRound(sim: SimState, winnerId: string | null): void {
     const winner = sim.players.get(winnerId);
     if (winner) {
       winner.roundWins += 1;
-      awardPlayerScore(winner, "ROUND_WIN");
+      awardPlayerScore(sim, winner, "ROUND_WIN");
       winnerName = winner.name;
     }
   }
@@ -339,7 +341,7 @@ function endGame(sim: SimState, winnerId: string, winnerName: string): void {
   sim.phase = "GAME_END";
   const winner = sim.players.get(winnerId);
   if (winner) {
-    awardPlayerScore(winner, "GAME_WIN");
+    awardPlayerScore(sim, winner, "GAME_WIN");
   }
   const roundWinsById: Record<string, number> = {};
   const scoresById: Record<string, number> = {};

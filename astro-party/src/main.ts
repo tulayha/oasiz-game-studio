@@ -365,7 +365,7 @@ async function init(): Promise<void> {
       ? demoController.getState()
       : null;
     const isInteractiveDemo =
-      demoState === "TUTORIAL" || demoState === "FREEPLAY";
+      demoState === "TUTORIAL";
     const isGameplayPhase =
       currentPhase === "COUNTDOWN" ||
       currentPhase === "PLAYING" ||
@@ -433,7 +433,7 @@ async function init(): Promise<void> {
       return;
     }
     const demoState = demoController.getState();
-    if (demoState === "TUTORIAL" || demoState === "FREEPLAY") {
+    if (demoState === "TUTORIAL") {
       game.updateTouchLayout();
     } else {
       game.clearTouchLayout();
@@ -466,26 +466,23 @@ async function init(): Promise<void> {
         demoOverlay!.showTutorial(viewport.isMobile);
       },
       onTutorialComplete: () => {
-        game.setExperienceContext("ONBOARDING_TUTORIAL");
-        // Tutorial finished → player keeps free-playing with Exit Demo button
-        demoController!.enterFreePlay();
+        // "Start Playing" promotes tutorial directly into normal live endless.
+        demoOverlay?.hideAll();
+        demoController?.promoteToLiveMatch();
+        demoInputActionSubscribers.clear();
+        demoController = null;
+        demoOverlay = null;
+        startUI.setBeforeAction(null);
+        elements.starsContainer.classList.remove("demo-stars");
+        markDemoSeen();
+
+        // Re-run normal phase routing now that demo gating is gone.
+        syncScreenToPhase(currentPhase, false, currentPhase);
+        screenController.updateScoreTrack(game.getPlayers());
+        screenController.updateHudControlsVisibility();
         syncAudioToPhase(currentPhase, currentPhase);
         syncDemoTouchLayoutForState();
         syncPlatformGameplayActivity();
-        markDemoSeen();
-        // Give the player 5 s of invincibility when they first enter free-play
-        game.demoSetPlayerInvincible(5000);
-        demoOverlay!.showExitButton(() => {
-          // Keep the battle running — transition to MENU state (same as skip)
-          game.setExperienceContext("ATTRACT_BACKGROUND");
-          demoOverlay?.hideAll();
-          demoController?.enterMenu();
-          syncAudioToPhase(currentPhase, currentPhase);
-          syncDemoTouchLayoutForState();
-          syncPlatformGameplayActivity();
-          screenController.showScreen("start");
-          startUI.resetStartButtons(true);
-        });
       },
       onSkipToMenu: () => {
         // Keep background battle alive — just transition to MENU state
@@ -628,11 +625,11 @@ async function init(): Promise<void> {
           }
           elements.hud.classList.remove("active");
           // Keyboard enabled only when player is in control
-          if (demoState !== "TUTORIAL" && demoState !== "FREEPLAY") {
+          if (demoState !== "TUTORIAL") {
             game.setKeyboardInputEnabled(false);
           }
           if (viewport.isMobile) {
-            if (demoState === "TUTORIAL" || demoState === "FREEPLAY") {
+            if (demoState === "TUTORIAL") {
               game.updateTouchLayout();
             } else {
               game.clearTouchLayout();
@@ -842,3 +839,4 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
