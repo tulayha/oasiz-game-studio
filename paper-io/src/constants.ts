@@ -1,6 +1,7 @@
 // ─── Map ───
 export const MAP_SIZE = 60;
 export const MAP_HALF = MAP_SIZE / 2;
+export const MAP_RADIUS = MAP_HALF; // circular arena radius
 export const PLAYER_SPEED = 10; // units per second
 export const TRAIL_SAMPLE_DIST = 0.4;
 export const START_RADIUS = 3;
@@ -59,15 +60,15 @@ export const BG_COLOR = 0x07070F;
 export const TERRITORY_OPACITY = 0.55;
 export const TRAIL_OPACITY = 0.85;
 
-// ─── Spawn Points (world coordinates, centered on origin) ───
-export const SPAWN_POINTS = [
-  { x: -20, z: -20 },
-  { x: 20, z: -20 },
-  { x: -20, z: 20 },
-  { x: 20, z: 20 },
-  { x: 0, z: -20 },
-  { x: 0, z: 20 },
-];
+// ─── Spawn Points (evenly spaced around circle at radius 20) ───
+export const SPAWN_POINTS = (() => {
+  const count = 6;
+  const r = 20;
+  return Array.from({ length: count }, (_, i) => {
+    const angle = (Math.PI * 2 * i) / count;
+    return { x: Math.round(Math.cos(angle) * r), z: Math.round(Math.sin(angle) * r) };
+  });
+})();
 
 export const PLAYER_NAMES = ['You', 'Bot 1', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5'];
 

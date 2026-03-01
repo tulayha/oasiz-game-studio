@@ -1,12 +1,13 @@
 import { SPAWN_POINTS, PLAYER_COLORS, PLAYER_COLOR_STRINGS, PLAYER_NAMES, type Difficulty, type Vec2 } from './constants.ts';
-import { type PlayerState, createPlayer, computeMovement, isInBounds, sampleTrailPoint, InputHandler } from './Player.ts';
-import { segmentIntersectsPolyline } from './Collision.ts';
+import { type PlayerState, createPlayer, computeMovement, clampToArena, sampleTrailPoint, InputHandler } from './Player.ts';
+import { segmentsIntersect } from './Collision.ts';
 import { BotController } from './Bot.ts';
 import { Renderer } from './Renderer.ts';
 import { ParticleSystem } from './ParticleSystem.ts';
 import { Audio } from './Audio.ts';
 import { HUD } from './HUD.ts';
 import { Menu, type MenuConfig } from './Menu.ts';
+import { SpatialHash } from './SpatialHash.ts';
 
 export class Game {
   private renderer: Renderer;
@@ -19,6 +20,7 @@ export class Game {
   private botController!: BotController;
   private inputHandler!: InputHandler;
 
+  private trailHash = new SpatialHash(4);
   private running = false;
   private paused = false;
   private gameOver = false;
@@ -140,6 +142,14 @@ export class Game {
       }
     }
 
+    // Rebuild spatial hash for all trails
+    this.trailHash.clear();
+    for (const p of this.players) {
+      if (p.alive && p.trail.length >= 2) {
+        this.trailHash.insertTrail(p.id, p.trail);
+      }
+    }
+
     // Move all players
     for (const p of this.players) {
       if (!p.alive) continue;
@@ -150,32 +160,31 @@ export class Game {
         else continue;
       }
 
-      const newPos = computeMovement(p, dt);
+      const rawPos = computeMovement(p, dt);
 
-      // Boundary check
-      if (!isInBounds(newPos)) {
-        this.killPlayer(p);
-        continue;
-      }
+      // Clamp to circular arena instead of killing
+      const newPos = clampToArena(rawPos);
 
       const oldPos: Vec2 = { x: p.position.x, z: p.position.z };
       const wasInTerritory = p.territory.containsPoint(oldPos);
       const nowInTerritory = p.territory.containsPoint(newPos);
 
-      // Check trail collision: does this movement segment cross any trail?
+      // Check trail collision using spatial hash
       let hitTrail = false;
-      for (const other of this.players) {
-        if (!other.alive || other.trail.length < 2) continue;
+      const candidates = this.trailHash.query(oldPos, newPos);
+      for (const cand of candidates) {
+        const other = this.players[cand.playerId];
+        if (!other || !other.alive) continue;
+        const trail = other.trail;
+        const i = cand.segIdx;
         // Skip last 2 segments of own trail to avoid self-collision at current pos
-        const skipLast = other.id === p.id ? 2 : 0;
-        if (segmentIntersectsPolyline(oldPos, newPos, other.trail, 0, skipLast)) {
+        if (other.id === p.id && i >= trail.length - 3) continue;
+        if (segmentsIntersect(oldPos, newPos, trail[i], trail[i + 1])) {
           if (other.id === p.id) {
-            // Hit own trail = die
             this.killPlayer(p);
             hitTrail = true;
             break;
           } else {
-            // Kill trail owner
             this.killPlayer(other);
           }
         }

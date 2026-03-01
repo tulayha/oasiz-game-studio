@@ -4,45 +4,44 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Paper.io 3D</title>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #07070F; font-family: 'DM Sans', sans-serif; color: #E8E8F0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #f5f0e8; font-family: 'Quicksand', sans-serif; color: #5A5A5A; }
 
     #game-canvas { width: 100%; height: 100%; display: block; }
 
     /* ─── Menu ─── */
     #menu-screen {
       position: absolute; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; background: #07070F; z-index: 100;
+      align-items: center; justify-content: center; background: #f5f0e8; z-index: 100;
     }
     #menu-screen h1 {
-      font-family: 'Orbitron', sans-serif; font-size: 3rem; font-weight: 900;
-      color: #00E5FF; text-shadow: 0 0 30px rgba(0,229,255,0.4); margin-bottom: 2rem;
-      letter-spacing: 4px;
+      font-family: 'Quicksand', sans-serif; font-size: 2.8rem; font-weight: 700;
+      color: #E8736C; margin-bottom: 2rem; letter-spacing: 2px;
     }
     .menu-row { display: flex; align-items: center; gap: 12px; margin: 10px 0; font-size: 1rem; }
-    .menu-row label { min-width: 120px; text-align: right; opacity: 0.7; }
+    .menu-row label { min-width: 100px; text-align: right; opacity: 0.6; font-weight: 600; }
     .menu-btn-group { display: flex; gap: 6px; }
     .menu-btn-group button {
-      background: #1A1A28; border: 1px solid #333; color: #E8E8F0; padding: 8px 16px;
-      border-radius: 6px; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
-      transition: all 0.2s;
+      background: #EDE6D9; border: 2px solid #DED6C8; color: #5A5A5A; padding: 8px 18px;
+      border-radius: 10px; cursor: pointer; font-family: 'Quicksand', sans-serif; font-size: 0.9rem;
+      font-weight: 600; transition: all 0.2s;
     }
-    .menu-btn-group button.active { background: #00E5FF; color: #07070F; border-color: #00E5FF; font-weight: 700; }
-    .menu-btn-group button:hover { border-color: #00E5FF; }
+    .menu-btn-group button.active { background: #E8736C; color: #fff; border-color: #D05550; font-weight: 700; }
+    .menu-btn-group button:hover { border-color: #E8736C; }
 
     #play-btn {
-      margin-top: 2rem; padding: 14px 60px; font-family: 'Orbitron', sans-serif;
-      font-size: 1.3rem; font-weight: 700; background: #00E5FF; color: #07070F;
-      border: none; border-radius: 10px; cursor: pointer; letter-spacing: 2px;
-      transition: all 0.3s; box-shadow: 0 0 20px rgba(0,229,255,0.3);
+      margin-top: 2rem; padding: 14px 60px; font-family: 'Quicksand', sans-serif;
+      font-size: 1.3rem; font-weight: 700; background: #E8736C; color: #fff;
+      border: none; border-radius: 14px; cursor: pointer; letter-spacing: 1px;
+      transition: all 0.3s; box-shadow: 0 4px 16px rgba(232,115,108,0.3);
     }
-    #play-btn:hover { box-shadow: 0 0 40px rgba(0,229,255,0.6); transform: scale(1.05); }
+    #play-btn:hover { box-shadow: 0 6px 24px rgba(232,115,108,0.5); transform: scale(1.05); }
 
-    .how-to-play { margin-top: 1.5rem; opacity: 0.5; font-size: 0.85rem; cursor: pointer; }
-    .how-to-play:hover { opacity: 0.8; }
-    #how-to-content { display: none; margin-top: 0.8rem; font-size: 0.8rem; opacity: 0.6; line-height: 1.6; text-align: center; }
+    .how-to-play { margin-top: 1.5rem; opacity: 0.45; font-size: 0.85rem; cursor: pointer; font-weight: 600; }
+    .how-to-play:hover { opacity: 0.7; }
+    #how-to-content { display: none; margin-top: 0.8rem; font-size: 0.8rem; opacity: 0.5; line-height: 1.8; text-align: center; font-weight: 500; }
     #how-to-content.show { display: block; }
 
     /* ─── HUD ─── */
@@ -54,54 +53,56 @@
 
     #hud-left { display: flex; flex-direction: column; gap: 8px; }
     #hud-player {
-      font-family: 'Orbitron', sans-serif; font-size: 1.1rem; font-weight: 700;
-      display: flex; align-items: center; gap: 8px;
+      font-family: 'Quicksand', sans-serif; font-size: 1.1rem; font-weight: 700;
+      display: flex; align-items: center; gap: 8px; color: #fff;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.3);
     }
-    .color-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
-    #hud-timer { font-size: 0.9rem; opacity: 0.6; }
+    .color-dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; border: 2px solid rgba(255,255,255,0.4); }
+    #hud-timer { font-size: 0.9rem; opacity: 0.7; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.3); font-weight: 600; }
     #mute-btn {
-      pointer-events: all; background: none; border: none; color: #E8E8F0;
-      font-size: 1.3rem; cursor: pointer; opacity: 0.6; margin-top: 4px;
+      pointer-events: all; background: none; border: none; color: #fff;
+      font-size: 1.3rem; cursor: pointer; opacity: 0.7; margin-top: 4px;
     }
     #mute-btn:hover { opacity: 1; }
 
     #leaderboard {
-      background: rgba(13,13,18,0.85); border-radius: 10px; padding: 12px 16px;
-      min-width: 160px; backdrop-filter: blur(6px);
+      background: rgba(245,240,232,0.92); border-radius: 14px; padding: 12px 16px;
+      min-width: 160px; backdrop-filter: blur(8px); color: #5A5A5A;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(222,214,200,0.6);
     }
-    #leaderboard h3 { font-size: 0.7rem; text-transform: uppercase; opacity: 0.4; margin-bottom: 8px; letter-spacing: 1px; }
-    .lb-entry { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; padding: 3px 0; }
-    .lb-entry.dead { opacity: 0.35; text-decoration: line-through; }
+    #leaderboard h3 { font-size: 0.7rem; text-transform: uppercase; opacity: 0.4; margin-bottom: 8px; letter-spacing: 1px; font-weight: 700; }
+    .lb-entry { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; padding: 3px 0; font-weight: 600; }
+    .lb-entry.dead { opacity: 0.3; text-decoration: line-through; }
     .lb-name { flex: 1; }
-    .lb-pct { font-weight: 700; font-family: 'Orbitron', sans-serif; font-size: 0.75rem; }
+    .lb-pct { font-weight: 700; font-family: 'Quicksand', sans-serif; font-size: 0.8rem; }
 
     /* ─── Game Over ─── */
     #game-over {
       position: absolute; inset: 0; display: none; flex-direction: column;
-      align-items: center; justify-content: center; background: rgba(7,7,15,0.92);
+      align-items: center; justify-content: center; background: rgba(245,240,232,0.94);
       z-index: 80; backdrop-filter: blur(8px);
     }
     #game-over.visible { display: flex; }
-    #game-over h2 { font-family: 'Orbitron', sans-serif; font-size: 2.2rem; color: #FF3D71; margin-bottom: 1.5rem; }
-    .go-stat { font-size: 1rem; opacity: 0.7; margin: 4px 0; }
-    .go-stat span { font-weight: 700; color: #E8E8F0; }
+    #game-over h2 { font-family: 'Quicksand', sans-serif; font-size: 2.2rem; font-weight: 700; color: #E8736C; margin-bottom: 1.5rem; }
+    .go-stat { font-size: 1rem; opacity: 0.6; margin: 4px 0; font-weight: 500; }
+    .go-stat span { font-weight: 700; color: #5A5A5A; }
     .go-buttons { display: flex; gap: 12px; margin-top: 1.5rem; }
     .go-btn {
-      padding: 12px 32px; font-family: 'Orbitron', sans-serif; font-size: 0.9rem;
-      font-weight: 700; border: none; border-radius: 8px; cursor: pointer; letter-spacing: 1px;
+      padding: 12px 32px; font-family: 'Quicksand', sans-serif; font-size: 0.95rem;
+      font-weight: 700; border: none; border-radius: 12px; cursor: pointer;
       transition: all 0.2s;
     }
-    .go-btn.primary { background: #00E5FF; color: #07070F; }
-    .go-btn.secondary { background: #1A1A28; color: #E8E8F0; border: 1px solid #333; }
+    .go-btn.primary { background: #E8736C; color: #fff; box-shadow: 0 3px 12px rgba(232,115,108,0.3); }
+    .go-btn.secondary { background: #EDE6D9; color: #5A5A5A; border: 2px solid #DED6C8; }
     .go-btn:hover { transform: scale(1.05); }
 
     /* ─── Pause ─── */
     #pause-overlay {
       position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-      background: rgba(7,7,15,0.7); z-index: 70; backdrop-filter: blur(4px);
+      background: rgba(245,240,232,0.8); z-index: 70; backdrop-filter: blur(6px);
     }
     #pause-overlay.visible { display: flex; }
-    #pause-overlay h2 { font-family: 'Orbitron', sans-serif; font-size: 2rem; opacity: 0.6; }
+    #pause-overlay h2 { font-family: 'Quicksand', sans-serif; font-size: 2rem; font-weight: 700; color: #E8736C; opacity: 0.7; }
 
     /* ─── Mobile D-Pad ─── */
     #dpad {
@@ -110,12 +111,12 @@
     }
     @media (pointer: coarse) { #dpad { display: block; } }
     .dpad-btn {
-      position: absolute; width: 40px; height: 40px; background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #E8E8F0;
+      position: absolute; width: 42px; height: 42px; background: rgba(232,115,108,0.15);
+      border: 2px solid rgba(232,115,108,0.3); border-radius: 12px; color: #E8736C;
       font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
-      cursor: pointer; user-select: none; -webkit-user-select: none;
+      cursor: pointer; user-select: none; -webkit-user-select: none; font-weight: 700;
     }
-    .dpad-btn:active { background: rgba(0,229,255,0.3); }
+    .dpad-btn:active { background: rgba(232,115,108,0.35); }
     .dpad-up { top: 0; left: 50%; transform: translateX(-50%); }
     .dpad-down { bottom: 0; left: 50%; transform: translateX(-50%); }
     .dpad-left { left: 0; top: 50%; transform: translateY(-50%); }
@@ -127,23 +128,23 @@
 
   <!-- Menu -->
   <div id="menu-screen">
-    <h1>PAPER.IO 3D</h1>
+    <h1>Paper.io</h1>
     <div class="menu-row">
-      <label>Bots:</label>
+      <label>Bots</label>
       <div class="menu-btn-group" id="bot-count-group">
         <button data-val="3">3</button>
         <button data-val="5" class="active">5</button>
       </div>
     </div>
     <div class="menu-row">
-      <label>Difficulty:</label>
+      <label>Difficulty</label>
       <div class="menu-btn-group" id="difficulty-group">
         <button data-val="easy">Easy</button>
         <button data-val="medium" class="active">Medium</button>
         <button data-val="hard">Hard</button>
       </div>
     </div>
-    <button id="play-btn">PLAY</button>
+    <button id="play-btn">Play</button>
     <div class="how-to-play" id="how-to-toggle">How to Play</div>
     <div id="how-to-content">
       Arrow Keys / WASD to move<br>
@@ -169,18 +170,18 @@
 
   <!-- Game Over -->
   <div id="game-over">
-    <h2>GAME OVER</h2>
+    <h2>Game Over</h2>
     <div class="go-stat">Final Score: <span id="go-score">0%</span></div>
     <div class="go-stat">Rank: <span id="go-rank">#1</span></div>
     <div class="go-stat">Time: <span id="go-time">00:00</span></div>
     <div class="go-buttons">
-      <button class="go-btn primary" id="go-play-again">PLAY AGAIN</button>
-      <button class="go-btn secondary" id="go-main-menu">MAIN MENU</button>
+      <button class="go-btn primary" id="go-play-again">Play Again</button>
+      <button class="go-btn secondary" id="go-main-menu">Main Menu</button>
     </div>
   </div>
 
   <!-- Pause -->
-  <div id="pause-overlay"><h2>PAUSED</h2></div>
+  <div id="pause-overlay"><h2>Paused</h2></div>
 
   <!-- Mobile D-Pad -->
   <div id="dpad">

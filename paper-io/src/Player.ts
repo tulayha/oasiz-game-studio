@@ -1,4 +1,4 @@
-import { Direction, DIRECTION_VEC, PLAYER_SPEED, TRAIL_SAMPLE_DIST, MAP_HALF, type Vec2, dist2 } from './constants.ts';
+import { Direction, DIRECTION_VEC, PLAYER_SPEED, TRAIL_SAMPLE_DIST, MAP_RADIUS, type Vec2, dist2 } from './constants.ts';
 import { Territory } from './Territory.ts';
 import * as THREE from 'three';
 
@@ -64,7 +64,16 @@ export function computeMovement(player: PlayerState, dt: number): Vec2 {
 }
 
 export function isInBounds(pos: Vec2): boolean {
-  return pos.x >= -MAP_HALF && pos.x <= MAP_HALF && pos.z >= -MAP_HALF && pos.z <= MAP_HALF;
+  return (pos.x * pos.x + pos.z * pos.z) <= MAP_RADIUS * MAP_RADIUS;
+}
+
+/** Clamp position to stay inside the circular arena */
+export function clampToArena(pos: Vec2): Vec2 {
+  const d2 = pos.x * pos.x + pos.z * pos.z;
+  const r2 = MAP_RADIUS * MAP_RADIUS;
+  if (d2 <= r2) return pos;
+  const scale = MAP_RADIUS / Math.sqrt(d2);
+  return { x: pos.x * scale, z: pos.z * scale };
 }
 
 export function sampleTrailPoint(player: PlayerState): void {
@@ -74,27 +83,24 @@ export function sampleTrailPoint(player: PlayerState): void {
   }
 }
 
+// Reusable objects for raycasting — avoids allocations every mouse/touch event
+const _raycaster = new THREE.Raycaster();
+const _ndcVec = new THREE.Vector2();
+const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _hitTarget = new THREE.Vector3();
+
 /** Raycasts screen coordinates to the y=0 ground plane */
 function screenToGround(
   screenX: number, screenY: number,
   camera: THREE.PerspectiveCamera, canvas: HTMLCanvasElement,
 ): Vec2 | null {
-  const ndcX = (screenX / canvas.clientWidth) * 2 - 1;
-  const ndcY = -(screenY / canvas.clientHeight) * 2 + 1;
+  _ndcVec.set((screenX / canvas.clientWidth) * 2 - 1, -(screenY / canvas.clientHeight) * 2 + 1);
+  _raycaster.setFromCamera(_ndcVec, camera);
 
-  const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-
-  // Intersect with y=0 plane
-  const planeNormal = new THREE.Vector3(0, 1, 0);
-  const planePoint = new THREE.Vector3(0, 0, 0);
-  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, planePoint);
-
-  const target = new THREE.Vector3();
-  const hit = raycaster.ray.intersectPlane(plane, target);
+  const hit = _raycaster.ray.intersectPlane(_groundPlane, _hitTarget);
   if (!hit) return null;
 
-  return { x: target.x, z: target.z };
+  return { x: _hitTarget.x, z: _hitTarget.z };
 }
 
 export class InputHandler {

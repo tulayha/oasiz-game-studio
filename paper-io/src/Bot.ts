@@ -1,4 +1,4 @@
-import { MAP_HALF, BotBehavior, type Difficulty, BOT_DIFFICULTY, type Vec2, dist } from './constants.ts';
+import { MAP_RADIUS, BotBehavior, type Difficulty, BOT_DIFFICULTY, type Vec2, dist, dist2 } from './constants.ts';
 import { type PlayerState, setDirectionToward } from './Player.ts';
 
 interface BotAI {
@@ -32,11 +32,13 @@ export class BotController {
 
     ai.ticksSinceChange++;
 
-    // Check flee condition
+    // Check flee condition — use squared distance to avoid sqrt
     if (bot.trail.length > 2) {
+      const fleeDist = this.config.loopSize * 0.5;
+      const fleeDist2 = fleeDist * fleeDist;
       for (const p of allPlayers) {
         if (p.id === bot.id || !p.alive) continue;
-        if (dist(p.position, bot.position) < this.config.loopSize * 0.5) {
+        if (dist2(p.position, bot.position) < fleeDist2) {
           ai.behavior = BotBehavior.RETURN_HOME;
           ai.waypoints = [];
           break;
@@ -74,7 +76,7 @@ export class BotController {
     const offsetTarget = { x: target.x + jitter, z: target.z + jitter };
     setDirectionToward(bot, offsetTarget);
 
-    if (dist(bot.position, target) < 1.0) {
+    if (dist2(bot.position, target) < 1.0) {
       ai.waypointIndex++;
     }
 
@@ -116,9 +118,15 @@ export class BotController {
       { x: cx, z: cz },
     ];
 
+    // Clamp waypoints inside the circular arena
+    const maxR = MAP_RADIUS - 2;
     for (const p of points) {
-      p.x = Math.max(-MAP_HALF + 2, Math.min(MAP_HALF - 2, p.x));
-      p.z = Math.max(-MAP_HALF + 2, Math.min(MAP_HALF - 2, p.z));
+      const d = Math.sqrt(p.x * p.x + p.z * p.z);
+      if (d > maxR) {
+        const scale = maxR / d;
+        p.x *= scale;
+        p.z *= scale;
+      }
     }
 
     return points;
