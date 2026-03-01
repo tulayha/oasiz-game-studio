@@ -383,23 +383,44 @@ export default class Level extends Phaser.Scene {
 
     private startSpawnLoop(): void {
         if (this.spawnLoop) return;
-        this.spawnLoop = this.time.addEvent({ delay: 2133, callback: this.spawnTick, callbackScope: this, loop: true });
         this.spawnTick();
     }
 
+    private stopSpawnLoop(): void {
+        if (this.spawnLoop) {
+            this.spawnLoop.remove();
+            this.spawnLoop = undefined;
+        }
+    }
+
+    private getSpawnDelayMs(): number {
+        const startDelay = 2133;
+        const minDelay = 950;
+        const ramp = Math.min(1, this.score / 400);
+        return Math.round(startDelay - (startDelay - minDelay) * ramp);
+    }
+
+    private scheduleNextSpawnTick(): void {
+        if (this.isGameOver || this.bossAlive) return;
+
+        this.stopSpawnLoop();
+        this.spawnLoop = this.time.delayedCall(this.getSpawnDelayMs(), () => {
+            this.spawnLoop = undefined;
+            this.spawnTick();
+        });
+    }
+
     private spawnTick(): void {
-        if (this.bossAlive) return;
+        if (this.isGameOver || this.bossAlive) return;
 
         if (this.score >= this.nextBossScore) {
             this.spawnBoss();
             this.nextBossScore += 200;
             // Stop normal enemy spawns during boss fight
-            if (this.spawnLoop) {
-                this.spawnLoop.remove();
-                this.spawnLoop = undefined;
-            }
+            this.stopSpawnLoop();
         } else {
             this.spawnEnemy();
+            this.scheduleNextSpawnTick();
         }
     }
 
@@ -1362,7 +1383,7 @@ export default class Level extends Phaser.Scene {
                         }
                         triggerHaptic('heavy');
                         this.cameras.main.shake(300, 0.01);
-                        if (this.spawnLoop) this.spawnLoop.remove();
+                        this.stopSpawnLoop();
                         this.time.delayedCall(800, () => {
                             showGameOver(this.score);
                             triggerHaptic('error');
@@ -1421,7 +1442,7 @@ export default class Level extends Phaser.Scene {
                     }
                     triggerHaptic('heavy');
                     this.cameras.main.shake(300, 0.01);
-                    if (this.spawnLoop) this.spawnLoop.remove();
+                    this.stopSpawnLoop();
                     this.time.delayedCall(800, () => {
                         showGameOver(this.score);
                         triggerHaptic('error');
