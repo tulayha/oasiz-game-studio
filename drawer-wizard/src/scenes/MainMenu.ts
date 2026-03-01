@@ -118,11 +118,14 @@ export default class MainMenu extends Phaser.Scene {
         startButton.on("pointerdown", () => {
             if (started) return;
             drawButton(true, true);
-        });
-        startButton.on("pointerup", () => {
-            if (started) return;
             startGame();
         });
+
+        const onAnyTapStart = () => {
+            if (started) return;
+            startGame();
+        };
+        this.input.on("pointerdown", onAnyTapStart);
 
         const keyboard = this.input.keyboard;
         const keyHandler = (event: KeyboardEvent) => {
@@ -134,10 +137,10 @@ export default class MainMenu extends Phaser.Scene {
 
         this.events.once("shutdown", () => {
             keyboard?.off("keydown", keyHandler);
+            this.input.off("pointerdown", onAnyTapStart);
             if (settingsBtn) {
                 settingsBtn.style.display = "";
             }
         });
     }
 }
-
