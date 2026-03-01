@@ -9,6 +9,7 @@ export interface StartScreenUI {
   playTitleIntro: () => void;
   cancelTitleIntroAudioSync: () => void;
   setBeforeAction: (fn: (() => Promise<void>) | null) => void;
+  setOnActionCommit: (fn: (() => void) | null) => void;
 }
 
 interface StartScreenAudioCallbacks {
@@ -26,6 +27,7 @@ export function createStartScreenUI(
   let forceTitleTriggerRafId = 0;
   let titleIntroRunToken = 0;
   let beforeAction: (() => Promise<void>) | null = null;
+  let onActionCommit: (() => void) | null = null;
   let startActionInFlight = false;
 
   const setStartActionLock = (locked: boolean): void => {
@@ -143,6 +145,7 @@ export function createStartScreenUI(
     if (startActionInFlight) return;
     feedback.button();
     setStartActionLock(true);
+    onActionCommit?.();
     elements.createRoomBtn.textContent = "Creating...";
 
     try {
@@ -172,6 +175,7 @@ export function createStartScreenUI(
     if (startActionInFlight) return;
     feedback.button();
     setStartActionLock(true);
+    onActionCommit?.();
     elements.localMatchBtn.textContent = "Starting...";
 
     try {
@@ -221,6 +225,7 @@ export function createStartScreenUI(
 
     feedback.button();
     setStartActionLock(true);
+    onActionCommit?.();
     elements.submitJoinBtn.textContent = "Joining...";
 
     try {
@@ -257,10 +262,15 @@ export function createStartScreenUI(
     beforeAction = fn;
   }
 
+  function setOnActionCommit(fn: (() => void) | null): void {
+    onActionCommit = fn;
+  }
+
   return {
     resetStartButtons,
     playTitleIntro,
     cancelTitleIntroAudioSync,
     setBeforeAction,
+    setOnActionCommit,
   };
 }

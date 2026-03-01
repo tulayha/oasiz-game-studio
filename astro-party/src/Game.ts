@@ -28,6 +28,8 @@ import {
   GamePhase,
   GameMode,
   BaseGameMode,
+  Ruleset,
+  ExperienceContext,
   MapId,
   PlayerData,
   PlayerInput,
@@ -50,6 +52,7 @@ import {
   shouldSubmitScoreToPlatform,
 } from "../shared/sim/scoring.js";
 import { getShipTrailWorldPoint } from "../shared/geometry/ShipRenderAnchors";
+import { isMapAllowedForContext } from "../shared/sim/maps.js";
 import { isClientDebugToolsRequested } from "./debug/debugTools";
 import {
   onPause as onPlatformPause,
@@ -91,9 +94,11 @@ export class Game {
   };
   private readonly visibilityChangeHandler = (): void => {
     if (document.hidden) {
+      this.network.pauseSimulation(true);
       this.stopLoop();
       return;
     }
+    this.network.pauseSimulation(this.simulationPaused);
     this.startLoop();
   };
   private readonly loopFrame = (timestamp: number): void => {
@@ -113,12 +118,15 @@ export class Game {
   private debugToolsEnabledForRoom = false;
   private debugSessionTainted = false;
   private isDemoSession = false;
+  private simulationPaused = false;
   private devKeyInputRequestedByUI = false;
   private advancedSettings: AdvancedSettings = {
     ...DEFAULT_ADVANCED_SETTINGS,
   };
   private currentMode: GameMode = "STANDARD";
   private baseMode: BaseGameMode = "STANDARD";
+  private currentRuleset: Ruleset = "ROUND_ELIMINATION";
+  private currentExperienceContext: ExperienceContext = "LIVE_MATCH";
   private selectedMapId: MapId = 0;
   private showMapElements = false;
   private hideBorder = false;
@@ -186,6 +194,7 @@ export class Game {
     onPlayersUpdate: (players: PlayerData[]) => void;
     onCountdownUpdate: (count: number) => void;
     onGameModeChange?: (mode: GameMode) => void;
+    onRulesetChange?: (ruleset: Ruleset) => void;
     onRoundResult?: (payload: RoundResultPayload) => void;
     onAdvancedSettingsChange?: (settings: AdvancedSettings) => void;
     onSystemMessage?: (message: string, durationMs?: number) => void;
@@ -196,6 +205,7 @@ export class Game {
     this.flowMgr.onCountdownUpdate = callbacks.onCountdownUpdate;
     this._onPlayersUpdate = callbacks.onPlayersUpdate;
     this._onGameModeChange = callbacks.onGameModeChange ?? null;
+    this._onRulesetChange = callbacks.onRulesetChange ?? null;
     this._onRoundResult = callbacks.onRoundResult ?? null;
     this._onAdvancedSettingsChange = callbacks.onAdvancedSettingsChange ?? null;
     this._onSystemMessage = callbacks.onSystemMessage ?? null;
@@ -205,6 +215,7 @@ export class Game {
 
   private _onPlayersUpdate: ((players: PlayerData[]) => void) | null = null;
   private _onGameModeChange: ((mode: GameMode) => void) | null = null;
+  private _onRulesetChange: ((ruleset: Ruleset) => void) | null = null;
   private _onRoundResult: ((payload: RoundResultPayload) => void) | null = null;
   private _onAdvancedSettingsChange:
     | ((settings: AdvancedSettings) => void)
@@ -536,6 +547,36 @@ export class Game {
         this.applyModeStateFromNetwork(payload);
       },
 
+      onRulesetReceived: (ruleset) => {
+        if (this.currentRuleset === ruleset) return;
+        this.currentRuleset = ruleset;
+        if (
+          !isMapAllowedForContext(
+            this.selectedMapId,
+            this.currentRuleset,
+            this.currentExperienceContext,
+          )
+        ) {
+          this.selectedMapId = 0;
+          this._onMapChange?.(this.selectedMapId);
+        }
+        this._onRulesetChange?.(ruleset);
+      },
+
+      onExperienceContextReceived: (context) => {
+        this.currentExperienceContext = context;
+        if (
+          !isMapAllowedForContext(
+            this.selectedMapId,
+            this.currentRuleset,
+            this.currentExperienceContext,
+          )
+        ) {
+          this.selectedMapId = 0;
+          this._onMapChange?.(this.selectedMapId);
+        }
+      },
+
       onMapIdReceived: (mapId) => {
         const nextMapId = mapId as MapId;
         if (nextMapId === this.selectedMapId) return;
@@ -668,6 +709,9 @@ export class Game {
     this.lastPredictedDashAtMs = 0;
     this.controlledInputSequenceByPlayer.clear();
     this.clearStickyRoster();
+    this.currentRuleset = "ROUND_ELIMINATION";
+    this.currentExperienceContext = "LIVE_MATCH";
+    this._onRulesetChange?.(this.currentRuleset);
 
     this.flowMgr.setPhase("LOBBY");
   }
@@ -803,8 +847,11 @@ export class Game {
   private resetAdvancedSettings(): void {
     this.baseMode = "STANDARD";
     this.currentMode = "STANDARD";
+    this.currentRuleset = "ROUND_ELIMINATION";
+    this.currentExperienceContext = "LIVE_MATCH";
     this.advancedSettings = applyModeTemplate(this.baseMode);
     this._onGameModeChange?.(this.currentMode);
+    this._onRulesetChange?.(this.currentRuleset);
     this._onAdvancedSettingsChange?.(this.advancedSettings);
   }
 
@@ -857,9 +904,11 @@ export class Game {
     }
     document.addEventListener("visibilitychange", this.visibilityChangeHandler);
     this.offPlatformPause = onPlatformPause(() => {
+      this.network.pauseSimulation(true);
       this.stopLoop();
     });
     this.offPlatformResume = onPlatformResume(() => {
+      this.network.pauseSimulation(this.simulationPaused);
       this.startLoop();
     });
     this.lifecycleHandlersAttached = true;
@@ -887,27 +936,40 @@ export class Game {
     this.lastTime = timestamp;
 
     const now = performance.now();
-    const localInput = this.inputResolver.captureLocalInput(
-      now,
-      this.botMgr.useTouchForHost,
-    );
-    // Demo tutorial gate — mask fire button if restricted during this step
-    if (this.isDemoSession && this.demoTutorialBlockFire && localInput.buttonB) {
-      localInput.buttonB = false;
-      this.inputResolver.maskButtonB();
+    let localInput: PlayerInput = {
+      buttonA: false,
+      buttonB: false,
+      timestamp: now,
+      clientTimeMs: now,
+      inputSequence: 0,
+    };
+    if (!this.simulationPaused) {
+      localInput = this.inputResolver.captureLocalInput(
+        now,
+        this.botMgr.useTouchForHost,
+      );
+      // Demo tutorial gate — mask fire button if restricted during this step
+      if (this.isDemoSession && this.demoTutorialBlockFire && localInput.buttonB) {
+        localInput.buttonB = false;
+        this.inputResolver.maskButtonB();
+      }
+      this.emitLocalInputActions(localInput);
+      this.networkSync.captureLocalInput(localInput);
+      const sentInput = this.inputResolver.sendLocalInputIfNeeded(
+        now,
+        this.flowMgr.phase,
+      );
+      if (sentInput) {
+        this.networkSync.recordSentInput(sentInput);
+      }
+      this.consumeHostTouchDash();
+      this.maybeRunPredictedLocalFire(localInput, now);
+      this.sendLocalControlledInputs(now);
+    } else {
+      this.previousLocalInputButtons.buttonA = false;
+      this.previousLocalInputButtons.buttonB = false;
+      this.wasLocalFireHeld = false;
     }
-    this.emitLocalInputActions(localInput);
-    this.networkSync.captureLocalInput(localInput);
-    const sentInput = this.inputResolver.sendLocalInputIfNeeded(
-      now,
-      this.flowMgr.phase,
-    );
-    if (sentInput) {
-      this.networkSync.recordSentInput(sentInput);
-    }
-    this.consumeHostTouchDash();
-    this.maybeRunPredictedLocalFire(localInput, now);
-    this.sendLocalControlledInputs(now);
 
     const frameRenderState = this.networkSync.getRenderState(
       this.network.getMyPlayerId(),
@@ -1545,6 +1607,46 @@ export class Game {
     return this.baseMode;
   }
 
+  setRuleset(
+    ruleset: Ruleset,
+    source: "local" | "remote" = "local",
+  ): void {
+    if (source === "local" && !this.isLeader()) return;
+    if (this.flowMgr.phase !== "LOBBY") return;
+    if (this.currentRuleset === ruleset) return;
+
+    this.currentRuleset = ruleset;
+    if (
+      !isMapAllowedForContext(
+        this.selectedMapId,
+        this.currentRuleset,
+        this.currentExperienceContext,
+      )
+    ) {
+      this.selectedMapId = 0;
+      this._onMapChange?.(this.selectedMapId);
+    }
+
+    if (source === "local" && this.isLeader()) {
+      this.network.setRuleset(ruleset);
+      this.network.setMap(this.selectedMapId);
+    }
+    this._onRulesetChange?.(ruleset);
+  }
+
+  getRuleset(): Ruleset {
+    return this.currentRuleset;
+  }
+
+  getExperienceContext(): ExperienceContext {
+    return this.currentExperienceContext;
+  }
+
+  setExperienceContext(context: ExperienceContext): void {
+    this.currentExperienceContext = context;
+    this.network.setExperienceContext(context);
+  }
+
   setMap(mapId: MapId, source: "local" | "remote" = "local"): void {
     console.log(
       "[Game] setMap requested. source=" +
@@ -1564,6 +1666,17 @@ export class Game {
     }
     if (this.flowMgr.phase !== "LOBBY") {
       console.log("[Game] setMap ignored: phase is not LOBBY");
+      return;
+    }
+    if (
+      !isMapAllowedForContext(
+        mapId,
+        this.currentRuleset,
+        this.currentExperienceContext,
+      )
+    ) {
+      console.log("[Game] setMap ignored: map not allowed for ruleset");
+      this._onSystemMessage?.("Map not available for selected ruleset", 2500);
       return;
     }
     if (this.selectedMapId === mapId) {
@@ -1590,6 +1703,17 @@ export class Game {
     }
     this.refreshLobbyScoreEligibilityFromRoster();
     this.broadcastModeState();
+    if (
+      !isMapAllowedForContext(
+        this.selectedMapId,
+        this.currentRuleset,
+        this.currentExperienceContext,
+      )
+    ) {
+      this.selectedMapId = 0;
+      this._onMapChange?.(this.selectedMapId);
+    }
+    this.network.setRuleset(this.currentRuleset);
     this.network.setMap(this.selectedMapId);
     this.roundResult = null;
     this.finalScoreSubmittedForMatch = false;
@@ -1663,6 +1787,20 @@ export class Game {
     this.network.continueMatchSequence();
   }
 
+  endMatch(): void {
+    if (!this.isLeader()) {
+      this._onSystemMessage?.("Only the room leader can do that", 2500);
+      return;
+    }
+    if (this.currentRuleset !== "ENDLESS_RESPAWN") {
+      return;
+    }
+    if (this.flowMgr.phase !== "PLAYING") {
+      return;
+    }
+    this.network.endMatch();
+  }
+
   setPlayerName(name: string): void {
     this.network.setCustomName(name);
   }
@@ -1692,10 +1830,16 @@ export class Game {
   setDemoSession(active: boolean): void {
     this.isDemoSession = active;
     this.network.setDemoMode(active);
+    this.setExperienceContext(active ? "ATTRACT_BACKGROUND" : "LIVE_MATCH");
+    if (active) {
+      this.currentRuleset = "ENDLESS_RESPAWN";
+      this._onRulesetChange?.(this.currentRuleset);
+    }
     if (!active) {
       // Always clear tutorial gates when leaving demo
       this.demoTutorialBlockDash = false;
       this.demoTutorialBlockFire = false;
+      this.simulationPaused = false;
     }
   }
 
@@ -1723,7 +1867,8 @@ export class Game {
   }
 
   setSimPaused(paused: boolean): void {
-    this.network.pauseSimulation(paused);
+    this.simulationPaused = paused;
+    this.network.pauseSimulation(document.hidden ? true : paused);
   }
 
   /** Freeze all non-host ships during tutorial action steps. Pass null to unfreeze. */
@@ -1748,6 +1893,10 @@ export class Game {
 
   setSessionMode(mode: "online" | "local"): void {
     this.network.setTransportMode(mode);
+    this.network.setDemoMode(this.isDemoSession);
+    this.setExperienceContext(
+      this.isDemoSession ? "ATTRACT_BACKGROUND" : "LIVE_MATCH",
+    );
     this.debugToolsEnabledForRoom = false;
     this.debugSessionTainted = false;
     this.applyDevKeyInputGate();
@@ -2005,6 +2154,7 @@ export class Game {
 
   private shouldSubmitScoreNow(hasEligibleLobbyBot: boolean): boolean {
     if (this.isDemoSession) return false;
+    if (this.currentExperienceContext !== "LIVE_MATCH") return false;
     return shouldSubmitScoreToPlatform(
       hasEligibleLobbyBot,
       this.debugSessionTainted,

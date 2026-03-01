@@ -94,6 +94,7 @@ export function createScreenController(
   game: Game,
   isMobile: boolean,
 ): ScreenController {
+  const feedback = createUIFeedback("lobby");
   let activeScreen: Screen = "start";
   let systemMessageTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -109,6 +110,7 @@ export function createScreenController(
   function updateHudControlsVisibility(): void {
     if (activeScreen !== "game") {
       elements.leaveGameBtn.style.display = "none";
+      elements.endMatchBtn.style.display = "none";
       elements.settingsBtn.style.display = "none";
       elements.settingsCenterHotspot.style.display = "none";
       elements.settingsLeaveBtn.style.display = "none";
@@ -121,6 +123,10 @@ export function createScreenController(
     elements.leaveGameBtn.style.display = hideHudLeaveForMobileLocal
       ? "none"
       : "flex";
+    elements.endMatchBtn.style.display =
+      game.getRuleset() === "ENDLESS_RESPAWN" && game.isLeader()
+        ? "flex"
+        : "none";
     elements.settingsBtn.style.display = hideHudLeaveForMobileLocal
       ? "none"
       : "flex";
@@ -276,10 +282,10 @@ export function createScreenController(
 
   function updateScoreTrack(players: PlayerData[]): void {
     const myPlayerId = game.getMyPlayerId();
-    const roundsToWin = Math.max(
-      1,
-      Math.floor(game.getAdvancedSettings().roundsToWin),
-    );
+    const isEndless = game.getRuleset() === "ENDLESS_RESPAWN";
+    const roundsToWin = isEndless
+      ? 0
+      : Math.max(1, Math.floor(game.getAdvancedSettings().roundsToWin));
     elements.scoreTrack.innerHTML = players
       .map((player) => {
         const isSelf = player.id === myPlayerId;
@@ -301,16 +307,18 @@ export function createScreenController(
         } else if (isEjected) {
           statusLabel = " (Ejected)";
         }
-        const dots = Array.from({ length: roundsToWin }, (_, i) => {
-          const filled = i < player.roundWins;
-          return (
-            '<div class="score-dot ' +
-            (filled ? "filled" : "") +
-            '" style="color: ' +
-            player.color.primary +
-            '"></div>'
-          );
-        }).join("");
+        const dots = isEndless
+          ? '<div class="score-points">PTS ' + player.score.toString() + "</div>"
+          : Array.from({ length: roundsToWin }, (_, i) => {
+              const filled = i < player.roundWins;
+              return (
+                '<div class="score-dot ' +
+                (filled ? "filled" : "") +
+                '" style="color: ' +
+                player.color.primary +
+                '"></div>'
+              );
+            }).join("");
 
         return (
           '<div class="score-row' +
@@ -449,6 +457,13 @@ export function createScreenController(
 
   SettingsManager.subscribe(() => {
     updateControlHints();
+  });
+
+  elements.endMatchBtn.addEventListener("click", () => {
+    if (game.getRuleset() !== "ENDLESS_RESPAWN") return;
+    if (!game.isLeader()) return;
+    feedback.confirm();
+    game.endMatch();
   });
 
   return {

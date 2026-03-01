@@ -41,9 +41,13 @@ interface DashMessage {
 interface SetModeMessage {
   mode: "STANDARD" | "SANE" | "CHAOTIC" | "CUSTOM";
 }
+interface SetRulesetMessage {
+  ruleset: "ROUND_ELIMINATION" | "ENDLESS_RESPAWN";
+}
 interface SetMapMessage {
   mapId: number;
 }
+interface EndMatchMessage {}
 
 interface SetAdvancedSettingsMessage extends AdvancedSettingsSync {}
 interface SetDevModeMessage {
@@ -266,9 +270,22 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       this.simulation.setMode(client.sessionId, payload.mode);
     });
 
+    this.onMessage(
+      "cmd:set_ruleset",
+      (client, payload: SetRulesetMessage) => {
+        opsStats.recordCommand("cmd:set_ruleset");
+        this.simulation.setRuleset(client.sessionId, payload.ruleset);
+      },
+    );
+
     this.onMessage("cmd:set_map", (client, payload: SetMapMessage) => {
       opsStats.recordCommand("cmd:set_map");
       this.simulation.setMap(client.sessionId, payload.mapId);
+    });
+
+    this.onMessage("cmd:end_match", (client, _payload: EndMatchMessage) => {
+      opsStats.recordCommand("cmd:end_match");
+      this.simulation.endMatch(client.sessionId);
     });
 
     this.onMessage(
@@ -441,6 +458,8 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     this.state.leaderPlayerId = payload.leaderPlayerId ?? "";
     this.state.hostId = payload.leaderPlayerId ?? "";
     this.state.phase = payload.phase;
+    this.state.ruleset = payload.ruleset;
+    this.state.experienceContext = payload.experienceContext;
     this.state.mode = payload.mode;
     this.state.baseMode = payload.baseMode;
     this.state.mapId = payload.mapId;

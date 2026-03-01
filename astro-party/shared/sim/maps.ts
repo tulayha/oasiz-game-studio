@@ -1,4 +1,9 @@
-import type { MapId, PowerUpType } from "./types.js";
+import type {
+  ExperienceContext,
+  MapId,
+  PowerUpType,
+  Ruleset,
+} from "./types.js";
 import { ARENA_HEIGHT, ARENA_WIDTH } from "./constants.js";
 
 export interface YellowBlock {
@@ -259,7 +264,29 @@ export const MAP_DEFINITIONS: Record<MapId, MapDefinition> = {
 
 export const ALL_MAP_IDS: MapId[] = [0, 1, 2, 3, 4, 5];
 export const CLASSIC_ROTATION_MAP_IDS: MapId[] = [1, 2, 3, 4, 5];
+export const ENDLESS_ALLOWED_MAP_IDS: MapId[] = [0, 2, 3, 4, 5];
 
 export function getMapDefinition(id: MapId): MapDefinition {
   return MAP_DEFINITIONS[id];
+}
+
+export function isMapAllowedForRuleset(
+  mapId: MapId,
+  ruleset: Ruleset,
+): boolean {
+  if (ruleset === "ENDLESS_RESPAWN") {
+    return ENDLESS_ALLOWED_MAP_IDS.includes(mapId);
+  }
+  return ALL_MAP_IDS.includes(mapId);
+}
+
+export function isMapAllowedForContext(
+  mapId: MapId,
+  ruleset: Ruleset,
+  context: ExperienceContext,
+): boolean {
+  if (context !== "LIVE_MATCH" && mapId === 6) {
+    return true;
+  }
+  return isMapAllowedForRuleset(mapId, ruleset);
 }

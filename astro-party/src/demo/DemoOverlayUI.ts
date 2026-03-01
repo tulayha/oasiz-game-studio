@@ -54,8 +54,9 @@ export class DemoOverlayUI {
   private spotlightActive = false;
   private spotlightTrackInterval: number | null = null;
   private spotlightFirstActionTriggered = false;
+  private lastStateTapAtMs = 0;
 
-  private boundOnTap: () => void;
+  private boundOnTap: (e: MouseEvent) => void;
   private boundOnAttractPointerDown: (e: PointerEvent) => void;
   private boundOnKey: (e: KeyboardEvent) => void;
   private boundOnSkipClick: (e: MouseEvent) => void;
@@ -148,7 +149,8 @@ export class DemoOverlayUI {
     this.tutorialOverlay.style.pointerEvents = "auto";
     this.tutorialOverlay.classList.remove("hidden");
 
-    this.tutorialSkip.addEventListener("click", () => {
+    this.tutorialSkip.addEventListener("click", (e) => {
+      if (!this.guardStateTap(e)) return;
       // During tutorial: only cancel the typewriter so the full text appears.
       // The player must still complete the required action to advance.
       if (this.cancelTypewriter !== null) {
@@ -167,7 +169,8 @@ export class DemoOverlayUI {
     const fresh = this.exitBtn.cloneNode(true) as HTMLButtonElement;
     this.exitBtn.parentNode?.replaceChild(fresh, this.exitBtn);
     this.exitBtn = fresh;
-    this.exitBtn.addEventListener("click", () => {
+    this.exitBtn.addEventListener("click", (e) => {
+      if (!this.guardStateTap(e)) return;
       this.exitBtn.classList.add("hidden");
       onExit();
     });
@@ -177,6 +180,7 @@ export class DemoOverlayUI {
   private waitForNextButton(): Promise<void> {
     return new Promise((resolve) => {
       const handler = (): void => {
+        if (!this.guardStateTap(null)) return;
         this.tutorialNext.classList.add("hidden");
         this.tutorialNext.removeEventListener("click", handler);
         resolve();
@@ -219,7 +223,21 @@ export class DemoOverlayUI {
     this.hideAll();
   }
 
-  private handleTap(): void {
+  private guardStateTap(e: Event | null): boolean {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const now = Date.now();
+    if (now - this.lastStateTapAtMs < 300) {
+      return false;
+    }
+    this.lastStateTapAtMs = now;
+    return true;
+  }
+
+  private handleTap(e: Event | null = null): void {
+    if (!this.guardStateTap(e)) return;
     if (this.transitioning) return;
     this.transitioning = true;
     this.callbacks?.onTapToStart();
@@ -229,12 +247,12 @@ export class DemoOverlayUI {
     if (e.target instanceof Node && this.skipBtn.contains(e.target)) {
       return;
     }
-    this.handleTap();
+    this.handleTap(e);
   }
 
   private handleAttractSkipClick(e: MouseEvent): void {
-    e.stopPropagation();
-    this.handleSkip();
+    if (!this.guardStateTap(e)) return;
+    this.handleSkip(e);
   }
 
   private handleAttractSkipPointerDown(e: PointerEvent): void {
@@ -249,10 +267,10 @@ export class DemoOverlayUI {
       e.key === "Meta"
     )
       return;
-    this.handleTap();
+    this.handleTap(null);
   }
 
-  private handleSkip(): void {
+  private handleSkip(_e: Event | null = null): void {
     this.cancelTypewriter?.();
     this.tutorialRunning = false;
 
@@ -521,7 +539,8 @@ export class DemoOverlayUI {
     this.tutorialSkip = fresh;
     this.tutorialSkip.textContent = "Start Playing";
     this.tutorialSkip.classList.add("demo-start-playing-btn");
-    this.tutorialSkip.addEventListener("click", () => {
+    this.tutorialSkip.addEventListener("click", (e) => {
+      if (!this.guardStateTap(e)) return;
       // Bloom the spotlight outward from the ship, then hand off to free-play
       this.fadeOutSpotlightFromShip();
       this.callbacks?.setZoom(null);

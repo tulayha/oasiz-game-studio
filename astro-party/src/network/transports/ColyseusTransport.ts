@@ -8,11 +8,13 @@ import {
   AsteroidColliderSync,
   DebugPhysicsTuningPayload,
   DebugPhysicsTuningSnapshot,
+  ExperienceContext,
   GamePhase,
   GameMode,
   GameStateSync,
   PlayerInput,
   PowerUpType,
+  Ruleset,
   PLAYER_COLORS,
   RoundResultPayload,
 } from "../../types";
@@ -71,6 +73,8 @@ interface RoomStateView {
   leaderPlayerId?: string;
   hostId?: string;
   phase?: GamePhase;
+  ruleset?: Ruleset;
+  experienceContext?: ExperienceContext;
   mode?: string;
   baseMode?: string;
   mapId?: number;
@@ -144,6 +148,8 @@ export class ColyseusTransport implements NetworkTransport {
   private lastDebugSessionTainted: boolean | null = null;
   private lastMapId: number | null = null;
   private lastPhase: GamePhase | null = null;
+  private lastRuleset: Ruleset | null = null;
+  private lastExperienceContext: ExperienceContext | null = null;
   private lastCountdown: number | null = null;
   private lastRoundResultSignature: string | null = null;
   private lastRoundResult: RoundResultPayload | null = null;
@@ -265,6 +271,11 @@ export class ColyseusTransport implements NetworkTransport {
     this.room.send("cmd:start_match", {});
   }
 
+  endMatch(): void {
+    if (!this.room) return;
+    this.room.send("cmd:end_match", {});
+  }
+
   continueMatchSequence(): void {
     if (!this.room) return;
     this.room.send("cmd:continue_sequence", {});
@@ -278,6 +289,15 @@ export class ColyseusTransport implements NetworkTransport {
   setMode(mode: GameMode): void {
     if (!this.room || mode === "CUSTOM") return;
     this.room.send("cmd:set_mode", { mode });
+  }
+
+  setRuleset(ruleset: Ruleset): void {
+    if (!this.room) return;
+    this.room.send("cmd:set_ruleset", { ruleset });
+  }
+
+  setExperienceContext(_context: ExperienceContext): void {
+    // Server currently owns live-match context in online rooms.
   }
 
   setMap(mapId: number): void {
@@ -718,6 +738,10 @@ export class ColyseusTransport implements NetworkTransport {
       );
       trackUnsubscriber(root.listen("hostId", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("phase", () => triggerStateRefresh()));
+      trackUnsubscriber(root.listen("ruleset", () => triggerStateRefresh()));
+      trackUnsubscriber(
+        root.listen("experienceContext", () => triggerStateRefresh()),
+      );
       trackUnsubscriber(root.listen("mode", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("baseMode", () => triggerStateRefresh()));
       trackUnsubscriber(root.listen("mapId", () => triggerStateRefresh()));
@@ -832,6 +856,7 @@ export class ColyseusTransport implements NetworkTransport {
 
     this.applyRoundResultFromState(state);
     this.applyMapFromState(state);
+    this.applyRulesetAndContextFromState(state);
     this.applyAdvancedSettingsFromState(state);
     this.applyPhaseFromState(state);
     this.applyCountdownFromState(state);
@@ -1173,6 +1198,8 @@ export class ColyseusTransport implements NetworkTransport {
     this.lastDebugSessionTainted = null;
     this.lastMapId = null;
     this.lastPhase = null;
+    this.lastRuleset = null;
+    this.lastExperienceContext = null;
     this.lastCountdown = null;
     this.lastRoundResultSignature = null;
     this.lastRoundResult = null;
@@ -1321,6 +1348,22 @@ export class ColyseusTransport implements NetworkTransport {
 
   private readInjectedPlayerName(): string | null {
     return getPlatformPlayerName();
+  }
+
+  private applyRulesetAndContextFromState(state: RoomStateView): void {
+    const ruleset = this.normalizeStateString(state.ruleset) as Ruleset | null;
+    if (ruleset && this.lastRuleset !== ruleset) {
+      this.lastRuleset = ruleset;
+      this.callbacks?.onRulesetReceived?.(ruleset);
+    }
+
+    const context = this.normalizeStateString(
+      state.experienceContext,
+    ) as ExperienceContext | null;
+    if (context && this.lastExperienceContext !== context) {
+      this.lastExperienceContext = context;
+      this.callbacks?.onExperienceContextReceived?.(context);
+    }
   }
 
   private shareRoomCode(code: string | null): void {

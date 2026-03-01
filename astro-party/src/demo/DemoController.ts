@@ -17,14 +17,6 @@ export class DemoController {
   private state: DemoState = "IDLE";
   private restartTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  // Respawn monitoring (demo-only)
-  private monitorInterval: ReturnType<typeof setInterval> | null = null;
-  private respawnTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-  // Stale pilot cleanup (demo-only)
-  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
-  private static readonly PILOT_MAX_AGE_MS = 20_000; // 20 seconds
-
   constructor(private game: Game) {}
 
   private applyDemoAudioMix(): void {
@@ -84,10 +76,6 @@ export class DemoController {
     setTimeout(() => {
       this.game.skipDemoCountdown();
     }, 50);
-
-    // Start monitoring for dead players to respawn them
-    this.startRespawnMonitor();
-    this.startCleanupInterval();
 
     this.state = "ATTRACT";
     this.applyDemoAudioMix();
@@ -165,9 +153,6 @@ export class DemoController {
 
     this.state = "TEARING_DOWN";
 
-    this.stopRespawnMonitor();
-    this.stopCleanupInterval();
-
     if (this.restartTimeout !== null) {
       clearTimeout(this.restartTimeout);
       this.restartTimeout = null;
@@ -200,13 +185,10 @@ export class DemoController {
     }
 
     if (phase === "ROUND_END") {
-      // New round incoming — clear stale respawn timers (ships will
-      // respawn naturally via spawnAllShips when the new round begins)
-      this.clearRespawnTimers();
+      // No-op; shared sim now owns all endless respawns.
     }
 
     if (phase === "GAME_END") {
-      this.clearRespawnTimers();
       // Auto-restart the demo battle after a short delay
       this.restartTimeout = setTimeout(() => {
         this.restartTimeout = null;
@@ -215,74 +197,6 @@ export class DemoController {
           // Countdown will be skipped via onPhaseChange("COUNTDOWN")
         }
       }, 1500);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Respawn monitoring — demo only
-  // ---------------------------------------------------------------------------
-
-  private startRespawnMonitor(): void {
-    if (this.monitorInterval !== null) return;
-    this.monitorInterval = setInterval(() => {
-      this.checkAndScheduleRespawns();
-    }, 500);
-  }
-
-  private stopRespawnMonitor(): void {
-    if (this.monitorInterval !== null) {
-      clearInterval(this.monitorInterval);
-      this.monitorInterval = null;
-    }
-    this.clearRespawnTimers();
-  }
-
-  private clearRespawnTimers(): void {
-    for (const timer of this.respawnTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.respawnTimers.clear();
-  }
-
-  private startCleanupInterval(): void {
-    if (this.cleanupInterval !== null) return;
-    // Run cleanup every 10 seconds
-    this.cleanupInterval = setInterval(() => {
-      if (this.isDemoActive()) {
-        this.game.demoCleanupStalePilots(DemoController.PILOT_MAX_AGE_MS);
-      }
-    }, 10_000);
-  }
-
-  private stopCleanupInterval(): void {
-    if (this.cleanupInterval !== null) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-    }
-  }
-
-  private checkAndScheduleRespawns(): void {
-    if (!this.isDemoActive()) return;
-    if (this.game.getPhase() !== "PLAYING") return;
-
-    const myPlayerId = this.game.getMyPlayerId();
-    const players = this.game.getPlayers();
-    for (const player of players) {
-      if (
-        player.state === "SPECTATING" &&
-        !this.respawnTimers.has(player.id)
-      ) {
-        // Player ship respawns faster (3 s); AI bots have a random 5–8 s delay
-        const isPlayer = player.id === myPlayerId;
-        const delayMs = isPlayer ? 3000 : 5000 + Math.random() * 3000;
-        const timer = setTimeout(() => {
-          this.respawnTimers.delete(player.id);
-          if (this.isDemoActive() && this.game.getPhase() === "PLAYING") {
-            this.game.demoRespawnPlayer(player.id);
-          }
-        }, delayMs);
-        this.respawnTimers.set(player.id, timer);
-      }
     }
   }
 }

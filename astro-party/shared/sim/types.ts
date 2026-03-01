@@ -8,6 +8,12 @@ export type GamePhase =
   | "ROUND_END"
   | "GAME_END";
 
+export type Ruleset = "ROUND_ELIMINATION" | "ENDLESS_RESPAWN";
+export type ExperienceContext =
+  | "LIVE_MATCH"
+  | "ONBOARDING_TUTORIAL"
+  | "ATTRACT_BACKGROUND";
+
 export type PlayerState = "ACTIVE" | "EJECTED" | "SPECTATING";
 export type GameMode = "STANDARD" | "SANE" | "CHAOTIC" | "CUSTOM";
 export type BaseGameMode = "STANDARD" | "SANE" | "CHAOTIC";
@@ -244,6 +250,8 @@ export interface RoomMetaPayload {
   roomCode: string;
   leaderPlayerId: string | null;
   phase: GamePhase;
+  ruleset: Ruleset;
+  experienceContext: ExperienceContext;
   mode: GameMode;
   baseMode: BaseGameMode;
   settings: AdvancedSettings;
@@ -353,6 +361,7 @@ export interface RuntimePlayer {
   dashVectorY: number;
   recoilTimerSec: number;
   angularVelocity: number;
+  endlessRespawnAtMs: number | null;
   ship: ShipState;
 }
 
@@ -488,6 +497,8 @@ export interface SimState {
 
   // Game state
   phase: GamePhase;
+  ruleset: Ruleset;
+  experienceContext: ExperienceContext;
   hostTick: number;
   nowMs: number;
   settings: AdvancedSettings;
@@ -510,7 +521,7 @@ export interface SimState {
 
   /** Demo tutorial: IDs of non-host players whose ships are frozen in place. */
   demoFrozenPlayerIds: Set<string> | null;
-  /** When true the simulation never ends rounds or increments scores (demo mode). */
+  /** Back-compat flag kept during migration; do not use for new ruleset logic. */
   isDemo: boolean;
 
   // Hooks

@@ -271,6 +271,9 @@ async function init(): Promise<void> {
       startPendingDemoStartupAfterIntro();
     },
   });
+  startUI.setOnActionCommit(() => {
+    pendingDemoStartupAfterIntro = null;
+  });
 
   const clearStartMenuMusicTimer = (): void => {
     if (startMenuMusicTimer === null) {
@@ -375,6 +378,18 @@ async function init(): Promise<void> {
     platformGameplayStop();
   };
 
+  const runWithSuppressedStartPhaseEffects = async <T>(
+    action: () => Promise<T>,
+  ): Promise<T> => {
+    const previous = suppressNextStartPhaseEffects;
+    suppressNextStartPhaseEffects = true;
+    try {
+      return await action();
+    } finally {
+      suppressNextStartPhaseEffects = previous;
+    }
+  };
+
   async function teardownDemoAndShowMenu(): Promise<void> {
     if (!demoController?.isDemoActive()) return;
     demoOverlay?.hideAll();
@@ -393,21 +408,23 @@ async function init(): Promise<void> {
   }
 
   async function teardownDemoForAction(): Promise<void> {
-    if (!demoController?.isDemoActive()) return;
-    suppressNextStartPhaseEffects = true;
-    demoOverlay?.hideAll();
-    await demoController.teardown();
-    demoInputActionSubscribers.clear();
-    markDemoSeen();
-    demoController = null;
-    demoOverlay = null;
-    starfieldInitializedForDemo = false;
-    elements.starsContainer.classList.remove("demo-stars", "active");
-    syncPlatformGameplayActivity();
-    startUI.setBeforeAction(null);
-    if (viewport.isMobile) {
-      game.clearTouchLayout();
-    }
+    const activeDemoController = demoController;
+    if (!activeDemoController?.isDemoActive()) return;
+    await runWithSuppressedStartPhaseEffects(async () => {
+      demoOverlay?.hideAll();
+      await activeDemoController.teardown();
+      demoInputActionSubscribers.clear();
+      markDemoSeen();
+      demoController = null;
+      demoOverlay = null;
+      starfieldInitializedForDemo = false;
+      elements.starsContainer.classList.remove("demo-stars", "active");
+      syncPlatformGameplayActivity();
+      startUI.setBeforeAction(null);
+      if (viewport.isMobile) {
+        game.clearTouchLayout();
+      }
+    });
   }
 
   function syncDemoTouchLayoutForState(): void {
@@ -446,6 +463,7 @@ async function init(): Promise<void> {
 
     demoOverlay.setCallbacks({
       onTapToStart: () => {
+        game.setExperienceContext("ONBOARDING_TUTORIAL");
         demoController!.enterTutorial();
         syncAudioToPhase(currentPhase, currentPhase);
         syncDemoTouchLayoutForState();
@@ -453,6 +471,7 @@ async function init(): Promise<void> {
         demoOverlay!.showTutorial(viewport.isMobile);
       },
       onTutorialComplete: () => {
+        game.setExperienceContext("ONBOARDING_TUTORIAL");
         // Tutorial finished → player keeps free-playing with Exit Demo button
         demoController!.enterFreePlay();
         syncAudioToPhase(currentPhase, currentPhase);
@@ -463,6 +482,7 @@ async function init(): Promise<void> {
         game.demoSetPlayerInvincible(5000);
         demoOverlay!.showExitButton(() => {
           // Keep the battle running — transition to MENU state (same as skip)
+          game.setExperienceContext("ATTRACT_BACKGROUND");
           demoOverlay?.hideAll();
           demoController?.enterMenu();
           syncAudioToPhase(currentPhase, currentPhase);
@@ -474,6 +494,7 @@ async function init(): Promise<void> {
       },
       onSkipToMenu: () => {
         // Keep background battle alive — just transition to MENU state
+        game.setExperienceContext("ATTRACT_BACKGROUND");
         demoOverlay?.hideAll();
         demoController?.enterMenu();
         syncAudioToPhase(currentPhase, currentPhase);
@@ -520,6 +541,7 @@ async function init(): Promise<void> {
     startUI.setBeforeAction(teardownDemoForAction);
 
     await demoController.startDemo();
+    game.setExperienceContext("ATTRACT_BACKGROUND");
     syncAudioToPhase(currentPhase, currentPhase);
     syncDemoTouchLayoutForState();
     syncPlatformGameplayActivity();
@@ -537,6 +559,7 @@ async function init(): Promise<void> {
     } else {
       // Second visit: skip attract, go straight to background MENU state
       demoController.enterMenu();
+      game.setExperienceContext("ATTRACT_BACKGROUND");
       syncAudioToPhase(currentPhase, currentPhase);
       syncDemoTouchLayoutForState();
       syncPlatformGameplayActivity();
@@ -646,7 +669,6 @@ async function init(): Promise<void> {
     switch (phase) {
       case "START":
         if (suppressNextStartPhaseEffects) {
-          suppressNextStartPhaseEffects = false;
           break;
         }
         screenController.showScreen("start");
@@ -726,6 +748,11 @@ async function init(): Promise<void> {
     onGameModeChange: (mode: GameMode) => {
       if (demoController?.isDemoActive()) return;
       lobbyUI.setModeUI(mode, "remote");
+    },
+    onRulesetChange: (ruleset) => {
+      if (demoController?.isDemoActive()) return;
+      lobbyUI.setRulesetUI(ruleset, "remote");
+      lobbyUI.updateMapSelector();
     },
     onRoundResult: () => {
       if (demoController?.isDemoActive()) return;

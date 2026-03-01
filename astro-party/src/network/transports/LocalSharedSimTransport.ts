@@ -4,11 +4,13 @@ import type {
   AdvancedSettingsSync,
   DebugPhysicsTuningPayload,
   DebugPhysicsTuningSnapshot,
+  ExperienceContext,
   GamePhase,
   GameMode,
   GameStateSync,
   PlayerInput,
   PowerUpType,
+  Ruleset,
   RoundResultPayload,
 } from "../../types";
 import { PLAYER_COLORS } from "../../types";
@@ -85,6 +87,8 @@ export class LocalSharedSimTransport implements NetworkTransport {
   private lastDebugToolsEnabled: boolean | null = null;
   private lastDebugSessionTainted: boolean | null = null;
   private lastMapId: number | null = null;
+  private lastRuleset: Ruleset | null = null;
+  private lastExperienceContext: ExperienceContext | null = null;
   private roomCodeFallbackRng = new SeededRNG(Date.now() >>> 0);
   private isDemoMode = false;
 
@@ -145,11 +149,16 @@ export class LocalSharedSimTransport implements NetworkTransport {
       { debugToolsEnabled: isClientDebugToolsRequested() },
     );
 
-    this.simulation.isDemo = this.isDemoMode;
     this.simulation.addHuman(
       this.mySessionId,
       this.readInjectedPlayerName() ?? undefined,
     );
+    if (this.isDemoMode) {
+      this.simulation.setRuleset(this.mySessionId, "ENDLESS_RESPAWN");
+      this.simulation.setExperienceContext("ATTRACT_BACKGROUND");
+    } else {
+      this.simulation.setExperienceContext("LIVE_MATCH");
+    }
     this.emitDebugStateFromSimulation();
 
     this.tickInterval = setInterval(() => {
@@ -213,6 +222,11 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.simulation.startMatch(this.mySessionId);
   }
 
+  endMatch(): void {
+    if (!this.simulation || !this.mySessionId) return;
+    this.simulation.endMatch(this.mySessionId);
+  }
+
   continueMatchSequence(): void {
     if (!this.simulation || !this.mySessionId) return;
     this.simulation.continueMatchSequence(this.mySessionId);
@@ -226,6 +240,15 @@ export class LocalSharedSimTransport implements NetworkTransport {
   setMode(mode: GameMode): void {
     if (!this.simulation || !this.mySessionId || mode === "CUSTOM") return;
     this.simulation.setMode(this.mySessionId, mode);
+  }
+
+  setRuleset(ruleset: Ruleset): void {
+    if (!this.simulation || !this.mySessionId) return;
+    this.simulation.setRuleset(this.mySessionId, ruleset);
+  }
+
+  setExperienceContext(context: ExperienceContext): void {
+    this.simulation?.setExperienceContext(context);
   }
 
   setMap(mapId: number): void {
@@ -411,7 +434,13 @@ export class LocalSharedSimTransport implements NetworkTransport {
 
   setDemoMode(active: boolean): void {
     this.isDemoMode = active;
-    if (this.simulation) this.simulation.isDemo = active;
+    if (!this.simulation || !this.mySessionId) return;
+    if (active) {
+      this.simulation.setRuleset(this.mySessionId, "ENDLESS_RESPAWN");
+      this.simulation.setExperienceContext("ATTRACT_BACKGROUND");
+    } else {
+      this.simulation.setExperienceContext("LIVE_MATCH");
+    }
   }
 
   getMyPlayerId(): string | null {
@@ -518,6 +547,16 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.hostId = payload.leaderPlayerId;
     if (previousHost && previousHost !== this.hostId) {
       this.callbacks?.onHostChanged();
+    }
+
+    if (this.lastRuleset !== payload.ruleset) {
+      this.lastRuleset = payload.ruleset;
+      this.callbacks?.onRulesetReceived?.(payload.ruleset);
+    }
+
+    if (this.lastExperienceContext !== payload.experienceContext) {
+      this.lastExperienceContext = payload.experienceContext;
+      this.callbacks?.onExperienceContextReceived?.(payload.experienceContext);
     }
 
     const signature =
@@ -673,6 +712,8 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.lastDebugToolsEnabled = null;
     this.lastDebugSessionTainted = null;
     this.lastMapId = null;
+    this.lastRuleset = null;
+    this.lastExperienceContext = null;
   }
 
   private generateRoomCode(): string {
