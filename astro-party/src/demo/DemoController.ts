@@ -63,7 +63,7 @@ export class DemoController {
     await this.game.addAIBot();
 
     // Set to demo map (hidden from picker)
-    this.game.setMap(6 as MapId);
+    this.game.setMap(3 as MapId);
 
     // Hide arena border (collision still active)
     this.game.setHideBorder(true);
@@ -80,6 +80,9 @@ export class DemoController {
     this.state = "TUTORIAL";
     this.applyDemoAudioMix();
 
+    // Show arena border in interactive tutorial/freeplay
+    this.game.setHideBorder(false);
+
     // Restore the host player to human control
     this.game.setHostAI(false);
 
@@ -95,6 +98,7 @@ export class DemoController {
   enterFreePlay(): void {
     if (this.state !== "TUTORIAL") return;
     this.state = "FREEPLAY";
+    this.game.setHideBorder(false);
     this.applyDemoAudioMix();
     // Sim was paused for the "You're ready!" panel — resume it
     this.game.setSimPaused(false);
@@ -124,6 +128,7 @@ export class DemoController {
     )
       return;
     this.state = "MENU";
+    this.game.setHideBorder(true);
     this.applyDemoAudioMix();
 
     // Unpause sim (in case we were paused during a tutorial step)

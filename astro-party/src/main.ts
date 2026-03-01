@@ -550,7 +550,7 @@ async function init(): Promise<void> {
     // forceDemoStarfield bypasses the activeScreen guard in screens.ts.
     if (!starfieldInitializedForDemo) {
       elements.starsContainer.classList.add("demo-stars");
-      screenController.forceDemoStarfield(6 as MapId);
+      screenController.forceDemoStarfield(3 as MapId);
       starfieldInitializedForDemo = true;
     }
 
@@ -630,7 +630,7 @@ async function init(): Promise<void> {
           game.setMapElementsVisible(true);
           if (!starfieldInitializedForDemo) {
             elements.starsContainer.classList.add("demo-stars");
-            screenController.forceDemoStarfield(6 as MapId);
+            screenController.forceDemoStarfield(3 as MapId);
             starfieldInitializedForDemo = true;
           }
           if (demoState === "MENU") {
