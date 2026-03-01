@@ -2,6 +2,11 @@
 
 Current architecture and ownership map for `astro-party`.
 
+Companion source-of-truth docs:
+- `AGENTS.md`: implementation policy and guardrails
+- `GAME_MODES.md`: canonical mode terminology and ruleset/context contracts
+- `progress.md`: active planning threads and milestone history
+
 ## Update Contract
 
 - Update this file in the same milestone as any notable ownership/boundary change.
@@ -16,6 +21,15 @@ Current architecture and ownership map for `astro-party`.
 4. Server broadcasts snapshots/events; client renders latest authoritative state.
 5. Shared deterministic logic in `shared/sim/*` keeps behavior aligned across server and shared consumers.
 
+## Mode Model (Authoritative Contract)
+
+- Mode behavior is modeled on separate axes:
+  - `Ruleset`: core match progression rules.
+  - `Experience Context`: onboarding/attract/live interaction behavior.
+  - `Screen Flow`: UI presentation state.
+- Canonical naming and behavior contracts for these axes are defined in `GAME_MODES.md`.
+- Architecture and implementation must not collapse these axes into one overloaded "demo mode" concept.
+
 ## Client Topology
 
 Composition:
@@ -23,7 +37,7 @@ Composition:
   - bootstraps app
   - wires UI callbacks
   - coordinates phase-to-screen sync
-  - coordinates demo startup/teardown
+  - coordinates onboarding/attract context startup/teardown
   - coordinates scene/audio sync policy
 - `src/Game.ts`
   - runtime orchestrator
@@ -74,13 +88,14 @@ Audio:
 ## Key Ownership Boundaries
 
 Phase and screen orchestration:
-- `GameFlowManager` owns phase progression.
+- `GameFlowManager` owns runtime phase progression for the active ruleset.
 - `main.ts` owns mapping phase -> UI screens and demo interception logic.
+- `GAME_MODES.md` owns canonical definitions for allowed ruleset/context combinations and expected phase progression.
 
-Demo mode:
-- `DemoController` owns demo state transitions.
+Onboarding/attract context:
+- `DemoController` owns onboarding/attract context transitions.
 - `DemoOverlayUI` owns tutorial overlays and onboarding UX.
-- Demo gameplay input should still route through canonical game input pipeline.
+- Onboarding context gameplay input should still route through canonical game input pipeline.
 
 Input:
 - Canonical local input capture path:

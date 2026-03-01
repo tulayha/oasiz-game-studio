@@ -13,6 +13,7 @@ Project governance/docs:
 
 - `AGENTS.md`: implementation policy + guardrails.
 - `ARCHITECTURE.md`: current architecture/ownership map.
+- `GAME_MODES.md`: canonical game-mode terminology and ruleset/context contracts.
 - `.agents/learning.md`: append-only agent learning memory and anti-repeat guardrails.
 - `progress.md`: append-only milestone timeline with validation status.
 
