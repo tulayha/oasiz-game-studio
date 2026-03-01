@@ -402,3 +402,15 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - Durable learning:
   - Do not implement speculative fixes without explicit user approval when the user has set hard constraints.
   - In escalation threads, respond with verified analysis first; wait for explicit implementation instruction before editing code.
+## 2026-03-01 - Attract map cleanup (remove hidden demo map + repulse swap)
+
+- Removed hidden demo map usage and switched attract/demo runtime to Repulse (`mapId=3`).
+- Removed hidden map id (`6`) from shared map contracts (`MapId`, map definitions, and context-allowance special-case).
+- Updated attract starfield map forcing to Repulse.
+- Updated demo border behavior so only attract/menu background hides arena border; tutorial/freeplay restores border.
+- Updated Repulse visual theme to use default repulsion palette matching prior hidden-map attract visuals.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.

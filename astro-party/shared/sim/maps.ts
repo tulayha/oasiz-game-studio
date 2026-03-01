@@ -172,26 +172,6 @@ const MAP_5_TURRET: MapDefinition = {
   hasTurret: true,
 };
 
-const MAP_6_DEMO: MapDefinition = {
-  id: 6 as MapId,
-  name: "Demo Arena",
-  description: "Demo mode arena",
-  yellowBlocks: [],
-  centerHoles: [],
-  repulsionZones: [
-    { x: W * 0.3, y: H / 2, radius: 70, strength: 0.03 },
-    { x: W * 0.7, y: H / 2, radius: 70, strength: 0.03 },
-  ],
-  overlayBoxes: [],
-  asteroidConfig: {
-    enabled: true,
-    minCount: 6,
-    maxCount: 6,
-    greyRatio: 0.35,
-    spawnAroundCenter: true,
-  },
-  hasTurret: false,
-};
 
 function generateCacheBlocks(): YellowBlock[] {
   const blocks: YellowBlock[] = [];
@@ -259,7 +239,6 @@ export const MAP_DEFINITIONS: Record<MapId, MapDefinition> = {
   3: MAP_3_REPULSE,
   4: MAP_4_BUNKERS,
   5: MAP_5_TURRET,
-  6: MAP_6_DEMO,
 };
 
 export const ALL_MAP_IDS: MapId[] = [0, 1, 2, 3, 4, 5];
@@ -279,14 +258,11 @@ export function isMapAllowedForRuleset(
   }
   return ALL_MAP_IDS.includes(mapId);
 }
-
 export function isMapAllowedForContext(
   mapId: MapId,
   ruleset: Ruleset,
   context: ExperienceContext,
 ): boolean {
-  if (context !== "LIVE_MATCH" && mapId === 6) {
-    return true;
-  }
+  void context;
   return isMapAllowedForRuleset(mapId, ruleset);
 }

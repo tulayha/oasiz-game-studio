@@ -582,7 +582,7 @@ export class AstroPartySimulation implements SimState {
       this.hooks.onError(sessionId, "INVALID_PHASE", "Maps can only be changed in lobby");
       return;
     }
-    if (!Number.isInteger(mapId) || mapId < 0 || mapId > 6) {
+    if (!Number.isInteger(mapId) || mapId < 0 || mapId > 5) {
       this.hooks.onError(sessionId, "INVALID_MAP", "Unknown map");
       return;
     }

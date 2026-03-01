@@ -409,17 +409,9 @@ export class GameRenderer {
           },
         };
       case 3:
+        // Use default repulsion palette so Repulse matches legacy attract visuals.
         return {
           border: "#f26a3b",
-          repulsion: {
-            gradientInner: "#ffb58f",
-            gradientMid: "#ffcfa7",
-            gradientOuter: "#ffe6c8",
-            core: "#f35a3f",
-            ring: "#f26a3b",
-            arrow: "#fff1d7",
-            glow: "#f26a3b",
-          },
         };
       case 4:
         return {
