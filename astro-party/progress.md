@@ -21,6 +21,48 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 
 ## Active Task Threads
 
+### 2026-03-01 - Game modes source-of-truth doc integration (Closed)
+
+- Original prompt:
+  - Review AGENTS/ARCHITECTURE docs and add a source-of-truth document for game modes to guide upcoming mode implementation.
+- Intent:
+  - Establish a canonical contract for ruleset vs context behavior before implementation work starts.
+- Plan:
+  - Add `GAME_MODES.md` with canonical terminology and behavior contracts.
+  - Wire references and guardrails into `AGENTS.md`.
+  - Align ownership boundaries in `ARCHITECTURE.md`.
+  - Add discoverability reference in `README.md`.
+- Progress updates:
+  - Created `GAME_MODES.md` with canonical terms (`Ruleset`, `Experience Context`, `Screen Flow`), baseline constraints, ruleset definitions, and ownership/change-management rules.
+  - Updated `AGENTS.md` to include `GAME_MODES.md` as a high-signal source in scope/context bootstrap/read rules and gameplay-flow guardrails.
+  - Updated `ARCHITECTURE.md` with a mode-model contract section and explicit ownership linkage to `GAME_MODES.md`.
+  - Updated `README.md` governance docs list to include `GAME_MODES.md`.
+- Validation:
+  - Docs-only update; no runtime commands rerun.
+- Outcome:
+  - Closed. Mode implementation can now anchor on `astro-party/GAME_MODES.md` as the canonical source of truth.
+
+### 2026-03-01 - Demo vs normal flow whole-app evaluation (Closed)
+
+- Original prompt:
+  - Evaluate demo vs normal gameplay phase/sequence integration, then verify findings against whole-app runtime flow.
+- Intent:
+  - Separate chunk-level suspicions from real end-to-end integration issues and capture a single source-of-truth report.
+- Plan:
+  - Record initial findings from targeted file review.
+  - Trace full runtime flow across main/demo/ui/game/network/shared-sim.
+  - Re-validate each initial issue and capture net-new issues.
+  - Publish results to a dedicated markdown report.
+- Progress updates:
+  - Completed whole-flow trace for boot, deferred demo startup, start actions, phase/screen/audio sync, demo sim behavior, and transport paths.
+  - Re-classified initial findings by whole-app validity.
+  - Added new low/medium integration observations around teardown/scheduler ownership clarity.
+  - Wrote report: `demo-vs-normal-flow-evaluation.md`.
+- Validation:
+  - Analysis/docs update only; no runtime build/typecheck rerun.
+- Outcome:
+  - Closed. Final verdict and evidence are documented in `astro-party/demo-vs-normal-flow-evaluation.md`.
+
 ### 2026-02-28 - Agent doc cleanup activity reference wiring (Closed)
 
 - Original prompt:
