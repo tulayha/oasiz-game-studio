@@ -40,6 +40,7 @@ export class Physics {
   world: Matter.World;
   private walls: Matter.Body[] = [];
   private playerCollisionGroups = new Map<string, number>();
+  private nextPlayerCollisionGroup = 1;
 
   constructor() {
     // Enable concave polygon decomposition for SVG-derived collider shapes.
@@ -57,9 +58,14 @@ export class Physics {
     }
 
     // Negative group means "never collide with bodies in the same group".
-    const group = -(this.playerCollisionGroups.size + 1);
+    const group = -this.nextPlayerCollisionGroup;
+    this.nextPlayerCollisionGroup += 1;
     this.playerCollisionGroups.set(playerId, group);
     return group;
+  }
+
+  releasePlayerCollisionGroup(playerId: string): void {
+    this.playerCollisionGroups.delete(playerId);
   }
 
   createWalls(

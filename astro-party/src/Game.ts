@@ -971,6 +971,9 @@ export class Game {
     const frameRenderState = this.networkSync.getRenderState(
       this.network.getMyPlayerId(),
       this.latencyMs,
+      {
+        disableExtrapolation: this.network.getTransportMode() === "local",
+      },
     );
 
     if (this.flowMgr.phase === "PLAYING") {

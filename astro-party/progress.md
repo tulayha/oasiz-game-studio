@@ -21,6 +21,128 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 
 ## Active Task Threads
 
+### 2026-03-02 - Random lag deep pass + branch parity validation (Closed)
+
+- Original prompt:
+  - Perform a fresh deep lag pass (beyond obvious sync angles), log findings immediately as discovered, then compare `space-force-dev-observed-next` for server/sim fixes and audit debounce safeguards.
+- Intent:
+  - Identify plausible random-lag sources with concrete code evidence and verify which issues are already addressed on the observed-next branch.
+- Plan:
+  - Trace render/sim/network/server hot paths and append findings incrementally to a dedicated log.
+  - Compare current branch vs `space-force-dev-observed-next` for fix parity.
+  - Verify debounce/tap-guard paths for accumulation/conflict risk.
+- Progress updates:
+  - Created and maintained `lag-findings-deep-pass.md` as a live findings log during investigation.
+  - Logged deep findings (`Finding 1` through `Finding 11`) with evidence and suggested direction.
+  - Added branch validation findings (`Finding 12` through `Finding 19`) including:
+    - confirmed fixed: server snapshot strip precompute fanout
+    - likely fixed: local haptic warning storm path
+    - remaining open: major sim/render hot-path findings
+    - debounce conclusion: no gameplay-input lag evidence from guard pile-up; identified separate start-screen action-race risk on observed-next.
+- Validation:
+  - Analysis/docs pass; no dedicated runtime build command rerun for this thread.
+- Outcome:
+  - Closed. Deep-pass findings and observed-next parity status are documented in `astro-party/lag-findings-deep-pass.md`.
+
+### 2026-03-02 - Targeted lag mitigations + halftone cache rewrite (Closed)
+
+- Original prompt:
+  - Apply specific fixes: coarse/mobile-only haptics, server snapshot precompute fanout optimization, collision-group cleanup parity, and halftone flow adjustments.
+- Intent:
+  - Implement low-risk high-impact fixes from the investigation and reduce per-frame asteroid halftone overhead.
+- Plan:
+  - Apply requested runtime patches in-place.
+  - Validate with typecheck after each change cluster.
+- Progress updates:
+  - Haptics:
+    - gated haptic triggering to coarse-pointer devices in `src/SettingsManager.ts`,
+    - gated forced light haptic path in `src/ui/haptics.ts`.
+  - Server snapshot fanout:
+    - precomputed collider cache + stripped asteroid snapshot once per broadcast and reused per-client in `server/src/rooms/AstroPartyRoom.ts`.
+  - Collision-group lifecycle:
+    - added monotonic collision-group allocator + `releasePlayerCollisionGroup` in `shared/sim/physics/Physics.ts`,
+    - released group on player removal in `shared/sim/AstroPartySimulation.ts`.
+  - Halftone flow:
+    - temporarily disabled/re-enabled during live verification,
+    - finalized asteroid halftone cache rewrite in `src/systems/rendering/layers/EntityVisualsRenderer.ts`:
+      - removed per-frame vertex-signature generation,
+      - switched to asteroid-id keyed cache reuse (deterministic entry seeded from id + variant).
+- Validation:
+  - `astro-party`: `bun run typecheck` passed after applied code changes.
+  - `bun run build` not rerun in this thread.
+- Outcome:
+  - Closed. Requested fixes are applied and halftone now avoids per-frame signature allocation churn.
+
+### 2026-03-02 - Asteroid-only object-space halftone pivot (Closed)
+
+- Original prompt:
+  - Stop the current post-pass approach and do halftone on asteroids only, with processing done on first asteroid creation/use.
+- Intent:
+  - Recover performance and eliminate screen-space dot crawl by moving halftone to asteroid-local cached rendering.
+- Plan:
+  - Remove frame-wide halftone post-processing path.
+  - Add cached asteroid halftone pattern generated per asteroid id/signature on first use.
+  - Keep all other entities unchanged.
+  - Validate with `typecheck` and `build`.
+- Progress updates:
+  - Removed frame-wide halftone post path and restored single-pass runtime render flow in `GameRenderer`/`Renderer` to recover frame-time overhead.
+  - Added asteroid-local cached halftone in `EntityVisualsRenderer`:
+    - per-asteroid cache keyed by `id` + geometry signature,
+    - first-use pattern generation and reuse on subsequent frames,
+    - deterministic object-space dot pattern (no camera/screen crawl).
+  - Deleted now-unused `RenderHalftoneComposer`.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Closed. Halftone treatment is asteroid-only and object-local; global post halftone lag/crawl path is removed.
+
+### 2026-03-02 - Halftone refinement to stable comic screen (Closed)
+
+- Original prompt:
+  - Replace noisy/non-comic halftone with a stable comic-style halftone look aligned with reference art direction.
+- Intent:
+  - Move from a generic dot overlay to a true fixed-lattice, tone-driven halftone screen while keeping performance controlled.
+- Plan:
+  - Replace halftone compositor logic with a stable angled lattice and luminance-driven dot radius.
+  - Keep selective layer targeting (map + ship + pilot + asteroids).
+  - Validate with `typecheck` and `build`.
+- Progress updates:
+  - Replaced the previous halftone overlay shortcut with a stable angled lattice in `RenderHalftoneComposer`.
+  - Dot placement is now deterministic and screen-stable; dot radius is derived from sampled luminance/alpha (tone-driven coverage).
+  - Added a subtle bottom-weighted screen wash in the same compositor to better match the requested comic reference direction without touching HUD/fast FX layers.
+  - Follow-up correction after visual review:
+    - removed the bottom wash (it was tinting too aggressively),
+    - reduced/quantized dot radii to avoid oversized random-looking dots,
+    - anchored lattice to world/camera offset in `Renderer.applyHalftoneToCurrentFrame()` to remove camera-induced pattern swim.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Closed. Halftone now reads as a structured comic screen instead of a noisy animated overlay.
+
+### 2026-03-02 - Comic halftone render pass for map + ships + pilots + asteroids (Closed)
+
+- Original prompt:
+  - Add a comic halftone dotted effect for map + ship + pilot + asteroids without overloading rendering.
+- Intent:
+  - Introduce a selective halftone visual pass on chosen world layers while keeping fast combat/UI layers normal.
+- Plan:
+  - Split gameplay rendering into halftone-targeted pass and normal pass.
+  - Add a low-resolution halftone compositor between passes.
+  - Keep bullets/beams/particles/trails/UI/debug in normal rendering path.
+- Progress updates:
+  - Added a dedicated low-resolution halftone compositor (`RenderHalftoneComposer`) that samples the rendered frame and composites a dot pattern in screen space.
+  - Split `GameRenderer` into two world passes:
+    - halftone-targeted pass for map + ships + pilots + asteroids (+ map overlay),
+    - normal pass for fast combat/effects/debug layers (trails, beams, projectiles, particles, etc.).
+  - Inserted halftone compositing between the two passes so only selected layers receive the comic treatment.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Closed. Map + ship + pilot + asteroid layers now render through a selective comic halftone pass while non-target layers remain normal.
+
 ### 2026-03-01 - First-run demo startup timing hold after title intro (Closed)
 
 - Original prompt:
@@ -534,6 +656,62 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
   - `astro-party`: `bun run typecheck` passed.
   - `astro-party`: `bun run build` passed.
 
+## 2026-03-02 - Selective comic halftone render pass (map + ship + pilot + asteroids)
+
+- Added `src/systems/rendering/effects/RenderHalftoneComposer.ts` to generate a low-resolution dot overlay from the current frame and composite it using multiply blending.
+- Updated `src/systems/rendering/Renderer.ts` with `applyHalftoneToCurrentFrame()` to run the compositor between world passes.
+- Refactored `src/systems/rendering/GameRenderer.ts` into:
+  - halftone-targeted pass: map geometry, ship sprites, pilot sprites, asteroids, and map overlay.
+  - normal pass: trails, beams, projectiles, powerups, mines, homing missiles, turrets, bullet casings/debris/particles, debug overlays, countdown.
+- Result:
+  - Comic halftone look is applied selectively without halftoning high-frequency combat/effects layers.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-03-02 - Halftone refinement to stable comic screen
+
+- Reworked `src/systems/rendering/effects/RenderHalftoneComposer.ts` from a generic animated-dot post overlay into a structured halftone screen:
+  - fixed angled lattice (deterministic and frame-stable),
+  - tone-driven dot radius from sampled luminance/alpha,
+  - DPI-aware spacing to keep cost stable across high-DPR displays.
+- Added a subtle bottom-weighted screen wash in the compositor to align closer with the brighter-lower-field comic reference direction.
+- Preserved selective targeting from prior pass split:
+  - halftone still applies only to map + ships + pilots + asteroids path.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-03-02 - Halftone correction pass (camera swim + oversized dots)
+
+- Updated `src/systems/rendering/effects/RenderHalftoneComposer.ts`:
+  - removed the added bottom wash,
+  - reduced dot footprint and quantized tone levels for a tighter comic grain,
+  - tightened thresholds to prevent noisy over-coverage.
+- Updated `src/systems/rendering/Renderer.ts` halftone call:
+  - passes world-origin anchor and zoom-aware lattice spacing into the composer.
+- Result:
+  - Dot lattice now tracks world/camera movement better and no longer appears as large random animated dots.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-03-02 - Asteroid-only object-space halftone pivot
+
+- Removed the frame-wide halftone post pipeline and restored standard single-pass rendering path in:
+  - `src/systems/rendering/GameRenderer.ts`
+  - `src/systems/rendering/Renderer.ts`
+- Added asteroid-local halftone treatment in `src/systems/rendering/layers/EntityVisualsRenderer.ts`:
+  - deterministic dot pattern generated on first asteroid use,
+  - cache keyed by asteroid id + geometry signature,
+  - object-space fill clipped to asteroid shape for stable visuals.
+- Deleted unused `src/systems/rendering/effects/RenderHalftoneComposer.ts`.
+- Result:
+  - asteroid comic texture retained while removing global dot crawl and post-pass frame cost.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
 ## 2026-03-01 - Start-to-attract transition polish (title outro + attract easing)
 
 - Added a simple first-run title outro sequence:
@@ -549,3 +727,34 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - Validation:
   - `astro-party`: `bun run typecheck` passed.
   - `astro-party`: `bun run build` passed.
+
+## 2026-03-02 - Deep lag findings + branch parity audit logged
+
+- Added `astro-party/lag-findings-deep-pass.md` as a live deep-pass investigation log with incremental findings and evidence.
+- Logged random-lag findings across sim/render/network/server paths and a follow-up branch validation against `space-force-dev-observed-next`.
+- Captured fixed/not-fixed status for observed-next and debounce safeguard audit conclusions.
+- Validation:
+  - Investigation/docs update; no standalone build command run for this milestone.
+
+## 2026-03-02 - Lag mitigation patches applied (haptics + snapshot fanout + collision groups)
+
+- Applied coarse-pointer-only haptic gating in:
+  - `astro-party/src/SettingsManager.ts`
+  - `astro-party/src/ui/haptics.ts`
+- Applied server snapshot fanout precompute reuse in:
+  - `astro-party/server/src/rooms/AstroPartyRoom.ts`
+- Applied player collision-group cleanup parity in:
+  - `astro-party/shared/sim/physics/Physics.ts`
+  - `astro-party/shared/sim/AstroPartySimulation.ts`
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+
+## 2026-03-02 - Asteroid halftone cache rewrite (remove per-frame signature churn)
+
+- Reworked asteroid halftone caching in:
+  - `astro-party/src/systems/rendering/layers/EntityVisualsRenderer.ts`
+- Removed per-frame `vertices -> signature string` generation path.
+- Switched to stable asteroid-id keyed cache lookup and one-time entry creation.
+- Kept deterministic per-asteroid halftone variation via hash seed (`id + variant`).
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.

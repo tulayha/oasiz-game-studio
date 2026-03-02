@@ -77,7 +77,13 @@ class SettingsManagerClass {
     type: "light" | "medium" | "heavy" | "success" | "error",
   ): void {
     if (!this.settings.haptics) return;
+    if (!this.isCoarsePointerDevice()) return;
     triggerPlatformHaptic(type);
+  }
+
+  private isCoarsePointerDevice(): boolean {
+    if (typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(pointer: coarse)").matches;
   }
 
   // Helper for playing sound effects with settings check

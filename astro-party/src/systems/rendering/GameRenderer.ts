@@ -82,7 +82,6 @@ export class GameRenderer {
     }
 
     this.renderCountdownPass(ctx);
-
     this.renderer.endFrame();
   }
 
