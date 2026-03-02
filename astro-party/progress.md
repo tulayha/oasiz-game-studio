@@ -587,3 +587,24 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - Validation:
   - docs-only governance update; no runtime commands rerun.
 
+## 2026-03-02 - Tutorial dialog CTA consolidated to one centered in-panel button
+
+- Scope:
+  - Replaced dual tutorial prompt controls (`Skip` + `Next`) with a single centered in-panel button.
+  - Updated tutorial prompt behavior to use `Next` in-place and removed side-position split.
+- Changes:
+  - `index.html`:
+    - centered `.demo-tutorial-actions` row
+    - removed separate `demoTutorialNext` button markup and `demo-next-btn` styles
+    - kept single `demoTutorialSkip` element (now initialized as hidden, labeled `Next`)
+  - `src/demo/DemoOverlayUI.ts`:
+    - removed `tutorialNext` element dependency
+    - added unified button flow:
+      - during typewriter: tap fast-forwards text
+      - for explicit dialog advancement steps: tap advances via shared in-place `Next`
+      - for action-required steps: button is hidden after text completes
+    - kept final-step repurpose to `Start Playing`
+- Validation:
+  - `bun run typecheck` passed.
+  - `bun run build` passed.
+

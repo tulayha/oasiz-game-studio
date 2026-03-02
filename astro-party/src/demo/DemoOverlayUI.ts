@@ -37,7 +37,6 @@ export class DemoOverlayUI {
   private tutorialDiagram: HTMLElement;
   private tutorialDialogue: HTMLElement;
   private tutorialSkip: HTMLButtonElement;
-  private tutorialNext: HTMLButtonElement;
   private exitBtn: HTMLButtonElement;
 
   // Spotlight (player-intro overlay) elements
@@ -49,6 +48,7 @@ export class DemoOverlayUI {
   private transitioning = false;
   private tutorialRunning = false;
   private cancelTypewriter: (() => void) | null = null;
+  private pendingDialogAdvance: (() => void) | null = null;
 
   // Spotlight state
   private spotlightActive = false;
@@ -77,9 +77,6 @@ export class DemoOverlayUI {
     this.tutorialDialogue = document.getElementById("demoTutorialDialogue")!;
     this.tutorialSkip = document.getElementById(
       "demoTutorialSkip",
-    ) as HTMLButtonElement;
-    this.tutorialNext = document.getElementById(
-      "demoTutorialNext",
     ) as HTMLButtonElement;
     this.exitBtn = document.getElementById(
       "demoExitBtn",
@@ -148,14 +145,21 @@ export class DemoOverlayUI {
 
     this.tutorialOverlay.style.pointerEvents = "auto";
     this.tutorialOverlay.classList.remove("hidden");
+    this.hideTutorialActionButton();
 
     this.tutorialSkip.addEventListener("click", (e) => {
       if (!this.guardStateTap(e)) return;
-      // During tutorial: only cancel the typewriter so the full text appears.
-      // The player must still complete the required action to advance.
+      // While text is typing, this acts as a fast-forward.
       if (this.cancelTypewriter !== null) {
         this.cancelTypewriter();
         this.cancelTypewriter = null;
+        return;
+      }
+      // For dialog steps that require explicit progression, this advances.
+      if (this.pendingDialogAdvance !== null) {
+        const advance = this.pendingDialogAdvance;
+        this.pendingDialogAdvance = null;
+        advance();
       }
     });
 
@@ -176,24 +180,20 @@ export class DemoOverlayUI {
     });
   }
 
-  /** Shows the "Next →" button and resolves when clicked. */
+  /** Waits for the centered tutorial action button to advance the dialog. */
   private waitForNextButton(): Promise<void> {
     return new Promise((resolve) => {
-      const handler = (): void => {
-        if (!this.guardStateTap(null)) return;
-        this.tutorialNext.classList.add("hidden");
-        this.tutorialNext.removeEventListener("click", handler);
+      this.pendingDialogAdvance = (): void => {
+        this.hideTutorialActionButton();
         resolve();
       };
-      this.tutorialNext.classList.remove("hidden");
-      this.tutorialNext.addEventListener("click", handler);
     });
   }
 
   hideAll(): void {
     this.attractOverlay.classList.add("hidden");
     this.tutorialOverlay.classList.add("hidden");
-    this.tutorialNext.classList.add("hidden");
+    this.hideTutorialActionButton();
     this.exitBtn.classList.add("hidden");
     this.attractOverlay.removeEventListener("click", this.boundOnTap);
     this.attractOverlay.removeEventListener(
@@ -209,6 +209,7 @@ export class DemoOverlayUI {
     document.removeEventListener("keydown", this.boundOnKey);
     this.cancelTypewriter?.();
     this.tutorialRunning = false;
+    this.pendingDialogAdvance = null;
     this.tutorialOverlay.style.pointerEvents = "";
 
     // Clear spotlight, mobile highlight, zoom, and input blocks on cleanup
@@ -461,6 +462,7 @@ export class DemoOverlayUI {
 
       // --- Show panel with typewriter, spotlight in panel-wide mode ---
       this.showPanel();
+      this.showTutorialNextButton();
       this.callbacks?.onPauseGame();
       this.tutorialDialogue.textContent = "";
       await this.typeStep(step.text);
@@ -472,6 +474,7 @@ export class DemoOverlayUI {
         if (!this.tutorialRunning) break;
         continue;
       }
+      this.hideTutorialActionButton();
 
       // --- Action step: keep panel visible, make overlay pass-through, resume sim ---
       // Bot ships are frozen in the simulation (demoFrozenPlayerIds); only the
@@ -518,7 +521,7 @@ export class DemoOverlayUI {
   /**
    * Keeps the panel VISIBLE but makes the overlay background pass-through so
    * touch/mouse events reach the game canvas underneath. The panel itself still
-   * receives pointer events (Skip button stays tappable).
+   * receives pointer events (tutorial action button stays tappable).
    */
   private setPanelPassthrough(): void {
     this.tutorialOverlay.style.pointerEvents = "none";
@@ -534,11 +537,13 @@ export class DemoOverlayUI {
   }
 
   private showStartPlayingButton(): void {
+    this.pendingDialogAdvance = null;
     const fresh = this.tutorialSkip.cloneNode(true) as HTMLButtonElement;
     this.tutorialSkip.parentNode?.replaceChild(fresh, this.tutorialSkip);
     this.tutorialSkip = fresh;
     this.tutorialSkip.textContent = "Start Playing";
     this.tutorialSkip.classList.add("demo-start-playing-btn");
+    this.tutorialSkip.classList.remove("hidden");
     this.tutorialSkip.addEventListener("click", (e) => {
       if (!this.guardStateTap(e)) return;
       // Bloom the spotlight outward from the ship, then promote to live match
@@ -547,6 +552,17 @@ export class DemoOverlayUI {
       this.tutorialOverlay.classList.add("hidden");
       this.callbacks?.onTutorialComplete();
     });
+  }
+
+  private showTutorialNextButton(): void {
+    this.tutorialSkip.textContent = "Next";
+    this.tutorialSkip.classList.remove("demo-start-playing-btn");
+    this.tutorialSkip.classList.remove("hidden");
+  }
+
+  private hideTutorialActionButton(): void {
+    this.pendingDialogAdvance = null;
+    this.tutorialSkip.classList.add("hidden");
   }
 
   private async typeStep(text: string): Promise<void> {
