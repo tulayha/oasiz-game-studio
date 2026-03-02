@@ -188,6 +188,7 @@ export class NetworkSyncSystem {
   getRenderState(
     _myPlayerId: string | null = null,
     _latencyMs: number = 0,
+    options?: { disableExtrapolation?: boolean },
   ): RenderNetworkState {
     const frame = this.latestSnapshotFrame;
     if (!frame) {
@@ -200,6 +201,13 @@ export class NetworkSyncSystem {
         0,
         nowMs - this.lastSnapshotReceivedAtMs,
       );
+    }
+
+    if (options?.disableExtrapolation === true) {
+      this.hostSimTimeMs = frame.hostTimeMs;
+      this.estimatedHostNowTick = frame.hostTick;
+      this.applyDirectSnapshotState(frame.state);
+      return this.buildRenderState();
     }
 
     const extrapolationMs = this.clamp(

@@ -8,5 +8,7 @@ export function triggerHaptic(type: HapticType): void {
 }
 
 export function forceLightHaptic(): void {
+  if (typeof window.matchMedia !== "function") return;
+  if (!window.matchMedia("(pointer: coarse)").matches) return;
   triggerPlatformHaptic("light");
 }
