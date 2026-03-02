@@ -32,25 +32,8 @@ interface EntityVisualsDeps {
   ) => number;
 }
 
-interface AsteroidHalftoneEntry {
-  pattern: CanvasPattern | null;
-  offsetX: number;
-  offsetY: number;
-  alpha: number;
-}
-
 export class EntityVisualsRenderer {
   private static readonly PILOT_DEBRIS_BASELINE_BUMP_RADIUS = 8.2;
-  private static readonly ASTEROID_HALFTONE_ENABLED = true;
-  private static readonly ASTEROID_HALFTONE_CACHE_LIMIT = 240;
-  private static readonly DISABLED_HALFTONE_ENTRY: AsteroidHalftoneEntry = {
-    pattern: null,
-    offsetX: 0,
-    offsetY: 0,
-    alpha: 0,
-  };
-  private asteroidHalftoneCache = new Map<string, AsteroidHalftoneEntry>();
-  private asteroidHalftoneOrder: string[] = [];
 
   constructor(
     private ctx: CanvasRenderingContext2D,
@@ -366,22 +349,6 @@ export class EntityVisualsRenderer {
     this.beginAsteroidPath(vertices, state.size);
     ctx.fill();
 
-    if (EntityVisualsRenderer.ASTEROID_HALFTONE_ENABLED) {
-      const halftone = this.getAsteroidHalftoneEntry(state);
-      if (halftone.pattern) {
-        ctx.save();
-        this.beginAsteroidPath(vertices, state.size);
-        ctx.clip();
-        ctx.globalCompositeOperation = "multiply";
-        ctx.globalAlpha = halftone.alpha;
-        ctx.translate(halftone.offsetX, halftone.offsetY);
-        ctx.fillStyle = halftone.pattern;
-        const extent = state.size * 3.8;
-        ctx.fillRect(-extent, -extent, extent * 2, extent * 2);
-        ctx.restore();
-      }
-    }
-
     ctx.strokeStyle = "#12141a";
     ctx.lineWidth = 4;
     this.beginAsteroidPath(vertices, state.size);
@@ -443,92 +410,6 @@ export class EntityVisualsRenderer {
       ctx.arc(0, 0, fallbackRadius, 0, Math.PI * 2);
     }
     ctx.closePath();
-  }
-
-  private getAsteroidHalftoneEntry(state: AsteroidState): AsteroidHalftoneEntry {
-    if (!EntityVisualsRenderer.ASTEROID_HALFTONE_ENABLED) {
-      return EntityVisualsRenderer.DISABLED_HALFTONE_ENTRY;
-    }
-    const key = state.id;
-    const cached = this.asteroidHalftoneCache.get(key);
-    if (cached) {
-      return cached;
-    }
-
-    const next = this.createAsteroidHalftoneEntry(state, key);
-    this.asteroidHalftoneCache.set(key, next);
-    const existingOrderIndex = this.asteroidHalftoneOrder.indexOf(key);
-    if (existingOrderIndex >= 0) {
-      this.asteroidHalftoneOrder.splice(existingOrderIndex, 1);
-    }
-    this.asteroidHalftoneOrder.push(key);
-    while (
-      this.asteroidHalftoneOrder.length >
-      EntityVisualsRenderer.ASTEROID_HALFTONE_CACHE_LIMIT
-    ) {
-      const oldestKey = this.asteroidHalftoneOrder.shift();
-      if (!oldestKey) break;
-      this.asteroidHalftoneCache.delete(oldestKey);
-    }
-    return next;
-  }
-
-  private createAsteroidHalftoneEntry(
-    state: AsteroidState,
-    cacheKey: string,
-  ): AsteroidHalftoneEntry {
-    const hash = this.hashString32(cacheKey + "|" + state.variant);
-    const isGrey = state.variant === "GREY";
-    const densityVariant = 9 + (hash % 3);
-    const tileSize = Math.max(8, densityVariant);
-    const patternCanvas = document.createElement("canvas");
-    patternCanvas.width = tileSize;
-    patternCanvas.height = tileSize;
-    const patternCtx = patternCanvas.getContext("2d");
-    if (!patternCtx) {
-      return {
-        pattern: null,
-        offsetX: 0,
-        offsetY: 0,
-        alpha: 0,
-      };
-    }
-
-    const dotColor = isGrey ? "rgba(34, 42, 56, 0.7)" : "rgba(54, 34, 18, 0.72)";
-    const step = tileSize / 2;
-    const radius = isGrey ? 0.92 : 0.88;
-    const jitterA = ((hash >>> 6) & 3) * 0.09;
-    const jitterB = ((hash >>> 10) & 3) * 0.09;
-    patternCtx.fillStyle = dotColor;
-    patternCtx.beginPath();
-    for (let y = step * 0.5; y <= tileSize + 0.001; y += step) {
-      for (let x = step * 0.5; x <= tileSize + 0.001; x += step) {
-        const ox = ((x + jitterA) % tileSize);
-        const oy = ((y + jitterB) % tileSize);
-        patternCtx.moveTo(ox + radius, oy);
-        patternCtx.arc(ox, oy, radius, 0, Math.PI * 2);
-      }
-    }
-    patternCtx.fill();
-
-    const pattern = this.ctx.createPattern(patternCanvas, "repeat");
-    const offsetX = ((hash & 0xff) / 255 - 0.5) * tileSize;
-    const offsetY = (((hash >>> 8) & 0xff) / 255 - 0.5) * tileSize;
-    return {
-      pattern,
-      offsetX,
-      offsetY,
-      alpha: isGrey ? 0.26 : 0.3,
-    };
-  }
-
-  private hashString32(value: string): number {
-    let hash = 2166136261 >>> 0;
-    for (let i = 0; i < value.length; i++) {
-      hash ^= value.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
   }
 
   drawProjectile(state: ProjectileState, devModeEnabled: boolean): void {

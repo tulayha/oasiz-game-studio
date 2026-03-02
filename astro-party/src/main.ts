@@ -39,28 +39,24 @@ declare global {
   }
 }
 
-const DEMO_SEEN_KEY = "astro-party-demo-seen";
-
-/** Returns true if the player has already seen the demo (local or cross-device). */
+/** Returns true if the player has already seen the demo in platform state. */
 function isDemoSeen(): boolean {
-  if (localStorage.getItem(DEMO_SEEN_KEY)) return true;
   try {
     const saved = loadPlatformGameState();
     if (saved.demo_seen === true) return true;
   } catch {
-    // platform API unavailable — fall back to localStorage only
+    // platform API unavailable
   }
   return false;
 }
 
-/** Marks the demo as seen in localStorage and in the platform's cross-device store. */
+/** Marks the demo as seen in platform state only. */
 function markDemoSeen(): void {
-  localStorage.setItem(DEMO_SEEN_KEY, "1");
   try {
     const existing = loadPlatformGameState();
     savePlatformGameState({ ...existing, demo_seen: true });
   } catch {
-    // platform API unavailable — localStorage persists the flag locally
+    // platform API unavailable
   }
 }
 

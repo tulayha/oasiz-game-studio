@@ -5,359 +5,31 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - Full pre-condense history is archived at `astro-party/progress.archive.2026-02-28.md`.
 - This file now keeps milestone-level outcomes, recurring problems, and durable learnings.
 
-## Progress Usage Contract (Effective 2026-02-28)
+## Progress Usage Contract (Effective 2026-03-02)
 
 - `progress.md` is a two-layer tracking surface:
-  - `Active Task Threads` for planned prompts (living, updated in-place while active).
-  - `Milestone Journal` for shipped outcomes (append-only historical summaries).
-- For any prompt requiring planned work, track these fields in an active thread:
-  - Original prompt
-  - Intent
-  - Plan
-  - Progress updates
-  - Validation status
-  - Outcome/next steps
-- Once completed, close the thread and capture final outcome in a dated milestone entry.
+  - `Active Task Threads` (open-only): living in-flight threads.
+  - `Milestone Journal`: append-only shipped outcomes.
+- Active thread requirements (when used):
+  - required fields: `Original prompt`, `Intent`, `Current plan`, `Status`, `Latest validation`.
+  - `Progress updates` must be short timestamped checkpoints.
+  - checkpoint format: `- [HH:MM] action taken -> result/next`.
+- Mid-run checkpoint rule:
+  - update checkpoints during execution, not only at start/end.
+  - add a checkpoint after each meaningful boundary (context gathered, major edits, validation result, blocker/assumption change).
+  - for long runs, add a heartbeat at least every 10 minutes.
+- Close-out rules:
+  - after completion, add one concise milestone (scope, key files, validation, outcome) and remove the active thread.
+  - if there are no open threads, keep a single explicit placeholder line in `Active Task Threads`.
+- Hygiene:
+  - run a focused condense pass when the file exceeds ~600 lines or active visibility degrades.
+  - preserve historical milestone meaning during condense.
 
 ## Active Task Threads
 
-### 2026-03-02 - Random lag deep pass + branch parity validation (Closed)
+- None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
-- Original prompt:
-  - Perform a fresh deep lag pass (beyond obvious sync angles), log findings immediately as discovered, then compare `space-force-dev-observed-next` for server/sim fixes and audit debounce safeguards.
-- Intent:
-  - Identify plausible random-lag sources with concrete code evidence and verify which issues are already addressed on the observed-next branch.
-- Plan:
-  - Trace render/sim/network/server hot paths and append findings incrementally to a dedicated log.
-  - Compare current branch vs `space-force-dev-observed-next` for fix parity.
-  - Verify debounce/tap-guard paths for accumulation/conflict risk.
-- Progress updates:
-  - Created and maintained `lag-findings-deep-pass.md` as a live findings log during investigation.
-  - Logged deep findings (`Finding 1` through `Finding 11`) with evidence and suggested direction.
-  - Added branch validation findings (`Finding 12` through `Finding 19`) including:
-    - confirmed fixed: server snapshot strip precompute fanout
-    - likely fixed: local haptic warning storm path
-    - remaining open: major sim/render hot-path findings
-    - debounce conclusion: no gameplay-input lag evidence from guard pile-up; identified separate start-screen action-race risk on observed-next.
-- Validation:
-  - Analysis/docs pass; no dedicated runtime build command rerun for this thread.
-- Outcome:
-  - Closed. Deep-pass findings and observed-next parity status are documented in `astro-party/lag-findings-deep-pass.md`.
-
-### 2026-03-02 - Targeted lag mitigations + halftone cache rewrite (Closed)
-
-- Original prompt:
-  - Apply specific fixes: coarse/mobile-only haptics, server snapshot precompute fanout optimization, collision-group cleanup parity, and halftone flow adjustments.
-- Intent:
-  - Implement low-risk high-impact fixes from the investigation and reduce per-frame asteroid halftone overhead.
-- Plan:
-  - Apply requested runtime patches in-place.
-  - Validate with typecheck after each change cluster.
-- Progress updates:
-  - Haptics:
-    - gated haptic triggering to coarse-pointer devices in `src/SettingsManager.ts`,
-    - gated forced light haptic path in `src/ui/haptics.ts`.
-  - Server snapshot fanout:
-    - precomputed collider cache + stripped asteroid snapshot once per broadcast and reused per-client in `server/src/rooms/AstroPartyRoom.ts`.
-  - Collision-group lifecycle:
-    - added monotonic collision-group allocator + `releasePlayerCollisionGroup` in `shared/sim/physics/Physics.ts`,
-    - released group on player removal in `shared/sim/AstroPartySimulation.ts`.
-  - Halftone flow:
-    - temporarily disabled/re-enabled during live verification,
-    - finalized asteroid halftone cache rewrite in `src/systems/rendering/layers/EntityVisualsRenderer.ts`:
-      - removed per-frame vertex-signature generation,
-      - switched to asteroid-id keyed cache reuse (deterministic entry seeded from id + variant).
-- Validation:
-  - `astro-party`: `bun run typecheck` passed after applied code changes.
-  - `bun run build` not rerun in this thread.
-- Outcome:
-  - Closed. Requested fixes are applied and halftone now avoids per-frame signature allocation churn.
-
-### 2026-03-02 - Asteroid-only object-space halftone pivot (Closed)
-
-- Original prompt:
-  - Stop the current post-pass approach and do halftone on asteroids only, with processing done on first asteroid creation/use.
-- Intent:
-  - Recover performance and eliminate screen-space dot crawl by moving halftone to asteroid-local cached rendering.
-- Plan:
-  - Remove frame-wide halftone post-processing path.
-  - Add cached asteroid halftone pattern generated per asteroid id/signature on first use.
-  - Keep all other entities unchanged.
-  - Validate with `typecheck` and `build`.
-- Progress updates:
-  - Removed frame-wide halftone post path and restored single-pass runtime render flow in `GameRenderer`/`Renderer` to recover frame-time overhead.
-  - Added asteroid-local cached halftone in `EntityVisualsRenderer`:
-    - per-asteroid cache keyed by `id` + geometry signature,
-    - first-use pattern generation and reuse on subsequent frames,
-    - deterministic object-space dot pattern (no camera/screen crawl).
-  - Deleted now-unused `RenderHalftoneComposer`.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party`: `bun run build` passed.
-- Outcome:
-  - Closed. Halftone treatment is asteroid-only and object-local; global post halftone lag/crawl path is removed.
-
-### 2026-03-02 - Halftone refinement to stable comic screen (Closed)
-
-- Original prompt:
-  - Replace noisy/non-comic halftone with a stable comic-style halftone look aligned with reference art direction.
-- Intent:
-  - Move from a generic dot overlay to a true fixed-lattice, tone-driven halftone screen while keeping performance controlled.
-- Plan:
-  - Replace halftone compositor logic with a stable angled lattice and luminance-driven dot radius.
-  - Keep selective layer targeting (map + ship + pilot + asteroids).
-  - Validate with `typecheck` and `build`.
-- Progress updates:
-  - Replaced the previous halftone overlay shortcut with a stable angled lattice in `RenderHalftoneComposer`.
-  - Dot placement is now deterministic and screen-stable; dot radius is derived from sampled luminance/alpha (tone-driven coverage).
-  - Added a subtle bottom-weighted screen wash in the same compositor to better match the requested comic reference direction without touching HUD/fast FX layers.
-  - Follow-up correction after visual review:
-    - removed the bottom wash (it was tinting too aggressively),
-    - reduced/quantized dot radii to avoid oversized random-looking dots,
-    - anchored lattice to world/camera offset in `Renderer.applyHalftoneToCurrentFrame()` to remove camera-induced pattern swim.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party`: `bun run build` passed.
-- Outcome:
-  - Closed. Halftone now reads as a structured comic screen instead of a noisy animated overlay.
-
-### 2026-03-02 - Comic halftone render pass for map + ships + pilots + asteroids (Closed)
-
-- Original prompt:
-  - Add a comic halftone dotted effect for map + ship + pilot + asteroids without overloading rendering.
-- Intent:
-  - Introduce a selective halftone visual pass on chosen world layers while keeping fast combat/UI layers normal.
-- Plan:
-  - Split gameplay rendering into halftone-targeted pass and normal pass.
-  - Add a low-resolution halftone compositor between passes.
-  - Keep bullets/beams/particles/trails/UI/debug in normal rendering path.
-- Progress updates:
-  - Added a dedicated low-resolution halftone compositor (`RenderHalftoneComposer`) that samples the rendered frame and composites a dot pattern in screen space.
-  - Split `GameRenderer` into two world passes:
-    - halftone-targeted pass for map + ships + pilots + asteroids (+ map overlay),
-    - normal pass for fast combat/effects/debug layers (trails, beams, projectiles, particles, etc.).
-  - Inserted halftone compositing between the two passes so only selected layers receive the comic treatment.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party`: `bun run build` passed.
-- Outcome:
-  - Closed. Map + ship + pilot + asteroid layers now render through a selective comic halftone pass while non-target layers remain normal.
-
-### 2026-03-01 - First-run demo startup timing hold after title intro (Closed)
-
-- Original prompt:
-  - Fix first-run (`demo_seen` false) startup flow where demo begins before the full title intro completes and holds.
-- Intent:
-  - Ensure startup sequence is: splash -> title intro completes -> intentional hold beat -> attract demo begins.
-- Plan:
-  - Add an explicit title-intro visual-settle readiness signal from `startScreen.ts`.
-  - Keep non-first-run demo startup path immediate.
-  - Gate demo startup on both intro-audio readiness and intro-visual readiness.
-- Progress updates:
-  - Added `onIntroVisualComplete` callback wiring in `startScreen.ts` based on intro timeline settle.
-  - Added `waitingForStartIntroVisualCompletion` gating in `main.ts`.
-  - Updated demo startup orchestration so first-run attract waits for both intro audio and visual readiness.
-  - Kept non-first-run startup path immediate (`showAttract=false`) while removing ad hoc startup-hold timer logic.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party`: `bun run build` passed.
-- Outcome:
-  - Closed. First-run demo startup no longer jumps early and now waits for the full intro lifecycle to settle.
-
-### 2026-03-01 - Demo FREEPLAY cleanup + local score-submit eligibility fix (Closed)
-
-- Original prompt:
-  - Remove leftover freeplay complexity and fix local-mode score submission so single-human local sessions with bots submit.
-- Intent:
-  - Simplify demo runtime to the intended attract -> tutorial -> live transition and restore expected score submission behavior in eligible local matches.
-- Plan:
-  - Remove `FREEPLAY` from demo state contracts and all runtime gating checks.
-  - Keep tutorial completion on direct promotion to live match.
-  - Tighten local score submission policy to allow only live, non-demo, single-human local sessions.
-- Progress updates:
-  - Removed `FREEPLAY` state/method checks from `DemoController` and dependent `main.ts` gating branches (gameplay-activity, touch layout, and input-control routing).
-  - Updated tutorial transition messaging/comments in `DemoOverlayUI` to match direct live promotion semantics.
-  - Added local score policy helper in `Game.ts` to count human participants (including local split participants) and require exactly one human for local score submission eligibility.
-  - Kept attract/tutorial score blocking intact via existing `isDemoSession` and `experienceContext === LIVE_MATCH` gates.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party`: `bun run build` passed.
-  - `astro-party/server`: `npm run typecheck` passed.
-  - `astro-party/server`: `npm run build` passed.
-
-### 2026-03-01 - One-shot ruleset/context runtime implementation + endless mode + demo hardening (Closed)
-
-- Original prompt:
-  - Implement the one-shot plan for canonical ruleset/context modeling, endless respawn + explicit end-match flow, UI/runtime refactor, and demo-flow hardening fixes.
-- Intent:
-  - Ship the locked decisions end-to-end in runtime code (shared sim, server, transports, client/game, UI, and demo lifecycle).
-- Plan:
-  - Add canonical `Ruleset`/`ExperienceContext` contracts and wire them through sim state + room meta.
-  - Implement authoritative endless respawn + leader-triggered endless end.
-  - Refactor runtime to separate tuning mode vs ruleset/context semantics.
-  - Add lobby/gameplay UI surfaces for ruleset selection + endless end-match.
-  - Apply demo regression fixes from evaluation (deferred-start race, tap guards, lifecycle/input gating).
-- Progress updates:
-  - Added canonical `Ruleset` + `ExperienceContext` types and room-meta propagation across shared sim/server/transports/client.
-  - Implemented authoritative endless behavior in shared sim (`ENDLESS_RESPAWN` respawn loop + explicit `endMatchByScore` transition to `GAME_END`).
-  - Added server command support for `cmd:set_ruleset` and `cmd:end_match`; synchronized state schema/meta.
-  - Added transport/network/game APIs for ruleset/context/end-match and wired callbacks/state updates.
-  - Refactored client runtime usage: demo/tutorial contexts now set explicit `ExperienceContext` and score submission is blocked outside `LIVE_MATCH`.
-  - Added lobby ruleset control + map whitelist enforcement and gameplay `End Match` button wiring for endless leader flow.
-  - Implemented demo hardening fixes:
-    - deferred demo startup canceled on committed start action,
-    - start-phase suppression wrapped in scoped teardown transaction (no leak),
-    - shared tap guard on demo state-changing actions,
-    - local sim pause/resume tied to visibility/platform lifecycle,
-    - local input capture/send halted while tutorial pauses sim.
-  - Added context-aware map validation so internal demo map `6` remains usable in non-live contexts while staying non-pickable for live matches.
-  - Removed residual demo timer-based respawn dependency in `DemoController`.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party/server`: `npm run typecheck` passed.
-- Outcome:
-  - Closed. One-shot ruleset/context + endless + demo hardening milestone implemented and typechecked.
-
-### 2026-03-01 - Game modes source-of-truth doc integration (Closed)
-
-- Original prompt:
-  - Review AGENTS/ARCHITECTURE docs and add a source-of-truth document for game modes to guide upcoming mode implementation.
-- Intent:
-  - Establish a canonical contract for ruleset vs context behavior before implementation work starts.
-- Plan:
-  - Add `GAME_MODES.md` with canonical terminology and behavior contracts.
-  - Wire references and guardrails into `AGENTS.md`.
-  - Align ownership boundaries in `ARCHITECTURE.md`.
-  - Add discoverability reference in `README.md`.
-- Progress updates:
-  - Created `GAME_MODES.md` with canonical terms (`Ruleset`, `Experience Context`, `Screen Flow`), baseline constraints, ruleset definitions, and ownership/change-management rules.
-  - Updated `AGENTS.md` to include `GAME_MODES.md` as a high-signal source in scope/context bootstrap/read rules and gameplay-flow guardrails.
-  - Updated `ARCHITECTURE.md` with a mode-model contract section and explicit ownership linkage to `GAME_MODES.md`.
-  - Updated `README.md` governance docs list to include `GAME_MODES.md`.
-- Validation:
-  - Docs-only update; no runtime commands rerun.
-- Outcome:
-  - Closed. Mode implementation can now anchor on `astro-party/GAME_MODES.md` as the canonical source of truth.
-
-### 2026-03-01 - Demo vs normal flow whole-app evaluation (Closed)
-
-- Original prompt:
-  - Evaluate demo vs normal gameplay phase/sequence integration, then verify findings against whole-app runtime flow.
-- Intent:
-  - Separate chunk-level suspicions from real end-to-end integration issues and capture a single source-of-truth report.
-- Plan:
-  - Record initial findings from targeted file review.
-  - Trace full runtime flow across main/demo/ui/game/network/shared-sim.
-  - Re-validate each initial issue and capture net-new issues.
-  - Publish results to a dedicated markdown report.
-- Progress updates:
-  - Completed whole-flow trace for boot, deferred demo startup, start actions, phase/screen/audio sync, demo sim behavior, and transport paths.
-  - Re-classified initial findings by whole-app validity.
-  - Added new low/medium integration observations around teardown/scheduler ownership clarity.
-  - Wrote report: `demo-vs-normal-flow-evaluation.md`.
-- Validation:
-  - Analysis/docs update only; no runtime build/typecheck rerun.
-- Outcome:
-  - Closed. Final verdict and evidence are documented in `astro-party/demo-vs-normal-flow-evaluation.md`.
-
-### 2026-02-28 - Agent doc cleanup activity reference wiring (Closed)
-
-- Original prompt:
-  - Add a reference in the agent docs so saying "agent doc cleanup activity" is enough to trigger the full documentation cleanup workflow.
-- Intent:
-  - Make doc-governance cleanup reusable as a named activity with predictable outputs.
-- Plan:
-  - Add a reusable activity section in `AGENTS.md` with trigger phrase, scope, workflow, and done criteria.
-  - Record this run in `progress.md`.
-- Progress updates:
-  - Added `Reusable Activity: Agent Doc Cleanup` section to `AGENTS.md`.
-  - Documented execution rule so the shorthand phrase directly triggers the workflow.
-- Validation:
-  - Docs-only update; no runtime commands rerun.
-- Outcome:
-  - Closed. Future requests can use `agent doc cleanup activity` as the directive.
-
-### 2026-02-28 - Guardrail/Architecture doc finetune (Closed)
-
-- Original prompt:
-  - Review learnings, promote concrete guardrails into `AGENTS.md`, update `progress.md` usage as a living planned-work reference, and update architecture constraints for platform-owned landscape orientation.
-- Intent:
-  - Convert recurring mistakes into policy-level guardrails and reduce repeat orientation/layout churn.
-- Plan:
-  - Review `learning.md` for stable patterns.
-  - Promote policy-level rules into `AGENTS.md`.
-  - Update `progress.md` contract for active planned-work tracking.
-  - Update `ARCHITECTURE.md` with platform orientation ownership + safe-area responsibilities.
-- Progress updates:
-  - Completed learning-to-policy promotion in `AGENTS.md`.
-  - Added `progress.md` two-layer contract and active-task workflow.
-  - Added architecture ownership note: platform enforces landscape; client owns safe-area/HUD-aware placement.
-- Validation:
-  - Docs-only update; no runtime commands rerun.
-- Outcome:
-  - Closed. New guardrails and architecture contract are now explicit and durable.
-
-### 2026-02-28 - Demo flow/runtime fixes (loop lifecycle + SDK + tap race guard) (Closed)
-
-- Original prompt:
-  - Review issues and fix items 1 to 4 from the demo flow/performance findings.
-- Intent:
-  - Remove background loop waste, align platform integration with SDK policy, clear compile blocker, and prevent duplicate start/join actions during demo teardown.
-- Plan:
-  - Add explicit RAF lifecycle ownership and background stop/resume hooks.
-  - Replace direct bridge usage with `@oasiz/sdk` in runtime touchpoints.
-  - Fix demo timer typing mismatch.
-  - Add start-screen action locking so buttons disable before async teardown/network work.
-- Progress updates:
-  - Added `startLoop`/`stopLoop`, RAF handle tracking, `visibilitychange` and `oasiz.onPause/onResume` wiring in `src/Game.ts`.
-  - Migrated score submit, haptics, room share, and injected player identity/state paths to `oasiz.*`.
-  - Added SDK dependency (`@oasiz/sdk`) to `package.json`.
-  - Fixed `DemoOverlayUI` interval typing to unblock typecheck.
-  - Added start-screen action lock and early disable path in `src/ui/startScreen.ts`.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party`: `bun run build` passed.
-- Outcome:
-  - Closed. Findings 1-4 were implemented and validated in local checks.
-
-### 2026-02-28 - Central SDK adapter refactor (Closed)
-
-- Original prompt:
-  - Instead of importing SDK directly in many files, centralize integration in one wrapper.
-- Intent:
-  - Improve maintainability and reduce churn risk from SDK API updates by routing platform calls through one adapter module.
-- Plan:
-  - Create a platform bridge module as the single `@oasiz/sdk` import location.
-  - Refactor current call sites to consume bridge methods.
-  - Validate compile/build and ensure no direct SDK imports remain outside the bridge.
-- Progress updates:
-  - Added `src/platform/oasizBridge.ts` with wrappers for score submit, haptics, room share, lifecycle hooks, gameplay activity, and injected room/player properties.
-  - Refactored `Game`, `main`, `SettingsManager`, UI haptics/start flow, and transport files to call bridge methods.
-  - Removed direct `@oasiz/sdk` imports from feature files.
-- Validation:
-  - `astro-party`: `bun run typecheck` passed.
-  - `astro-party`: `bun run build` passed.
-- Outcome:
-  - Closed. Platform SDK integration now has a single import/adapter boundary.
-
-### 2026-02-28 - Remaining issues doc capture (Closed)
-
-- Original prompt:
-  - Document the remaining unresolved issues into an `.md` file.
-- Intent:
-  - Preserve the post-fix open issues in a single actionable reference.
-- Plan:
-  - Reconfirm unresolved findings from the previous review.
-  - Create a dedicated markdown file with severity, impact, evidence, and suggested fixes.
-- Progress updates:
-  - Created `remaining-issues.md` with the two still-open items:
-    - orientation ownership mismatch
-    - top safe-area offset budget not enforced for top interactive controls
-- Validation:
-  - Docs-only update; no runtime commands rerun.
-- Outcome:
-  - Closed. Remaining issues are now documented and linkable.
-
+## Milestone Journal
 ## Recurring Patterns Filtered Out
 
 - Iterative UI micro-patches were repeatedly applied to the same lobby/start layouts.
@@ -758,3 +430,75 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - Kept deterministic per-asteroid halftone variation via hash seed (`id + variant`).
 - Validation:
   - `astro-party`: `bun run typecheck` passed.
+
+## 2026-03-02 - Demo seen flag now platform-only (no local device persistence)
+
+- Updated `astro-party/src/main.ts` demo-seen helpers:
+  - removed localStorage read path from `isDemoSeen()`
+  - removed localStorage write path from `markDemoSeen()`
+  - retained platform state read/write via existing bridge helpers
+- Result:
+  - demo-seen no longer persists to device-local storage.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+
+## 2026-03-02 - Halftone implementation removed from asteroid renderer
+
+- Removed asteroid halftone runtime implementation in:
+  - `astro-party/src/systems/rendering/layers/EntityVisualsRenderer.ts`
+- Removed:
+  - halftone cache state/types/constants
+  - halftone overlay draw branch in `drawAsteroid(...)`
+  - halftone helper methods and hash utility used only by that path
+- Result:
+  - Asteroids now render base/facet/crater styling only; no halftone processing remains.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-03-02 - Background starfield animation re-enabled
+
+- Updated starfield CSS in `astro-party/index.html`:
+  - `.stars-container.active .stars-layer` now uses `animation-play-state: running`.
+- Result:
+  - Background star rotation resumes when the stars container is active (game/demo background states).
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-03-02 - Agent doc cleanup activity (governance pass)
+
+- Scope:
+  - executed reusable cleanup workflow across `AGENTS.md`, `ARCHITECTURE.md`, `.agents/learning.md`, and `progress.md`.
+  - removed closed-thread clutter from `Active Task Threads` and restored explicit milestone-journal boundary.
+- Policy and learning updates:
+  - added AGENTS guardrails for empty-active placeholder and explicit architecture outcome note in cleanup milestones.
+  - added new learning entry on interruption-recoverable progress tracking discipline.
+- Traceability:
+  - `progress -> learning`: recurring closed-thread/no-midrun-signal issue distilled into `2026-03-02` learning entry.
+  - `learning -> AGENTS`: promoted to explicit progress hygiene/cleanup output guardrails.
+- Architecture outcome:
+  - no change required in `astro-party/ARCHITECTURE.md` for this cleanup run.
+- Validation:
+  - docs-only governance cleanup; no runtime commands rerun.
+
+## 2026-03-02 - Learning extraction follow-up from full progress history
+
+- Scope:
+  - re-audited full `progress.md` milestones to extract additional durable learnings beyond the initial cleanup pass.
+- Added learning entries in `.agents/learning.md`:
+  - render-effect experiments need budget + rollback gates
+  - mode/flow refactors require immediate dead-path sweeps
+  - intermittent lag triage must lock capture conditions first
+- Promoted policy guardrails in `AGENTS.md`:
+  - render-wide visual experiment budget/rollback requirement
+  - required post-refactor dead-path cleanup sweep
+  - capture-condition matrix requirement for intermittent lag investigations
+- Traceability:
+  - `progress -> learning`: recurring March render/flow/lag patterns distilled into three new learning entries.
+  - `learning -> AGENTS`: promoted these three patterns to implementation planning guardrails.
+- Architecture outcome:
+  - no change required in `astro-party/ARCHITECTURE.md` for this pass.
+- Validation:
+  - docs-only governance update; no runtime commands rerun.
+
