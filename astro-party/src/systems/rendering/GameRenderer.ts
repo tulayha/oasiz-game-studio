@@ -98,7 +98,7 @@ export class GameRenderer {
   }
 
   private isGameplayRenderPhase(phase: GamePhase): boolean {
-    return phase === "PLAYING" || phase === "GAME_END";
+    return phase === "PLAYING" || phase === "ROUND_END" || phase === "GAME_END";
   }
 
   private advanceMapVisualTime(dt: number): number {
