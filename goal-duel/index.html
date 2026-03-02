@@ -408,6 +408,61 @@
           width: 58px !important;
           height: 58px !important;
         }
+
+        /* Portrait country picker: fixed 3x3 viewport, larger flags, equal padding */
+        #countryStage .countryCard {
+          width: min(420px, calc(100vw - 24px)) !important;
+        }
+
+        #countryStage .countryInner {
+          padding: 14px !important;
+        }
+
+        #countryStage .flagGrid {
+          grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+          grid-auto-rows: 86px !important;
+          gap: 12px !important;
+          padding: 12px !important;
+          height: calc((3 * 86px) + (2 * 12px) + (2 * 12px)) !important;
+          max-height: calc((3 * 86px) + (2 * 12px) + (2 * 12px)) !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          align-content: start !important;
+        }
+
+        #countryStage .flagBtn {
+          width: 100% !important;
+          height: 100% !important;
+          max-width: none !important;
+          aspect-ratio: 1 / 1 !important;
+          padding: 6px !important;
+          margin: 0 !important;
+        }
+
+        /* Portrait car picker: ensure full scroll range reaches final row */
+        #carStage .carCard {
+          width: min(420px, calc(100vw - 24px)) !important;
+          max-height: calc(100vh - 28px) !important;
+        }
+
+        #carStage .carInner {
+          display: flex !important;
+          flex-direction: column !important;
+          min-height: 0 !important;
+          height: 100% !important;
+          padding: 14px !important;
+        }
+
+        #carStage .carGrid {
+          flex: 1 !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          padding: 8px 8px 26px 8px !important;
+          gap: 10px !important;
+          align-content: start !important;
+        }
       }
 
       /* Overlays */
