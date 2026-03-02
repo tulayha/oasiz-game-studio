@@ -21,6 +21,9 @@ Thumbs.db
 assets/
 **/sfx/
 music/
+!abyssal-fall/public/assets/
+!abyssal-fall/public/assets/sfx/
+!abyssal-fall/public/assets/sfx/**
 
 # Local env files
 .env
