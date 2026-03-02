@@ -168,3 +168,78 @@ Durable implementation learnings to avoid repeating known mistakes.
 - Related files:
   - `AGENTS.md`
   - `progress.md`
+
+## 2026-03-02 - Progress tracking must preserve interruption recoverability
+
+- Context:
+  - `progress.md` active section drifted into a closed-thread dump and lost quick visibility into truly in-flight work.
+- Wrong assumption:
+  - Updating progress mostly at start/end and leaving closed threads in `Active Task Threads` was still good enough for operational tracking.
+- Detection signal:
+  - `Active Task Threads` contained only closed items (18/18), `progress.md` exceeded 700 lines, and latest in-run activity was harder to recover than reading changed files directly.
+- Corrected approach:
+  - Keep `Active Task Threads` open-only with a single explicit placeholder when empty.
+  - Record timestamped mid-run checkpoints at meaningful step boundaries for live recoverability.
+  - Keep completed detail in one concise milestone entry with traceability mapping.
+- Guardrail:
+  - Never leave closed threads in `Active Task Threads`; condense when active visibility degrades, and include `progress -> learning -> AGENTS` plus architecture change/no-change note in cleanup milestones.
+- Related files:
+  - `progress.md`
+  - `AGENTS.md`
+  - `.agents/learning.md`
+
+## 2026-03-02 - Render-effect experiments need budget and rollback gates
+
+- Context:
+  - Halftone implementation moved through multiple same-day pivots (selective post pass, refinement, correction, object-space pivot, cache rewrite, and eventual removal).
+- Wrong assumption:
+  - Visual-style iteration inside the main render path could proceed safely without an explicit perf budget and rollback discipline.
+- Detection signal:
+  - Rapid sequence of reversals and implementation swaps in rendering milestones while lag investigation remained active.
+- Corrected approach:
+  - Treat broad render effects as budgeted experiments:
+    - define target cost up front,
+    - keep a fast disable/revert path,
+    - prefer object-local/precomputed treatment before frame-wide compositing.
+- Guardrail:
+  - Any new render-wide visual effect must declare budget target + rollback path before iterative tuning on default gameplay path.
+- Related files:
+  - `src/systems/rendering/GameRenderer.ts`
+  - `src/systems/rendering/Renderer.ts`
+  - `src/systems/rendering/layers/EntityVisualsRenderer.ts`
+  - `lag-findings-deep-pass.md`
+
+## 2026-03-02 - Mode/flow refactors require immediate dead-path sweeps
+
+- Context:
+  - Follow-up milestones removed `FREEPLAY` remnants, hidden map id `6`, duplicate demo starfield initialization, and stale map visibility toggles after flow changes.
+- Wrong assumption:
+  - Leaving temporary compatibility branches and hidden IDs after refactors was low risk and could be cleaned later.
+- Detection signal:
+  - Repeated cleanup milestones were needed to remove stale branches and special cases across demo/start/map flow.
+- Corrected approach:
+  - Pair mode/flow refactors with a same-window dead-path sweep across runtime + docs to remove obsolete flags, IDs, and fallback initializers.
+- Guardrail:
+  - After any canonical flow/model change, run a required dead-path cleanup pass before considering the refactor complete.
+- Related files:
+  - `src/main.ts`
+  - `src/demo/DemoController.ts`
+  - `src/ui/screens.ts`
+  - `shared/game/mapConfigs.ts`
+  - `GAME_MODES.md`
+
+## 2026-03-02 - Intermittent lag triage must lock capture conditions first
+
+- Context:
+  - Random lag analysis required deep-pass findings and branch parity checks while runtime symptoms were intermittent.
+- Wrong assumption:
+  - Ad hoc observations were sufficient to prioritize fixes for non-deterministic lag.
+- Detection signal:
+  - Multiple plausible hotspots surfaced concurrently and confidence in root cause stayed low until findings were systematized.
+- Corrected approach:
+  - Start intermittent perf investigations with a fixed capture matrix (feature flags/tooling state/device mode), then attach each finding to a specific capture condition.
+- Guardrail:
+  - For random/intermittent lag reports, do not jump to mitigation first; lock reproducibility and capture conditions before ranking root-cause candidates.
+- Related files:
+  - `lag-findings-deep-pass.md`
+  - `progress.md`

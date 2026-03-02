@@ -55,11 +55,33 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
 ## Progress Log Contract (`progress.md`)
 
 - `progress.md` has two layers:
-  - `Active Task Threads` (living): for prompts requiring planned work, track original prompt, intent, plan, progress updates, validation, and outcome. Update this in-place while the task is active.
-  - `Milestone Journal` (historical): append-only dated summaries of shipped outcomes and validation.
-- For planned prompts, always create or update an active task thread before deep implementation.
-- When work ships, fold the final result into a dated milestone entry and close the active thread.
-- Do not rewrite closed historical milestone entries except explicit condensation/archive passes.
+  - `Active Task Threads` (living, open-only): only currently in-progress threads belong here.
+  - `Milestone Journal` (historical): append-only shipped summaries.
+- Cost-control rules:
+  - Keep `Active Task Threads` to at most 3 open threads.
+  - One thread per user request stream; do not create a new thread for every small follow-up in the same stream.
+  - Closed threads must be removed from `Active Task Threads` after milestone capture.
+  - Do not duplicate full detail in both sections.
+- Active thread update format (lean):
+  - required fields: `Original prompt`, `Intent`, `Current plan`, `Status`, `Latest validation`.
+  - `Progress updates` should be short timestamped lines (1-2 lines each), not long narrative rewrites.
+- Mid-run checkpoint rule (required):
+  - Update `Progress updates` during execution, not only at start/end.
+  - Add a checkpoint line after each meaningful step boundary:
+    - context gathered
+    - major edit batch completed
+    - validation command completed/failed
+    - blocker or assumption change discovered
+  - For long runs, record a heartbeat at least every 10 minutes.
+  - Checkpoint format:
+    - `- [HH:MM] action taken -> result/next`
+- Close-out rules:
+  - On completion, write one concise milestone entry (scope, key files, validation, outcome), then delete the active thread.
+  - If work is docs-only or under ~30 minutes, use milestone-only logging unless the user explicitly asks for detailed in-flight tracking.
+- Hygiene rules:
+  - Run a condense pass when `progress.md` exceeds ~600 lines or when closed-thread churn makes active work hard to scan.
+  - Do not rewrite historical milestone meaning during condense; preserve dates, outcomes, and validation signals.
+  - If there are no open threads, keep one explicit placeholder line in `Active Task Threads` instead of leaving closed threads there.
 
 ## Reusable Activity: Agent Doc Cleanup
 
@@ -86,6 +108,7 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
   - updated `progress.md` records for the cleanup task
   - updated `.agents/learning.md` when new recurring issues were distilled from progress
   - traceability note listing what was promoted (`progress -> learning -> AGENTS`)
+  - explicit architecture outcome note in milestone (`changed` or `no change required`)
 - Done criteria:
   - no conflicting guidance between AGENTS/ARCHITECTURE/learning/progress
   - recurring issues converted into explicit, testable guardrail language
@@ -162,6 +185,9 @@ Update when behavior/process changes:
   - gameplay-path parity, or
   - observability/panel diagnostics
 - Process/tooling automation must be validated against real source-of-truth boundaries before being promoted into policy.
+- Render-wide visual experiments must declare an explicit frame-budget target and a rollback/disable path before iterative tuning on default gameplay rendering.
+- After canonical mode/flow refactors, run a dead-path cleanup sweep in the same delivery window (remove obsolete flags, fallback branches, hidden IDs, and stale docs references).
+- Intermittent lag investigations must lock a capture-condition matrix first (feature flags/tooling/device mode) and tie each finding to those conditions before ranking fixes.
 
 ## Validation Matrix
 
