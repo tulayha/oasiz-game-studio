@@ -608,3 +608,48 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
   - `bun run typecheck` passed.
   - `bun run build` passed.
 
+## 2026-03-02 - Round-end linger trial (render gameplay during ROUND_END)
+
+- Scope:
+  - Removed the visual hard-cut at round end by keeping gameplay entities rendered during `ROUND_END`.
+  - Kept simulation/timing behavior unchanged (no new phases or timer rewrites).
+- Changes:
+  - `src/systems/rendering/GameRenderer.ts`:
+    - updated `isGameplayRenderPhase(...)` to include `ROUND_END`
+- Outcome:
+  - During the existing round-end window, ships/pilots/projectiles/asteroids and effect layers remain visible instead of disappearing immediately.
+- Validation:
+  - `bun run typecheck` passed.
+  - `bun run build` passed.
+
+## 2026-03-02 - Round-end linger cinematic camera polish
+
+- Scope:
+  - Reduced static/frozen feel during `ROUND_END` linger without changing sim authority/phase flow.
+- Changes:
+  - `src/systems/camera/AdaptiveCameraController.ts`:
+    - tracks phase transitions and round-end elapsed time
+    - enables single-anchor focus in `ROUND_END`/`GAME_END` (winner-centric framing when one survivor remains)
+    - adds subtle deterministic round-end camera drift and mild zoom breathing
+- Outcome:
+  - `ROUND_END` now reads as a short cinematic hold instead of a hard static pause.
+- Validation:
+  - `bun run typecheck` passed.
+  - `bun run build` passed.
+
+## 2026-03-02 - Round-end winner prompt repositioned off center focus
+
+- Scope:
+  - Prevented the round winner prompt from covering the ship during round-end linger.
+- Changes:
+  - `index.html`:
+    - moved `.round-result` from center (`top: 50%`) to safe top-center anchoring
+    - desktop anchor: `top: max(calc(var(--safe-top, 0px) + 64px), 15vh)`
+    - coarse-pointer anchor: `top: max(calc(var(--safe-top, 0px) + 106px), 20vh)`
+    - changed transform to `translateX(-50%)` (removed vertical centering)
+- Outcome:
+  - Winner ship/camera focal area remains visible while round result text is still prominent.
+- Validation:
+  - `bun run typecheck` passed.
+  - `bun run build` passed.
+

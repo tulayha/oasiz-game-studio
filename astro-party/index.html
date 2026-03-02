@@ -1256,9 +1256,9 @@
 
     .round-result {
       position: absolute;
-      top: 50%;
+      top: max(calc(var(--safe-top, 0px) + 64px), 15vh);
       left: 50%;
-      transform: translate(-50%, -50%);
+      transform: translateX(-50%);
       z-index: 70;
       pointer-events: none;
       text-align: center;
@@ -1268,6 +1268,11 @@
       background: rgba(10, 10, 18, 0.75);
       box-shadow: 0 0 30px rgba(0, 0, 0, 0.35);
       backdrop-filter: blur(6px);
+    }
+    @media (pointer: coarse) {
+      .round-result {
+        top: max(calc(var(--safe-top, 0px) + 106px), 20vh);
+      }
     }
 
     .round-result.hidden {

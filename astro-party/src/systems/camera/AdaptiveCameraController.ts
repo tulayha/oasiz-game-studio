@@ -40,6 +40,8 @@ export class AdaptiveCameraController {
   private spreadVelocity = 0;
   private focusVelocityX = 0;
   private focusVelocityY = 0;
+  private lastPhase: GamePhase | null = null;
+  private roundEndCinematicTimeSec = 0;
 
   reset(): void {
     this.zoom = CAMERA_DEFAULT_ZOOM;
@@ -50,26 +52,57 @@ export class AdaptiveCameraController {
     this.spreadVelocity = 0;
     this.focusVelocityX = 0;
     this.focusVelocityY = 0;
+    this.lastPhase = null;
+    this.roundEndCinematicTimeSec = 0;
   }
 
   update(input: AdaptiveCameraUpdateInput): AdaptiveCameraState {
     void input.nowMs;
     const dt = Math.max(0, Math.min(0.25, input.dt));
+    if (input.phase !== this.lastPhase) {
+      if (input.phase === "ROUND_END") {
+        this.roundEndCinematicTimeSec = 0;
+      }
+      this.lastPhase = input.phase;
+    }
+    if (input.phase === "ROUND_END") {
+      this.roundEndCinematicTimeSec += dt;
+    }
+
     const isAdaptivePhase =
       input.phase === "PLAYING" ||
       input.phase === "ROUND_END" ||
       input.phase === "GAME_END";
-    const hasGroup = input.anchors.length >= 2;
+    const hasAnchors = input.anchors.length > 0;
+    const allowSingleAnchorFocus =
+      input.phase === "ROUND_END" || input.phase === "GAME_END";
+    const hasAdaptiveAnchors =
+      input.anchors.length >= 2 || (allowSingleAnchorFocus && hasAnchors);
 
     let targetFocusX = DEFAULT_FOCUS_X;
     let targetFocusY = DEFAULT_FOCUS_Y;
     let targetSpread = CAMERA_MAX_SPREAD_FOR_DEFAULT_ZOOM;
 
-    if (isAdaptivePhase && hasGroup) {
-      const bounds = this.computeBounds(input.anchors);
-      targetFocusX = (bounds.minX + bounds.maxX) * 0.5;
-      targetFocusY = (bounds.minY + bounds.maxY) * 0.5;
-      targetSpread = Math.sqrt(this.computeMaxDistanceSq(input.anchors));
+    if (isAdaptivePhase && hasAdaptiveAnchors) {
+      if (input.anchors.length >= 2) {
+        const bounds = this.computeBounds(input.anchors);
+        targetFocusX = (bounds.minX + bounds.maxX) * 0.5;
+        targetFocusY = (bounds.minY + bounds.maxY) * 0.5;
+        targetSpread = Math.sqrt(this.computeMaxDistanceSq(input.anchors));
+      } else {
+        const anchor = input.anchors[0];
+        targetFocusX = anchor.x;
+        targetFocusY = anchor.y;
+        targetSpread = CAMERA_MIN_SPREAD_FOR_MAX_ZOOM * 0.72;
+      }
+    }
+
+    if (input.phase === "ROUND_END") {
+      const t = this.roundEndCinematicTimeSec;
+      const radius = hasAnchors ? 18 : 12;
+      targetFocusX += Math.cos(t * 1.05) * radius;
+      targetFocusY += Math.sin(t * 0.9) * radius * 0.62;
+      targetSpread *= 1 + Math.sin(t * 1.6) * 0.04;
     }
 
     // Smooth spread first, then derive zoom from the filtered spread.
