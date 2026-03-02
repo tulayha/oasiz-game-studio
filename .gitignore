@@ -17,12 +17,11 @@ Thumbs.db
 *.swp
 *.swo
 
-# Assets
-assets/
-**/sfx/
-music/
+
 
 # Local env files
 .env
 .env.local
 .env.*.local
+
+
