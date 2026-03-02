@@ -22,7 +22,7 @@
                 "key": "bgMusic"
             },
             {
-                "url": "assets/audio/kill.wav",
+                "url": "assets/audio/kill-beep.mp3",
                 "type": "audio",
                 "key": "kill"
             },
