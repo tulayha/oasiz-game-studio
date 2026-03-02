@@ -262,6 +262,12 @@ class AudioManager {
   private musicBuffer: AudioBuffer | null = null;
   private musicSource: AudioBufferSourceNode | null = null;
   private musicLoading: Promise<void> | null = null;
+  private boostBuffer: AudioBuffer | null = null;
+  private carBallHitBuffer: AudioBuffer | null = null;
+  private carWallHitBuffer: AudioBuffer | null = null;
+  private goalScoredBuffer: AudioBuffer | null = null;
+  private goalConcededBuffer: AudioBuffer | null = null;
+  private goalExplosionBuffer: AudioBuffer | null = null;
   private bumpBuffer: AudioBuffer | null = null;
   private screechBuffer: AudioBuffer | null = null;
   private crowdBuffer: AudioBuffer | null = null;
@@ -524,36 +530,27 @@ class AudioManager {
   }
 
   boost(): void {
-    this.noiseWhoosh(0.12, 0.08);
+    this.playOneShot(this.boostBuffer, 0.8, "AudioManager.boost");
   }
 
   kick(): void {
-    this.beep(220, 0.04, 0.07);
-    this.beep(160, 0.05, 0.06);
+    this.playOneShot(this.carBallHitBuffer, 0.85, "AudioManager.kick");
   }
 
   thud(): void {
-    this.beep(90, 0.06, 0.09);
+    this.playOneShot(this.carWallHitBuffer, 0.85, "AudioManager.thud");
   }
 
   goal(isPlayer: boolean): void {
-    if (isPlayer) {
-      this.beep(660, 0.12, 0.12);
-      this.beep(880, 0.14, 0.10);
-    } else {
-      this.beep(220, 0.16, 0.14);
-      this.beep(180, 0.14, 0.12);
-    }
+    this.playOneShot(
+      isPlayer ? this.goalScoredBuffer : this.goalConcededBuffer,
+      0.95,
+      "AudioManager.goal",
+    );
   }
 
   explosiveGoal(): void {
-    // Explosive sound effect
-    this.noiseWhoosh(0.15, 0.3);
-    this.beep(440, 0.08, 0.05);
-    this.beep(550, 0.1, 0.06);
-    this.beep(660, 0.12, 0.08);
-    // Deep rumble
-    this.beep(110, 0.2, 0.15);
+    this.playOneShot(this.goalExplosionBuffer, 0.9, "AudioManager.explosiveGoal");
   }
 
   private beep(freq: number, dur: number, vol: number): void {
@@ -613,21 +610,129 @@ class AudioManager {
     src.stop(t0 + dur + 0.02);
   }
 
+  private playOneShot(buffer: AudioBuffer | null, volume: number, context: string): void {
+    this.ensure();
+    if (!this.ctx || !this.fx) return;
+    if (!this.settings.fx) return;
+    if (!buffer) {
+      console.warn("[" + context + "] Buffer not loaded yet");
+      return;
+    }
+
+    if (this.ctx.state === "suspended") {
+      this.ctx.resume().catch((e) => {
+        console.warn("[" + context + "] Failed to resume AudioContext:", e);
+      });
+    }
+
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = buffer;
+
+      const g = this.ctx.createGain();
+      g.gain.value = volume;
+
+      src.connect(g);
+      g.connect(this.fx);
+      src.start(0);
+    } catch (e) {
+      console.warn("[" + context + "] Failed:", e);
+    }
+  }
+
   async loadSFX(): Promise<void> {
     this.ensure();
     if (!this.ctx) return;
 
     try {
-      // Load bump.wav
-      const bumpUrl = new URL("../assets/sfx/bump.wav", import.meta.url);
+      // Load boost.mp3
+      const boostUrl = new URL("../assets/sfx/boost.mp3", import.meta.url);
+      const boostRes = await fetch(boostUrl);
+      if (boostRes.ok) {
+        const boostBuf = await boostRes.arrayBuffer();
+        this.boostBuffer = await this.ctx.decodeAudioData(boostBuf);
+        console.log("[AudioManager] Loaded boost.mp3");
+      }
+    } catch (e) {
+      console.warn("[AudioManager] Failed to load boost.mp3:", e);
+    }
+
+    try {
+      // Load car-ball-hit.mp3
+      const carBallHitUrl = new URL("../assets/sfx/car-ball-hit.mp3", import.meta.url);
+      const carBallHitRes = await fetch(carBallHitUrl);
+      if (carBallHitRes.ok) {
+        const carBallHitBuf = await carBallHitRes.arrayBuffer();
+        this.carBallHitBuffer = await this.ctx.decodeAudioData(carBallHitBuf);
+        console.log("[AudioManager] Loaded car-ball-hit.mp3");
+      }
+    } catch (e) {
+      console.warn("[AudioManager] Failed to load car-ball-hit.mp3:", e);
+    }
+
+    try {
+      // Load car-wall-hit.mp3
+      const carWallHitUrl = new URL("../assets/sfx/car-wall-hit.mp3", import.meta.url);
+      const carWallHitRes = await fetch(carWallHitUrl);
+      if (carWallHitRes.ok) {
+        const carWallHitBuf = await carWallHitRes.arrayBuffer();
+        this.carWallHitBuffer = await this.ctx.decodeAudioData(carWallHitBuf);
+        console.log("[AudioManager] Loaded car-wall-hit.mp3");
+      }
+    } catch (e) {
+      console.warn("[AudioManager] Failed to load car-wall-hit.mp3:", e);
+    }
+
+    try {
+      // Load goal-scored.mp3
+      const goalScoredUrl = new URL("../assets/sfx/goal-scored.mp3", import.meta.url);
+      const goalScoredRes = await fetch(goalScoredUrl);
+      if (goalScoredRes.ok) {
+        const goalScoredBuf = await goalScoredRes.arrayBuffer();
+        this.goalScoredBuffer = await this.ctx.decodeAudioData(goalScoredBuf);
+        console.log("[AudioManager] Loaded goal-scored.mp3");
+      }
+    } catch (e) {
+      console.warn("[AudioManager] Failed to load goal-scored.mp3:", e);
+    }
+
+    try {
+      // Load goal-conceded.mp3
+      const goalConcededUrl = new URL("../assets/sfx/goal-conceded.mp3", import.meta.url);
+      const goalConcededRes = await fetch(goalConcededUrl);
+      if (goalConcededRes.ok) {
+        const goalConcededBuf = await goalConcededRes.arrayBuffer();
+        this.goalConcededBuffer = await this.ctx.decodeAudioData(goalConcededBuf);
+        console.log("[AudioManager] Loaded goal-conceded.mp3");
+      }
+    } catch (e) {
+      console.warn("[AudioManager] Failed to load goal-conceded.mp3:", e);
+    }
+
+    try {
+      // Load goal-explosion.mp3
+      const goalExplosionUrl = new URL("../assets/sfx/goal-explosion.mp3", import.meta.url);
+      const goalExplosionRes = await fetch(goalExplosionUrl);
+      if (goalExplosionRes.ok) {
+        const goalExplosionBuf = await goalExplosionRes.arrayBuffer();
+        this.goalExplosionBuffer = await this.ctx.decodeAudioData(goalExplosionBuf);
+        console.log("[AudioManager] Loaded goal-explosion.mp3");
+      }
+    } catch (e) {
+      console.warn("[AudioManager] Failed to load goal-explosion.mp3:", e);
+    }
+
+    try {
+      // Load bump.mp3
+      const bumpUrl = new URL("../assets/sfx/bump.mp3", import.meta.url);
       const bumpRes = await fetch(bumpUrl);
       if (bumpRes.ok) {
         const bumpBuf = await bumpRes.arrayBuffer();
         this.bumpBuffer = await this.ctx.decodeAudioData(bumpBuf);
-        console.log("[AudioManager] Loaded bump.wav");
+        console.log("[AudioManager] Loaded bump.mp3");
       }
     } catch (e) {
-      console.warn("[AudioManager] Failed to load bump.wav:", e);
+      console.warn("[AudioManager] Failed to load bump.mp3:", e);
     }
 
     try {
@@ -657,29 +762,29 @@ class AudioManager {
     }
 
     try {
-      // Load 321.wav
-      const countdown321Url = new URL("../assets/sfx/321.wav", import.meta.url);
+      // Load 321.mp3
+      const countdown321Url = new URL("../assets/sfx/321.mp3", import.meta.url);
       const countdown321Res = await fetch(countdown321Url);
       if (countdown321Res.ok) {
         const countdown321Buf = await countdown321Res.arrayBuffer();
         this.countdown321Buffer = await this.ctx.decodeAudioData(countdown321Buf);
-        console.log("[AudioManager] Loaded 321.wav");
+        console.log("[AudioManager] Loaded 321.mp3");
       }
     } catch (e) {
-      console.warn("[AudioManager] Failed to load 321.wav:", e);
+      console.warn("[AudioManager] Failed to load 321.mp3:", e);
     }
 
     try {
-      // Load rev.wav
-      const revUrl = new URL("../assets/sfx/rev.wav", import.meta.url);
+      // Load rev.mp3
+      const revUrl = new URL("../assets/sfx/rev.mp3", import.meta.url);
       const revRes = await fetch(revUrl);
       if (revRes.ok) {
         const revBuf = await revRes.arrayBuffer();
         this.revBuffer = await this.ctx.decodeAudioData(revBuf);
-        console.log("[AudioManager] Loaded rev.wav");
+        console.log("[AudioManager] Loaded rev.mp3");
       }
     } catch (e) {
-      console.warn("[AudioManager] Failed to load rev.wav:", e);
+      console.warn("[AudioManager] Failed to load rev.mp3:", e);
     }
   }
 
@@ -991,6 +1096,18 @@ class GoalDuelGame {
   private stadiumBg = new Image();
   private goalImage = new Image();
   private ballTrail: Array<{ x: number; y: number; life: number; maxLife: number }> = [];
+  private ballPop = {
+    active: false,
+    time: 0,
+    duration: 0.62,
+    baseX: 0,
+    baseY: 0,
+    scale: 1,
+    biasX: 0,
+    biasY: 0,
+    lastTriggerMs: -99999,
+    cooldownMs: 650,
+  };
   
   // Goal animation state
   private goalAnimation = {
@@ -3562,9 +3679,40 @@ class GoalDuelGame {
     this._matchEnded = true;   // Prevent any lingering endMatch calls
     this._matchStarting = false; // Allow a fresh match to start from the menu
     this._goalFired = false;   // Reset goal guard
+    this.clearTransientGameplayUI();
     this.fadeScene(() => {
       this.setState("MENU");
     });
+  }
+
+  private clearTransientGameplayUI(): void {
+    // Hard reset transient gameplay overlays so stale UI never leaks onto menu.
+    this.elBtnSkipReplay.classList.add("hidden");
+    this.elCountdownOverlay.classList.add("hidden");
+    if (this.elCountdownText) {
+      this.elCountdownText.classList.remove("countdownPulse");
+      this.elCountdownText.textContent = "3";
+    }
+
+    this.isReplayMode = false;
+    this.recordingReplay = false;
+    this.replayData = [];
+    this.replayIndex = 0;
+    this._replayHead = 0;
+    this.replayScoringPlayer = null;
+
+    this.goalAnimation.active = false;
+    this.goalAnimation.time = 0;
+    this.goalAnimation.alpha = 0;
+    this.goalAnimation.scale = 0;
+    this.goalAnimation.rotation = 0;
+
+    this.ballPop.active = false;
+    this.ballPop.scale = 1;
+    if (this.ball) {
+      this.ball.isSensor = false;
+      this.ball.collisionFilter.mask = CATEGORY_CAR | CATEGORY_WALL;
+    }
   }
 
   private onGoal(isPlayerScored: boolean): void {
@@ -3791,6 +3939,7 @@ class GoalDuelGame {
   private setState(s: GameState, instant?: boolean): void {
     this.state = s;
     if (s === "MENU") {
+      this.clearTransientGameplayUI();
       this.elStart.classList.remove("hidden");
       this.elEnd.classList.add("hidden");
       this.elHudRoot.classList.add("hidden");
@@ -4599,6 +4748,143 @@ class GoalDuelGame {
     }
   }
 
+  private triggerBallPop(biasX: number, biasY: number): void {
+    if (!this.ball || this.ballPop.active || this.state !== "PLAYING") return;
+    const now = performance.now();
+    if (now - this.ballPop.lastTriggerMs < this.ballPop.cooldownMs) return;
+
+    this.ballPop.active = true;
+    this.ballPop.time = 0;
+    this.ballPop.baseX = this.ball.position.x;
+    this.ballPop.baseY = this.ball.position.y;
+    this.ballPop.scale = 1;
+    this.ballPop.biasX = biasX;
+    this.ballPop.biasY = biasY;
+    this.ballPop.lastTriggerMs = now;
+
+    // While airborne, ignore cars but keep wall collisions so it cannot escape the arena.
+    this.ball.isSensor = false;
+    this.ball.collisionFilter.mask = CATEGORY_WALL;
+
+    // Launch immediately in a randomized direction (biased by squeeze/wall direction).
+    const randomX = (Math.random() - 0.5) * 0.9;
+    const randomY = (Math.random() - 0.5) * 0.9;
+    let launchX = biasX * 1.15 + randomX;
+    let launchY = biasY * 1.15 + randomY;
+    const launchLen = Math.hypot(launchX, launchY);
+    if (launchLen < 0.001) {
+      const a = Math.random() * Math.PI * 2;
+      launchX = Math.cos(a);
+      launchY = Math.sin(a);
+    } else {
+      launchX /= launchLen;
+      launchY /= launchLen;
+    }
+
+    const launchSpeed = 13 + Math.random() * 5;
+    Body.setVelocity(this.ball, { x: launchX * launchSpeed, y: launchY * launchSpeed });
+    Body.setAngularVelocity(this.ball, (Math.random() - 0.5) * 0.7);
+
+    console.log("[BallPop]", "Triggered pop-up launch");
+  }
+
+  private updateBallPop(dt: number): void {
+    if (!this.ballPop.active || !this.ball) return;
+
+    this.ballPop.time += dt;
+    const p = clamp(this.ballPop.time / this.ballPop.duration, 0, 1);
+    const arc = Math.sin(Math.PI * p);
+    this.ballPop.scale = 1 + arc * 1.25;
+
+    if (p < 1) return;
+
+    this.ballPop.active = false;
+    this.ballPop.scale = 1;
+
+    // Restore normal collisions.
+    this.ball.isSensor = false;
+    this.ball.collisionFilter.mask = CATEGORY_CAR | CATEGORY_WALL;
+    console.log("[BallPop]", "Pop-up ended");
+  }
+
+  private detectBallPopCandidates(): void {
+    if (!this.ball || !this.playerCar || !this.botCar) return;
+    if (this.state !== "PLAYING" || this.ballPop.active) return;
+
+    const ballPos = this.ball.position;
+    const p1 = this.playerCar.position;
+    const p2 = this.botCar.position;
+    const carRadius = Math.max(this.settings.carWidth * this.settings.carBoundsWidth, this.settings.carHeight * this.settings.carBoundsHeight) * 0.5;
+    const ballRadius = this.settings.ballRadius * this.settings.ballBoundsScale;
+    const squeezeDist = carRadius + ballRadius + 28;
+
+    const toBall1x = ballPos.x - p1.x;
+    const toBall1y = ballPos.y - p1.y;
+    const toBall2x = ballPos.x - p2.x;
+    const toBall2y = ballPos.y - p2.y;
+    const d1 = Math.hypot(toBall1x, toBall1y);
+    const d2 = Math.hypot(toBall2x, toBall2y);
+    const nearBothCars = d1 < squeezeDist && d2 < squeezeDist;
+    if (nearBothCars && d1 > 0.001 && d2 > 0.001) {
+      const n1x = toBall1x / d1;
+      const n1y = toBall1y / d1;
+      const n2x = toBall2x / d2;
+      const n2y = toBall2y / d2;
+      const oppositeSides = (n1x * n2x + n1y * n2y) < -0.45;
+      const p1TowardBall = this.playerCar.velocity.x * n1x + this.playerCar.velocity.y * n1y;
+      const p2TowardBall = this.botCar.velocity.x * n2x + this.botCar.velocity.y * n2y;
+      if (oppositeSides && p1TowardBall > 1.1 && p2TowardBall > 1.1) {
+        const centerDiffX = p2.x - p1.x;
+        const centerDiffY = p2.y - p1.y;
+        const len = Math.hypot(centerDiffX, centerDiffY);
+        const perpX = len > 0.001 ? -centerDiffY / len : (Math.random() - 0.5);
+        const perpY = len > 0.001 ? centerDiffX / len : (Math.random() - 0.5);
+        this.triggerBallPop(perpX, perpY);
+        return;
+      }
+    }
+
+    // Wall squeeze: car pushes ball into a boundary.
+    const leftBound = this.arenaLeftInnerX + ballRadius;
+    const rightBound = this.arenaRightInnerX - ballRadius;
+    const topBound = -this.fieldH * 0.5 + ballRadius;
+    const bottomBound = this.fieldH * 0.5 - ballRadius;
+    const wallThreshold = 10;
+
+    let wallNX = 0;
+    let wallNY = 0;
+    if (ballPos.x < leftBound + wallThreshold) {
+      wallNX = 1;
+    } else if (ballPos.x > rightBound - wallThreshold) {
+      wallNX = -1;
+    } else if (ballPos.y < topBound + wallThreshold) {
+      wallNY = 1;
+    } else if (ballPos.y > bottomBound - wallThreshold) {
+      wallNY = -1;
+    }
+
+    if (wallNX === 0 && wallNY === 0) return;
+
+    const evaluateWallPush = (car: Matter.Body): boolean => {
+      const dx = ballPos.x - car.position.x;
+      const dy = ballPos.y - car.position.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > squeezeDist + 12 || dist < 0.001) return false;
+      const towardBallX = dx / dist;
+      const towardBallY = dy / dist;
+      const towardBallSpeed = car.velocity.x * towardBallX + car.velocity.y * towardBallY;
+      const pushIntoWall = car.velocity.x * wallNX + car.velocity.y * wallNY < -0.9;
+      return towardBallSpeed > 0.9 && pushIntoWall;
+    };
+
+    if (evaluateWallPush(this.playerCar) || evaluateWallPush(this.botCar)) {
+      const tangentX = -wallNY;
+      const tangentY = wallNX;
+      const tangentKick = (Math.random() - 0.5) * 0.8;
+      this.triggerBallPop(wallNX + tangentX * tangentKick, wallNY + tangentY * tangentKick);
+    }
+  }
+
   private spawnBumpParticle(x: number, y: number, normal: { x: number; y: number }, impact: number): void {
     if (!this.settings.vfxBumping) return;
     const intensity = this.settings.vfxBumpIntensity;
@@ -4877,8 +5163,17 @@ class GoalDuelGame {
 
       if (this.state === "PLAYING") {
         try {
+          this.updateBallPop(dt);
+          if (!this.ballPop.active) {
+            this.detectBallPopCandidates();
+          }
+        } catch (err) {
+          console.error("[Game.update] Ball pop logic error:", err);
+        }
+
+        try {
           // Prevent ball from getting stuck in corners
-          this.preventBallStuckInCorner();
+          if (!this.ballPop.active) this.preventBallStuckInCorner();
         } catch (err) {
           console.error("[Game.update] preventBallStuckInCorner error:", err);
         }
@@ -4891,7 +5186,7 @@ class GoalDuelGame {
         }
         
         try {
-          this.keepBallMoving(); // Ensure ball never stops
+          if (!this.ballPop.active) this.keepBallMoving(); // Ensure ball never stops
         } catch (err) {
           console.error("[Game.update] keepBallMoving error:", err);
         }
@@ -5855,7 +6150,7 @@ class GoalDuelGame {
     
     // Ball — use solid color instead of radial gradient every frame
     const b = this.ball;
-    const spriteSize = this.settings.ballSpriteSize;
+    const spriteSize = this.settings.ballSpriteSize * this.ballPop.scale;
     ctx.fillStyle = "rgba(255,200,150,0.92)";
     ctx.beginPath();
     ctx.arc(b.position.x, b.position.y, spriteSize, 0, Math.PI * 2);
