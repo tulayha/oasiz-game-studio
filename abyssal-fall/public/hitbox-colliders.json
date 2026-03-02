@@ -1,0 +1,584 @@
+{
+  "player_idle#0": {
+    "type": "rect",
+    "x": 10,
+    "y": 11,
+    "width": 11,
+    "height": 33
+  },
+  "player_idle#1": {
+    "type": "rect",
+    "x": 10,
+    "y": 11,
+    "width": 11,
+    "height": 33
+  },
+  "player_idle#2": {
+    "type": "rect",
+    "x": 10,
+    "y": 11,
+    "width": 11,
+    "height": 33
+  },
+  "player_idle#3": {
+    "type": "rect",
+    "x": 10,
+    "y": 11,
+    "width": 11,
+    "height": 33
+  },
+  "player_run#0": {
+    "type": "rect",
+    "x": 1,
+    "y": 21,
+    "width": 39,
+    "height": 17
+  },
+  "player_run#1": {
+    "type": "rect",
+    "x": 1,
+    "y": 21,
+    "width": 39,
+    "height": 17
+  },
+  "player_run#2": {
+    "type": "rect",
+    "x": 1,
+    "y": 21,
+    "width": 39,
+    "height": 17
+  },
+  "player_run#3": {
+    "type": "rect",
+    "x": 1,
+    "y": 21,
+    "width": 39,
+    "height": 17
+  },
+  "player_run#4": {
+    "type": "rect",
+    "x": 1,
+    "y": 21,
+    "width": 39,
+    "height": 17
+  },
+  "player_run#5": {
+    "type": "rect",
+    "x": 1,
+    "y": 21,
+    "width": 39,
+    "height": 17
+  },
+  "player_jump#0": {
+    "type": "rect",
+    "x": 16,
+    "y": 14,
+    "width": 14,
+    "height": 24
+  },
+  "player_jump#1": {
+    "type": "rect",
+    "x": 16,
+    "y": 14,
+    "width": 14,
+    "height": 24
+  },
+  "player_jump#2": {
+    "type": "rect",
+    "x": 16,
+    "y": 14,
+    "width": 14,
+    "height": 24
+  },
+  "player_jump#3": {
+    "type": "rect",
+    "x": 16,
+    "y": 14,
+    "width": 14,
+    "height": 24
+  },
+  "player_jump#4": {
+    "type": "rect",
+    "x": 16,
+    "y": 14,
+    "width": 14,
+    "height": 24
+  },
+  "player_jump#5": {
+    "type": "rect",
+    "x": 16,
+    "y": 14,
+    "width": 14,
+    "height": 24
+  },
+  "player_fall#0": {
+    "type": "rect",
+    "x": 15,
+    "y": 12,
+    "width": 14,
+    "height": 21
+  },
+  "player_fall#1": {
+    "type": "rect",
+    "x": 15,
+    "y": 12,
+    "width": 14,
+    "height": 21
+  },
+  "player_fall#2": {
+    "type": "rect",
+    "x": 15,
+    "y": 12,
+    "width": 14,
+    "height": 21
+  },
+  "player_fall#3": {
+    "type": "rect",
+    "x": 15,
+    "y": 12,
+    "width": 14,
+    "height": 21
+  },
+  "player_fall#4": {
+    "type": "rect",
+    "x": 15,
+    "y": 12,
+    "width": 14,
+    "height": 21
+  },
+  "player_fall#5": {
+    "type": "rect",
+    "x": 15,
+    "y": 12,
+    "width": 14,
+    "height": 21
+  },
+  "player_shoot#0": {
+    "type": "rect",
+    "x": 10,
+    "y": 12,
+    "width": 12,
+    "height": 31
+  },
+  "player_shoot#1": {
+    "type": "rect",
+    "x": 10,
+    "y": 12,
+    "width": 12,
+    "height": 31
+  },
+  "player_shoot#2": {
+    "type": "rect",
+    "x": 10,
+    "y": 12,
+    "width": 12,
+    "height": 31
+  },
+  "player_shoot#3": {
+    "type": "rect",
+    "x": 10,
+    "y": 12,
+    "width": 12,
+    "height": 31
+  },
+  "player_shoot#4": {
+    "type": "rect",
+    "x": 10,
+    "y": 12,
+    "width": 12,
+    "height": 31
+  },
+  "player_shoot#5": {
+    "type": "rect",
+    "x": 10,
+    "y": 12,
+    "width": 12,
+    "height": 31
+  },
+  "crab_idle#0": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 73,
+      "width": 19,
+      "height": 23
+    },
+    "safe": {
+      "type": "rect",
+      "x": 11,
+      "y": 61,
+      "width": 44,
+      "height": 11
+    }
+  },
+  "crab_idle#1": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 73,
+      "width": 19,
+      "height": 23
+    },
+    "safe": {
+      "type": "rect",
+      "x": 11,
+      "y": 61,
+      "width": 44,
+      "height": 11
+    }
+  },
+  "crab_idle#2": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 73,
+      "width": 19,
+      "height": 23
+    },
+    "safe": {
+      "type": "rect",
+      "x": 11,
+      "y": 61,
+      "width": 44,
+      "height": 11
+    }
+  },
+  "crab_idle#3": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 73,
+      "width": 19,
+      "height": 23
+    },
+    "safe": {
+      "type": "rect",
+      "x": 11,
+      "y": 61,
+      "width": 44,
+      "height": 11
+    }
+  },
+  "crab_attack#0": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 74,
+      "width": 19,
+      "height": 21
+    },
+    "safe": {
+      "type": "rect",
+      "x": 29,
+      "y": 60,
+      "width": 26,
+      "height": 12
+    }
+  },
+  "crab_attack#1": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 74,
+      "width": 19,
+      "height": 21
+    },
+    "safe": {
+      "type": "rect",
+      "x": 29,
+      "y": 60,
+      "width": 26,
+      "height": 12
+    }
+  },
+  "crab_attack#2": {
+    "unsafe": {
+      "type": "rect",
+      "x": 50,
+      "y": 60,
+      "width": 20,
+      "height": 21
+    },
+    "safe": {
+      "type": "rect",
+      "x": 23,
+      "y": 61,
+      "width": 26,
+      "height": 12
+    }
+  },
+  "crab_attack#3": {
+    "unsafe": {
+      "type": "rect",
+      "x": 47,
+      "y": 56,
+      "width": 20,
+      "height": 21
+    },
+    "safe": {
+      "type": "rect",
+      "x": 21,
+      "y": 61,
+      "width": 26,
+      "height": 12
+    }
+  },
+  "crab_attack#4": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 75,
+      "width": 24,
+      "height": 21
+    },
+    "safe": {
+      "type": "rect",
+      "x": 21,
+      "y": 61,
+      "width": 37,
+      "height": 12
+    }
+  },
+  "crab_attack#5": {
+    "unsafe": {
+      "type": "rect",
+      "x": 51,
+      "y": 75,
+      "width": 24,
+      "height": 21
+    },
+    "safe": {
+      "type": "rect",
+      "x": 21,
+      "y": 61,
+      "width": 37,
+      "height": 12
+    }
+  },
+  "shark_walk#0": {
+    "unsafe": {
+      "type": "rect",
+      "x": 57,
+      "y": 50,
+      "width": 34,
+      "height": 11
+    },
+    "safe": {
+      "type": "rect",
+      "x": 25,
+      "y": 36,
+      "width": 60,
+      "height": 13
+    }
+  },
+  "shark_walk#1": {
+    "unsafe": {
+      "type": "rect",
+      "x": 57,
+      "y": 50,
+      "width": 34,
+      "height": 11
+    },
+    "safe": {
+      "type": "rect",
+      "x": 25,
+      "y": 36,
+      "width": 60,
+      "height": 13
+    }
+  },
+  "shark_walk#2": {
+    "unsafe": {
+      "type": "rect",
+      "x": 57,
+      "y": 50,
+      "width": 34,
+      "height": 11
+    },
+    "safe": {
+      "type": "rect",
+      "x": 25,
+      "y": 36,
+      "width": 60,
+      "height": 13
+    }
+  },
+  "shark_walk#3": {
+    "unsafe": {
+      "type": "rect",
+      "x": 57,
+      "y": 50,
+      "width": 34,
+      "height": 11
+    },
+    "safe": {
+      "type": "rect",
+      "x": 25,
+      "y": 36,
+      "width": 60,
+      "height": 13
+    }
+  },
+  "shark_walk#4": {
+    "unsafe": {
+      "type": "rect",
+      "x": 57,
+      "y": 50,
+      "width": 34,
+      "height": 11
+    },
+    "safe": {
+      "type": "rect",
+      "x": 25,
+      "y": 36,
+      "width": 60,
+      "height": 13
+    }
+  },
+  "shark_walk#5": {
+    "unsafe": {
+      "type": "rect",
+      "x": 57,
+      "y": 50,
+      "width": 34,
+      "height": 11
+    },
+    "safe": {
+      "type": "rect",
+      "x": 25,
+      "y": 36,
+      "width": 60,
+      "height": 13
+    }
+  },
+  "squid_walk#0": {
+    "unsafe": {
+      "type": "rect",
+      "x": 22,
+      "y": 16,
+      "width": 39,
+      "height": 58
+    },
+    "safe": {
+      "type": "rect",
+      "x": 7,
+      "y": 36,
+      "width": 28,
+      "height": 25
+    }
+  },
+  "squid_walk#1": {
+    "unsafe": {
+      "type": "rect",
+      "x": 22,
+      "y": 23,
+      "width": 43,
+      "height": 51
+    },
+    "safe": {
+      "type": "rect",
+      "x": 7,
+      "y": 36,
+      "width": 28,
+      "height": 25
+    }
+  },
+  "squid_walk#2": {
+    "unsafe": {
+      "type": "rect",
+      "x": 22,
+      "y": 19,
+      "width": 47,
+      "height": 55
+    },
+    "safe": {
+      "type": "rect",
+      "x": 7,
+      "y": 36,
+      "width": 28,
+      "height": 25
+    }
+  },
+  "squid_walk#3": {
+    "unsafe": {
+      "type": "rect",
+      "x": 35,
+      "y": 35,
+      "width": 50,
+      "height": 26
+    },
+    "safe": {
+      "type": "rect",
+      "x": 7,
+      "y": 36,
+      "width": 28,
+      "height": 25
+    }
+  },
+  "squid_walk#4": {
+    "unsafe": {
+      "type": "rect",
+      "x": 35,
+      "y": 35,
+      "width": 50,
+      "height": 26
+    },
+    "safe": {
+      "type": "rect",
+      "x": 7,
+      "y": 36,
+      "width": 28,
+      "height": 25
+    }
+  },
+  "squid_walk#5": {
+    "unsafe": {
+      "type": "rect",
+      "x": 35,
+      "y": 22,
+      "width": 30,
+      "height": 52
+    },
+    "safe": {
+      "type": "rect",
+      "x": 7,
+      "y": 36,
+      "width": 28,
+      "height": 25
+    }
+  },
+  "weed_decor#0": {
+    "type": "rect",
+    "x": 25,
+    "y": 37,
+    "width": 81,
+    "height": 81
+  },
+  "weed_decor#1": {
+    "type": "rect",
+    "x": 33,
+    "y": 37,
+    "width": 81,
+    "height": 81
+  },
+  "weed_decor#2": {
+    "type": "rect",
+    "x": 33,
+    "y": 37,
+    "width": 81,
+    "height": 81
+  },
+  "weed_decor#7": {
+    "type": "rect",
+    "x": 19,
+    "y": 12,
+    "width": 81,
+    "height": 70
+  },
+  "puffer#0": {
+    "type": "circle",
+    "cx": 78,
+    "cy": 52,
+    "radius": 33
+  }
+}
