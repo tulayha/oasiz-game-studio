@@ -3399,32 +3399,15 @@
     }
     .demo-tutorial-actions {
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
       gap: 0.5rem;
       margin-top: 0.25rem;
     }
     .demo-tutorial-skip-btn {
       margin: 0;
-    }
-    .demo-next-btn {
-      background: rgba(0, 240, 255, 0.12);
-      border: 1px solid rgba(0, 240, 255, 0.45);
-      color: #00f0ff;
-      font-family: 'Orbitron', sans-serif;
-      font-size: 0.78rem;
-      letter-spacing: 0.08em;
-      padding: 7px 18px;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.15s, box-shadow 0.15s;
-    }
-    .demo-next-btn:hover {
-      background: rgba(0, 240, 255, 0.22);
-      box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
-    }
-    .demo-next-btn.hidden {
-      display: none;
+      min-width: 120px;
+      text-align: center;
     }
 
     /* Tutorial panel slide-out when in "try it" phase */
@@ -4021,8 +4004,7 @@
         <div class="demo-tutorial-diagram" id="demoTutorialDiagram"></div>
         <div class="demo-tutorial-dialogue" id="demoTutorialDialogue"></div>
         <div class="demo-tutorial-actions">
-          <button class="demo-skip-btn demo-tutorial-skip-btn" id="demoTutorialSkip">Skip</button>
-          <button class="demo-next-btn hidden" id="demoTutorialNext">Next →</button>
+          <button class="demo-skip-btn demo-tutorial-skip-btn hidden" id="demoTutorialSkip">Next</button>
         </div>
       </div>
     </div>
