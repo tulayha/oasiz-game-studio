@@ -1,4 +1,4 @@
-import { SPAWN_POINTS, PLAYER_COLORS, PLAYER_COLOR_STRINGS, PLAYER_NAMES, type Difficulty, type Vec2 } from './constants.ts';
+import { SPAWN_POINTS, PLAYER_NAMES, MAP_SIZE, type Vec2 } from './constants.ts';
 import { type PlayerState, createPlayer, computeMovement, clampToArena, sampleTrailPoint, InputHandler } from './Player.ts';
 import { segmentsIntersect } from './Collision.ts';
 import { BotController } from './Bot.ts';
@@ -8,6 +8,8 @@ import { Audio } from './Audio.ts';
 import { HUD } from './HUD.ts';
 import { Menu, type MenuConfig } from './Menu.ts';
 import { SpatialHash } from './SpatialHash.ts';
+import { TerritoryGrid } from './Territory.ts';
+import { SkinSystem } from './SkinSystem.ts';
 
 export class Game {
   private renderer: Renderer;
@@ -15,6 +17,7 @@ export class Game {
   private audio: Audio;
   private hud: HUD;
   private menu: Menu;
+  private skinSystem: SkinSystem;
 
   private players: PlayerState[] = [];
   private human: PlayerState | null = null;
@@ -22,6 +25,7 @@ export class Game {
   private inputHandler!: InputHandler;
 
   private trailHash = new SpatialHash(4);
+  private territoryGrid!: TerritoryGrid;
   private running = false;
   private paused = false;
   private gameOver = false;
@@ -30,6 +34,7 @@ export class Game {
   private lastFrameTime = 0;
   private hudUpdateTimer = 0;
   private currentLeaderId = -1;
+  private peakPct = 0;
 
   constructor() {
     const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -37,7 +42,8 @@ export class Game {
     this.particleSystem = new ParticleSystem(this.renderer.scene);
     this.audio = new Audio();
     this.hud = new HUD();
-    this.menu = new Menu();
+    this.skinSystem = new SkinSystem();
+    this.menu = new Menu(this.skinSystem);
 
     this.menu.setCallbacks(
       (config) => this.startGame(config),
@@ -102,25 +108,24 @@ export class Game {
     this.paused = false;
     this.started = false;
     this.gameTime = 0;
+    this.peakPct = 0;
+    this.territoryGrid = new TerritoryGrid();
 
-    // Create players
+    // Create players with skins
     const total = 1 + config.botCount;
-    const maxColorIndex = PLAYER_COLORS.length - 1;
-    const selectedColorIndex = Math.max(0, Math.min(config.playerColorIndex, maxColorIndex));
-    const botColorIndices = PLAYER_COLORS
-      .map((_, idx) => idx)
-      .filter((idx) => idx !== selectedColorIndex);
+    const playerSkin = this.skinSystem.getSkin(config.playerSkinId) ?? this.skinSystem.getDefaultSkin();
+    const botSkins = this.skinSystem.getShuffledBotSkins(playerSkin.id, config.botCount);
+
     for (let i = 0; i < total; i++) {
       const sp = SPAWN_POINTS[i];
-      const colorIndex = i === 0
-        ? selectedColorIndex
-        : botColorIndices[(i - 1) % botColorIndices.length];
+      const skin = i === 0 ? playerSkin : botSkins[i - 1];
       const player = createPlayer(
-        i, PLAYER_COLORS[colorIndex], PLAYER_COLOR_STRINGS[colorIndex],
-        PLAYER_NAMES[i], sp.x, sp.z, i === 0,
+        i, skin.color, skin.colorStr,
+        PLAYER_NAMES[i], sp.x, sp.z, i === 0, this.territoryGrid, skin.id,
       );
       this.players.push(player);
-      this.renderer.createAvatar(i, PLAYER_COLORS[colorIndex], PLAYER_NAMES[i]);
+      const texture = this.skinSystem.getTexture(skin.id);
+      this.renderer.createAvatar(i, skin.color, PLAYER_NAMES[i], texture);
     }
 
     // Bot AI
@@ -139,7 +144,7 @@ export class Game {
 
     // Initial territory + avatar positioning
     for (const p of this.players) {
-      this.renderer.updateTerritory(p.id, p.territory.polygons, p.color);
+      this.renderer.updateTerritory(p.id, this.territoryGrid, p.color);
       this.renderer.updateAvatar(p.id, p.position, 0);
     }
 
@@ -231,10 +236,9 @@ export class Game {
       p.position = newPos;
 
       // Regenerate territory if it was completely consumed by an enemy capture
-      if (p.alive && p.territory.polygons.length === 0 && !p.isTrailing) {
+      if (p.alive && !p.territory.hasTerritory() && !p.isTrailing) {
         p.territory.initAtSpawn(p.position.x, p.position.z);
-        this.renderer.updateTerritory(p.id, p.territory.polygons, p.color);
-        p.territory.dirty = false;
+        this.renderer.updateTerritory(p.id, this.territoryGrid, p.color);
       }
 
       if (wasInTerritory && !nowInTerritory) {
@@ -242,12 +246,9 @@ export class Game {
         p.trail = [{ x: oldPos.x, z: oldPos.z }];
       }
 
-      // If player is outside territory and not trailing (e.g. territory was consumed
-      // mid-trail and they re-entered the regenerated zone then left again), ensure
-      // trailing restarts so they are never stuck unable to capture.
-      if (!p.isTrailing && !nowInTerritory && p.hasInput && p.territory.polygons.length > 0) {
-        const wasInLastFrame = p.territory.containsPoint(oldPos);
-        if (!wasInLastFrame) {
+      // If player is outside territory and not trailing, restart trailing
+      if (!p.isTrailing && !nowInTerritory && p.hasInput && p.territory.hasTerritory()) {
+        if (!wasInTerritory) {
           p.isTrailing = true;
           p.trail = [{ x: p.position.x, z: p.position.z }];
         }
@@ -258,23 +259,21 @@ export class Game {
 
         if (nowInTerritory && p.trail.length >= 3) {
           p.trail.push({ x: newPos.x, z: newPos.z });
-          p.territory.captureFromTrail(p.trail);
 
-          for (let oi = 0; oi < playerCount; oi++) {
-            const other = players[oi];
-            if (other.id !== p.id && other.alive) {
-              other.territory.removeOverlap(p.trail);
-              if (other.territory.dirty) {
-                this.renderer.updateTerritory(other.id, other.territory.polygons, other.color);
-                other.territory.dirty = false;
-              }
+          // Grid-based capture: automatically steals cells from other players
+          const affected = p.territory.captureFromTrail(p.trail);
+
+          // Update renderer for affected players whose territory was stolen
+          for (const otherId of affected) {
+            const other = players[otherId];
+            if (other && other.alive) {
+              this.renderer.updateTerritory(other.id, this.territoryGrid, other.color);
             }
           }
 
           p.trail = [];
           p.isTrailing = false;
-          this.renderer.updateTerritory(p.id, p.territory.polygons, p.color);
-          p.territory.dirty = false;
+          this.renderer.updateTerritory(p.id, this.territoryGrid, p.color);
           this.audio.territoryCaptured();
         }
       }
@@ -296,6 +295,13 @@ export class Game {
     if (this.hudUpdateTimer >= 0.15) {
       this.hudUpdateTimer = 0;
       this.hud.update(players);
+
+      const human = this.human;
+      if (human && human.alive) {
+        const totalArea = MAP_SIZE * MAP_SIZE;
+        const currentPct = Math.round((human.territory.computeArea() / totalArea) * 100);
+        if (currentPct > this.peakPct) this.peakPct = currentPct;
+      }
 
       let leaderId = -1;
       let bestArea = -1;
@@ -349,13 +355,16 @@ export class Game {
       if (winner) this.renderer.showCrown(winner.id);
 
       const { pct, rank } = this.hud.getHumanScore(this.players);
+      const displayPct = Math.max(pct, this.peakPct);
+      const newlyUnlocked = this.skinSystem.tryUnlock(this.peakPct);
       document.getElementById('settings-btn')?.classList.add('hidden');
       this.settingsOpen = false;
       document.getElementById('settings-modal')?.classList.remove('visible');
       this.menu.showGameOver(
-        `${pct}%`,
+        `${displayPct}%`,
         `#${rank} of ${this.players.length}`,
         this.hud.getElapsedTime(),
+        newlyUnlocked.length > 0 ? newlyUnlocked : undefined,
       );
     }
   }

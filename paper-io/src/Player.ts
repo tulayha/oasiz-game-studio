@@ -1,5 +1,5 @@
 import { Direction, DIRECTION_VEC, PLAYER_SPEED, TRAIL_SAMPLE_DIST, MAP_RADIUS, type Vec2, dist2 } from './constants.ts';
-import { Territory } from './Territory.ts';
+import { Territory, type TerritoryGrid } from './Territory.ts';
 import * as THREE from 'three';
 
 export interface PlayerState {
@@ -7,6 +7,7 @@ export interface PlayerState {
   color: number;
   colorStr: string;
   name: string;
+  skinId: string;
   position: Vec2;
   moveDir: Vec2;       // normalized movement direction
   trail: Vec2[];
@@ -21,12 +22,13 @@ export interface PlayerState {
 export function createPlayer(
   id: number, color: number, colorStr: string, name: string,
   spawnX: number, spawnZ: number, isHuman: boolean,
+  grid: TerritoryGrid, skinId: string = 'cyan',
 ): PlayerState {
-  const territory = new Territory();
+  const territory = new Territory(grid, id);
   territory.initAtSpawn(spawnX, spawnZ);
 
   return {
-    id, color, colorStr, name,
+    id, color, colorStr, name, skinId,
     position: { x: spawnX, z: spawnZ },
     moveDir: { x: 1, z: 0 },
     trail: [],

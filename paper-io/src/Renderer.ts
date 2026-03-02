@@ -1,39 +1,12 @@
 import * as THREE from 'three';
 import { MAP_RADIUS, BOARD_COLOR, BG_COLOR, GRID_LINE_COLOR, TRAIL_OPACITY, type Vec2 } from './constants.ts';
-
-/**
- * Winding number point-in-polygon test.
- * Unlike the even-odd (ray-casting) algorithm, this counts a point as inside
- * if the polygon winds around it at all — so self-intersecting polygons
- * (e.g. figure-8 trails) have NO interior holes.
- */
-function pointInPolygonWinding(point: Vec2, polygon: Vec2[]): boolean {
-  const n = polygon.length;
-  if (n < 3) return false;
-  let winding = 0;
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const pi = polygon[i];
-    const pj = polygon[j];
-    if (pj.z <= point.z) {
-      if (pi.z > point.z) {
-        // Upward crossing
-        const cross = (pi.x - pj.x) * (point.z - pj.z) - (point.x - pj.x) * (pi.z - pj.z);
-        if (cross > 0) winding++;
-      }
-    } else {
-      if (pi.z <= point.z) {
-        // Downward crossing
-        const cross = (pi.x - pj.x) * (point.z - pj.z) - (point.x - pj.x) * (pi.z - pj.z);
-        if (cross < 0) winding--;
-      }
-    }
-  }
-  return winding !== 0;
-}
+import { type TerritoryGrid } from './Territory.ts';
 
 const TERRITORY_Y = 0.03;
-const TRAIL_Y = 0.06;
-const CELL_SIZE = 0.1;
+const TERRITORY_HEIGHT = 0.14;
+const TRAIL_Y = 0.22;
+const CELL_SIZE = 0.15;
+const BORDER_WIDTH = 1.0;
 
 export class Renderer {
   scene: THREE.Scene;
@@ -41,7 +14,9 @@ export class Renderer {
   renderer: THREE.WebGLRenderer;
 
   private territoryObjects: Map<number, THREE.Mesh> = new Map();
-  private territoryMaterials: Map<number, THREE.MeshBasicMaterial> = new Map();
+  private territoryShadows: Map<number, THREE.Mesh> = new Map();
+  private territoryMaterials: Map<number, THREE.MeshLambertMaterial> = new Map();
+  private shadowMaterial: THREE.MeshBasicMaterial | null = null;
   private trailMeshes: Map<number, THREE.Mesh> = new Map();
   private trailMaterials: Map<number, THREE.MeshBasicMaterial> = new Map();
   private trailLengths: Map<number, number> = new Map();
@@ -127,11 +102,16 @@ export class Renderer {
     this.scene.add(dir);
   }
 
-  createAvatar(id: number, color: number, name?: string): THREE.Group {
+  createAvatar(id: number, color: number, name?: string, texture?: THREE.Texture | null): THREE.Group {
     const group = new THREE.Group();
 
     const bodyGeo = new THREE.BoxGeometry(0.7, 0.35, 0.7);
-    const bodyMat = new THREE.MeshLambertMaterial({ color });
+    let bodyMat: THREE.Material;
+    if (texture) {
+      bodyMat = new THREE.MeshLambertMaterial({ map: texture });
+    } else {
+      bodyMat = new THREE.MeshLambertMaterial({ color });
+    }
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.position.y = 0.175;
     group.add(body);
@@ -143,7 +123,6 @@ export class Renderer {
     ring.position.y = 0.4;
     group.add(ring);
 
-    // Name label sprite
     if (name) {
       const label = this.createTextSprite(name);
       label.position.y = 1.1;
@@ -244,109 +223,101 @@ export class Renderer {
     avatar.add(crownGroup);
   }
 
-  /**
-   * Grid-scan territory with marching-squares contour for smooth edges.
-   * 1. Rasterize all polygons onto a fine grid using pointInPolygon (handles any shape).
-   * 2. Interior cells → shared-vertex grid mesh (no gaps possible).
-   * 3. Boundary cells → interpolated edge vertices via marching squares for smooth outline.
-   */
-  updateTerritory(id: number, polygons: Vec2[][], color: number): void {
-
+  updateTerritory(id: number, grid: TerritoryGrid, color: number): void {
     const old = this.territoryObjects.get(id);
     if (old) {
       this.scene.remove(old);
       old.geometry.dispose();
-      // Don't dispose material — we reuse it
+    }
+    const oldSh = this.territoryShadows.get(id);
+    if (oldSh) {
+      this.scene.remove(oldSh);
+      oldSh.geometry.dispose();
+      this.territoryShadows.delete(id);
     }
 
-    if (polygons.length === 0) {
+    const bounds = grid.getBounds(id);
+    if (!bounds) {
       this.territoryObjects.delete(id);
       this.territoryMaterials.delete(id);
       return;
     }
 
-    // Reuse or create material per player — MeshBasicMaterial to match trail color exactly
     let mat = this.territoryMaterials.get(id);
     if (!mat) {
-      mat = new THREE.MeshBasicMaterial({
+      mat = new THREE.MeshLambertMaterial({
         color: color,
         side: THREE.DoubleSide,
         depthWrite: false,
       });
       this.territoryMaterials.set(id, mat);
     }
-
-    // Bounding box
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const poly of polygons) {
-      for (const p of poly) {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-        if (p.z < minZ) minZ = p.z;
-        if (p.z > maxZ) maxZ = p.z;
-      }
+    if (!this.shadowMaterial) {
+      this.shadowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.18,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
     }
 
-    // Expand by 2 cells so flood-fill border is guaranteed outside
-    minX = Math.floor(minX / CELL_SIZE) * CELL_SIZE - CELL_SIZE * 2;
-    minZ = Math.floor(minZ / CELL_SIZE) * CELL_SIZE - CELL_SIZE * 2;
-    maxX = Math.ceil(maxX / CELL_SIZE) * CELL_SIZE + CELL_SIZE * 2;
-    maxZ = Math.ceil(maxZ / CELL_SIZE) * CELL_SIZE + CELL_SIZE * 2;
+    // Compute world-space bounding box from grid bounds with padding
+    const [bMinX, bMinZ] = grid.toWorld(bounds.minC, bounds.minR);
+    const [bMaxX, bMaxZ] = grid.toWorld(bounds.maxC, bounds.maxR);
+
+    let minX = Math.floor(bMinX / CELL_SIZE) * CELL_SIZE - CELL_SIZE * 2;
+    let minZ = Math.floor(bMinZ / CELL_SIZE) * CELL_SIZE - CELL_SIZE * 2;
+    let maxX = Math.ceil(bMaxX / CELL_SIZE) * CELL_SIZE + CELL_SIZE * 2;
+    let maxZ = Math.ceil(bMaxZ / CELL_SIZE) * CELL_SIZE + CELL_SIZE * 2;
 
     const cols = Math.round((maxX - minX) / CELL_SIZE) + 1;
     const rows = Math.round((maxZ - minZ) / CELL_SIZE) + 1;
 
+    // Read ownership directly from the shared grid -- zero overlap guaranteed
     const field = new Uint8Array(cols * rows);
-    const pt: Vec2 = { x: 0, z: 0 };
     for (let r = 0; r < rows; r++) {
-      pt.z = minZ + r * CELL_SIZE;
+      const wz = minZ + r * CELL_SIZE;
       for (let c = 0; c < cols; c++) {
-        pt.x = minX + c * CELL_SIZE;
-        for (let pi = 0; pi < polygons.length; pi++) {
-          if (pointInPolygonWinding(pt, polygons[pi])) {
-            field[r * cols + c] = 1;
-            break;
-          }
+        const wx = minX + c * CELL_SIZE;
+        if (grid.isOwnedBy(wx, wz, id)) {
+          field[r * cols + c] = 1;
         }
       }
     }
 
-    // Flood-fill from edges to find all EXTERIOR cells.
-    // Any interior cell NOT reached by the flood is a hole → fill it.
-    // This guarantees zero holes inside the territory.
-    const exterior = new Uint8Array(cols * rows);
-    const stack: number[] = [];
+    // --- Compute distance from territory boundary (BFS inward) ---
+    const borderCells = Math.max(1, Math.ceil(BORDER_WIDTH / CELL_SIZE));
+    const distField = new Uint8Array(cols * rows);
+    distField.fill(255);
+    const bfsQ: number[] = [];
 
-    // Seed all border cells that aren't already territory
-    for (let c = 0; c < cols; c++) {
-      if (!field[c]) { exterior[c] = 1; stack.push(0, c); }
-      const br = (rows - 1) * cols + c;
-      if (!field[br]) { exterior[br] = 1; stack.push(rows - 1, c); }
-    }
-    for (let r = 1; r < rows - 1; r++) {
-      if (!field[r * cols]) { exterior[r * cols] = 1; stack.push(r, 0); }
-      const ri = r * cols + cols - 1;
-      if (!field[ri]) { exterior[ri] = 1; stack.push(r, cols - 1); }
-    }
-
-    while (stack.length > 0) {
-      const sc = stack.pop()!;
-      const sr = stack.pop()!;
-      let nr: number, nc: number, ni: number;
-      nr = sr - 1; nc = sc; if (nr >= 0) { ni = nr * cols + nc; if (!exterior[ni] && !field[ni]) { exterior[ni] = 1; stack.push(nr, nc); } }
-      nr = sr + 1; nc = sc; if (nr < rows) { ni = nr * cols + nc; if (!exterior[ni] && !field[ni]) { exterior[ni] = 1; stack.push(nr, nc); } }
-      nr = sr; nc = sc - 1; if (nc >= 0) { ni = nr * cols + nc; if (!exterior[ni] && !field[ni]) { exterior[ni] = 1; stack.push(nr, nc); } }
-      nr = sr; nc = sc + 1; if (nc < cols) { ni = nr * cols + nc; if (!exterior[ni] && !field[ni]) { exterior[ni] = 1; stack.push(nr, nc); } }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (!field[i]) { distField[i] = 0; continue; }
+        if (r === 0 || r === rows - 1 || c === 0 || c === cols - 1 ||
+            !field[(r - 1) * cols + c] || !field[(r + 1) * cols + c] ||
+            !field[r * cols + c - 1] || !field[r * cols + c + 1]) {
+          distField[i] = 0;
+          bfsQ.push(r, c);
+        }
+      }
     }
 
-    // Fill interior holes: any non-exterior, non-field cell becomes territory
-    for (let i = 0; i < cols * rows; i++) {
-      if (!field[i] && !exterior[i]) field[i] = 1;
+    let qi = 0;
+    while (qi < bfsQ.length) {
+      const br = bfsQ[qi++];
+      const bc = bfsQ[qi++];
+      const nd = distField[br * cols + bc] + 1;
+      if (nd > borderCells) continue;
+      if (br > 0)        { const ni = (br - 1) * cols + bc;     if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br - 1, bc); } }
+      if (br < rows - 1) { const ni = (br + 1) * cols + bc;     if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br + 1, bc); } }
+      if (bc > 0)        { const ni = br * cols + bc - 1;       if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br, bc - 1); } }
+      if (bc < cols - 1) { const ni = br * cols + bc + 1;       if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br, bc + 1); } }
     }
 
-    // Build mesh using marching squares
-    // Each cell is defined by its 4 corner nodes.
-    // Fully inside cells → 2 triangles (quad). Boundary cells → interpolated triangles.
+    // --- Build mesh with height gradient (raised plateau with beveled edges) ---
     const verts: number[] = [];
     const indices: number[] = [];
     const vertMap = new Map<number, number>();
@@ -357,8 +328,17 @@ export class Renderer {
       const key = qx * 131072 + qz;
       const existing = vertMap.get(key);
       if (existing !== undefined) return existing;
+
+      const gc = Math.max(0, Math.min(cols - 1, Math.round((x - minX) / CELL_SIZE)));
+      const gr = Math.max(0, Math.min(rows - 1, Math.round((z - minZ) / CELL_SIZE)));
+      const dist = distField[gr * cols + gc];
+      const t = Math.min(dist / borderCells, 1.0);
+      const st = t * t * (3 - 2 * t); // smoothstep
+
+      const y = TERRITORY_Y + st * TERRITORY_HEIGHT;
+
       const idx = verts.length / 3;
-      verts.push(x, TERRITORY_Y, z);
+      verts.push(x, y, z);
       vertMap.set(key, idx);
       return idx;
     };
@@ -369,14 +349,13 @@ export class Renderer {
 
     for (let r = 0; r < rows - 1; r++) {
       for (let c = 0; c < cols - 1; c++) {
-        // 4 corners: TL(c,r), TR(c+1,r), BR(c+1,r+1), BL(c,r+1)
         const tl = field[r * cols + c];
         const tr = field[r * cols + (c + 1)];
-        const br = field[(r + 1) * cols + (c + 1)];
+        const brc = field[(r + 1) * cols + (c + 1)];
         const bl = field[(r + 1) * cols + c];
 
-        const config = (tl << 3) | (tr << 2) | (br << 1) | bl;
-        if (config === 0) continue; // fully outside
+        const config = (tl << 3) | (tr << 2) | (brc << 1) | bl;
+        if (config === 0) continue;
 
         const x0 = minX + c * CELL_SIZE;
         const x1 = minX + (c + 1) * CELL_SIZE;
@@ -386,7 +365,6 @@ export class Renderer {
         const mz = (z0 + z1) / 2;
 
         if (config === 15) {
-          // Fully inside — simple quad
           addTri(x0, z0, x1, z0, x1, z1);
           addTri(x0, z0, x1, z1, x0, z1);
           continue;
@@ -421,14 +399,40 @@ export class Renderer {
       return;
     }
 
+    // Main raised territory mesh
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     geo.setIndex(indices);
+    geo.computeVertexNormals();
+
+    const order = ++this.territoryRenderOrder;
 
     const mesh = new THREE.Mesh(geo, mat!);
-    mesh.renderOrder = ++this.territoryRenderOrder;
+    mesh.renderOrder = order;
     this.scene.add(mesh);
     this.territoryObjects.set(id, mesh);
+
+    // Drop shadow: flat copy of the territory at ground level, offset to simulate light direction
+    const oldShadow = this.territoryShadows.get(id);
+    if (oldShadow) {
+      this.scene.remove(oldShadow);
+      oldShadow.geometry.dispose();
+    }
+
+    const shadowPositions = new Float32Array(verts.length);
+    for (let i = 0; i < verts.length; i += 3) {
+      shadowPositions[i]     = verts[i] + 0.15;
+      shadowPositions[i + 1] = 0.015;
+      shadowPositions[i + 2] = verts[i + 2] + 0.15;
+    }
+    const shadowGeo = new THREE.BufferGeometry();
+    shadowGeo.setAttribute('position', new THREE.Float32BufferAttribute(shadowPositions, 3));
+    shadowGeo.setIndex(indices);
+
+    const shadowMesh = new THREE.Mesh(shadowGeo, this.shadowMaterial!);
+    shadowMesh.renderOrder = order - 1;
+    this.scene.add(shadowMesh);
+    this.territoryShadows.set(id, shadowMesh);
   }
 
   private static readonly MAX_TRAIL_POINTS = 512;
@@ -564,9 +568,15 @@ export class Renderer {
       terr.geometry.dispose();
       this.territoryObjects.delete(id);
     }
-    const terrMat = this.territoryMaterials.get(id);
-    if (terrMat) {
-      terrMat.dispose();
+    const shadow = this.territoryShadows.get(id);
+    if (shadow) {
+      this.scene.remove(shadow);
+      shadow.geometry.dispose();
+      this.territoryShadows.delete(id);
+    }
+    const tMat = this.territoryMaterials.get(id);
+    if (tMat) {
+      tMat.dispose();
       this.territoryMaterials.delete(id);
     }
     const trail = this.trailMeshes.get(id);

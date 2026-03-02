@@ -139,25 +139,13 @@ export class BotController {
     }
 
     // Expand away from territory centroid to claim new ground
-    const polys = bot.territory.polygons;
-    if (polys.length > 0) {
-      let cx = 0, cz = 0, count = 0;
-      for (const poly of polys) {
-        for (const v of poly) {
-          cx += v.x;
-          cz += v.z;
-          count++;
-        }
-      }
-      if (count > 0) {
-        cx /= count;
-        cz /= count;
-        const dx = bot.position.x - cx;
-        const dz = bot.position.z - cz;
-        if (dx * dx + dz * dz > 0.5) {
-          const baseAngle = Math.atan2(dz, dx);
-          return baseAngle + (Math.random() - 0.5) * Math.PI * 0.8;
-        }
+    if (bot.territory.hasTerritory()) {
+      const c = bot.territory.getCentroid();
+      const dx = bot.position.x - c.x;
+      const dz = bot.position.z - c.z;
+      if (dx * dx + dz * dz > 0.5) {
+        const baseAngle = Math.atan2(dz, dx);
+        return baseAngle + (Math.random() - 0.5) * Math.PI * 0.8;
       }
     }
 

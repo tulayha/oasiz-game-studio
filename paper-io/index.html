@@ -57,8 +57,8 @@
     #shop-modal.visible { display: flex; }
 
     .shop-card {
-      width: min(100%, 320px); display: flex; flex-direction: column;
-      align-items: center; gap: 24px;
+      width: min(100%, 320px); max-height: 80vh; display: flex; flex-direction: column;
+      align-items: center; gap: 24px; overflow-y: auto; padding-bottom: 12px;
     }
     .shop-header {
       width: 100%; display: flex; align-items: center; justify-content: space-between;
@@ -110,6 +110,61 @@
     .shop-color-btn.selected .shop-swatch {
       width: 30px; height: 30px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    }
+
+    /* ─── Texture Skin Buttons ─── */
+    #shop-skins {
+      width: 100%; display: grid;
+      grid-template-columns: repeat(3, 1fr); gap: 12px;
+    }
+    .shop-skin-btn {
+      border: 2px solid rgba(222,214,200,0.9);
+      background: rgba(255,255,255,0.75);
+      border-radius: 14px; padding: 8px 4px;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 4px;
+      cursor: pointer; position: relative; overflow: hidden;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .shop-skin-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .shop-skin-btn:active { transform: scale(0.95); }
+    .shop-skin-btn.selected {
+      border-color: #E8736C;
+      background: rgba(232,115,108,0.12);
+      box-shadow: 0 2px 10px rgba(232,115,108,0.25);
+    }
+    .shop-skin-btn.locked {
+      cursor: default;
+    }
+    .shop-skin-btn.locked:hover { transform: none; box-shadow: none; }
+    .shop-skin-btn.locked:active { transform: none; }
+    .skin-preview {
+      width: 44px; height: 44px; border-radius: 8px;
+      object-fit: cover; border: 2px solid rgba(255,255,255,0.7);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+      image-rendering: pixelated;
+    }
+    .shop-skin-btn.selected .skin-preview {
+      width: 48px; height: 48px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    }
+    .skin-name {
+      font-size: 0.62rem; font-weight: 700;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      color: #5A5A5A; opacity: 0.7;
+    }
+    .skin-lock-overlay {
+      position: absolute; inset: 0; display: flex;
+      flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(40,40,40,0.55); border-radius: 12px;
+      color: white; font-size: 0.6rem; font-weight: 700; gap: 3px;
+      backdrop-filter: blur(2px);
+    }
+
+    /* ─── Unlock notification in Game Over ─── */
+    #go-unlocks {
+      display: none; margin-top: 8px; font-size: 0.9rem;
+      font-weight: 500; color: #5A5A5A; opacity: 0.9;
     }
 
     #play-btn {
@@ -309,6 +364,7 @@
     <div class="go-stat">Final Score: <span id="go-score">0%</span></div>
     <div class="go-stat">Rank: <span id="go-rank">#1</span></div>
     <div class="go-stat">Time: <span id="go-time">00:00</span></div>
+    <div id="go-unlocks"></div>
     <div class="go-buttons">
       <button class="go-btn primary" id="go-play-again">Play Again</button>
       <button class="go-btn secondary" id="go-main-menu">Main Menu</button>
@@ -364,15 +420,10 @@
           <svg viewBox="0 0 24 24"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12 5.7 16.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.89a1 1 0 0 0 1.41-1.41L13.41 12l4.89-4.89a1 1 0 0 0 0-1.4z"/></svg>
         </button>
       </div>
-      <div class="shop-section-label">Player Color</div>
-      <div id="shop-colors">
-        <button class="shop-color-btn selected" data-color-index="0" aria-label="Cyan"><span class="shop-swatch" style="background:#00E5FF"></span></button>
-        <button class="shop-color-btn" data-color-index="1" aria-label="Pink"><span class="shop-swatch" style="background:#FF3D71"></span></button>
-        <button class="shop-color-btn" data-color-index="2" aria-label="Orange"><span class="shop-swatch" style="background:#FFAA00"></span></button>
-        <button class="shop-color-btn" data-color-index="3" aria-label="Green"><span class="shop-swatch" style="background:#00E096"></span></button>
-        <button class="shop-color-btn" data-color-index="4" aria-label="Purple"><span class="shop-swatch" style="background:#A259FF"></span></button>
-        <button class="shop-color-btn" data-color-index="5" aria-label="Vermillion"><span class="shop-swatch" style="background:#FF6B35"></span></button>
-      </div>
+      <div class="shop-section-label">Colors</div>
+      <div id="shop-colors"></div>
+      <div class="shop-section-label">Skins</div>
+      <div id="shop-skins"></div>
     </div>
   </div>
 

@@ -1,277 +1,254 @@
-import { type Vec2, START_RADIUS, START_TERRITORY_SEGMENTS, MAP_SIZE } from './constants.ts';
-import { pointInPolygon, polygonArea, createCirclePolygon, segmentsIntersect } from './Collision.ts';
+import { type Vec2, START_RADIUS, MAP_SIZE, MAP_HALF } from './constants.ts';
+import { pointInPolygon } from './Collision.ts';
 
-interface PolyBounds {
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-}
+const GRID_CELL = 0.25;
+const GRID_SIZE = Math.ceil(MAP_SIZE / GRID_CELL);
 
-const MAX_POLYGONS = 30;
+export class TerritoryGrid {
+  readonly data: Int8Array;
+  readonly size = GRID_SIZE;
+  readonly cellSize = GRID_CELL;
+  readonly halfMap = MAP_HALF;
 
-export class Territory {
-  polygons: Vec2[][] = [];
-  dirty = true;
-  private cachedArea = 0;
-  private areaDirty = true;
-  private polyBounds: PolyBounds[] = [];
-
-  initAtSpawn(cx: number, cz: number): void {
-    this.polygons = [createCirclePolygon(cx, cz, START_RADIUS, START_TERRITORY_SEGMENTS)];
-    this.recomputeBounds();
-    this.areaDirty = true;
-    this.dirty = true;
+  constructor() {
+    this.data = new Int8Array(GRID_SIZE * GRID_SIZE).fill(-1);
   }
 
-  containsPoint(p: Vec2): boolean {
-    for (let i = 0; i < this.polygons.length; i++) {
-      const b = this.polyBounds[i];
-      if (b && (p.x < b.minX || p.x > b.maxX || p.z < b.minZ || p.z > b.maxZ)) continue;
-      if (pointInPolygon(p, this.polygons[i])) return true;
+  toGrid(wx: number, wz: number): [number, number] {
+    return [
+      Math.max(0, Math.min(this.size - 1, Math.floor((wx + this.halfMap) / this.cellSize))),
+      Math.max(0, Math.min(this.size - 1, Math.floor((wz + this.halfMap) / this.cellSize))),
+    ];
+  }
+
+  toWorld(gc: number, gr: number): [number, number] {
+    return [
+      gc * this.cellSize - this.halfMap + this.cellSize * 0.5,
+      gr * this.cellSize - this.halfMap + this.cellSize * 0.5,
+    ];
+  }
+
+  isOwnedBy(wx: number, wz: number, pid: number): boolean {
+    const [gc, gr] = this.toGrid(wx, wz);
+    return this.data[gr * this.size + gc] === pid;
+  }
+
+  capture(playerId: number, polygon: Vec2[]): Set<number> {
+    if (polygon.length < 3) return new Set();
+
+    let minC = this.size, maxC = 0, minR = this.size, maxR = 0;
+    for (const v of polygon) {
+      const [gc, gr] = this.toGrid(v.x, v.z);
+      if (gc < minC) minC = gc;
+      if (gc > maxC) maxC = gc;
+      if (gr < minR) minR = gr;
+      if (gr > maxR) maxR = gr;
+    }
+
+    const affected = new Set<number>();
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        const [wx, wz] = this.toWorld(c, r);
+        if (pointInPolygon({ x: wx, z: wz }, polygon)) {
+          const i = r * this.size + c;
+          const prev = this.data[i];
+          if (prev !== playerId && prev >= 0) affected.add(prev);
+          this.data[i] = playerId;
+        }
+      }
+    }
+
+    this.floodFillEnclosed(playerId);
+    return affected;
+  }
+
+  initCircle(playerId: number, cx: number, cz: number, radius: number): void {
+    const [minC, minR] = this.toGrid(cx - radius - this.cellSize, cz - radius - this.cellSize);
+    const [maxC, maxR] = this.toGrid(cx + radius + this.cellSize, cz + radius + this.cellSize);
+    const r2 = radius * radius;
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        const [wx, wz] = this.toWorld(c, r);
+        const dx = wx - cx, dz = wz - cz;
+        if (dx * dx + dz * dz <= r2) {
+          this.data[r * this.size + c] = playerId;
+        }
+      }
+    }
+  }
+
+  clearPlayer(playerId: number): void {
+    for (let i = 0; i < this.data.length; i++) {
+      if (this.data[i] === playerId) this.data[i] = -1;
+    }
+  }
+
+  countCells(playerId: number): number {
+    let count = 0;
+    for (let i = 0; i < this.data.length; i++) {
+      if (this.data[i] === playerId) count++;
+    }
+    return count;
+  }
+
+  hasAnyCells(playerId: number): boolean {
+    for (let i = 0; i < this.data.length; i++) {
+      if (this.data[i] === playerId) return true;
     }
     return false;
   }
 
-  captureFromTrail(trailPoints: Vec2[]): void {
-    if (trailPoints.length < 3) return;
+  getBounds(playerId: number): { minC: number; maxC: number; minR: number; maxR: number } | null {
+    let minC = this.size, maxC = -1, minR = this.size, maxR = -1;
+    for (let r = 0; r < this.size; r++) {
+      for (let c = 0; c < this.size; c++) {
+        if (this.data[r * this.size + c] === playerId) {
+          if (c < minC) minC = c;
+          if (c > maxC) maxC = c;
+          if (r < minR) minR = r;
+          if (r > maxR) maxR = r;
+        }
+      }
+    }
+    return maxC >= 0 ? { minC, maxC, minR, maxR } : null;
+  }
 
-    const newPoly = [...trailPoints];
-    this.polygons.push(newPoly);
-    this.polyBounds.push(computeBounds(newPoly));
+  private floodFillEnclosed(playerId: number): void {
+    const sz = this.size;
+    const visited = new Uint8Array(sz * sz);
+    const stack: number[] = [];
 
-    if (this.polygons.length > MAX_POLYGONS) {
-      this.consolidate();
+    for (let c = 0; c < sz; c++) {
+      if (this.data[c] !== playerId && !visited[c]) { visited[c] = 1; stack.push(0, c); }
+      const bi = (sz - 1) * sz + c;
+      if (this.data[bi] !== playerId && !visited[bi]) { visited[bi] = 1; stack.push(sz - 1, c); }
+    }
+    for (let r = 1; r < sz - 1; r++) {
+      const li = r * sz;
+      if (this.data[li] !== playerId && !visited[li]) { visited[li] = 1; stack.push(r, 0); }
+      const ri = r * sz + sz - 1;
+      if (this.data[ri] !== playerId && !visited[ri]) { visited[ri] = 1; stack.push(r, sz - 1); }
     }
 
-    this.areaDirty = true;
+    while (stack.length > 0) {
+      const sc = stack.pop()!;
+      const sr = stack.pop()!;
+      const neighbors: [number, number][] = [[sr - 1, sc], [sr + 1, sc], [sr, sc - 1], [sr, sc + 1]];
+      for (const [nr, nc] of neighbors) {
+        if (nr < 0 || nr >= sz || nc < 0 || nc >= sz) continue;
+        const ni = nr * sz + nc;
+        if (visited[ni] || this.data[ni] === playerId) continue;
+        visited[ni] = 1;
+        stack.push(nr, nc);
+      }
+    }
+
+    for (let i = 0; i < sz * sz; i++) {
+      if (!visited[i] && this.data[i] !== playerId) {
+        this.data[i] = playerId;
+      }
+    }
+  }
+}
+
+export class Territory {
+  private grid: TerritoryGrid;
+  private pid: number;
+  dirty = true;
+
+  constructor(grid: TerritoryGrid, playerId: number) {
+    this.grid = grid;
+    this.pid = playerId;
+  }
+
+  initAtSpawn(cx: number, cz: number): void {
+    this.grid.initCircle(this.pid, cx, cz, START_RADIUS);
     this.dirty = true;
   }
 
+  containsPoint(p: Vec2): boolean {
+    return this.grid.isOwnedBy(p.x, p.z, this.pid);
+  }
+
+  captureFromTrail(trailPoints: Vec2[]): Set<number> {
+    const affected = this.grid.capture(this.pid, trailPoints);
+    this.dirty = true;
+    return affected;
+  }
+
   computeArea(): number {
-    if (!this.areaDirty) return this.cachedArea;
-    this.cachedArea = 0;
-    for (const poly of this.polygons) {
-      this.cachedArea += polygonArea(poly);
-    }
-    this.areaDirty = true;
-    return this.cachedArea;
+    return this.grid.countCells(this.pid) * this.grid.cellSize * this.grid.cellSize;
   }
 
   getPercentage(): number {
     return (this.computeArea() / (MAP_SIZE * MAP_SIZE)) * 100;
   }
 
-  /**
-   * Remove portions of this territory that overlap with a newly captured polygon
-   * (the capturing player's trail). Only checks against the single trail polygon
-   * so that old territory from the capturer doesn't cause false removals.
-   */
-  removeOverlap(capturedPoly: Vec2[]): void {
-    if (capturedPoly.length < 3) return;
-
-    const capBounds = computeBounds(capturedPoly);
-    const newPolygons: Vec2[][] = [];
-    let changed = false;
-
-    for (const poly of this.polygons) {
-      const pb = computeBounds(poly);
-
-      // Fast bounding-box rejection
-      if (pb.maxX < capBounds.minX || pb.minX > capBounds.maxX ||
-          pb.maxZ < capBounds.minZ || pb.minZ > capBounds.maxZ) {
-        newPolygons.push(poly);
-        continue;
-      }
-
-      // Count vertices inside the captured trail polygon
-      let insideCount = 0;
-      for (const v of poly) {
-        if (pointInPolygon(v, capturedPoly)) insideCount++;
-      }
-
-      if (insideCount > 0 && insideCount >= poly.length * 0.25) {
-        changed = true;
-        continue;
-      }
-
-      // Check if trail edges physically cross this polygon's edges
-      let edgesCross = false;
-      const capLen = capturedPoly.length;
-      const polyLen = poly.length;
-      if (insideCount === 0) {
-        outer:
-        for (let i = 0; i < capLen; i++) {
-          const ca = capturedPoly[i];
-          const cb = capturedPoly[(i + 1) % capLen];
-          for (let j = 0; j < polyLen; j++) {
-            if (segmentsIntersect(ca, cb, poly[j], poly[(j + 1) % polyLen])) {
-              edgesCross = true;
-              break outer;
-            }
-          }
-        }
-      }
-
-      if (edgesCross) {
-        // Trail cuts through this polygon — use grid sampling to measure
-        // actual overlap fraction before deciding to remove
-        const sampleRes = 6;
-        const dx = (pb.maxX - pb.minX) / sampleRes;
-        const dz = (pb.maxZ - pb.minZ) / sampleRes;
-        let totalIn = 0;
-        let overlapIn = 0;
-        for (let si = 0; si <= sampleRes; si++) {
-          for (let sj = 0; sj <= sampleRes; sj++) {
-            const sp: Vec2 = { x: pb.minX + dx * si, z: pb.minZ + dz * sj };
-            if (pointInPolygon(sp, poly)) {
-              totalIn++;
-              if (pointInPolygon(sp, capturedPoly)) overlapIn++;
-            }
-          }
-        }
-
-        if (totalIn > 0 && overlapIn / totalIn > 0.15) {
-          changed = true;
-          continue;
-        }
-        // Overlap is tiny (corner clip) — keep the polygon
-        newPolygons.push(poly);
-        continue;
-      }
-
-      if (insideCount > 0) {
-        // Minor vertex overlap (< 25%) — rebuild from outside vertices + edge samples
-        const outside: Vec2[] = [];
-        for (const v of poly) {
-          if (!pointInPolygon(v, capturedPoly)) outside.push(v);
-        }
-        for (let i = 0; i < polyLen; i++) {
-          const a = poly[i];
-          const b = poly[(i + 1) % polyLen];
-          const mid: Vec2 = { x: (a.x + b.x) * 0.5, z: (a.z + b.z) * 0.5 };
-          if (!pointInPolygon(mid, capturedPoly)) outside.push(mid);
-        }
-        if (outside.length >= 3) {
-          newPolygons.push(convexHull(outside));
-        }
-        changed = true;
-        continue;
-      }
-
-      newPolygons.push(poly);
-    }
-
-    if (changed) {
-      this.polygons = newPolygons;
-      this.recomputeBounds();
-      this.areaDirty = true;
-      this.dirty = true;
-    }
-  }
-
-  getAllEdges(): Array<{ a: Vec2; b: Vec2 }> {
-    const edges: Array<{ a: Vec2; b: Vec2 }> = [];
-    for (const poly of this.polygons) {
-      for (let i = 0; i < poly.length; i++) {
-        edges.push({ a: poly[i], b: poly[(i + 1) % poly.length] });
-      }
-    }
-    return edges;
-  }
-
   getNearestBoundaryPoint(p: Vec2): Vec2 {
-    let bestDist = Infinity;
-    let best: Vec2 = p;
+    const [startC, startR] = this.grid.toGrid(p.x, p.z);
+    const sz = this.grid.size;
+    const data = this.grid.data;
+    const pid = this.pid;
 
-    for (const poly of this.polygons) {
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i];
-        const b = poly[(i + 1) % poly.length];
-        const np = nearestPointOnSegment(p, a, b);
-        const d = (p.x - np.x) ** 2 + (p.z - np.z) ** 2;
-        if (d < bestDist) {
-          bestDist = d;
-          best = np;
+    let bestDist = Infinity;
+    let bestX = p.x, bestZ = p.z;
+
+    for (let radius = 0; radius < 80; radius++) {
+      let found = false;
+      for (let dr = -radius; dr <= radius; dr++) {
+        for (let dc = -radius; dc <= radius; dc++) {
+          if (Math.abs(dr) < radius && Math.abs(dc) < radius) continue;
+          const r = startR + dr;
+          const c = startC + dc;
+          if (r < 0 || r >= sz || c < 0 || c >= sz) continue;
+          if (data[r * sz + c] !== pid) continue;
+
+          let boundary = false;
+          if (r === 0 || r === sz - 1 || c === 0 || c === sz - 1) boundary = true;
+          else if (data[(r - 1) * sz + c] !== pid || data[(r + 1) * sz + c] !== pid ||
+                   data[r * sz + c - 1] !== pid || data[r * sz + c + 1] !== pid) boundary = true;
+
+          if (!boundary) continue;
+
+          const [wx, wz] = this.grid.toWorld(c, r);
+          const d2 = (wx - p.x) ** 2 + (wz - p.z) ** 2;
+          if (d2 < bestDist) {
+            bestDist = d2;
+            bestX = wx;
+            bestZ = wz;
+            found = true;
+          }
+        }
+      }
+      if (found) break;
+    }
+
+    return { x: bestX, z: bestZ };
+  }
+
+  hasTerritory(): boolean {
+    return this.grid.hasAnyCells(this.pid);
+  }
+
+  getCentroid(): Vec2 {
+    let sx = 0, sz = 0, n = 0;
+    const gsz = this.grid.size;
+    const data = this.grid.data;
+    for (let r = 0; r < gsz; r++) {
+      for (let c = 0; c < gsz; c++) {
+        if (data[r * gsz + c] === this.pid) {
+          const [wx, wz] = this.grid.toWorld(c, r);
+          sx += wx;
+          sz += wz;
+          n++;
         }
       }
     }
-    return best;
+    return n > 0 ? { x: sx / n, z: sz / n } : { x: 0, z: 0 };
   }
 
   clear(): void {
-    this.polygons = [];
-    this.polyBounds = [];
-    this.areaDirty = true;
+    this.grid.clearPlayer(this.pid);
     this.dirty = true;
   }
-
-  private recomputeBounds(): void {
-    this.polyBounds = this.polygons.map(computeBounds);
-  }
-
-  private consolidate(): void {
-    if (this.polygons.length <= 1) return;
-
-    const half = Math.floor(this.polygons.length / 2);
-    const merged: Vec2[] = [];
-    for (let i = 0; i < half; i++) {
-      for (const v of this.polygons[i]) merged.push(v);
-    }
-
-    if (merged.length >= 3) {
-      const hull = convexHull(merged);
-      const newPolys = [hull, ...this.polygons.slice(half)];
-      this.polygons = newPolys;
-      this.recomputeBounds();
-    }
-  }
-}
-
-function computeBounds(poly: Vec2[]): PolyBounds {
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (const p of poly) {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.z < minZ) minZ = p.z;
-    if (p.z > maxZ) maxZ = p.z;
-  }
-  return { minX, maxX, minZ, maxZ };
-}
-
-function convexHull(points: Vec2[]): Vec2[] {
-  const pts = points.slice().sort((a, b) => a.x - b.x || a.z - b.z);
-  if (pts.length <= 2) return pts;
-
-  const cross = (o: Vec2, a: Vec2, b: Vec2) =>
-    (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
-
-  const lower: Vec2[] = [];
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0)
-      lower.pop();
-    lower.push(p);
-  }
-
-  const upper: Vec2[] = [];
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0)
-      upper.pop();
-    upper.push(p);
-  }
-
-  lower.pop();
-  upper.pop();
-  return lower.concat(upper);
-}
-
-function nearestPointOnSegment(p: Vec2, a: Vec2, b: Vec2): Vec2 {
-  const abx = b.x - a.x;
-  const abz = b.z - a.z;
-  const ab2 = abx * abx + abz * abz;
-  if (ab2 < 1e-10) return a;
-  let t = ((p.x - a.x) * abx + (p.z - a.z) * abz) / ab2;
-  t = Math.max(0, Math.min(1, t));
-  return { x: a.x + t * abx, z: a.z + t * abz };
 }
