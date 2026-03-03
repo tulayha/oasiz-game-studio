@@ -17,9 +17,24 @@
                 "key": "player2"
             },
             {
+                "url": "assets/audio/bgMusic1.mp3",
+                "type": "audio",
+                "key": "bgMusic1"
+            },
+            {
                 "url": "assets/audio/bgMusic3.mp3",
                 "type": "audio",
-                "key": "bgMusic"
+                "key": "bgMusic2"
+            },
+            {
+                "url": "assets/audio/bossMusic.mp3",
+                "type": "audio",
+                "key": "bossMusic"
+            },
+            {
+                "url": "assets/audio/bossKill.mp3",
+                "type": "audio",
+                "key": "bossKill"
             },
             {
                 "url": "assets/audio/kill-beep.mp3",

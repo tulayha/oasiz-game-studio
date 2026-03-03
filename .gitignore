@@ -24,4 +24,16 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# Assets and audio
+assets/
+*/assets/sfx/
+*/sfx/
+music/
+*/music/
+*/public/assets/audio/
+*/public/assets/sfx/
+*/public/sfx/
+*/src/sfx/
+*/src/music/
+
 
