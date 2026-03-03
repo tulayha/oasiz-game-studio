@@ -30,6 +30,26 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
 ## Milestone Journal
+## 2026-03-03 - Combo post-death chain guard + timeout sync fix
+
+- Scope:
+  - Fixed combo-flow bug where post-death projectile hits could restart combo chains and appear to persist.
+- Root issues:
+  - combat score/combo eligibility allowed attacker state beyond active combat state.
+  - combo timeout reset path did not broadcast player-meta sync, leaving stale client combo state until another unrelated player sync event.
+- Changes:
+  - `shared/sim/systems/GameFlowSystem.ts`:
+    - tightened `shouldAwardCombatScore(...)` to require attacker state `ACTIVE` (blocks post-death projectile follow-up combo rebuilds).
+    - updated `updateCombatComboTimeouts(...)` to call `sim.syncPlayers()` when any combo timeout reset occurs.
+- Outcome:
+  - Combo no longer triggers from post-death projectile follow-ups.
+  - Expired combos now clear consistently on clients without waiting for unrelated score/state events.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+
 ## 2026-03-02 - Combo HUD art-direction correction (de-neon comic/arcade pass)
 
 - Scope:
