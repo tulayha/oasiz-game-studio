@@ -19,36 +19,9 @@
       <stop offset="1" class="stop-primary" stop-opacity="1"/>
     </linearGradient>
 
-    <radialGradient id="visorGlow" cx="62%" cy="48%" r="52%">
-      <stop offset="0" class="stop-primary" stop-opacity="0.95"/>
-      <stop offset="55%" class="stop-primary" stop-opacity="0.35"/>
-      <stop offset="100%" class="stop-dark" stop-opacity="1"/>
-    </radialGradient>
-
-    <radialGradient id="thrusterGlow" cx="25%" cy="50%" r="60%">
-      <stop offset="0" class="stop-primary" stop-opacity="1"/>
-      <stop offset="45%" class="stop-primary" stop-opacity="0.55"/>
-      <stop offset="100%" class="stop-primary" stop-opacity="0"/>
-    </radialGradient>
-
-    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="0.55" result="b"/>
-      <feOffset in="b" dx="0.35" dy="0.45" result="o"/>
-      <feColorMatrix in="o" type="matrix"
-        values="0 0 0 0 0
-                0 0 0 0 0
-                0 0 0 0 0
-                0 0 0 0.24 0" result="s"/>
-      <feMerge>
-        <feMergeNode in="s"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
   </defs>
 
-  <g id="visual" filter="url(#softShadow)" transform="scale(0.62)">
-    <circle cx="-12.4" cy="0" r="7.2" fill="url(#thrusterGlow)"/>
-
+  <g id="visual" transform="scale(0.62)">
     <path
       d="M -16.0 -5.6 L -11.2 -8.6 L -9.0 -2.6 L -9.0 2.6 L -11.2 8.6 L -16.0 5.6 L -17.2 0 Z"
       fill="var(--slot-tertiary, #1d2636)"
@@ -155,7 +128,8 @@
          Q 17.8 2.8 15.2 4.0
          Q 12.4 5.2 9.6 3.3
          Q 10.8 0 9.6 -3.3 Z"
-      fill="url(#visorGlow)"
+      fill="var(--slot-primary, #00f0ff)"
+      opacity="0.78"
     />
 
     <path
