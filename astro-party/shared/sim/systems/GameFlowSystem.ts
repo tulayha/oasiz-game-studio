@@ -67,6 +67,7 @@ function awardPlayerScore(
   sim: SimState,
   player: RuntimePlayer | undefined,
   event: ScoreEventType,
+  comboEligible: boolean = true,
 ): void {
   if (!player) return;
   if (sim.experienceContext !== "LIVE_MATCH") return;
@@ -74,6 +75,11 @@ function awardPlayerScore(
   if (basePoints <= 0) return;
 
   if (!isCombatScoreEvent(event)) {
+    player.score += basePoints;
+    return;
+  }
+
+  if (!comboEligible) {
     player.score += basePoints;
     return;
   }
@@ -89,6 +95,15 @@ function shouldAwardCombatScore(
   victim: RuntimePlayer | undefined,
 ): boolean {
   return Boolean(attacker && victim);
+}
+
+function shouldAdvanceCombatCombo(
+  attacker: RuntimePlayer | undefined,
+): boolean {
+  if (!attacker) return false;
+  // Post-death/projectile follow-up kills may still score, but must not
+  // start/extend combo chains after attacker is no longer ACTIVE.
+  return attacker.state === "ACTIVE";
 }
 
 export function updatePilots(sim: SimState, dtSec: number): void {
@@ -207,7 +222,12 @@ export function onShipHit(sim: SimState, owner: RuntimePlayer | undefined, targe
     owner.id !== target.id &&
     shouldAwardCombatScore(owner, target)
   ) {
-    awardPlayerScore(sim, owner, "SHIP_DESTROY");
+    awardPlayerScore(
+      sim,
+      owner,
+      "SHIP_DESTROY",
+      shouldAdvanceCombatCombo(owner),
+    );
   }
   sim.syncPlayers();
 }
@@ -232,7 +252,12 @@ export function killPilot(sim: SimState, pilotPlayerId: string, killerId: string
     if (killer && killer.id !== pilotPlayerId) {
       killer.kills += 1;
       if (shouldAwardCombatScore(killer, player)) {
-        awardPlayerScore(sim, killer, "PILOT_KILL");
+        awardPlayerScore(
+          sim,
+          killer,
+          "PILOT_KILL",
+          shouldAdvanceCombatCombo(killer),
+        );
       }
     }
   }
@@ -307,10 +332,15 @@ export function updateEndlessRespawns(sim: SimState): void {
 export function updateCombatComboTimeouts(sim: SimState): void {
   const combo = getCombatComboRules();
   if (!combo.enabled) return;
+  let changed = false;
   for (const player of sim.players.values()) {
     if (player.comboStreak <= 0) continue;
     if (player.comboExpiresAtMs > sim.nowMs) continue;
     resetCombatCombo(player);
+    changed = true;
+  }
+  if (changed) {
+    sim.syncPlayers();
   }
 }
 
