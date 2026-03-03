@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 
-const BUILD_VERSION = "0.5.52";
+const BUILD_VERSION = "0.5.59";
 
 type GameState = "start" | "playing" | "gameOver";
 type HapticType = "light" | "medium" | "heavy" | "success" | "error";
+type SettingsTab = "audio" | "designer";
 
 interface Settings {
   music: boolean;
@@ -58,6 +59,8 @@ type PlatformType =
   | "slope_up_steep"
   | "slope_down_soft"
   | "slope_down_steep"
+  | "spiral_down_left"
+  | "spiral_down_right"
   | "detour_left_short"
   | "detour_right_short"
   | "bottleneck"
@@ -479,8 +482,11 @@ class MarbleMadnessStarter {
   private readonly steeringArrowHeadWidth = 1.18;
   private readonly speedMultiplier = 18;
   private readonly trackStep = 0.9;
-  private readonly wallHeight = 3.6;
+  private readonly wallHeight = 2.8;
   private readonly wallThickness = 0.8;
+  private readonly halfPipeFlatWidthRatio = 0.56;
+  private readonly halfPipeRenderSegments = 16;
+  private readonly halfPipePhysicsSegments = 8;
   private readonly downhillSlopeAngle = Math.PI / 4;
   private readonly uphillSlopeAngle = -Math.PI / 4;
   private readonly slopeBlendDistance = 8.5;
@@ -496,6 +502,7 @@ class MarbleMadnessStarter {
   private readonly obstacleMinDistance = 2.2;
   private readonly obstacleMaxPerTypeCap = 12;
   private readonly obstacleWaveLinearGrowth = 1;
+  private readonly designerMiddleCount = 8;
   private readonly rotatorHeight = 2.8;
   private readonly rotatorArmLength = 3.2;
   private readonly rotatorArmThickness = 0.92;
@@ -526,6 +533,20 @@ class MarbleMadnessStarter {
   private loopsCompleted = 0;
   private levelProgressStartZ = 0;
   private levelProgressEndZ = 0;
+  private activeSettingsTab: SettingsTab = "audio";
+  private customMiddlePlatformTypes: PlatformType[] | null = null;
+  private designedMiddleTypes: PlatformType[] = [];
+  private readonly designerSelectableTypes: PlatformType[] = [
+    "flat",
+    "slope_down_soft",
+    "slope_down_steep",
+    "spiral_down_left",
+    "spiral_down_right",
+    "detour_left_short",
+    "detour_right_short",
+    "bottleneck",
+    "gap_short",
+  ];
   private horizontalBlockers: HorizontalBlocker[] = [];
   private enemyKnockouts = 0;
   private enemyKnockedOff: boolean[] = [];
@@ -544,6 +565,13 @@ class MarbleMadnessStarter {
   private readonly startScreen: HTMLElement;
   private readonly gameOverScreen: HTMLElement;
   private readonly settingsModal: HTMLElement;
+  private readonly settingsPaneAudio: HTMLElement;
+  private readonly settingsPaneDesigner: HTMLElement | null;
+  private readonly settingsTabAudio: HTMLButtonElement | null;
+  private readonly settingsTabDesigner: HTMLButtonElement | null;
+  private readonly designerList: HTMLElement | null;
+  private readonly designerMeta: HTMLElement | null;
+  private readonly designerSpawnButton: HTMLButtonElement | null;
   private readonly hud: HTMLElement;
   private readonly mobileControls: HTMLElement;
   private readonly settingsButton: HTMLElement;
@@ -571,6 +599,7 @@ class MarbleMadnessStarter {
   private debugLastMouseX = 0;
   private debugLastMouseY = 0;
   private readonly debugFlyPosition = new THREE.Vector3();
+  private debugPlatformLabels: THREE.Sprite[] = [];
 
   private soundManager: SoundManager;
 
@@ -600,6 +629,19 @@ class MarbleMadnessStarter {
     this.startScreen = this.requireElement("start-screen");
     this.gameOverScreen = this.requireElement("game-over-screen");
     this.settingsModal = this.requireElement("settings-modal");
+    this.settingsPaneAudio = this.requireElement("settings-pane-audio");
+    this.settingsPaneDesigner = document.getElementById("settings-pane-designer");
+    this.settingsTabAudio = document.getElementById(
+      "settings-tab-audio",
+    ) as HTMLButtonElement | null;
+    this.settingsTabDesigner = document.getElementById(
+      "settings-tab-designer",
+    ) as HTMLButtonElement | null;
+    this.designerList = document.getElementById("designer-list");
+    this.designerMeta = document.getElementById("designer-meta");
+    this.designerSpawnButton = document.getElementById(
+      "designer-spawn",
+    ) as HTMLButtonElement | null;
     this.hud = this.requireElement("hud");
     this.mobileControls = this.requireElement("mobile-controls");
     this.settingsButton = this.requireElement("settings-btn");
@@ -616,6 +658,7 @@ class MarbleMadnessStarter {
 
     this.settings = this.loadSettings();
     this.persistentState = this.loadPersistentState();
+    this.designedMiddleTypes = this.getDefaultDesignerMiddleTypes();
 
     const marbleGeometry = new THREE.SphereGeometry(this.marbleRadius, 32, 24);
     this.marbleMaterial = new THREE.MeshStandardMaterial({
@@ -671,6 +714,8 @@ class MarbleMadnessStarter {
     this.setupSceneVisuals();
     this.bindUi();
     this.bindInput();
+    this.initializeDesignerUi();
+    this.setSettingsTab("audio");
     this.applySettingsUi();
     this.applyUiForState();
     this.handleResize();
@@ -837,8 +882,48 @@ class MarbleMadnessStarter {
     return min + Math.random() * (max - min);
   }
 
+  private getDefaultDesignerMiddleTypes(): PlatformType[] {
+    return [
+      "bottleneck",
+      "detour_left_short",
+      "slope_down_soft",
+      "spiral_down_left",
+      "flat",
+      "detour_right_short",
+      "slope_down_steep",
+      "bottleneck",
+    ];
+  }
+
+  private getPlatformTypeLabel(type: PlatformType): string {
+    if (type === "flat") return "Flat";
+    if (type === "slope_down_soft") return "Slope Down Soft";
+    if (type === "slope_down_steep") return "Slope Down Steep";
+    if (type === "slope_up_steep") return "Slope Up Steep";
+    if (type === "spiral_down_left") return "Spiral Down Left";
+    if (type === "spiral_down_right") return "Spiral Down Right";
+    if (type === "detour_left_short") return "Detour Left";
+    if (type === "detour_right_short") return "Detour Right";
+    if (type === "bottleneck") return "Bottleneck";
+    if (type === "gap_short") return "Gap Short";
+    if (type === "finish_straight") return "Finish Straight";
+    return type;
+  }
+
+  private isDesignerSelectableType(value: string): value is PlatformType {
+    return this.designerSelectableTypes.includes(value as PlatformType);
+  }
+
+  private isSpiralType(type: PlatformType): boolean {
+    return type === "spiral_down_left" || type === "spiral_down_right";
+  }
+
   private isDownwardSlopeType(type: PlatformType): boolean {
-    return type === "slope_down_soft" || type === "slope_down_steep";
+    return (
+      type === "slope_down_soft" ||
+      type === "slope_down_steep" ||
+      this.isSpiralType(type)
+    );
   }
 
   private pickMiddlePlatformType(previousType: PlatformType): PlatformType {
@@ -854,7 +939,10 @@ class MarbleMadnessStarter {
     if (!forbidDownward && roll < 0.38) {
       return "slope_down_steep";
     }
-    if (roll < 0.53) {
+    if (!forbidDownward && roll < 0.5) {
+      return Math.random() < 0.5 ? "spiral_down_left" : "spiral_down_right";
+    }
+    if (roll < 0.62) {
       return "bottleneck";
     }
     return Math.random() < 0.5 ? "detour_left_short" : "detour_right_short";
@@ -921,6 +1009,20 @@ class MarbleMadnessStarter {
         lateralOffsetEnd: 0,
       };
     }
+    if (this.isSpiralType(type)) {
+      return {
+        type,
+        zStart,
+        zEnd,
+        slope: this.downhillSlopeAngle * 0.86,
+        width: this.trackWidth * 1.04,
+        hasFloor: true,
+        detourDirection: type === "spiral_down_left" ? -1 : 1,
+        detourMagnitude: this.randomRange(6.2, 8.2),
+        lateralOffsetStart: 0,
+        lateralOffsetEnd: 0,
+      };
+    }
     if (type === "bottleneck") {
       return {
         type,
@@ -983,22 +1085,25 @@ class MarbleMadnessStarter {
     }
   }
 
-  private createRandomLevelConfig(): LevelConfig {
-    const platformCount = Math.min(24, 4 + this.loopsCompleted);
+  private createRandomLevelConfig(
+    forcedMiddleTypes: PlatformType[] | null = null,
+  ): LevelConfig {
+    const customMiddleTypes = (forcedMiddleTypes ?? []).slice();
+    const useCustomMiddle = customMiddleTypes.length > 0;
+    const targetPlatformCount = Math.min(24, 4 + this.loopsCompleted);
+    const middleCount = useCustomMiddle
+      ? customMiddleTypes.length
+      : Math.max(0, targetPlatformCount - 2);
+    const platformCount = middleCount + 2;
     const sections: PlatformSection[] = [];
 
     const startLength = this.randomRange(24, 32);
-    const launchRampLength = this.randomRange(32, 46);
-    const enemyFlatLength = this.randomRange(26, 38);
     const finishLength = this.randomRange(24, 34);
-    const middleCount = Math.max(0, platformCount - 4);
     const usableLength = Math.max(
       40,
       this.startZ -
         this.finishZ -
         startLength -
-        launchRampLength -
-        enemyFlatLength -
         finishLength,
     );
     const weights: number[] = [];
@@ -1015,42 +1120,53 @@ class MarbleMadnessStarter {
       this.createPlatformSection("flat", currentZ, startSectionEnd),
     );
     currentZ = startSectionEnd;
-    const launchRampEnd = currentZ - launchRampLength;
-    sections.push(
-      this.createPlatformSection("slope_down_steep", currentZ, launchRampEnd),
-    );
-    currentZ = launchRampEnd;
-    const enemyFlatEnd = currentZ - enemyFlatLength;
-    sections.push(this.createPlatformSection("flat", currentZ, enemyFlatEnd));
-    const enemyPackCenterZ = (currentZ + enemyFlatEnd) * 0.5;
-    currentZ = enemyFlatEnd;
 
     let previousType: PlatformType = "flat";
-    const typeLog: string[] = ["flat", "slope_down_steep", "flat"];
+    const typeLog: string[] = ["flat"];
     for (let i = 0; i < middleCount; i += 1) {
       let length = Math.max(
         15,
         (weights[i] / Math.max(0.001, weightSum)) * usableLength,
       );
-      let type = this.pickMiddlePlatformType(previousType);
-      if (this.isDownwardSlopeType(type) && this.isDownwardSlopeType(previousType)) {
+      let type: PlatformType = useCustomMiddle
+        ? customMiddleTypes[i] ?? "flat"
+        : this.pickMiddlePlatformType(previousType);
+      if (type === "finish_straight") {
+        type = "flat";
+      }
+      if (
+        !useCustomMiddle &&
+        this.isDownwardSlopeType(type) &&
+        this.isDownwardSlopeType(previousType)
+      ) {
         type = Math.random() < 0.5 ? "bottleneck" : "flat";
       }
       if (
+        !useCustomMiddle &&
+        this.isSpiralType(type) &&
+        currentZ - (this.finishZ + finishLength) < 42
+      ) {
+        type = "bottleneck";
+      }
+      if (
+        !useCustomMiddle &&
         type === "gap_short" &&
         !this.isDownwardSlopeType(previousType)
       ) {
         type = "slope_down_soft";
+      }
+      if (this.isSpiralType(type)) {
+        // Spiral sections need enough z-length to complete a full revolution.
+        length = this.randomRange(34, 44);
       }
       if (type === "gap_short") {
         // Keep short gaps jumpable at higher speed while preserving longer section pacing.
         length = this.randomRange(10, 15);
 
         const launchIndex = sections.length - 1;
-        if (
-          launchIndex >= 0 &&
-          sections[launchIndex].type !== "slope_up_steep"
-        ) {
+        if (launchIndex < 1) {
+          type = "slope_down_soft";
+        } else if (sections[launchIndex].type !== "slope_up_steep") {
           const launchSection = sections[launchIndex];
           sections[launchIndex] = this.createPlatformSection(
             "slope_up_steep",
@@ -1067,7 +1183,7 @@ class MarbleMadnessStarter {
       currentZ = zEnd;
     }
 
-    if (sections.length > 1) {
+    if (!useCustomMiddle && sections.length > 1) {
       const lastMiddleIndex = sections.length - 1;
       const lastMiddle = sections[lastMiddleIndex];
       sections[lastMiddleIndex] = this.createPlatformSection(
@@ -1084,11 +1200,19 @@ class MarbleMadnessStarter {
     typeLog.push("finish_straight");
     this.applySectionLateralOffsets(sections);
 
+    const enemyAnchorSection =
+      sections[Math.min(Math.max(0, sections.length - 2), 1)] ?? sections[0];
+    const enemyPackCenterZ = enemyAnchorSection
+      ? (enemyAnchorSection.zStart + enemyAnchorSection.zEnd) * 0.5
+      : this.startZ - startLength * 0.5;
+
     const fireworkZ = this.finishZ + 12;
     console.log(
       "[CreateRandomLevelConfig]",
       "platformCount=" +
         String(platformCount) +
+        " mode=" +
+        (useCustomMiddle ? "custom" : "random") +
         " types=" +
         typeLog.join(" > "),
     );
@@ -1115,11 +1239,20 @@ class MarbleMadnessStarter {
     const sectionLength = Math.max(0.001, section.zStart - section.zEnd);
     const t = THREE.MathUtils.clamp((section.zStart - z) / sectionLength, 0, 1);
     const smoothT = this.smooth01(t);
-    return THREE.MathUtils.lerp(
+    const baseX = THREE.MathUtils.lerp(
       section.lateralOffsetStart,
       section.lateralOffsetEnd,
       smoothT,
     );
+    if (!this.isSpiralType(section.type)) {
+      return baseX;
+    }
+
+    const direction = section.type === "spiral_down_left" ? -1 : 1;
+    const radius = Math.max(4.8, section.detourMagnitude);
+    const spinAngle = smoothT * Math.PI * 2;
+    const spiralOffset = direction * radius * Math.sin(spinAngle);
+    return baseX + spiralOffset;
   }
 
   private sampleTrackSlope(z: number): number {
@@ -1165,6 +1298,17 @@ class MarbleMadnessStarter {
             this.smooth01(t),
           );
         }
+      }
+
+      if (this.isSpiralType(section.type)) {
+        const sectionLength = Math.max(0.001, section.zStart - section.zEnd);
+        const localT = THREE.MathUtils.clamp(
+          (section.zStart - clampedZ) / sectionLength,
+          0,
+          1,
+        );
+        const extraDrop = Math.sin(localT * Math.PI) * this.downhillSlopeAngle * 0.12;
+        slope += extraDrop;
       }
 
       return slope;
@@ -1372,6 +1516,124 @@ class MarbleMadnessStarter {
 
     this.addCloudBackdrop();
     this.addFinishTriggerCubes();
+    this.addDebugPlatformLabels();
+  }
+
+  private createDebugPlatformLabelSprite(lines: string[]): THREE.Sprite {
+    const canvas = document.createElement("canvas");
+    canvas.width = 760;
+    canvas.height = 216;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      const fallbackTexture = new THREE.CanvasTexture(canvas);
+      const fallbackMaterial = new THREE.SpriteMaterial({
+        map: fallbackTexture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      });
+      return new THREE.Sprite(fallbackMaterial);
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(6, 12, 30, 0.84)";
+    ctx.strokeStyle = "rgba(146, 185, 255, 0.82)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(4, 4, canvas.width - 8, canvas.height - 8, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#eaf3ff";
+    ctx.font = "700 34px Trebuchet MS";
+    ctx.textBaseline = "top";
+    ctx.fillText(lines[0] ?? "", 24, 20);
+
+    ctx.fillStyle = "#c5dcff";
+    ctx.font = "600 28px Trebuchet MS";
+    ctx.fillText(lines[1] ?? "", 24, 78);
+    ctx.fillText(lines[2] ?? "", 24, 132);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(8.4, 2.4, 1);
+    sprite.renderOrder = 24;
+    return sprite;
+  }
+
+  private getDebugSectionDetails(section: PlatformSection): string {
+    const parts: string[] = [];
+    parts.push("Slope " + THREE.MathUtils.radToDeg(section.slope).toFixed(1) + "deg");
+    if (!section.hasFloor) {
+      parts.push("Gap");
+    }
+    if (
+      section.type === "detour_left_short" ||
+      section.type === "detour_right_short"
+    ) {
+      parts.push(
+        "Detour " +
+          (section.detourDirection < 0 ? "L" : "R") +
+          " " +
+          section.detourMagnitude.toFixed(1),
+      );
+    }
+    if (this.isSpiralType(section.type)) {
+      parts.push(
+        "Spiral " +
+          (section.type === "spiral_down_left" ? "L" : "R") +
+          " " +
+          section.detourMagnitude.toFixed(1),
+      );
+    }
+    return parts.join(" | ");
+  }
+
+  private addDebugPlatformLabels(): void {
+    this.debugPlatformLabels = [];
+    if (this.isMobile) {
+      return;
+    }
+
+    for (let index = 0; index < this.levelConfig.sections.length; index += 1) {
+      const section = this.levelConfig.sections[index];
+      const centerZ = (section.zStart + section.zEnd) * 0.5;
+      const centerX = this.sampleTrackX(centerZ);
+      const side = index % 2 === 0 ? 1 : -1;
+      const labelX = centerX + side * (section.width * 0.5 + 4.4);
+      const labelY = this.getTrackSurfaceYAtPosition(labelX, centerZ) + 3.2;
+      const length = Math.max(0.001, section.zStart - section.zEnd);
+      const lines = [
+        String(index + 1) + ". " + this.getPlatformTypeLabel(section.type),
+        "Len " + length.toFixed(1) + " | Width " + section.width.toFixed(1),
+        this.getDebugSectionDetails(section),
+      ];
+      const label = this.createDebugPlatformLabelSprite(lines);
+      label.position.set(labelX, labelY, centerZ);
+      this.debugPlatformLabels.push(label);
+      this.addLevelObject(label);
+    }
+
+    this.updateDebugPlatformLabelVisibility();
+    console.log(
+      "[AddDebugPlatformLabels]",
+      "Debug labels added: " + String(this.debugPlatformLabels.length),
+    );
+  }
+
+  private updateDebugPlatformLabelVisibility(): void {
+    const visible = this.debugFlyMode && this.gameState === "playing";
+    for (const label of this.debugPlatformLabels) {
+      label.visible = visible;
+    }
   }
 
   private buildHorizontalBlockers(): void {
@@ -1385,6 +1647,8 @@ class MarbleMadnessStarter {
         section.type !== "slope_down_soft" &&
         section.type !== "slope_down_steep" &&
         section.type !== "slope_up_steep" &&
+        section.type !== "spiral_down_left" &&
+        section.type !== "spiral_down_right" &&
         section.zStart - section.zEnd > 8,
     );
 
@@ -1519,6 +1783,8 @@ class MarbleMadnessStarter {
         section.type !== "slope_down_soft" &&
         section.type !== "slope_down_steep" &&
         section.type !== "slope_up_steep" &&
+        section.type !== "spiral_down_left" &&
+        section.type !== "spiral_down_right" &&
         section.zStart - section.zEnd > 10,
     );
 
@@ -1940,17 +2206,24 @@ class MarbleMadnessStarter {
     );
   }
 
+  private getHalfPipeHeightAtOffset(xOffsetAbs: number, width: number): number {
+    const halfWidth = Math.max(0.001, width * 0.5);
+    const flatHalf = halfWidth * this.halfPipeFlatWidthRatio;
+    if (xOffsetAbs <= flatHalf) {
+      return 0;
+    }
+
+    const bankWidth = Math.max(0.001, halfWidth - flatHalf);
+    const t = THREE.MathUtils.clamp((xOffsetAbs - flatHalf) / bankWidth, 0, 1);
+    const eased = 1 - Math.pow(1 - t, 2.2);
+    return eased * this.wallHeight;
+  }
+
   private buildRunGeometry(run: TrackSample[]): {
-    floor: THREE.BufferGeometry;
-    leftWall: THREE.BufferGeometry;
-    rightWall: THREE.BufferGeometry;
+    surface: THREE.BufferGeometry;
   } {
-    const floorPos: number[] = [];
-    const floorUv: number[] = [];
-    const leftPos: number[] = [];
-    const leftUv: number[] = [];
-    const rightPos: number[] = [];
-    const rightUv: number[] = [];
+    const surfacePos: number[] = [];
+    const surfaceUv: number[] = [];
 
     let distanceV = 0;
     for (let i = 0; i < run.length - 1; i += 1) {
@@ -1963,203 +2236,80 @@ class MarbleMadnessStarter {
       );
       const nextDistanceV = distanceV + segDistance * this.platformUvScaleV;
 
-      const leftAx = a.x - a.width * 0.5;
-      const rightAx = a.x + a.width * 0.5;
-      const leftBx = b.x - b.width * 0.5;
-      const rightBx = b.x + b.width * 0.5;
+      for (
+        let stripIndex = 0;
+        stripIndex < this.halfPipeRenderSegments;
+        stripIndex += 1
+      ) {
+        const u0 = stripIndex / this.halfPipeRenderSegments;
+        const u1 = (stripIndex + 1) / this.halfPipeRenderSegments;
 
-      const floorLeftA = new THREE.Vector3(leftAx, a.y, a.z);
-      const floorRightA = new THREE.Vector3(rightAx, a.y, a.z);
-      const floorLeftB = new THREE.Vector3(leftBx, b.y, b.z);
-      const floorRightB = new THREE.Vector3(rightBx, b.y, b.z);
-      this.addQuad(
-        floorPos,
-        floorUv,
-        floorLeftA,
-        floorRightA,
-        floorLeftB,
-        floorRightB,
-        new THREE.Vector2(0, distanceV),
-        new THREE.Vector2(1, distanceV),
-        new THREE.Vector2(0, nextDistanceV),
-        new THREE.Vector2(1, nextDistanceV),
-      );
+        const localX0A = (u0 - 0.5) * a.width;
+        const localX1A = (u1 - 0.5) * a.width;
+        const localX0B = (u0 - 0.5) * b.width;
+        const localX1B = (u1 - 0.5) * b.width;
 
-      const leftInnerA = new THREE.Vector3(leftAx, a.y, a.z);
-      const leftOuterA = new THREE.Vector3(
-        leftAx - this.wallThickness,
-        a.y,
-        a.z,
-      );
-      const leftInnerB = new THREE.Vector3(leftBx, b.y, b.z);
-      const leftOuterB = new THREE.Vector3(
-        leftBx - this.wallThickness,
-        b.y,
-        b.z,
-      );
-      const leftInnerATop = leftInnerA
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
-      const leftOuterATop = leftOuterA
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
-      const leftInnerBTop = leftInnerB
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
-      const leftOuterBTop = leftOuterB
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
+        const pointA0 = new THREE.Vector3(
+          a.x + localX0A,
+          a.y + this.getHalfPipeHeightAtOffset(Math.abs(localX0A), a.width),
+          a.z,
+        );
+        const pointA1 = new THREE.Vector3(
+          a.x + localX1A,
+          a.y + this.getHalfPipeHeightAtOffset(Math.abs(localX1A), a.width),
+          a.z,
+        );
+        const pointB0 = new THREE.Vector3(
+          b.x + localX0B,
+          b.y + this.getHalfPipeHeightAtOffset(Math.abs(localX0B), b.width),
+          b.z,
+        );
+        const pointB1 = new THREE.Vector3(
+          b.x + localX1B,
+          b.y + this.getHalfPipeHeightAtOffset(Math.abs(localX1B), b.width),
+          b.z,
+        );
 
-      this.addQuad(
-        leftPos,
-        leftUv,
-        leftInnerA,
-        leftInnerB,
-        leftInnerATop,
-        leftInnerBTop,
-        new THREE.Vector2(0, distanceV),
-        new THREE.Vector2(0, nextDistanceV),
-        new THREE.Vector2(1, distanceV),
-        new THREE.Vector2(1, nextDistanceV),
-      );
-      this.addQuad(
-        leftPos,
-        leftUv,
-        leftOuterB,
-        leftOuterA,
-        leftOuterBTop,
-        leftOuterATop,
-        new THREE.Vector2(0, nextDistanceV),
-        new THREE.Vector2(0, distanceV),
-        new THREE.Vector2(1, nextDistanceV),
-        new THREE.Vector2(1, distanceV),
-      );
-      this.addQuad(
-        leftPos,
-        leftUv,
-        leftInnerATop,
-        leftInnerBTop,
-        leftOuterATop,
-        leftOuterBTop,
-        new THREE.Vector2(0, distanceV),
-        new THREE.Vector2(0, nextDistanceV),
-        new THREE.Vector2(1, distanceV),
-        new THREE.Vector2(1, nextDistanceV),
-      );
-
-      const rightInnerA = new THREE.Vector3(rightAx, a.y, a.z);
-      const rightOuterA = new THREE.Vector3(
-        rightAx + this.wallThickness,
-        a.y,
-        a.z,
-      );
-      const rightInnerB = new THREE.Vector3(rightBx, b.y, b.z);
-      const rightOuterB = new THREE.Vector3(
-        rightBx + this.wallThickness,
-        b.y,
-        b.z,
-      );
-      const rightInnerATop = rightInnerA
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
-      const rightOuterATop = rightOuterA
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
-      const rightInnerBTop = rightInnerB
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
-      const rightOuterBTop = rightOuterB
-        .clone()
-        .add(new THREE.Vector3(0, this.wallHeight, 0));
-
-      this.addQuad(
-        rightPos,
-        rightUv,
-        rightInnerB,
-        rightInnerA,
-        rightInnerBTop,
-        rightInnerATop,
-        new THREE.Vector2(0, nextDistanceV),
-        new THREE.Vector2(0, distanceV),
-        new THREE.Vector2(1, nextDistanceV),
-        new THREE.Vector2(1, distanceV),
-      );
-      this.addQuad(
-        rightPos,
-        rightUv,
-        rightOuterA,
-        rightOuterB,
-        rightOuterATop,
-        rightOuterBTop,
-        new THREE.Vector2(0, distanceV),
-        new THREE.Vector2(0, nextDistanceV),
-        new THREE.Vector2(1, distanceV),
-        new THREE.Vector2(1, nextDistanceV),
-      );
-      this.addQuad(
-        rightPos,
-        rightUv,
-        rightOuterATop,
-        rightOuterBTop,
-        rightInnerATop,
-        rightInnerBTop,
-        new THREE.Vector2(0, distanceV),
-        new THREE.Vector2(0, nextDistanceV),
-        new THREE.Vector2(1, distanceV),
-        new THREE.Vector2(1, nextDistanceV),
-      );
+        this.addQuad(
+          surfacePos,
+          surfaceUv,
+          pointA0,
+          pointA1,
+          pointB0,
+          pointB1,
+          new THREE.Vector2(u0, distanceV),
+          new THREE.Vector2(u1, distanceV),
+          new THREE.Vector2(u0, nextDistanceV),
+          new THREE.Vector2(u1, nextDistanceV),
+        );
+      }
 
       distanceV = nextDistanceV;
     }
 
-    const floor = new THREE.BufferGeometry();
-    floor.setAttribute(
+    const surface = new THREE.BufferGeometry();
+    surface.setAttribute(
       "position",
-      new THREE.Float32BufferAttribute(floorPos, 3),
+      new THREE.Float32BufferAttribute(surfacePos, 3),
     );
-    floor.setAttribute("uv", new THREE.Float32BufferAttribute(floorUv, 2));
-    floor.computeVertexNormals();
+    surface.setAttribute("uv", new THREE.Float32BufferAttribute(surfaceUv, 2));
+    surface.computeVertexNormals();
 
-    const leftWall = new THREE.BufferGeometry();
-    leftWall.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(leftPos, 3),
-    );
-    leftWall.setAttribute("uv", new THREE.Float32BufferAttribute(leftUv, 2));
-    leftWall.computeVertexNormals();
-
-    const rightWall = new THREE.BufferGeometry();
-    rightWall.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(rightPos, 3),
-    );
-    rightWall.setAttribute("uv", new THREE.Float32BufferAttribute(rightUv, 2));
-    rightWall.computeVertexNormals();
-
-    return { floor, leftWall, rightWall };
+    return { surface };
   }
 
   private addPlatformRunMeshes(): void {
     const runs = this.getFloorRuns();
     for (const run of runs) {
       const geo = this.buildRunGeometry(run);
-      const floorMesh = new THREE.Mesh(geo.floor, this.trackMaterial);
-      floorMesh.receiveShadow = true;
-      this.addLevelObject(floorMesh);
-
-      const leftWallMesh = new THREE.Mesh(geo.leftWall, this.trackMaterial);
-      leftWallMesh.castShadow = true;
-      leftWallMesh.receiveShadow = true;
-      this.addLevelObject(leftWallMesh);
-
-      const rightWallMesh = new THREE.Mesh(geo.rightWall, this.trackMaterial);
-      rightWallMesh.castShadow = true;
-      rightWallMesh.receiveShadow = true;
-      this.addLevelObject(rightWallMesh);
+      const surfaceMesh = new THREE.Mesh(geo.surface, this.trackMaterial);
+      surfaceMesh.castShadow = true;
+      surfaceMesh.receiveShadow = true;
+      this.addLevelObject(surfaceMesh);
     }
     console.log(
       "[AddPlatformRunMeshes]",
-      "Built continuous platform and wall meshes",
+      "Built continuous half-pipe platform meshes",
     );
   }
 
@@ -2359,77 +2509,55 @@ class MarbleMadnessStarter {
 
     const physicsSlices = this.buildPhysicsSlices();
     for (const slice of physicsSlices) {
-      const segmentRotation = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(-slice.tilt, 0, 0),
-      );
-      const floorBodyDesc = RAPIER.RigidBodyDesc.fixed()
-        .setTranslation(slice.centerX, slice.centerY, slice.centerZ)
-        .setRotation({
-          x: segmentRotation.x,
-          y: segmentRotation.y,
-          z: segmentRotation.z,
-          w: segmentRotation.w,
-        });
-      const floorBody = this.world.createRigidBody(floorBodyDesc);
-      this.trackRigidBodies.push(floorBody);
-      const floorCollider = RAPIER.ColliderDesc.cuboid(
-        slice.width * 0.5,
-        this.trackThickness * 0.5,
-        slice.length * 0.5,
-      )
-        .setFriction(1.1)
-        .setRestitution(0);
-      this.world.createCollider(floorCollider, floorBody);
+      for (
+        let stripIndex = 0;
+        stripIndex < this.halfPipePhysicsSegments;
+        stripIndex += 1
+      ) {
+        const u0 = stripIndex / this.halfPipePhysicsSegments;
+        const u1 = (stripIndex + 1) / this.halfPipePhysicsSegments;
+        const localX0 = (u0 - 0.5) * slice.width;
+        const localX1 = (u1 - 0.5) * slice.width;
+        const localY0 = this.getHalfPipeHeightAtOffset(
+          Math.abs(localX0),
+          slice.width,
+        );
+        const localY1 = this.getHalfPipeHeightAtOffset(
+          Math.abs(localX1),
+          slice.width,
+        );
+        const stripWidth = Math.max(0.05, Math.abs(localX1 - localX0));
+        const crossTilt = Math.atan2(
+          localY1 - localY0,
+          Math.max(0.001, stripWidth),
+        );
+        const stripRotation = new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(-slice.tilt, 0, crossTilt),
+        );
 
-      const wallHalfX = this.wallThickness * 0.5;
-      const wallHalfY = this.wallHeight * 0.5;
-      const wallHalfZ = slice.length * 0.5;
-
-      const leftWallBodyDesc = RAPIER.RigidBodyDesc.fixed()
-        .setTranslation(
-          slice.centerX - slice.width * 0.5 - wallHalfX,
-          slice.centerY + this.trackThickness * 0.5 + wallHalfY,
-          slice.centerZ,
+        const stripBodyDesc = RAPIER.RigidBodyDesc.fixed()
+          .setTranslation(
+            slice.centerX + (localX0 + localX1) * 0.5,
+            slice.centerY + (localY0 + localY1) * 0.5,
+            slice.centerZ,
+          )
+          .setRotation({
+            x: stripRotation.x,
+            y: stripRotation.y,
+            z: stripRotation.z,
+            w: stripRotation.w,
+          });
+        const stripBody = this.world.createRigidBody(stripBodyDesc);
+        this.trackRigidBodies.push(stripBody);
+        const stripCollider = RAPIER.ColliderDesc.cuboid(
+          stripWidth * 0.5,
+          this.trackThickness * 0.5,
+          slice.length * 0.5,
         )
-        .setRotation({
-          x: segmentRotation.x,
-          y: segmentRotation.y,
-          z: segmentRotation.z,
-          w: segmentRotation.w,
-        });
-      const leftWallBody = this.world.createRigidBody(leftWallBodyDesc);
-      this.trackRigidBodies.push(leftWallBody);
-      const leftWallCollider = RAPIER.ColliderDesc.cuboid(
-        wallHalfX,
-        wallHalfY,
-        wallHalfZ,
-      )
-        .setFriction(0.7)
-        .setRestitution(0);
-      this.world.createCollider(leftWallCollider, leftWallBody);
-
-      const rightWallBodyDesc = RAPIER.RigidBodyDesc.fixed()
-        .setTranslation(
-          slice.centerX + slice.width * 0.5 + wallHalfX,
-          slice.centerY + this.trackThickness * 0.5 + wallHalfY,
-          slice.centerZ,
-        )
-        .setRotation({
-          x: segmentRotation.x,
-          y: segmentRotation.y,
-          z: segmentRotation.z,
-          w: segmentRotation.w,
-        });
-      const rightWallBody = this.world.createRigidBody(rightWallBodyDesc);
-      this.trackRigidBodies.push(rightWallBody);
-      const rightWallCollider = RAPIER.ColliderDesc.cuboid(
-        wallHalfX,
-        wallHalfY,
-        wallHalfZ,
-      )
-        .setFriction(0.7)
-        .setRestitution(0);
-      this.world.createCollider(rightWallCollider, rightWallBody);
+          .setFriction(0.4)
+          .setRestitution(0);
+        this.world.createCollider(stripCollider, stripBody);
+      }
     }
 
     for (const blocker of this.horizontalBlockers) {
@@ -2612,8 +2740,8 @@ class MarbleMadnessStarter {
     this.marbleBody = this.world.createRigidBody(bodyDesc);
 
     const collider = RAPIER.ColliderDesc.ball(this.marbleRadius)
-      .setFriction(1.6)
-      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
+      .setFriction(0.9)
+      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Average)
       .setRestitution(0)
       .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min)
       .setDensity(3.4);
@@ -2715,6 +2843,111 @@ class MarbleMadnessStarter {
     }
   }
 
+  private initializeDesignerUi(): void {
+    if (this.isMobile || !this.designerList) {
+      return;
+    }
+
+    while (this.designerList.firstChild) {
+      this.designerList.removeChild(this.designerList.firstChild);
+    }
+
+    for (let i = 0; i < this.designerMiddleCount; i += 1) {
+      const row = document.createElement("div");
+      row.className = "designer-row";
+
+      const label = document.createElement("div");
+      label.className = "designer-row-label";
+      label.textContent = "Slot " + String(i + 1);
+      row.appendChild(label);
+
+      const select = document.createElement("select");
+      select.className = "designer-select";
+      select.dataset.slotIndex = String(i);
+      for (const type of this.designerSelectableTypes) {
+        const option = document.createElement("option");
+        option.value = type;
+        option.textContent = this.getPlatformTypeLabel(type);
+        select.appendChild(option);
+      }
+      select.value = this.designedMiddleTypes[i] ?? "flat";
+      select.addEventListener("change", () => {
+        this.designedMiddleTypes = this.readDesignerMiddleTypes();
+        this.updateDesignerMeta();
+      });
+      row.appendChild(select);
+      this.designerList.appendChild(row);
+    }
+
+    this.designedMiddleTypes = this.readDesignerMiddleTypes();
+    this.updateDesignerMeta();
+    console.log(
+      "[InitializeDesignerUi]",
+      "Initialized designer slots=" + String(this.designedMiddleTypes.length),
+    );
+  }
+
+  private readDesignerMiddleTypes(): PlatformType[] {
+    if (!this.designerList) {
+      return this.designedMiddleTypes.slice();
+    }
+    const next: PlatformType[] = [];
+    const selects = this.designerList.querySelectorAll("select");
+    for (const entry of selects) {
+      if (!(entry instanceof HTMLSelectElement)) {
+        continue;
+      }
+      const value = entry.value;
+      if (this.isDesignerSelectableType(value)) {
+        next.push(value);
+      }
+    }
+    return next;
+  }
+
+  private updateDesignerMeta(): void {
+    if (!this.designerMeta) {
+      return;
+    }
+    this.designerMeta.textContent =
+      "Middle platforms: " + String(this.designedMiddleTypes.length);
+  }
+
+  private setSettingsTab(tab: SettingsTab): void {
+    this.activeSettingsTab = tab;
+    const showDesigner = tab === "designer" && !this.isMobile;
+    this.settingsPaneAudio.classList.toggle("hidden", showDesigner);
+    if (this.settingsPaneDesigner) {
+      this.settingsPaneDesigner.classList.toggle("hidden", !showDesigner);
+    }
+    if (this.settingsTabAudio) {
+      this.settingsTabAudio.dataset.active = showDesigner ? "false" : "true";
+    }
+    if (this.settingsTabDesigner) {
+      this.settingsTabDesigner.dataset.active = showDesigner ? "true" : "false";
+    }
+  }
+
+  private spawnDesignedLevel(): void {
+    if (this.isMobile) {
+      return;
+    }
+    const designed = this.readDesignerMiddleTypes();
+    if (designed.length === 0) {
+      return;
+    }
+    this.designedMiddleTypes = designed;
+    this.customMiddlePlatformTypes = designed.slice();
+    this.soundManager.playUIClick();
+    this.triggerLightHaptic();
+    this.setSettingsVisible(false);
+    this.startRun();
+    console.log(
+      "[SpawnDesignedLevel]",
+      "Spawned designed level types=" + designed.join(","),
+    );
+  }
+
   private bindUi(): void {
     window.addEventListener(
       "pointerdown",
@@ -2759,6 +2992,22 @@ class MarbleMadnessStarter {
       if (event.target === this.settingsModal) {
         this.setSettingsVisible(false);
       }
+    });
+
+    this.settingsTabAudio?.addEventListener("click", () => {
+      this.setSettingsTab("audio");
+      this.soundManager.playUIClick();
+      this.triggerLightHaptic();
+    });
+
+    this.settingsTabDesigner?.addEventListener("click", () => {
+      this.setSettingsTab("designer");
+      this.soundManager.playUIClick();
+      this.triggerLightHaptic();
+    });
+
+    this.designerSpawnButton?.addEventListener("click", () => {
+      this.spawnDesignedLevel();
     });
 
     this.bindSettingToggle("toggle-music", "music");
@@ -2893,6 +3142,7 @@ class MarbleMadnessStarter {
       this.debugYaw = euler.y;
       this.debugPitch = euler.x;
       this.clearDebugMovementKeys();
+      this.updateDebugPlatformLabelVisibility();
       console.log("[ToggleDebugFlyMode]", "Enabled debug fly camera");
       return;
     }
@@ -2900,6 +3150,7 @@ class MarbleMadnessStarter {
     this.clearDebugMovementKeys();
     this.cameraAnchorsInitialized = false;
     this.updateCamera(1);
+    this.updateDebugPlatformLabelVisibility();
     console.log("[ToggleDebugFlyMode]", "Disabled debug fly camera");
   }
 
@@ -3013,8 +3264,13 @@ class MarbleMadnessStarter {
     this.runTimeSeconds = 0;
     this.finishedTimeSeconds = 0;
     this.loopsCompleted = 0;
+    const useCustomMiddle =
+      Array.isArray(this.customMiddlePlatformTypes) &&
+      this.customMiddlePlatformTypes.length > 0;
     this.initializeRunObstacleOrder();
-    this.levelConfig = this.createRandomLevelConfig();
+    this.levelConfig = this.createRandomLevelConfig(
+      useCustomMiddle ? this.customMiddlePlatformTypes : null,
+    );
     this.fireworkTriggerZ = this.levelConfig.fireworkZ;
     this.rebuildLevelProgressMarkers();
     this.clearLevelVisuals();
@@ -3042,7 +3298,11 @@ class MarbleMadnessStarter {
     this.soundManager.playStartLaunch();
     console.log(
       "[StartRun]",
-      "Run started in " + (this.endlessMode ? "endless" : "classic") + " mode",
+      "Run started in " +
+        (this.endlessMode ? "endless" : "classic") +
+        " mode with " +
+        (useCustomMiddle ? "custom" : "random") +
+        " layout",
     );
   }
 
@@ -3075,10 +3335,17 @@ class MarbleMadnessStarter {
           ) {
             node.material.dispose();
           }
+        } else if (node instanceof THREE.Sprite) {
+          const spriteMaterial = node.material;
+          if (spriteMaterial.map) {
+            spriteMaterial.map.dispose();
+          }
+          spriteMaterial.dispose();
         }
       });
     }
     this.levelObjects = [];
+    this.debugPlatformLabels = [];
     this.fireworkRows = [];
     this.obstacleMeshById.clear();
     this.bouncyPadPaddleById.clear();
@@ -3187,6 +3454,13 @@ class MarbleMadnessStarter {
 
   private setSettingsVisible(visible: boolean): void {
     this.settingsModal.classList.toggle("hidden", !visible);
+    if (visible) {
+      this.setSettingsTab(this.isMobile ? "audio" : this.activeSettingsTab);
+      if (!this.isMobile) {
+        this.designedMiddleTypes = this.readDesignerMiddleTypes();
+        this.updateDesignerMeta();
+      }
+    }
   }
 
   private applyUiForState(): void {
@@ -3205,6 +3479,7 @@ class MarbleMadnessStarter {
     this.gameOverScreen.classList.toggle("hidden", !isGameOver);
     this.settingsModal.classList.add("hidden");
     this.steeringArrow.visible = isPlaying;
+    this.updateDebugPlatformLabelVisibility();
   }
 
   private triggerLightHaptic(): void {
@@ -3258,6 +3533,17 @@ class MarbleMadnessStarter {
     return (
       this.trackSamples[this.trackSamples.length - 1]?.y ?? this.trackCenterY
     );
+  }
+
+  private getTrackSurfaceYAtPosition(x: number, z: number): number {
+    const centerX = this.sampleTrackX(z);
+    const width = this.sampleTrackWidth(z);
+    const baseY = this.getTrackSurfaceY(z);
+    const bankOffset = this.getHalfPipeHeightAtOffset(
+      Math.abs(x - centerX),
+      width,
+    );
+    return baseY + bankOffset;
   }
 
   private handleResize(): void {
@@ -3333,7 +3619,10 @@ class MarbleMadnessStarter {
       );
 
       const positionBeforeStep = this.marbleBody.translation();
-      const surfaceYBeforeStep = this.getTrackSurfaceY(positionBeforeStep.z);
+      const surfaceYBeforeStep = this.getTrackSurfaceYAtPosition(
+        positionBeforeStep.x,
+        positionBeforeStep.z,
+      );
       const inAirBeforeStep =
         positionBeforeStep.y > surfaceYBeforeStep + this.marbleRadius + 0.3;
       const airControlMultiplier = inAirBeforeStep ? 0.5 : 1;
@@ -3343,39 +3632,7 @@ class MarbleMadnessStarter {
       const steerDirection = forwardDirection
         .clone()
         .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.steeringAngle);
-      const adjustedSteerDirection = steerDirection.clone();
-      const trackCenterX = this.sampleTrackX(positionBeforeStep.z);
-      const halfPlayable = Math.max(
-        0.9,
-        this.sampleTrackWidth(positionBeforeStep.z) * 0.5 -
-          this.wallThickness -
-          this.marbleRadius -
-          0.12,
-      );
-      const relativeX = positionBeforeStep.x - trackCenterX;
-      const nearWallThreshold = halfPlayable - 0.22;
-      const nearLeftWall = relativeX <= -nearWallThreshold;
-      const nearRightWall = relativeX >= nearWallThreshold;
-      const pushingIntoLeftWall = nearLeftWall && adjustedSteerDirection.x < 0;
-      const pushingIntoRightWall =
-        nearRightWall && adjustedSteerDirection.x > 0;
-      if (pushingIntoLeftWall || pushingIntoRightWall) {
-        adjustedSteerDirection.x *= 0.08;
-        adjustedSteerDirection.normalize();
-        const preVelocity = this.marbleBody.linvel();
-        const outwardSpeed =
-          (pushingIntoLeftWall ? -1 : 1) * preVelocity.x;
-        if (outwardSpeed > 0.05) {
-          this.marbleBody.setLinvel(
-            {
-              x: preVelocity.x * 0.35,
-              y: preVelocity.y,
-              z: preVelocity.z,
-            },
-            true,
-          );
-        }
-      }
+      const steeringDirection = steerDirection.clone().normalize();
       const steeringImpulse =
         this.nudgeImpulse *
         this.speedMultiplier *
@@ -3384,9 +3641,9 @@ class MarbleMadnessStarter {
       if (inputAxis !== 0) {
         this.marbleBody.applyImpulse(
           {
-            x: adjustedSteerDirection.x * steeringImpulse,
+            x: steeringDirection.x * steeringImpulse,
             y: 0,
-            z: adjustedSteerDirection.z * steeringImpulse,
+            z: steeringDirection.z * steeringImpulse,
           },
           true,
         );
@@ -3398,9 +3655,9 @@ class MarbleMadnessStarter {
         airControlMultiplier;
       this.marbleBody.applyImpulse(
         {
-          x: adjustedSteerDirection.x * driveImpulse,
+          x: steeringDirection.x * driveImpulse,
           y: 0,
-          z: adjustedSteerDirection.z * driveImpulse,
+          z: steeringDirection.z * driveImpulse,
         },
         true,
       );
@@ -3433,7 +3690,7 @@ class MarbleMadnessStarter {
       const speed = Math.sqrt(
         velocity.x * velocity.x + velocity.z * velocity.z,
       );
-      const surfaceY = this.getTrackSurfaceY(position.z);
+      const surfaceY = this.getTrackSurfaceYAtPosition(position.x, position.z);
       const inAir = position.y > surfaceY + this.marbleRadius + 0.3;
       this.soundManager.updateLocomotion(speed, inAir);
 
@@ -3926,10 +4183,13 @@ class MarbleMadnessStarter {
 
   private isEnemyOffPlatform(enemyBody: RAPIER.RigidBody): boolean {
     const position = enemyBody.translation();
-    const surfaceY = this.getTrackSurfaceY(position.z);
+    const surfaceY = this.getTrackSurfaceYAtPosition(
+      position.x,
+      position.z,
+    );
     const centerX = this.sampleTrackX(position.z);
     const halfTrack =
-      this.sampleTrackWidth(position.z) * 0.5 + this.wallThickness + 0.9;
+      this.sampleTrackWidth(position.z) * 0.5 + this.enemyMarbleRadius * 0.55;
     const belowTrack = position.y < surfaceY - (this.enemyMarbleRadius + 1.4);
     const outsideTrack =
       Math.abs(position.x - centerX) > halfTrack &&
