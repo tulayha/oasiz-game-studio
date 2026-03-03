@@ -424,7 +424,7 @@ class Game {
   private deathFreezeFrames: number = 0;
   private deathFreezeKiller: { x: number; y: number } | null = null;
   private readonly DEATH_FREEZE_DURATION_FRAMES: number = 180;
-  private readonly CONTACT_HIT_INVULN_FRAMES: number = 54;
+  private readonly CONTACT_HIT_INVULN_FRAMES: number = 120;
   
   // Track previous HP for bubble pop detection
   private previousHp: number = CONFIG.PLAYER_MAX_HP;
@@ -3656,10 +3656,11 @@ class Game {
     // Check collision with platforms (destroy bullet on any contact)
     for (let i = bullets.length - 1; i >= 0; i--) {
       const bullet = bullets[i];
+      const bulletRect = this.centeredEntityToRect(bullet);
       const nearbyPlatforms = this.getPlatformsNearRect(bullet.x, bullet.y, bullet.width, bullet.height, 4);
       
       for (const platform of nearbyPlatforms) {
-        if (this.checkCollision(bullet, platform)) {
+        if (this.checkCollision(bulletRect, platform)) {
           const impactX = bullet.x;
           const impactY = bullet.y;
 
@@ -3689,6 +3690,7 @@ class Game {
     const bulletsAfterPlatforms = this.playerController.getBullets();
     for (let i = bulletsAfterPlatforms.length - 1; i >= 0; i--) {
       const bullet = bulletsAfterPlatforms[i];
+      const bulletRect = this.centeredEntityToRect(bullet);
       
       for (let j = this.activeEnemies.length - 1; j >= 0; j--) {
         const enemy = this.activeEnemies[j];
@@ -3697,7 +3699,7 @@ class Game {
         if (enemy instanceof PufferEnemy) {
           const { cx, cy, radius } = this.getPufferCollisionCircle(enemy);
           bulletHitEnemy = this.rectCircleOverlap(
-            { x: bullet.x, y: bullet.y, width: bullet.width, height: bullet.height },
+            bulletRect,
             cx,
             cy,
             radius
@@ -3706,8 +3708,8 @@ class Game {
           const unsafeZone = this.getEnemyCollisionRect(enemy);
           const safeZone = this.getEnemySafeZoneRect(enemy);
           bulletHitEnemy =
-            this.checkCollision(bullet, unsafeZone) ||
-            (safeZone !== null && this.checkCollision(bullet, safeZone));
+            this.checkCollision(bulletRect, unsafeZone) ||
+            (safeZone !== null && this.checkCollision(bulletRect, safeZone));
         }
 
         if (bulletHitEnemy) {
@@ -5237,17 +5239,21 @@ class Game {
   }
   
   private checkCollision(a: Entity, b: Entity): boolean {
-    const ax = "width" in a && a.x < CONFIG.INTERNAL_WIDTH / 2 ? a.x : a.x - (a.width || 0) / 2;
-    const ay = a.y - (a.height || 0) / 2;
-    const bx = b.x;
-    const by = b.y;
-    
     return (
-      ax < bx + b.width &&
-      ax + a.width > bx &&
-      ay < by + b.height &&
-      ay + a.height > by
+      a.x < b.x + b.width &&
+      a.x + a.width > b.x &&
+      a.y < b.y + b.height &&
+      a.y + a.height > b.y
     );
+  }
+
+  private centeredEntityToRect(e: Entity): Entity {
+    return {
+      x: e.x - e.width / 2,
+      y: e.y - e.height / 2,
+      width: e.width,
+      height: e.height,
+    };
   }
 
   private getLabRectFromFrame(
