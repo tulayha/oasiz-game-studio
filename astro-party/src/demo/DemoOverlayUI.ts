@@ -297,6 +297,7 @@ export class DemoOverlayUI {
     const shipColor = cb.getShipColor();
     ring.style.borderColor = shipColor;
     ring.style.boxShadow = `0 0 24px ${shipColor}, 0 0 48px ${shipColor}55`;
+    ring.style.opacity = "1";
 
     const positionRing = (): void => {
       const pos = cb.getShipPos();
@@ -311,6 +312,7 @@ export class DemoOverlayUI {
     // Start with a tight circle (inline override beats the class value)
     // After a short delay, remove the override → CSS transition expands to spot-panel size
     overlay.style.setProperty("--spot-r", "52px");
+    overlay.style.setProperty("--spot-bg-alpha", "0.88");
     overlay.classList.remove("hidden", "spot-action", "spot-panel");
     overlay.style.pointerEvents = "none";
 
@@ -318,8 +320,8 @@ export class DemoOverlayUI {
     ring.style.width = "75px";
     ring.style.height = "75px";
 
-    setTimeout(positionRing, 80);
-    this.spotlightTrackInterval = window.setInterval(positionRing, 50);
+    positionRing();
+    this.spotlightTrackInterval = window.setInterval(positionRing, 16);
     this.spotlightActive = true;
 
     // After 200 ms the camera tween has started — remove inline override so
@@ -359,6 +361,14 @@ export class DemoOverlayUI {
     this.spotlightOverlay.classList.add("hidden");
     this.spotlightOverlay.classList.remove("spot-panel", "spot-action", "spot-dimmed");
     this.spotlightOverlay.style.removeProperty("--spot-r");
+    this.spotlightOverlay.style.removeProperty("--spot-bg-alpha");
+    this.spotlightRing.style.removeProperty("width");
+    this.spotlightRing.style.removeProperty("height");
+    this.spotlightRing.style.removeProperty("left");
+    this.spotlightRing.style.removeProperty("top");
+    this.spotlightRing.style.removeProperty("border-color");
+    this.spotlightRing.style.removeProperty("box-shadow");
+    this.spotlightRing.style.removeProperty("opacity");
     this.spotlightActive = false;
   }
 
@@ -396,12 +406,14 @@ export class DemoOverlayUI {
     }, 750);
   }
 
-  /** Called on the player's first action — reduces overlay opacity and expands spotlight radius. */
+  /** Called on the player's first action — widens spotlight while keeping demo veil dark. */
   private dimSpotlight(): void {
     if (!this.spotlightActive) return;
-    this.spotlightOverlay.classList.add("spot-dimmed");
-    // Override --spot-r inline so the expanded radius wins over spot-panel/spot-action classes
-    this.spotlightOverlay.style.setProperty("--spot-r", "195px");
+    // Keep the veil dark in demo flow while widening spotlight coverage.
+    this.spotlightOverlay.classList.remove("spot-dimmed");
+    this.spotlightOverlay.style.setProperty("--spot-bg-alpha", "0.88");
+    this.spotlightOverlay.style.setProperty("--spot-r", "185px");
+    this.spotlightRing.style.opacity = "1";
     this.applyRingSize("panel");
   }
 

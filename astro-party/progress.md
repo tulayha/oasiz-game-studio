@@ -30,6 +30,42 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
 ## Milestone Journal
+## 2026-03-03 - Demo spotlight glow/veil behavior corrected per follow-up
+
+- Scope:
+  - Adjusted demo spotlight behavior so the ship circle stays visibly glowing and the surrounding veil remains dark during tutorial interaction steps.
+- Changes:
+  - `src/demo/DemoOverlayUI.ts`:
+    - `startSpotlight()` now explicitly initializes a darker veil (`--spot-bg-alpha: 0.88`).
+    - `dimSpotlight()` no longer applies the lightened `spot-dimmed` path; it now keeps veil darkness and preserves ring visibility (`opacity: 1`) while widening spotlight radius.
+- Outcome:
+  - Demo circle remains prominent/glowing instead of visually fading into a lighter background treatment.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-03-03 - Demo ship spotlight alignment with live pre-countdown intro
+
+- Scope:
+  - Compared demo ship-circle spotlight behavior against the live pre-countdown intro ring path and fixed cross-flow/mobile positioning mismatches.
+- Changes:
+  - `src/main.ts`:
+    - added shared `getOverlayShipViewportPos()` helper and reused it in both:
+      - live pre-countdown intro tracking (`startLiveMatchPlayerIntro`)
+      - demo overlay callback (`getShipPos`)
+    - expanded `hideLiveMatchPlayerIntro()` cleanup to reset spotlight/ring inline properties so styles do not leak between demo/live flows.
+  - `src/demo/DemoOverlayUI.ts`:
+    - set ring opacity explicitly on spotlight start.
+    - removed delayed first position update and position immediately.
+    - increased ship tracking cadence from `50ms` to `16ms` for smoother ring follow.
+    - reset spotlight ring inline geometry/style properties on stop to avoid stale size/position carryover.
+- Outcome:
+  - Demo and live intro now use a consistent ship-to-overlay coordinate mapping path.
+  - Spotlight ring starts centered immediately, tracks more smoothly on mobile/desktop, and no longer carries stale ring sizing into subsequent intro flows.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
 ## 2026-03-03 - Combo post-death chain guard + timeout sync fix
 
 - Scope:
