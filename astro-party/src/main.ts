@@ -409,9 +409,15 @@ async function init(): Promise<void> {
     liveIntroOverlay.classList.add("hidden");
     liveIntroOverlay.classList.remove("spot-panel", "spot-action", "spot-dimmed");
     liveIntroOverlay.style.pointerEvents = "none";
+    liveIntroOverlay.style.removeProperty("--spot-r");
+    liveIntroOverlay.style.removeProperty("--spot-bg-alpha");
     liveIntroRing.style.opacity = "0";
     liveIntroRing.style.removeProperty("border-color");
     liveIntroRing.style.removeProperty("box-shadow");
+    liveIntroRing.style.removeProperty("width");
+    liveIntroRing.style.removeProperty("height");
+    liveIntroRing.style.removeProperty("left");
+    liveIntroRing.style.removeProperty("top");
   };
 
   const canPlayLiveMatchPlayerIntro = (): boolean => {
@@ -420,6 +426,23 @@ async function init(): Promise<void> {
     const sessionMode = game.getSessionMode();
     if (sessionMode === "online") return true;
     return game.getLocalPlayerCount() === 1;
+  };
+
+  const getOverlayShipViewportPos = (): { x: number; y: number } | null => {
+    const pos = game.getLocalShipViewportPos();
+    if (!pos) return null;
+    // On portrait mobile the game canvas is CSS-rotated -90deg so the
+    // logical game coords don't map directly to viewport CSS pixels.
+    const isPortraitMobile =
+      window.matchMedia("(pointer: coarse)").matches &&
+      window.matchMedia("(orientation: portrait)").matches;
+    if (!isPortraitMobile) return pos;
+    const vw = window.innerWidth; // short edge (portrait)
+    const vh = window.innerHeight; // long edge (portrait)
+    return {
+      x: pos.y * (vw / vh),
+      y: vh - pos.x * (vh / vw),
+    };
   };
 
   const startLiveMatchPlayerIntro = (): void => {
@@ -438,6 +461,8 @@ async function init(): Promise<void> {
 
       liveIntroOverlay.classList.remove("hidden");
       liveIntroOverlay.style.pointerEvents = "none";
+      liveIntroRing.style.removeProperty("width");
+      liveIntroRing.style.removeProperty("height");
       liveIntroRing.style.borderColor = shipColor;
       liveIntroRing.style.boxShadow = `0 0 18px ${shipColor}, 0 0 40px ${shipColor}55`;
       liveIntroRing.style.opacity = "1";
@@ -453,7 +478,7 @@ async function init(): Promise<void> {
       const introZoomStartAt = performance.now();
       game.setDemoZoomBoost(introBoostStart);
       liveMatchIntroZoomPoll = setInterval(() => {
-        const pos = game.getLocalShipViewportPos();
+        const pos = getOverlayShipViewportPos();
         if (!pos) {
           hideLiveMatchPlayerIntro();
           return;
@@ -482,7 +507,7 @@ async function init(): Promise<void> {
       }, 16);
     };
 
-    const initialPos = game.getLocalShipViewportPos();
+    const initialPos = getOverlayShipViewportPos();
     if (initialPos) {
       begin(initialPos);
       return;
@@ -492,7 +517,7 @@ async function init(): Promise<void> {
     const maxAttempts = 24;
     liveMatchIntroStartPoll = setInterval(() => {
       attempts += 1;
-      const pos = game.getLocalShipViewportPos();
+      const pos = getOverlayShipViewportPos();
       if (pos) {
         begin(pos);
         return;
@@ -651,22 +676,7 @@ async function init(): Promise<void> {
         const myPlayer = myId ? players.find((p) => p.id === myId) : players[0];
         return myPlayer?.color.primary ?? "#00f0ff";
       },
-      getShipPos: () => {
-        const pos = game.getLocalShipViewportPos();
-        if (!pos) return null;
-        // On portrait mobile the game canvas is CSS-rotated -90deg so the
-        // logical game coords don't map directly to viewport CSS pixels.
-        const isPortraitMobile =
-          window.matchMedia("(pointer: coarse)").matches &&
-          window.matchMedia("(orientation: portrait)").matches;
-        if (!isPortraitMobile) return pos;
-        const vw = window.innerWidth;   // short edge (portrait)
-        const vh = window.innerHeight;  // long edge (portrait)
-        return {
-          x: pos.y * (vw / vh),
-          y: vh - pos.x * (vh / vw),
-        };
-      },
+      getShipPos: () => getOverlayShipViewportPos(),
       setZoom: (boost) => game.setDemoZoomBoost(boost),
       subscribeInputAction: (handler) => {
         demoInputActionSubscribers.add(handler);
