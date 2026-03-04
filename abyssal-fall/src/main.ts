@@ -265,6 +265,8 @@ class Game {
   private currentRoomEntranceSide: ShopSide = "left";
   private roomEntryContext: RoomEntryContext | null = null;
   private currentRoomType: DoorwayRoomType | null = null;
+  private currentDoorwayIndex: number = -1;
+  private openedChestDoorways: Set<number> = new Set();
   private pendingRoomPowerupReward: PowerUpType | null = null;
   private roomItems: RoomItem[] = [];
   private roomPowerupPickup: RoomPowerupPickup | null = null;
@@ -2513,6 +2515,8 @@ class Game {
     this.roomEntryContext = null;
     this.currentRoomEntranceSide = "left";
     this.currentRoomType = null;
+    this.currentDoorwayIndex = -1;
+    this.openedChestDoorways.clear();
     this.pendingRoomPowerupReward = null;
     this.selectedRoomItemId = null;
     this.roomItems = [];
@@ -2706,7 +2710,7 @@ class Game {
           returnVx: doorway.returnSpawn.vx,
           returnVy: doorway.returnSpawn.vy,
         };
-        this.enterSpecialRoom(doorway.roomType, doorway.side);
+        this.enterSpecialRoom(doorway.roomType, doorway.side, doorway.index);
         return;
       }
     }
@@ -3268,9 +3272,10 @@ class Game {
     }
   }
 
-  private enterSpecialRoom(roomType: DoorwayRoomType, worldSide: ShopSide): void {
+  private enterSpecialRoom(roomType: DoorwayRoomType, worldSide: ShopSide, doorwayIndex: number = -1): void {
     this.currentRoomEntranceSide = this.getOppositePassageSide(worldSide);
     this.currentRoomType = roomType;
+    this.currentDoorwayIndex = doorwayIndex;
     this.gameState = "shop";
     this.roomTransitionLockFrames = this.SHOP_TRANSITION_LOCK_FRAMES;
     this.roomActionWasPressed = true;
@@ -3278,8 +3283,13 @@ class Game {
     this.pendingRoomPowerupReward = null;
     this.roomPowerupPickup = null;
     this.chestOffers = null;
-    // ALL room types now contain a chest
+    // ALL room types now contain a chest; mark soldOut if already opened this run
     this.roomItems = this.createChestRoomItems();
+    if (doorwayIndex >= 0 && this.openedChestDoorways.has(doorwayIndex)) {
+      for (const item of this.roomItems) {
+        if (item.id === "chest_cache") item.soldOut = true;
+      }
+    }
 
     const player = this.playerController.getPlayer();
     const startX = this.currentRoomEntranceSide === "left"
@@ -3438,6 +3448,10 @@ class Game {
       this.triggerChestGemBurst(item.rect.x + item.rect.width / 2, item.rect.y + item.rect.height / 2);
       this.playTreasureRingSound();
       this.addScreenShake(4);
+      // Mark this doorway as opened so the chest stays sold-out on re-entry
+      if (this.currentDoorwayIndex >= 0) {
+        this.openedChestDoorways.add(this.currentDoorwayIndex);
+      }
       this.chestOffers = this.buildChestOffers();
       this.renderChestOffersUI();
     }

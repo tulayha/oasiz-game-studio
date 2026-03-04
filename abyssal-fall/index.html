@@ -916,34 +916,42 @@
             80%     { transform: translateX(4px); }
         }
 
+        /* Cave interior as % of 448×640 internal resolution:
+           left wall 54px (12%), right wall 54px (12%), top 98px (15.3%), bottom 584px (91.3%)
+           We use these percentages so cards sit inside the rendered cave area. */
         .chest-offers {
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
+            /* sit just below the cave ceiling */
+            top: 16%;
+            left: 13%;
+            right: 13%;
+            /* don't exceed the cave floor */
+            max-height: 72%;
             display: flex;
             flex-direction: row;
             justify-content: center;
             align-items: flex-start;
-            gap: 8px;
-            padding: 52px 8px 0;
+            gap: 2%;
+            padding: 0;
             pointer-events: none;
             z-index: 80;
+            overflow: hidden;
         }
         .chest-offers.hidden {
             display: none;
         }
 
+        /* Cards: equal width (3 cards + 2 gaps = 3 * w + 2*2% = 100%), equal height via stretch */
         .chest-offer-card {
-            flex: 1;
-            max-width: 130px;
+            flex: 1 1 0;
+            min-width: 0;
             background: #0d2845;
             border: 3px solid #040f1e;
             box-shadow:
                 inset 2px 2px 0 rgba(80,170,255,0.28),
                 inset -3px -3px 0 rgba(0,0,0,0.5),
                 4px 4px 0 #020c1a;
-            padding: 8px 6px 6px;
+            padding: 8px 5px 6px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -951,10 +959,11 @@
             pointer-events: auto;
             animation: cardReveal 0.28s cubic-bezier(0.22,1,0.36,1) both;
             border-top: 3px solid var(--offer-accent, #00A1E4);
+            overflow: hidden;
         }
 
         .chest-offer-card.offer-cant-buy {
-            opacity: 0.65;
+            opacity: 0.6;
         }
 
         .chest-offer-card.offer-insufficient {
@@ -963,8 +972,9 @@
         }
 
         .offer-icon {
-            width: 40px;
-            height: 40px;
+            width: 36px;
+            height: 36px;
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -972,20 +982,22 @@
 
         .offer-name {
             font-family: 'Press Start 2P', cursive;
-            font-size: 0.48rem;
+            font-size: 0.45rem;
             color: var(--offer-accent, #c8ecff);
             text-align: center;
             text-shadow: 1px 1px 0 #020c1a;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
             line-height: 1.4;
+            word-break: break-word;
         }
 
         .offer-desc {
             font-family: 'Press Start 2P', cursive;
-            font-size: 0.38rem;
+            font-size: 0.35rem;
             color: #7ab8d8;
             text-align: center;
             line-height: 1.5;
+            word-break: break-word;
         }
 
         .offer-cost-val {
@@ -993,8 +1005,9 @@
             align-items: center;
             gap: 3px;
             font-family: 'Press Start 2P', cursive;
-            font-size: 0.55rem;
+            font-size: 0.5rem;
             text-shadow: 1px 1px 0 #020c1a;
+            flex-shrink: 0;
         }
 
         .offer-cost-val.affordable {
@@ -1006,24 +1019,20 @@
         }
 
         .offer-buy-btn {
-            font-size: 0.48rem !important;
-            padding: 6px 10px !important;
+            font-size: 0.44rem !important;
+            padding: 5px 6px !important;
             margin: 2px 0 0 !important;
             width: 100%;
             text-align: center;
+            flex-shrink: 0;
         }
 
         @media (pointer: coarse) {
-            .chest-offer-card {
-                max-width: none;
-                padding: 8px 6px 6px;
-            }
             .chest-offers {
-                padding: 120px 8px 0;
-                gap: 8px;
-            }
-            .offer-buy-btn {
-                padding: 8px 6px !important;
+                /* On mobile: safe area top is ~120px; cave ceiling is 15.3% below that.
+                   Combined offset: 120px + ~15% additional. Use vh units for mobile. */
+                top: calc(120px + 3vh);
+                max-height: calc(55vh);
             }
         }
     </style>
