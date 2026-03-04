@@ -9,6 +9,7 @@
     "ffmpeg:install": "bun run scripts/install-ffmpeg.ts",
     "ffmpeg:check": "bun run scripts/check-ffmpeg.ts",
     "process:audio": "bun run scripts/process-audio-assets.ts",
+    "sim:collision-matrix": "bun run scripts/run-sim-collision-matrix.ts",
     "generate:ship-skins:warn": "bun -e \"process.env.SHIP_SKIN_VALIDATION='warn'; await import('./scripts/generate-ship-skins.ts');\"",
     "generate:ship-skins:off": "bun -e \"process.env.SHIP_SKIN_VALIDATION='off'; await import('./scripts/generate-ship-skins.ts');\"",
     "prebuild": "bun run generate:entities && bun run generate:ship-skins",

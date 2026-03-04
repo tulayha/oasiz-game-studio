@@ -88,6 +88,7 @@ import {
   type ShipTransformHistoryEntry,
 } from "./modules/simulationStateSync.js";
 import {
+  applySweptShipTunnelingGuards,
   checkSweptProjectileHitShipCollisions,
   checkJoustYellowBlockCollisions as checkJoustYellowBlockCollisionsState,
   checkLaserBeamBlockCollisions as checkLaserBeamBlockCollisionsState,
@@ -99,6 +100,8 @@ import {
   handleShipHitAsteroidCollision,
   handleShipHitPilotCollision,
   handleShipHitPowerUpCollision,
+  type CollisionTelemetryEvent,
+  type SweptPose,
   type SimulationCollisionHandlersContext,
 } from "./modules/simulationCollisionHandlers.js";
 import {
@@ -238,6 +241,7 @@ export class AstroPartySimulation implements SimState {
   private winnerId: string | null = null;
   private winnerName: string | null = null;
   private identityAllocator = new PlayerIdentityAllocator(PLAYER_COLORS.length);
+  private collisionTelemetryEnabled = false;
 
   // ---- RNG ----
   private baseSeed = 0;
@@ -254,6 +258,7 @@ export class AstroPartySimulation implements SimState {
     options: SimulationOptions = {},
   ) {
     this.debugToolsEnabled = Boolean(options.debugToolsEnabled);
+    this.collisionTelemetryEnabled = this.resolveCollisionTelemetryEnabled();
     this.physics = new Physics();
     this.reseed(Math.floor(Date.now()) >>> 0);
     this.physics.createWalls(
@@ -1076,6 +1081,8 @@ export class AstroPartySimulation implements SimState {
       removeTurretBulletBody: this.removeTurretBulletBody.bind(this),
     });
     this.applyMapFeatureForcesToBodies();
+    const previousShipPoses = this.captureShipPoses();
+    const previousPilotPoses = this.capturePilotPoses();
     const previousProjectilePositions = this.captureBodyPositions(
       this.projectileBodies,
     );
@@ -1084,12 +1091,22 @@ export class AstroPartySimulation implements SimState {
     );
     this.physics.update(deltaMs);
     const collisionHandlersContext = this.createCollisionHandlersContext();
+    applySweptShipTunnelingGuards(
+      collisionHandlersContext,
+      this.shipBodies,
+      this.pilotBodies,
+      previousShipPoses,
+      previousPilotPoses,
+    );
     checkSweptProjectileHitShipCollisions(
       collisionHandlersContext,
       this.shipBodies,
       previousProjectilePositions,
       previousProjectileVelocities,
       this.deferredProjectileWallHits,
+      previousShipPoses,
+      this.pilotBodies,
+      previousPilotPoses,
     );
     this.flushDeferredProjectileWallHits(collisionHandlersContext);
     syncSimFromPhysicsState({
@@ -1363,6 +1380,32 @@ export class AstroPartySimulation implements SimState {
     return out;
   }
 
+  private captureShipPoses(): Map<string, SweptPose> {
+    const out = new Map<string, SweptPose>();
+    for (const [playerId, player] of this.players) {
+      if (!player.ship.alive) continue;
+      out.set(playerId, {
+        x: player.ship.x,
+        y: player.ship.y,
+        angle: player.ship.angle,
+      });
+    }
+    return out;
+  }
+
+  private capturePilotPoses(): Map<string, SweptPose> {
+    const out = new Map<string, SweptPose>();
+    for (const [playerId, pilot] of this.pilots) {
+      if (!pilot.alive) continue;
+      out.set(playerId, {
+        x: pilot.x,
+        y: pilot.y,
+        angle: pilot.angle,
+      });
+    }
+    return out;
+  }
+
   private captureBodyVelocities(
     bodies: ReadonlyMap<string, Matter.Body>,
   ): Map<string, { x: number; y: number }> {
@@ -1530,7 +1573,41 @@ export class AstroPartySimulation implements SimState {
       destroyAsteroid: this.destroyAsteroid.bind(this),
       grantPowerUp: this.grantPowerUp.bind(this),
       removePowerUpBody: this.removePowerUpBody.bind(this),
+      onCollisionTelemetry: this.collisionTelemetryEnabled
+        ? this.onCollisionTelemetry.bind(this)
+        : undefined,
     };
+  }
+
+  private onCollisionTelemetry(event: CollisionTelemetryEvent): void {
+    console.log("[CollisionTelemetry]", JSON.stringify(event));
+  }
+
+  private resolveCollisionTelemetryEnabled(): boolean {
+    const globalValue = (
+      globalThis as { __ASTRO_COLLISION_TELEMETRY__?: unknown }
+    ).__ASTRO_COLLISION_TELEMETRY__;
+    const fromGlobal = this.parseBooleanLike(globalValue);
+    if (fromGlobal !== null) return fromGlobal;
+
+    const envValue = (
+      globalThis as {
+        process?: { env?: Record<string, string | undefined> };
+      }
+    ).process?.env?.ASTRO_COLLISION_TELEMETRY;
+    const fromEnv = this.parseBooleanLike(envValue);
+    if (fromEnv !== null) return fromEnv;
+
+    return false;
+  }
+
+  private parseBooleanLike(value: unknown): boolean | null {
+    if (typeof value === "boolean") return value;
+    if (typeof value !== "string") return null;
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+    return null;
   }
 
   private getPluginString(body: Matter.Body, key: string): string | null {

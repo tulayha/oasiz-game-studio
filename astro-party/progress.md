@@ -30,6 +30,135 @@ Condensed on 2026-02-28 to remove repeated micro-iterations and duplicate valida
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
 ## Milestone Journal
+## 2026-03-04 - Collision handler modular split (swept/tunnel extraction)
+
+- Scope:
+  - Split `simulationCollisionHandlers.ts` to reduce hot-path complexity concentration and improve maintainability without changing collision behavior.
+- Changes:
+  - Added `shared/sim/modules/simulationSweptCollisions.ts`:
+    - owns swept projectile collision ordering/resolution helpers.
+    - owns ship-ship and ship-pilot tunneling guard logic.
+    - keeps telemetry emission on swept/tunnel paths.
+  - Updated `shared/sim/modules/simulationCollisionHandlers.ts`:
+    - retained direct collision handlers (`projectile/ship/pilot/asteroid/powerup`) and map-feature collision helpers.
+    - replaced large swept/tunnel implementations with thin wrappers that call `runSweptProjectileHitShipCollisions(...)` and `runSweptShipTunnelingGuards(...)`.
+    - removed swept-only geometry/capsule helpers from this file.
+- Outcome:
+  - `simulationCollisionHandlers.ts` reduced to focused ownership surface (406 lines from prior 1127).
+  - Swept/tunnel logic isolated to dedicated module, making future tuning/experiments lower-risk.
+- Validation:
+  - `astro-party`: `bun run sim:collision-matrix` passed (5/5).
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+
+## 2026-03-04 - Telemetry allocation gating in collision hot path
+
+- Scope:
+  - Removed avoidable telemetry object allocations from swept/tunneling collision hot paths when telemetry is disabled.
+- Changes:
+  - `shared/sim/modules/simulationCollisionHandlers.ts`:
+    - replaced unconditional telemetry event construction with hard callback guards (`onCollisionTelemetry`) before object creation.
+    - removed now-unneeded `emitCollisionTelemetry(...)` helper.
+- Outcome:
+  - Normal gameplay path (telemetry off) no longer allocates telemetry event objects inside projectile sweep and tunnel guard loops.
+- Validation:
+  - `astro-party`: `bun run sim:collision-matrix` passed (5/5).
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+
+## 2026-03-04 - Deterministic collision matrix runner + opt-in collision telemetry
+
+- Scope:
+  - Implemented a real validation path for anti-tunneling and dead-shooter combo behavior without claiming manual in-client verification.
+  - Added temporary opt-in collision telemetry for local/dev sessions.
+- Changes:
+  - `shared/sim/modules/simulationCollisionHandlers.ts`:
+    - added `CollisionTelemetryEvent` contract and optional `onCollisionTelemetry` callback on collision context.
+    - emits telemetry events for:
+      - swept projectile wall/shield/ship/pilot hits,
+      - swept projectile no-hit path,
+      - ship-ship tunnel resolution,
+      - ship-pilot tunnel resolution.
+  - `shared/sim/AstroPartySimulation.ts`:
+    - wired telemetry emission from sim collision context.
+    - added runtime opt-in flag resolution:
+      - `globalThis.__ASTRO_COLLISION_TELEMETRY__`
+      - `process.env.ASTRO_COLLISION_TELEMETRY`
+    - telemetry output is logged as structured JSON lines via `[CollisionTelemetry]`.
+  - `scripts/run-sim-collision-matrix.ts`:
+    - added deterministic matrix runner covering:
+      - projectile vs ship swept hit,
+      - projectile vs pilot swept hit,
+      - ship vs ship tunnel guard,
+      - ship vs pilot tunnel guard,
+      - dead-shooter post-death scoring with combo non-advance.
+  - `package.json`:
+    - added `sim:collision-matrix` script.
+- Outcome:
+  - Deterministic matrix now provides repeatable pass/fail checks for the key collision/combo edge cases.
+  - Temporary telemetry can be enabled during local/dev play to inspect swept/tunnel resolutions and no-hit projectile sweeps.
+- Validation:
+  - `astro-party`: `bun run sim:collision-matrix` passed (5/5).
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+
+## 2026-03-03 - Pilot glow effects disabled for mobile clarity test
+
+- Scope:
+  - Temporarily disabled pilot blur/glow visuals to isolate blur/softness perception on mobile.
+- Changes:
+  - `shared/assets/entities/pilot.svg`:
+    - removed blur shadow path (`softShadow` / `feGaussianBlur`) from pilot visual rendering.
+    - removed glow gradients `visorGlow` and `thrusterGlow`.
+    - removed thruster glow circle using `url(#thrusterGlow)`.
+    - replaced visor glow fill (`url(#visorGlow)`) with a non-gradient solid fill (`var(--slot-primary)`) and fixed opacity.
+  - `shared/assets/entities/pilot_death_debris_visor.svg`:
+    - removed visor radial glow gradient and replaced visor fill with non-gradient solid fill + fixed opacity.
+  - `shared/geometry/generated/EntitySvgData.ts` regenerated from source asset changes.
+- Validation:
+  - `astro-party`: `bun run generate:entities` passed.
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+
+## 2026-03-03 - Non-substep anti-tunneling implementation (projectile/ship/pilot) + deferred substep note
+
+- Scope:
+  - Implemented non-substep anti-tunneling guards for high-speed collision paths in shared authoritative simulation.
+  - Deferred physics substep implementation and documented rollout approach separately.
+- Changes:
+  - `shared/sim/modules/simulationCollisionHandlers.ts`:
+    - extended swept projectile handling to account for moving targets using previous/current poses:
+      - projectile vs ship sweep now checks prior/current ship hull plus movement capsule.
+      - projectile vs pilot sweep added with equivalent moving-target checks.
+      - shield sweep now checks prior/current shield poses plus movement path instead of stale-only pose checks.
+    - added swept anti-tunnel guard pass for:
+      - ship vs ship (detect pass-through and apply corrective separation/velocity response),
+      - ship vs pilot (detect pass-through and route through existing kill handler).
+  - `shared/sim/AstroPartySimulation.ts`:
+    - captures previous ship/pilot poses before physics integration.
+    - runs swept ship/pilot tunnel guards immediately after physics update.
+    - passes prior ship/pilot pose data into swept projectile collision handling.
+  - `substep-approach.md`:
+    - added deferred implementation note for adaptive physics-only substeps (explicitly not implemented in this milestone).
+- Outcome:
+  - Non-substep safeguards now cover the requested tunneling classes to a practical degree:
+    - projectile vs dashing/moving ship,
+    - projectile vs moving pilot,
+    - ship vs ship,
+    - ship vs pilot.
+  - Substep approach is documented for controlled later rollout.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+
 ## 2026-03-03 - Demo spotlight glow/veil behavior corrected per follow-up
 
 - Scope:
