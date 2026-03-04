@@ -248,6 +248,28 @@
                 1px 1px 0 #020c1a;
         }
 
+        #start-btn {
+            background: #8b1a1a;
+            color: #ffe8e8;
+            border-color: #1a0404;
+            text-shadow: 1px 1px 0 #1a0404;
+            box-shadow:
+                inset 2px 2px 0 rgba(255, 120, 120, 0.35),
+                inset -4px -4px 0 rgba(0, 0, 0, 0.55),
+                4px 4px 0 #1a0404;
+        }
+
+        #start-btn:hover {
+            background: #a82020;
+        }
+
+        #start-btn:active {
+            box-shadow:
+                inset 4px 4px 0 rgba(0, 0, 0, 0.55),
+                inset -2px -2px 0 rgba(255, 120, 120, 0.2),
+                1px 1px 0 #1a0404;
+        }
+
         #restart-btn {
             font-size: 1.05rem;
             padding: 21px 52px;
@@ -921,16 +943,15 @@
            We use these percentages so cards sit inside the rendered cave area. */
         .chest-offers {
             position: absolute;
-            /* sit just below the cave ceiling */
             top: 16%;
             left: 13%;
             right: 13%;
-            /* don't exceed the cave floor */
             max-height: 72%;
             display: flex;
             flex-direction: row;
             justify-content: center;
-            align-items: flex-start;
+            /* stretch so all cards share the same height */
+            align-items: stretch;
             gap: 2%;
             padding: 0;
             pointer-events: none;
@@ -941,21 +962,25 @@
             display: none;
         }
 
-        /* Cards: equal width (3 cards + 2 gaps = 3 * w + 2*2% = 100%), equal height via stretch */
+        /* Each card has a FIXED height so all three are always identical.
+           Interior = 180px - 14px padding = 166px split into 5 grid rows. */
         .chest-offer-card {
             flex: 1 1 0;
             min-width: 0;
+            height: 158px;
+            box-sizing: border-box;
             background: #0d2845;
             border: 3px solid #040f1e;
             box-shadow:
                 inset 2px 2px 0 rgba(80,170,255,0.28),
                 inset -3px -3px 0 rgba(0,0,0,0.5),
                 4px 4px 0 #020c1a;
-            padding: 8px 5px 6px;
-            display: flex;
-            flex-direction: column;
+            padding: 6px 5px 5px;
+            /* Grid rows: icon(42) | name(18) | desc(40) | cost(18) | btn(24) = 142px interior */
+            display: grid;
+            grid-template-rows: 42px 18px 40px 18px 24px;
+            justify-items: center;
             align-items: center;
-            gap: 4px;
             pointer-events: auto;
             animation: cardReveal 0.28s cubic-bezier(0.22,1,0.36,1) both;
             border-top: 3px solid var(--offer-accent, #00A1E4);
@@ -972,9 +997,8 @@
         }
 
         .offer-icon {
-            width: 36px;
-            height: 36px;
-            flex-shrink: 0;
+            width: 100%;
+            height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -989,6 +1013,9 @@
             letter-spacing: 0.5px;
             line-height: 1.4;
             word-break: break-word;
+            width: 100%;
+            align-self: center;
+            overflow: hidden;
         }
 
         .offer-desc {
@@ -998,6 +1025,9 @@
             text-align: center;
             line-height: 1.5;
             word-break: break-word;
+            width: 100%;
+            align-self: center;
+            overflow: hidden;
         }
 
         .offer-cost-val {
@@ -1007,7 +1037,6 @@
             font-family: 'Press Start 2P', cursive;
             font-size: 0.5rem;
             text-shadow: 1px 1px 0 #020c1a;
-            flex-shrink: 0;
         }
 
         .offer-cost-val.affordable {
@@ -1021,16 +1050,19 @@
         .offer-buy-btn {
             font-size: 0.44rem !important;
             padding: 5px 6px !important;
-            margin: 2px 0 0 !important;
+            margin: 0 !important;
             width: 100%;
             text-align: center;
-            flex-shrink: 0;
+            align-self: end;
+        }
+
+        @keyframes orbFloat {
+            0%, 100% { transform: translateY(0px);  filter: brightness(1);   }
+            50%       { transform: translateY(-5px); filter: brightness(1.25); }
         }
 
         @media (pointer: coarse) {
             .chest-offers {
-                /* On mobile: safe area top is ~120px; cave ceiling is 15.3% below that.
-                   Combined offset: 120px + ~15% additional. Use vh units for mobile. */
                 top: calc(120px + 3vh);
                 max-height: calc(55vh);
             }

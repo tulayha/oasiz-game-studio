@@ -5,6 +5,7 @@
  * Features deterministic level generation with infinite vertical world.
  */
 
+import { oasiz } from "@oasiz/sdk";
 import { CONFIG } from "./config";
 import { LevelSpawner, Entity, Platform, Gem, BaseEnemy, Weed } from "./world";
 import { PlayerController, InputState, Player } from "./player";
@@ -488,7 +489,9 @@ class Game {
   private jumpBuffer: AudioBuffer | null = null;
   private heartPickupBuffer: AudioBuffer | null = null;
   private buttonClickBuffer: AudioBuffer | null = null;
-  private readonly UNIFORM_SFX_VOLUME: number = 0.55;
+  private deathSfxBuffer: AudioBuffer | null = null;
+  private powerupCollectBuffer: AudioBuffer | null = null;
+  private readonly UNIFORM_SFX_VOLUME: number = 0.7;
   private readonly UNIFORM_SYNTH_PEAK_GAIN: number = 0.14;
   private readonly MAGNET_RADIUS: number = 200;
   private magnetPullSfxCooldownFrames: number = 0;
@@ -590,21 +593,30 @@ class Game {
       this.openSettings();
     });
     
-    // Settings toggles
-    document.getElementById("toggle-music")?.addEventListener("click", () => {
+    // Settings toggles — debounced to prevent double-fire on touch (touchend + synthetic click)
+    let lastSettingsToggle = 0;
+    const settingsToggle = (cb: () => void) => (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (Date.now() - lastSettingsToggle < 300) return;
+      lastSettingsToggle = Date.now();
+      cb();
+    };
+
+    document.getElementById("toggle-music")?.addEventListener("click", settingsToggle(() => {
       this.playButtonClickSound();
       this.toggleSetting("music");
-    });
-    
-    document.getElementById("toggle-fx")?.addEventListener("click", () => {
+    }));
+
+    document.getElementById("toggle-fx")?.addEventListener("click", settingsToggle(() => {
       this.playButtonClickSound();
       this.toggleSetting("fx");
-    });
-    
-    document.getElementById("toggle-haptics")?.addEventListener("click", () => {
+    }));
+
+    document.getElementById("toggle-haptics")?.addEventListener("click", settingsToggle(() => {
       this.playButtonClickSound();
       this.toggleSetting("haptics");
-    });
+    }));
     
     // Settings close
     document.getElementById("settings-close")?.addEventListener("click", () => {
@@ -736,7 +748,6 @@ class Game {
     }
     
     // Handle visibility changes (iOS WebView backgrounding)
-    // When the app comes back to foreground, rAF may have stopped - restart it
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         console.log("[Game] Visibility restored, ensuring game loop is running");
@@ -744,9 +755,29 @@ class Game {
         this.resizeCanvas();
         this.ensureGameLoopRunning();
       } else {
+        console.log("[Game] Visibility hidden, stopping RAF loop");
         this.isVisible = false;
         this.clearInputState();
+        if (this.animFrameId) {
+          cancelAnimationFrame(this.animFrameId);
+          this.animFrameId = 0;
+        }
       }
+    });
+
+    // Platform lifecycle hooks (React Native WebView app backgrounding)
+    oasiz.onPause(() => {
+      console.log("[Game] Platform paused");
+      this.clearInputState();
+      if (this.animFrameId) {
+        cancelAnimationFrame(this.animFrameId);
+        this.animFrameId = 0;
+      }
+    });
+
+    oasiz.onResume(() => {
+      console.log("[Game] Platform resumed");
+      this.ensureGameLoopRunning();
     });
     
     // iOS WebView specific: pageshow event fires when navigating back
@@ -1410,7 +1441,7 @@ class Game {
   private loadAudio(): void {
     this.loadingMusicAudio = new Audio("assets/sfx/underwater-ambience.mp3");
     this.loadingMusicAudio.loop = true;
-    this.loadingMusicAudio.volume = 0.25;
+    this.loadingMusicAudio.volume = 0.125;
     this.loadingMusicAudio.preload = "auto";
     this.loadingMusicAudio.addEventListener("error", () => {
       console.log("[loadAudio]", "Failed to load loading music file");
@@ -1419,7 +1450,7 @@ class Game {
 
     this.gameOverMusicAudio = new Audio("assets/sfx/game-over.mp3");
     this.gameOverMusicAudio.loop = true;
-    this.gameOverMusicAudio.volume = 0.24;
+    this.gameOverMusicAudio.volume = 0.06;
     this.gameOverMusicAudio.preload = "auto";
     this.gameOverMusicAudio.addEventListener("error", () => {
       console.log("[loadAudio]", "Failed to load game-over music file");
@@ -1429,7 +1460,7 @@ class Game {
     // Ambience uses HTMLAudioElement (long looping track)
     this.ambienceAudio = new Audio("assets/sfx/abyssal-echoes.mp3");
     this.ambienceAudio.loop = true;
-    this.ambienceAudio.volume = 0.2;
+    this.ambienceAudio.volume = 0.1;
     this.ambienceAudio.preload = "auto";
     this.ambienceAudio.addEventListener("canplaythrough", () => {
       console.log("[loadAudio]", "Background music ready");
@@ -1442,7 +1473,7 @@ class Game {
 
     this.shopMusicAudio = new Audio("assets/sfx/coral-cafe-jingle.mp3");
     this.shopMusicAudio.loop = true;
-    this.shopMusicAudio.volume = 0.22;
+    this.shopMusicAudio.volume = 0.055;
     this.shopMusicAudio.preload = "auto";
     this.shopMusicAudio.addEventListener("error", () => {
       console.log("[loadAudio]", "Failed to load shop music file");
@@ -1499,6 +1530,17 @@ class Game {
       this.buttonClickBuffer = buf;
       console.log("[loadAudio]", "Button click audio decoded");
     });
+
+    this.decodeAudioFile("assets/sfx/death.mp3").then((buf) => {
+      this.deathSfxBuffer = buf;
+      console.log("[loadAudio]", "Death SFX audio decoded");
+    });
+
+    this.decodeAudioFile("assets/sfx/powerup-collect.mp3").then((buf) => {
+      this.powerupCollectBuffer = buf;
+      console.log("[loadAudio]", "Power-up collect SFX decoded");
+    });
+
   }
   
   private getAudioCtx(): AudioContext {
@@ -1526,17 +1568,25 @@ class Game {
   
   private playSfx(buffer: AudioBuffer | null, volume: number): void {
     if (!buffer) return;
-    
+
     const ctx = this.getAudioCtx();
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    
-    const gain = ctx.createGain();
-    gain.gain.value = volume;
-    
-    source.connect(gain);
-    gain.connect(ctx.destination);
-    source.start(0);
+
+    const doPlay = () => {
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      const gain = ctx.createGain();
+      gain.gain.value = volume;
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.start(0);
+    };
+
+    if (ctx.state === "suspended") {
+      ctx.resume().then(doPlay).catch(() => {});
+      return;
+    }
+
+    doPlay();
   }
   
   private playBulletSound(): void {
@@ -1556,17 +1606,17 @@ class Game {
 
   private playJumpSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.jumpBuffer, this.UNIFORM_SFX_VOLUME * 1.1);
+    this.playSfx(this.jumpBuffer, this.UNIFORM_SFX_VOLUME * 1.6);
   }
 
   private playButtonClickSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.buttonClickBuffer, this.UNIFORM_SFX_VOLUME * 1.0);
+    this.playSfx(this.buttonClickBuffer, this.UNIFORM_SFX_VOLUME * 3.5);
   }
 
   private playHeartPickupSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.heartPickupBuffer, this.UNIFORM_SFX_VOLUME * 1.2);
+    this.playSfx(this.heartPickupBuffer, this.UNIFORM_SFX_VOLUME * 1.4);
   }
 
   private playRoomSelectBeep(): void {
@@ -1635,6 +1685,10 @@ class Game {
 
   private playDeathSound(): void {
     if (!this.settings.fx) return;
+    if (this.deathSfxBuffer) {
+      this.playSfx(this.deathSfxBuffer, this.UNIFORM_SFX_VOLUME * 2.5);
+      return;
+    }
     const ctx = this.getAudioCtx();
     const now = ctx.currentTime;
     const duration = 0.22;
@@ -2446,6 +2500,12 @@ class Game {
     this.saveSettings();
     this.triggerHaptic("light");
     
+    // Wake up AudioContext on any settings change (covers SFX re-enable within a user gesture)
+    const ctx = this.audioCtx;
+    if (ctx && ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+
     // Handle music toggle during gameplay
     if (key === "music") {
       if (this.settings.music && this.gameState === "playing") {
@@ -2466,8 +2526,8 @@ class Game {
   }
   
   private triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error"): void {
-    if (this.settings.haptics && typeof (window as any).triggerHaptic === "function") {
-      (window as any).triggerHaptic(type);
+    if (this.settings.haptics) {
+      oasiz.triggerHaptic(type);
     }
   }
   
@@ -2502,6 +2562,10 @@ class Game {
     this.touches.clear();
     this.deathBubbles = [];
     this.hurtAnimations = [];
+    this.deathExplosions = [];
+    this.explosionParticles = [];
+    this.crumbleDebris = [];
+    this.sandParticles = [];
     this.enemyBullets = [];
     this.releaseAllDroppedGems();
     this.brokenWeeds.clear();
@@ -2614,9 +2678,7 @@ class Game {
     this.startGameOverMusic();
     
     // Submit score
-    if (typeof (window as any).submitScore === "function") {
-      (window as any).submitScore(this.score);
-    }
+    oasiz.submitScore(this.score);
     
     // Show game over screen
     document.getElementById("game-over-screen")?.classList.remove("hidden");
@@ -2648,6 +2710,7 @@ class Game {
     } else if (this.gameState === "shop") {
       this.updateSpecialRoomState();
     }
+
     this.updateScreenShake();
   }
 
@@ -2670,7 +2733,7 @@ class Game {
     // 1. Input & Movement System (handled by PlayerController)
     this.playerController.handleInput(this.input);
     this.playerController.updateMovement(this.input);
-    
+
     // Update depth score
     const depth = Math.floor(player.y / 10);
     if (depth > this.maxDepth) {
@@ -3220,14 +3283,22 @@ class Game {
       if (offer.type === "heart") {
         nameEl.textContent = "HEART";
         descEl.textContent = "Restore 1 HP";
-        iconEl.innerHTML = '<img src="assets/shop-icons/heart_red.png" alt="heart" style="width:40px;height:40px;object-fit:contain;">';
+        iconEl.innerHTML = '<img src="assets/shop-icons/heart_red.png" alt="heart" style="width:40px;height:40px;object-fit:contain;animation:orbFloat 1.9s ease-in-out infinite;">';
         card.style.setProperty("--offer-accent", "#ff4466");
       } else if (offer.powerupType) {
         const info = POWERUP_INFO[offer.powerupType];
         nameEl.textContent = info.name;
         descEl.textContent = info.description;
-        iconEl.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:${info.color};opacity:0.9;"></div>`;
         card.style.setProperty("--offer-accent", info.color);
+        // Draw orb onto an offscreen canvas, convert to img (same as heart)
+        const orbCanvas = document.createElement("canvas");
+        orbCanvas.width = 44;
+        orbCanvas.height = 44;
+        const oc = orbCanvas.getContext("2d");
+        if (oc) {
+          this.drawCardOrb(oc, 22, 22, info.color, info.glowColor, info.name[0]);
+        }
+        iconEl.innerHTML = `<img src="${orbCanvas.toDataURL()}" style="width:40px;height:40px;object-fit:contain;animation:orbFloat 1.9s ease-in-out infinite;">`;
       }
 
       const canAfford = this.gems >= offer.cost;
@@ -3246,6 +3317,67 @@ class Game {
     });
 
     panel.classList.remove("hidden");
+  }
+
+  /** Draws the exact in-game powerup orb onto a 2D canvas context (static snapshot with sparkles). */
+  private drawCardOrb(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    color: string,
+    glowColor: string,
+    letter: string
+  ): void {
+    const size = 10;
+
+    // Outer glow
+    const outerGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 2.5);
+    outerGlow.addColorStop(0, glowColor.replace("0.6", "0.35"));
+    outerGlow.addColorStop(0.5, glowColor.replace("0.6", "0.12"));
+    outerGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = outerGlow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, size * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mid glow ring
+    const midGlow = ctx.createRadialGradient(cx, cy, size * 0.3, cx, cy, size * 1.2);
+    midGlow.addColorStop(0, color);
+    midGlow.addColorStop(0.4, glowColor);
+    midGlow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = midGlow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, size * 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Solid core
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(cx, cy, size * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // White highlight
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.arc(cx - size * 0.15, cy - size * 0.15, size * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 4 sparkles at fixed angles
+    for (let s = 0; s < 4; s++) {
+      const angle = (Math.PI * 2 / 4) * s + Math.PI / 4;
+      const sr = size * 0.9;
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(angle) * sr, cy + Math.sin(angle) * sr, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // First letter of power-up name
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 7px 'Press Start 2P', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(letter, cx, cy + 1);
   }
 
   /** Refresh affordability colors on cards while they're visible (call each frame from shop update). */
@@ -4861,6 +4993,9 @@ class Game {
       // Trigger aura flash effect around diver
       this.triggerPowerUpAnnouncement(collected);
       this.triggerHaptic("success");
+      if (this.settings.fx) {
+        this.playSfx(this.powerupCollectBuffer, this.UNIFORM_SFX_VOLUME * 1.5);
+      }
     }
     
     // Update powerup manager (timers, effects)
@@ -6569,7 +6704,7 @@ class Game {
     const panelWidth = Math.min(244, popupMaxWidth);
     const panelHeight = 42;
     const panelX = popupLeft + (popupMaxWidth - panelWidth) * 0.5;
-    const panelY = this.SHOP_ROOM_TOP + 38;
+    const panelY = (this.SHOP_ROOM_TOP + this.SHOP_ROOM_BOTTOM) * 0.5 - panelHeight * 0.5;
     ctx.fillStyle = "rgba(6, 22, 40, 0.9)";
     ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
     ctx.strokeStyle = "rgba(180, 235, 255, 0.82)";

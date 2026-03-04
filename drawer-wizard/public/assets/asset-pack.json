@@ -42,6 +42,11 @@
                 "key": "kill"
             },
             {
+                "url": "assets/audio/killBase.mp3",
+                "type": "audio",
+                "key": "killBase"
+            },
+            {
                 "url": "assets/audio/wrong.wav",
                 "type": "audio",
                 "key": "wrong"

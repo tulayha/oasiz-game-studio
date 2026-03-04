@@ -83,6 +83,9 @@ export default class Level extends Phaser.Scene {
     private lastKillTime = 0;
     private comboBreak = false;
     private comboTimeout?: Phaser.Time.TimerEvent;
+    private killNoteIdx = 0;
+    // Pentatonic scale steps (semitones from root). Ascending then wraps back.
+    private readonly KILL_MELODY_STEPS = [0, 2, 4, 7, 9, 12, 14, 16];
     private activeFeedback?: { text: Phaser.GameObjects.Text; burst: Phaser.GameObjects.Graphics; burstProg: { t: number } };
 
     private attractMode: boolean = false;
@@ -147,6 +150,7 @@ export default class Level extends Phaser.Scene {
         this.lastKillTime = 0;
         this.comboBreak = false;
         this.comboTimeout = undefined;
+        this.killNoteIdx = 0;
         this.activeFeedback = undefined;
 
         this.startSpawnLoop();
@@ -1175,6 +1179,7 @@ export default class Level extends Phaser.Scene {
                 this.comboTimeout = this.time.delayedCall(1000, () => {
                     this.comboCount = 0;
                     this.comboBreak = false;
+                    this.killNoteIdx = 0; // melody resets after the combo window expires
                 });
 
                 // Determine celebration tier
@@ -1850,7 +1855,7 @@ export default class Level extends Phaser.Scene {
 
         const s = this._s;
         if (s.fx) {
-            this.sound.play('kill', { volume: 0.20 });
+            this.playKillNote();
         }
         if (s.haptics) {
             triggerHaptic('heavy');
@@ -2014,7 +2019,7 @@ export default class Level extends Phaser.Scene {
     private popHead(wx: number, wy: number): void {
         const s = this._s;
         if (s.fx) {
-            this.sound.play('kill', { volume: 0.20 });
+            this.playKillNote();
         }
 
         // Small flash
@@ -2227,6 +2232,58 @@ export default class Level extends Phaser.Scene {
         });
 
         this.activeFeedback = { text, burst, burstProg };
+    }
+
+    /**
+     * Plays the base kill sound pitch-shifted to the next note in the melody.
+     * Consecutive kills within the combo window step up the scale, creating a
+     * satisfying melodic sequence. Resets when the combo window expires.
+     */
+    private playKillNote(): void {
+        if (!this._s.fx) return;
+        const ctx = (this.sound as any).context as AudioContext | undefined;
+        if (!ctx) return;
+
+        // Try to use the preloaded ElevenLabs killBase buffer for rich character.
+        // Fall back to a synthesised sine tone if the buffer isn't ready yet.
+        const phaserCacheEntry = this.cache.audio.get('killBase');
+        const buffer: AudioBuffer | undefined = phaserCacheEntry ?? undefined;
+
+        const semitones = this.KILL_MELODY_STEPS[this.killNoteIdx % this.KILL_MELODY_STEPS.length];
+        this.killNoteIdx++;
+        const playbackRate = Math.pow(2, semitones / 12);
+
+        if (buffer) {
+            const src = ctx.createBufferSource();
+            src.buffer = buffer;
+            src.playbackRate.value = playbackRate;
+
+            const gain = ctx.createGain();
+            gain.gain.value = 0.30;
+            src.connect(gain);
+            gain.connect(ctx.destination);
+            src.start();
+            src.onended = () => {
+                try { src.disconnect(); gain.disconnect(); } catch (_) {}
+            };
+        } else {
+            // Fallback: synthesise a warm sine tone at the same relative pitch
+            const baseHz = 130; // C3
+            const freq = baseHz * playbackRate;
+            const osc = ctx.createOscillator();
+            const env = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            osc.connect(env);
+            env.connect(ctx.destination);
+            const t = ctx.currentTime;
+            env.gain.setValueAtTime(0.001, t);
+            env.gain.exponentialRampToValueAtTime(0.22, t + 0.015);
+            env.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+            osc.start(t);
+            osc.stop(t + 0.36);
+            osc.onended = () => { try { osc.disconnect(); env.disconnect(); } catch (_) {} };
+        }
     }
 
     private playKillCelebration(tier: 'double' | 'triple' | 'combo', comboLevel = 2): void {
