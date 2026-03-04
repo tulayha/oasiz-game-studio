@@ -64,18 +64,20 @@ Use it to validate implementation and discuss changes.
 - Jump sections use explicit local shaping and do not use boundary slope blending.
 - Jump length range is generated in a dedicated jump range.
 
-4. `slope_up_steep`
-- Uphill section type used for stronger climbs.
-- Steepness is governed by the configured uphill slope angle and global slope clamp.
+4. `slope_down_soft`, `slope_down_steep`
+- Downhill section types used for gentle and steep descents.
+- Steepness is governed by configured downhill slope angle and global slope clamp.
 
 5. Spiral platforms (`spiral_down_left`, `spiral_down_right`)
 - Spiral column/axis is centered in the reserved section space.
-- Spiral radius scales down when section length cannot support full target radius.
+- Spiral radius is maximized for the reserved spiral section length.
 - Spiral length is derived from:
   - configured radius
   - one-turn circumference
   - entry and exit ramp-out lengths
 - Spiral supports are placed at the same computed center axis as the spiral path.
+- Spiral has a slight inward bank to help retain the marble in turns.
+- Wooden support planks extend from the center pillar toward the spiral underside.
 
 6. Detour platforms (`detour_left_short`, `detour_right_short`)
 - Apply lateral offset change in their facing direction.

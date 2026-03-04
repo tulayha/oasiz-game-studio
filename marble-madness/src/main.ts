@@ -188,6 +188,8 @@ class MarbleMadnessStarter {
   private readonly obstacleMinDistance = 3;
   private readonly obstacleMaxPerTypeCap = 12;
   private readonly obstacleWaveLinearGrowth = 1;
+  private readonly obstacleSectionEntrySafeDistanceMin = 6;
+  private readonly obstacleSectionEntrySafeRatio = 0.24;
   private readonly designerMiddleCount = 8;
   private readonly designerRepeatMiddleCount = 3;
   private readonly rotatorHeight = 2.8;
@@ -1410,7 +1412,12 @@ class MarbleMadnessStarter {
       if (!arcRange) {
         continue;
       }
-      const sMin = arcRange.sStart + 3;
+      const sectionSpan = Math.max(0, arcRange.sEnd - arcRange.sStart);
+      const sectionEntrySafeDistance = Math.max(
+        this.obstacleSectionEntrySafeDistanceMin,
+        sectionSpan * this.obstacleSectionEntrySafeRatio,
+      );
+      const sMin = arcRange.sStart + sectionEntrySafeDistance;
       const sMax = arcRange.sEnd - 3;
       if (sMax <= sMin) {
         continue;

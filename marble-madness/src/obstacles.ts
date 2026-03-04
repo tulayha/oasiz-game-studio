@@ -29,6 +29,8 @@ const OBSTACLE_ROTATOR_TAP_MIN_SPEED = 4.6;
 const OBSTACLE_BOUNCY_PAD_TAP_MIN_SPEED = 4.2;
 const OBSTACLE_BLOCKER_TAP_MIN_SPEED = 4.8;
 const OBSTACLE_BLOCKER_TAP_MIN_FORWARD_SPEED = 3.2;
+const OBSTACLE_SECTION_ENTRY_SAFE_DISTANCE_MIN = 6;
+const OBSTACLE_SECTION_ENTRY_SAFE_RATIO = 0.24;
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 const tempPoint = new THREE.Vector3();
@@ -560,7 +562,15 @@ export function buildWaveObstacles(
       if (!arcRange) {
         continue;
       }
-      const sMin = Math.max(arcRange.sStart + 3, context.obstacleStartSafeDistance);
+      const sectionSpan = Math.max(0, arcRange.sEnd - arcRange.sStart);
+      const sectionEntrySafeDistance = Math.max(
+        OBSTACLE_SECTION_ENTRY_SAFE_DISTANCE_MIN,
+        sectionSpan * OBSTACLE_SECTION_ENTRY_SAFE_RATIO,
+      );
+      const sMin = Math.max(
+        arcRange.sStart + sectionEntrySafeDistance,
+        context.obstacleStartSafeDistance,
+      );
       const sMax = Math.min(
         arcRange.sEnd - 3,
         context.trackArcLength - context.obstacleFinishSafeDistance,
