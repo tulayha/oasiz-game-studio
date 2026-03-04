@@ -110,29 +110,61 @@
       color: #a88a50;
     }
 
-    .start-btn {
-      font-family: 'Cinzel', serif;
-      font-weight: 700;
-      font-size: clamp(1rem, 2.5vw, 1.3rem);
-      letter-spacing: 0.15em;
-      padding: 1rem 3rem;
-      background: linear-gradient(180deg, #c8a96e 0%, #8a6a30 100%);
-      color: #0d0905;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
+    /* ── Physics selector ─────────────────────────────────────── */
+    .physics-selector {
       position: relative;
       z-index: 2;
-      box-shadow: 0 4px 0 #3a2a10, 0 8px 20px rgba(0,0,0,0.6);
-      transition: all 0.15s;
-      animation: btnGlow 2.5s ease-in-out infinite;
+      text-align: center;
     }
-    @keyframes btnGlow {
-      0%, 100% { box-shadow: 0 4px 0 #3a2a10, 0 8px 20px rgba(0,0,0,0.6); }
-      50%       { box-shadow: 0 4px 0 #3a2a10, 0 8px 40px rgba(200,169,110,0.3), 0 0 60px rgba(200,169,110,0.15); }
+
+    .physics-mode-label {
+      font-size: 0.6rem;
+      letter-spacing: 0.3em;
+      color: #5a4a2a;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
     }
-    .start-btn:hover  { transform: translateY(-2px); box-shadow: 0 6px 0 #3a2a10, 0 12px 30px rgba(0,0,0,0.7); animation: none; }
-    .start-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #3a2a10, 0 4px 10px rgba(0,0,0,0.6); animation: none; }
+
+    .physics-cards {
+      display: flex;
+      gap: 0.8rem;
+      justify-content: center;
+    }
+
+    .physics-card {
+      font-family: 'Cinzel', serif;
+      background: rgba(8, 6, 3, 0.75);
+      border: 1px solid rgba(200, 169, 110, 0.25);
+      border-radius: 6px;
+      padding: 0.9rem 1.2rem;
+      cursor: pointer;
+      width: clamp(120px, 26vw, 155px);
+      transition: all 0.18s;
+      text-align: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    }
+    .physics-card:hover {
+      border-color: rgba(200, 169, 110, 0.6);
+      background: rgba(200, 169, 110, 0.07);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 20px rgba(200,169,110,0.1);
+    }
+    .physics-card:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+
+    .physics-card-title {
+      font-weight: 700;
+      font-size: clamp(0.8rem, 2vw, 0.95rem);
+      letter-spacing: 0.12em;
+      color: #c8a96e;
+      margin-bottom: 0.5rem;
+    }
+
+    .physics-card-desc {
+      font-size: clamp(0.52rem, 1.3vw, 0.65rem);
+      color: #6a5a3a;
+      letter-spacing: 0.05em;
+      line-height: 1.6;
+    }
 
     /* ── HUD ──────────────────────────────────────────────────── */
     #hud {
@@ -445,13 +477,19 @@
       <canvas id="start-preview"></canvas>
     </div>
 
-    <div class="start-instructions">
-      <span>Move</span> the pickaxe to grip the rocks<br>
-      <span>Swing</span> your body to climb<br>
-      <span>Every fall</span> is part of the journey
+    <div class="physics-selector">
+      <div class="physics-mode-label">Select Physics Mode</div>
+      <div class="physics-cards">
+        <button class="physics-card" id="physics1-btn">
+          <div class="physics-card-title">CLASSIC</div>
+          <div class="physics-card-desc">Click to grip<br>Mouse swings the axe</div>
+        </button>
+        <button class="physics-card" id="physics2-btn">
+          <div class="physics-card-title">AUTO-GRIP</div>
+          <div class="physics-card-desc">Axe auto-attaches<br>Rotate mouse to climb</div>
+        </button>
+      </div>
     </div>
-
-    <button class="start-btn" id="start-btn">BEGIN THE ASCENT</button>
   </div>
 
   <!-- ── HUD ──────────────────────────────────────────────── -->

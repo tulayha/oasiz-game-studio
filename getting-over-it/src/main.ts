@@ -18,32 +18,36 @@ let gameState: GameState = 'start';
 
 // ─── UI elements ─────────────────────────────────────────────────────────────
 const startScreen  = document.getElementById('start-screen')!;
-const startBtn     = document.getElementById('start-btn')!;
+const physics1Btn  = document.getElementById('physics1-btn')!;
+const physics2Btn  = document.getElementById('physics2-btn')!;
 const hud          = document.getElementById('hud')!;
 const settingsBtn  = document.getElementById('settings-btn')!;
 const quitBtn      = document.getElementById('quit-btn')!;
 
-function startGame(): void {
-  gameState = 'playing';
+function startGame(mode: 1 | 2): void {
+  physicsMode    = mode;
+  gameState      = 'playing';
   startScreen.classList.add('hidden');
   hud.classList.remove('hidden');
   settingsBtn.classList.remove('hidden');
   quitBtn.classList.remove('hidden');
   // Reset player to spawn position
-  player.x       = 0;
-  player.y       = 80;
-  player.vx      = 0;
-  player.vy      = 0;
-  player.gripped = false;
-  player.omega   = 0;
-  maxHeight      = 0;
-  hintFrame      = 0;
-  hintAlpha      = 1;
-  camX           = 0;
-  camY           = 80;
+  player.x          = 0;
+  player.y          = 80;
+  player.vx         = 0;
+  player.vy         = 0;
+  player.gripped    = false;
+  player.omega      = 0;
+  maxHeight         = 0;
+  hintFrame         = 0;
+  hintAlpha         = 1;
+  camX              = 0;
+  camY              = 80;
+  autoGripCooldown  = 0;
 }
 
-startBtn.addEventListener('click', startGame);
+physics1Btn.addEventListener('click', () => startGame(1));
+physics2Btn.addEventListener('click', () => startGame(2));
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const GRAVITY      = 0.45;   // px / frame²  (downward = +y in canvas)
@@ -54,6 +58,12 @@ const MOUSE_SENS   = 0.15;   // how strongly mouse rotation drives omega (lower 
 const GRIP_RADIUS  = 15;     // px – how close tip must be to rock edge to grip
 const GROUND_Y     = 320;    // world-space Y of the flat ground floor
 const PLAYER_R     = 16;     // body radius for ground collision
+
+// ─── Physics mode ────────────────────────────────────────────────────────────
+// 1 = Classic (click to grip, mouse swings)
+// 2 = Auto-Grip (axe auto-attaches to rocks, rotate mouse to swing)
+let physicsMode: 1 | 2 = 1;
+let autoGripCooldown   = 0;  // frames to wait before allowing auto-re-grip after release
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface V2   { x: number; y: number; }
@@ -202,6 +212,33 @@ function doRelease(): void {
   player.vx      = -Math.sin(player.theta) * player.omega * ARM_LEN;
   player.vy      =  Math.cos(player.theta) * player.omega * ARM_LEN;
   player.gripped = false;
+  if (physicsMode === 2) autoGripCooldown = 25; // brief window before re-attaching
+}
+
+// ─── Auto-grip (Physics 2 only) ──────────────────────────────────────────────
+// Called every frame while in free-flight.  If the arm tip (pointing at mouse)
+// is within GRIP_RADIUS of any rock, instantly attach and seed pendulum state.
+function tryAutoGrip(): void {
+  if (player.gripped || autoGripCooldown > 0) return;
+
+  const angle = armAngleFree();
+  const tipX  = player.x + Math.cos(angle) * ARM_LEN;
+  const tipY  = player.y + Math.sin(angle) * ARM_LEN;
+
+  for (const rock of ROCKS) {
+    if (canGrip(tipX, tipY, rock)) {
+      player.gripped  = true;
+      player.gripX    = tipX;
+      player.gripY    = tipY;
+      player.theta    = Math.atan2(player.y - tipY, player.x - tipX);
+      // Seed omega from linear velocity projected onto the tangential direction
+      const tx        = -Math.sin(player.theta);
+      const ty        =  Math.cos(player.theta);
+      player.omega    = (player.vx * tx + player.vy * ty) / ARM_LEN;
+      prevGripAngle   = Math.atan2(mouseWY - tipY, mouseWX - tipX);
+      return;
+    }
+  }
 }
 
 // ─── Input listeners ─────────────────────────────────────────────────────────
@@ -211,12 +248,14 @@ canvas.addEventListener('mousemove', e => {
 
 canvas.addEventListener('mousedown', e => {
   if (gameState !== 'playing') return;
+  if (physicsMode === 2) return;  // auto-grip only — no manual click
   setPointer(e.clientX, e.clientY);
   tryGrip();
 });
 
 canvas.addEventListener('mouseup', () => {
   if (gameState !== 'playing') return;
+  if (physicsMode === 2) return;  // auto-release only — no manual release
   if (player.gripped) doRelease();
 });
 
@@ -226,7 +265,7 @@ canvas.addEventListener('touchstart', e => {
   const t = e.changedTouches[0];
   activeTouchId = t.identifier;
   setPointer(t.clientX, t.clientY);
-  tryGrip();
+  if (physicsMode === 1) tryGrip();  // auto-grip handles it for mode 2
 }, { passive: false });
 
 canvas.addEventListener('touchmove', e => {
@@ -244,7 +283,7 @@ canvas.addEventListener('touchend', e => {
   e.preventDefault();
   for (let i = 0; i < e.changedTouches.length; i++) {
     if (e.changedTouches[i].identifier === activeTouchId) {
-      if (player.gripped) doRelease();
+      if (physicsMode === 1 && player.gripped) doRelease();
       activeTouchId = null;
       break;
     }
@@ -336,6 +375,13 @@ function resolveBodyVsRocks(): void {
 
 // ─── Physics update ──────────────────────────────────────────────────────────
 function update(): void {
+  // ── Physics 2: auto-release when body swings above the grip anchor ─────────
+  // When the player has built enough momentum to arc above the grip point,
+  // automatically let go and launch them upward.
+  if (player.gripped && physicsMode === 2 && player.y < player.gripY - 5) {
+    doRelease();
+  }
+
   if (player.gripped) {
     // ── Pendulum physics ────────────────────────────────────────────────────
     //
@@ -364,8 +410,9 @@ function update(): void {
     // Body position from grip + theta
     player.x = player.gripX + Math.cos(player.theta) * ARM_LEN;
     player.y = player.gripY + Math.sin(player.theta) * ARM_LEN;
+  }
 
-  } else {
+  if (!player.gripped) {
     // ── Free flight ─────────────────────────────────────────────────────────
     player.vy += GRAVITY;
     player.vx *= LIN_DAMP;
@@ -378,6 +425,12 @@ function update(): void {
       player.y  = GROUND_Y - PLAYER_R;
       player.vy = 0;
       player.vx *= 0.7;   // friction on landing
+    }
+
+    // ── Physics 2: attempt auto-grip each free-flight frame ─────────────────
+    if (physicsMode === 2) {
+      if (autoGripCooldown > 0) autoGripCooldown--;
+      else tryAutoGrip();
     }
   }
 
@@ -610,13 +663,11 @@ function drawHUD(): void {
     ctx.globalAlpha = hintAlpha;
     ctx.fillStyle   = 'rgba(200,169,110,0.85)';
     ctx.font        = '13px Cinzel, serif';
-    ctx.fillText(
-      window.matchMedia('(pointer: coarse)').matches
-        ? 'Drag to aim  •  Tap to grip / release'
-        : 'Move mouse to aim  •  Click to grip / release',
-      canvas.width / 2,
-      canvas.height - 36
-    );
+    const isTouch   = window.matchMedia('(pointer: coarse)').matches;
+    const hint      = physicsMode === 2
+      ? (isTouch ? 'Rotate finger — axe auto-grips rock ledges' : 'Rotate mouse — axe auto-grips rock ledges')
+      : (isTouch ? 'Drag to aim  •  Tap to grip / release'       : 'Move mouse to aim  •  Click to grip / release');
+    ctx.fillText(hint, canvas.width / 2, canvas.height - 36);
     ctx.globalAlpha = 1;
   }
 }
