@@ -5,8 +5,81 @@ const PINBALL_BOUNCER_IMPULSE_MULTIPLIER = 2;
 const PINBALL_BOUNCER_VISUAL_SCALE_PER_MULTIPLIER = 0.2;
 const PINBALL_BOUNCER_HIT_COOLDOWN_SECONDS = 0.2;
 const PINBALL_BOUNCER_HIT_DISTANCE_PADDING = 0.34;
-const BOUNCY_PAD_MOTOR_STIFFNESS = 180;
-const BOUNCY_PAD_MOTOR_DAMPING = 28;
+const PINBALL_BOUNCER_MIN_OUTWARD_SPEED = 1.2;
+const PINBALL_BOUNCER_BLOCKED_OUTWARD_SPEED = 0.55;
+const PINBALL_BOUNCER_COLUMN_RADIUS_TOP = 0.22;
+const PINBALL_BOUNCER_COLUMN_RADIUS_BOTTOM = 0.3;
+const PINBALL_BOUNCER_COLUMN_Y_OFFSET_RATIO = -0.28;
+const PINBALL_BOUNCER_CAP_Y_RATIO = 0.46;
+const BOUNCY_PAD_MAX_ANGULAR_SPEED = Math.PI * 3.2;
+const BOUNCY_PAD_WALL_INSET = 0.42;
+const BOUNCY_PAD_REACH_RATIO = 0.46;
+const BOUNCY_PAD_VISUAL_SCALE_X = 2;
+const BOUNCY_PAD_VISUAL_SCALE_Y = 1.8;
+const BOUNCY_PAD_VISUAL_SCALE_Z = 0.62;
+const BOUNCY_PAD_PIVOT_Y = 0.1;
+const BOUNCY_PAD_PADDLE_Y_BASE = 0.24;
+const BOUNCY_PAD_COLLIDER_DEPTH_MULTIPLIER = 1.14;
+const OBSTACLE_PHYSICS_WIREFRAME_COLOR = "#4dc8ff";
+
+function getPinballBouncerBaseScale(): number {
+  return (
+    1 +
+    (PINBALL_BOUNCER_IMPULSE_MULTIPLIER - 1) *
+      PINBALL_BOUNCER_VISUAL_SCALE_PER_MULTIPLIER
+  );
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function isObstaclePhysicsWireframeEnabled(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  const button = document.getElementById("debug-physics-wire-toggle");
+  if (!button) {
+    return false;
+  }
+  return button.dataset.enabled === "true";
+}
+
+function createObstaclePhysicsWireframeMesh(
+  geometry: THREE.BufferGeometry,
+): THREE.Mesh {
+  const wireframe = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      color: OBSTACLE_PHYSICS_WIREFRAME_COLOR,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    }),
+  );
+  wireframe.userData.obstaclePhysicsWireframe = true;
+  wireframe.visible = isObstaclePhysicsWireframeEnabled();
+  wireframe.castShadow = false;
+  wireframe.receiveShadow = false;
+  return wireframe;
+}
+
+function updateObstacleWireframeVisibility(
+  obstacleMeshById: Map<string, THREE.Object3D>,
+): void {
+  const visible = isObstaclePhysicsWireframeEnabled();
+  for (const mesh of obstacleMeshById.values()) {
+    mesh.traverse((node) => {
+      if (!(node instanceof THREE.Mesh)) {
+        return;
+      }
+      if (node.userData.obstaclePhysicsWireframe === true) {
+        node.visible = visible;
+      }
+    });
+  }
+}
 
 export type ObstacleKind =
   | "horizontal_blocker"
@@ -318,7 +391,7 @@ function tryCreateWaveObstacle(
   } else {
     const sideSign = Math.random() < 0.5 ? -1 : 1;
     const side: "left" | "right" = sideSign < 0 ? "left" : "right";
-    const x = centerX + sideSign * Math.max(2.1, innerHalf - 0.06);
+    const x = centerX + sideSign * Math.max(2.1, innerHalf - BOUNCY_PAD_WALL_INSET);
     obstacle = {
       id: context.nextObstacleId(kind),
       kind,
@@ -388,10 +461,8 @@ export function buildWaveObstacles(
       ({ section }) =>
         section.hasFloor &&
         section.type !== "start" &&
-        section.type !== "finish_straight" &&
-        section.type !== "gap_short" &&
-        section.type !== "slope_down_soft" &&
-        section.type !== "slope_down_steep" &&
+        section.type !== "end" &&
+        section.type !== "jump" &&
         section.type !== "slope_up_steep" &&
         section.type !== "spiral_down_left" &&
         section.type !== "spiral_down_right" &&
@@ -519,6 +590,23 @@ export function addWaveObstacleMeshes(host: WaveObstacleMeshHost): void {
       paddle.rotation.y = angle;
       group.add(paddle);
     }
+    const hubWireframe = createObstaclePhysicsWireframeMesh(
+      new THREE.BoxGeometry(0.52, 0.28, 0.52),
+    );
+    hubWireframe.position.y = -rotator.height * 0.43;
+    group.add(hubWireframe);
+    for (let i = 0; i < 4; i += 1) {
+      const localAngle = Math.PI * 0.25 + (i / 4) * Math.PI * 2;
+      const armWireframe = createObstaclePhysicsWireframeMesh(
+        new THREE.BoxGeometry(
+          rotator.armLength * 2,
+          rotator.height * 0.96,
+          rotator.armThickness,
+        ),
+      );
+      armWireframe.rotation.y = localAngle;
+      group.add(armWireframe);
+    }
     group.rotation.y = rotator.angle;
     group.rotation.x = -rotator.tilt;
     group.position.set(rotator.x, rotator.y, rotator.z);
@@ -535,7 +623,12 @@ export function addWaveObstacleMeshes(host: WaveObstacleMeshHost): void {
   for (const bouncer of host.pinballBouncers) {
     const group = new THREE.Group();
     const column = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.22, 0.3, bouncer.columnHeight, 12),
+      new THREE.CylinderGeometry(
+        PINBALL_BOUNCER_COLUMN_RADIUS_TOP,
+        PINBALL_BOUNCER_COLUMN_RADIUS_BOTTOM,
+        bouncer.columnHeight,
+        12,
+      ),
       bouncerMaterial,
     );
     const cap = new THREE.Mesh(
@@ -550,15 +643,36 @@ export function addWaveObstacleMeshes(host: WaveObstacleMeshHost): void {
       ),
       bouncerMaterial,
     );
-    column.position.y = -bouncer.capRadius * 0.28;
-    cap.position.y = bouncer.columnHeight * 0.46;
-    const bouncerBaseScale =
-      1 +
-      (PINBALL_BOUNCER_IMPULSE_MULTIPLIER - 1) *
-        PINBALL_BOUNCER_VISUAL_SCALE_PER_MULTIPLIER;
+    column.position.y =
+      bouncer.capRadius * PINBALL_BOUNCER_COLUMN_Y_OFFSET_RATIO;
+    cap.position.y = bouncer.columnHeight * PINBALL_BOUNCER_CAP_Y_RATIO;
+    const bouncerBaseScale = getPinballBouncerBaseScale();
     cap.scale.setScalar(bouncerBaseScale);
     group.add(column);
     group.add(cap);
+    const columnHalfExtent = Math.max(
+      PINBALL_BOUNCER_COLUMN_RADIUS_TOP,
+      PINBALL_BOUNCER_COLUMN_RADIUS_BOTTOM,
+    );
+    const columnWireframe = createObstaclePhysicsWireframeMesh(
+      new THREE.BoxGeometry(
+        columnHalfExtent * 2,
+        bouncer.columnHeight,
+        columnHalfExtent * 2,
+      ),
+    );
+    columnWireframe.position.y =
+      bouncer.capRadius * PINBALL_BOUNCER_COLUMN_Y_OFFSET_RATIO;
+    const capWireframe = createObstaclePhysicsWireframeMesh(
+      new THREE.SphereGeometry(
+        bouncer.capRadius * bouncerBaseScale,
+        14,
+        10,
+      ),
+    );
+    capWireframe.position.y = bouncer.columnHeight * PINBALL_BOUNCER_CAP_Y_RATIO;
+    group.add(columnWireframe);
+    group.add(capWireframe);
     host.bouncerCapById.set(bouncer.id, cap);
     host.bouncerPulseById.set(bouncer.id, 0);
     group.rotation.x = -bouncer.tilt;
@@ -576,6 +690,14 @@ export function addWaveObstacleMeshes(host: WaveObstacleMeshHost): void {
   for (const pad of host.bouncyPads) {
     const group = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.35), padMaterial);
+    const anchorStem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.12, 0.56, 14),
+      padMaterial,
+    );
+    const anchorCap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.2, 0.22, 0.12, 14),
+      padMaterial,
+    );
     const pivot = new THREE.Group();
     const paddleRadius = Math.max(0.2, pad.paddleWidth * 0.42);
     const paddleBodyLength = Math.max(0.24, pad.paddleLength - paddleRadius * 2);
@@ -584,25 +706,66 @@ export function addWaveObstacleMeshes(host: WaveObstacleMeshHost): void {
       padMaterial,
     );
     base.position.y = -0.08;
-    pivot.position.y = 0.1;
+    pivot.position.y = BOUNCY_PAD_PIVOT_Y;
     const sideSign = pad.side === "left" ? 1 : -1;
-    const paddleVerticalScale = 2;
-    const addedHeightUnderOffset = paddleRadius * (paddleVerticalScale - 1);
+    const addedHeightUnderOffset = paddleRadius * (BOUNCY_PAD_VISUAL_SCALE_X - 1);
     // Rotate the capsule to align with swing direction, then stretch vertically
     // so it reads as an upright paddle blade rather than a flat plank.
     paddle.rotation.z = Math.PI * 0.5;
-    paddle.scale.set(paddleVerticalScale, 1.8, 0.62);
+    paddle.scale.set(
+      BOUNCY_PAD_VISUAL_SCALE_X,
+      BOUNCY_PAD_VISUAL_SCALE_Y,
+      BOUNCY_PAD_VISUAL_SCALE_Z,
+    );
+    const paddleReach = pad.paddleLength * BOUNCY_PAD_REACH_RATIO;
     paddle.position.set(
-      sideSign * pad.paddleLength * 0.5,
-      0.24 - addedHeightUnderOffset,
+      sideSign * paddleReach,
+      BOUNCY_PAD_PADDLE_Y_BASE - addedHeightUnderOffset,
       0,
     );
+    anchorStem.position.set(0, -0.26, 0);
+    anchorCap.position.set(0, 0.02, 0);
+    const colliderPaddleHalfLength =
+      (paddleBodyLength * 0.5 + paddleRadius) * BOUNCY_PAD_VISUAL_SCALE_Y * 0.98;
+    const colliderPaddleHalfHeight =
+      paddleRadius * BOUNCY_PAD_VISUAL_SCALE_X * 0.94;
+    const colliderPaddleHalfDepth =
+      paddleRadius * BOUNCY_PAD_VISUAL_SCALE_Z * 1.08;
+    const colliderPaddleCenterY =
+      BOUNCY_PAD_PIVOT_Y +
+      BOUNCY_PAD_PADDLE_Y_BASE -
+      paddleRadius * (BOUNCY_PAD_VISUAL_SCALE_X - 1);
+    const baseWireframe = createObstaclePhysicsWireframeMesh(
+      new THREE.BoxGeometry(0.35, 0.4, 0.35),
+    );
+    baseWireframe.position.y = -0.08;
+    group.add(baseWireframe);
+    const paddleWireframe = createObstaclePhysicsWireframeMesh(
+      new THREE.BoxGeometry(
+        colliderPaddleHalfLength * 2,
+        colliderPaddleHalfHeight * 2,
+        colliderPaddleHalfDepth * 2,
+      ),
+    );
+    paddleWireframe.position.set(
+      sideSign * paddleReach,
+      colliderPaddleCenterY - BOUNCY_PAD_PIVOT_Y,
+      0,
+    );
+    pivot.add(paddleWireframe);
+    const guardWireframe = createObstaclePhysicsWireframeMesh(
+      new THREE.BoxGeometry(0.48, 0.4, 0.48),
+    );
+    guardWireframe.position.set(0, -0.04, 0);
+    group.add(guardWireframe);
     const startYaw =
       pad.side === "left"
         ? THREE.MathUtils.degToRad(8)
         : -THREE.MathUtils.degToRad(8);
     pivot.rotation.y = startYaw;
     group.add(base);
+    group.add(anchorStem);
+    group.add(anchorCap);
     pivot.add(paddle);
     group.add(pivot);
     group.rotation.x = -pad.tilt;
@@ -667,13 +830,15 @@ export function applyObstacleInteractions(host: ObstacleInteractionHost): void {
       continue;
     }
 
-    const capCenterY = bouncer.y + bouncer.columnHeight * 0.52;
+    const capCenterY = bouncer.y + bouncer.columnHeight * PINBALL_BOUNCER_CAP_Y_RATIO;
     const dx = marblePosition.x - bouncer.x;
     const dy = marblePosition.y - capCenterY;
     const dz = marblePosition.z - bouncer.z;
     const distanceSq = dx * dx + dy * dy + dz * dz;
     const contactDistance =
-      bouncer.capRadius + host.marbleRadius + PINBALL_BOUNCER_HIT_DISTANCE_PADDING;
+      bouncer.capRadius * getPinballBouncerBaseScale() +
+      host.marbleRadius +
+      PINBALL_BOUNCER_HIT_DISTANCE_PADDING;
     if (distanceSq > contactDistance * contactDistance) {
       continue;
     }
@@ -699,22 +864,47 @@ export function applyObstacleInteractions(host: ObstacleInteractionHost): void {
       outwardZ /= horizontalLen;
     }
 
-    const horizontalImpulse = bouncer.bounceImpulse * 0.9;
-    const verticalImpulse = bouncer.bounceImpulse * 0.32;
+    const currentVelocity = host.marbleBody.linvel();
+    const outwardSpeed =
+      currentVelocity.x * outwardX + currentVelocity.z * outwardZ;
+    const blockedFactor = clamp01(
+      (PINBALL_BOUNCER_BLOCKED_OUTWARD_SPEED - outwardSpeed) /
+        (PINBALL_BOUNCER_BLOCKED_OUTWARD_SPEED + PINBALL_BOUNCER_MIN_OUTWARD_SPEED),
+    );
+    const horizontalWeight = THREE.MathUtils.lerp(0.9, 0.52, blockedFactor);
+    const verticalWeight = THREE.MathUtils.lerp(0.32, 0.88, blockedFactor);
+    const impulseMagnitude =
+      bouncer.bounceImpulse * THREE.MathUtils.lerp(1, 1.18, blockedFactor);
+    const bounceDir = new THREE.Vector3(
+      outwardX * horizontalWeight,
+      verticalWeight,
+      outwardZ * horizontalWeight,
+    ).normalize();
     host.marbleBody.applyImpulse(
       {
-        x: outwardX * horizontalImpulse,
-        y: verticalImpulse,
-        z: outwardZ * horizontalImpulse,
+        x: bounceDir.x * impulseMagnitude,
+        y: bounceDir.y * impulseMagnitude,
+        z: bounceDir.z * impulseMagnitude,
       },
       true,
     );
-    const currentVelocity = host.marbleBody.linvel();
+    const minOutwardSpeed = THREE.MathUtils.lerp(
+      PINBALL_BOUNCER_MIN_OUTWARD_SPEED,
+      PINBALL_BOUNCER_BLOCKED_OUTWARD_SPEED,
+      blockedFactor,
+    );
+    const postImpulseVelocity = host.marbleBody.linvel();
+    const postOutwardSpeed =
+      postImpulseVelocity.x * outwardX + postImpulseVelocity.z * outwardZ;
+    const outwardSpeedFix = Math.max(0, minOutwardSpeed - postOutwardSpeed);
     host.marbleBody.setLinvel(
       {
-        x: currentVelocity.x + outwardX * bouncer.bounceImpulse * 0.5,
-        y: Math.max(currentVelocity.y, bouncer.bounceImpulse * 0.28),
-        z: currentVelocity.z + outwardZ * bouncer.bounceImpulse * 0.5,
+        x: postImpulseVelocity.x + outwardX * outwardSpeedFix,
+        y: Math.max(
+          postImpulseVelocity.y,
+          bouncer.bounceImpulse * THREE.MathUtils.lerp(0.28, 0.62, blockedFactor),
+        ),
+        z: postImpulseVelocity.z + outwardZ * outwardSpeedFix,
       },
       true,
     );
@@ -876,6 +1066,11 @@ export function createTrackPhysicsBodies(context: TrackPhysicsContext): void {
       });
     const body = context.world.createRigidBody(bodyDesc);
     context.trackRigidBodies.push(body);
+    const hubCollider = RAPIER.ColliderDesc.cuboid(0.26, 0.14, 0.26)
+      .setTranslation(0, -rotator.height * 0.43, 0)
+      .setFriction(0.72)
+      .setRestitution(0);
+    context.world.createCollider(hubCollider, body);
     for (let i = 0; i < 4; i += 1) {
       const localAngle = Math.PI * 0.25 + (i / 4) * Math.PI * 2;
       const localRot = new THREE.Quaternion().setFromAxisAngle(
@@ -916,14 +1111,21 @@ export function createTrackPhysicsBodies(context: TrackPhysicsContext): void {
     const body = context.world.createRigidBody(bodyDesc);
     context.trackRigidBodies.push(body);
     const columnCollider = RAPIER.ColliderDesc.cuboid(
-      0.24,
+      Math.max(PINBALL_BOUNCER_COLUMN_RADIUS_TOP, PINBALL_BOUNCER_COLUMN_RADIUS_BOTTOM),
       bouncer.columnHeight * 0.5,
-      0.24,
+      Math.max(PINBALL_BOUNCER_COLUMN_RADIUS_TOP, PINBALL_BOUNCER_COLUMN_RADIUS_BOTTOM),
     )
+      .setTranslation(
+        0,
+        bouncer.capRadius * PINBALL_BOUNCER_COLUMN_Y_OFFSET_RATIO,
+        0,
+      )
       .setFriction(0.6)
       .setRestitution(0);
-    const capCollider = RAPIER.ColliderDesc.ball(bouncer.capRadius)
-      .setTranslation(0, bouncer.columnHeight * 0.52, 0)
+    const capCollider = RAPIER.ColliderDesc.ball(
+      bouncer.capRadius * getPinballBouncerBaseScale(),
+    )
+      .setTranslation(0, bouncer.columnHeight * PINBALL_BOUNCER_CAP_Y_RATIO, 0)
       .setFriction(0.55)
       .setRestitution(0);
     context.world.createCollider(columnCollider, body);
@@ -932,95 +1134,68 @@ export function createTrackPhysicsBodies(context: TrackPhysicsContext): void {
   }
 
   for (const pad of context.bouncyPads) {
-    const anchorRotation = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(-pad.tilt, 0, 0),
+    const startYaw =
+      pad.side === "left"
+        ? THREE.MathUtils.degToRad(8)
+        : -THREE.MathUtils.degToRad(8);
+    pad.sweepAngle = startYaw;
+    const padRotation = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(-pad.tilt, pad.sweepAngle, 0),
     );
-    const anchorBodyDesc = RAPIER.RigidBodyDesc.fixed()
+    const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
       .setTranslation(pad.x, pad.y, pad.z)
       .setRotation({
-        x: anchorRotation.x,
-        y: anchorRotation.y,
-        z: anchorRotation.z,
-        w: anchorRotation.w,
-      });
-    const anchorBody = context.world.createRigidBody(anchorBodyDesc);
-    context.trackRigidBodies.push(anchorBody);
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(pad.x, pad.y, pad.z)
-      .setRotation({
-        x: anchorRotation.x,
-        y: anchorRotation.y,
-        z: anchorRotation.z,
-        w: anchorRotation.w,
+        x: padRotation.x,
+        y: padRotation.y,
+        z: padRotation.z,
+        w: padRotation.w,
       })
-      .setAngularDamping(2.8)
-      .setLinearDamping(1.2)
-      .setCanSleep(false);
+      .setCanSleep(false)
+      .setCcdEnabled(true);
     const body = context.world.createRigidBody(bodyDesc);
-    body.setGravityScale(0, true);
-    body.setEnabledTranslations(false, false, false, true);
-    body.setEnabledRotations(false, true, false, true);
+    body.setAdditionalMass(20, true);
     context.trackRigidBodies.push(body);
-    const baseCollider = RAPIER.ColliderDesc.cuboid(0.4, 0.16, 0.4)
+    const baseCollider = RAPIER.ColliderDesc.cuboid(0.175, 0.2, 0.175)
+      .setTranslation(0, -0.08, 0)
       .setFriction(0.64)
       .setRestitution(0);
     const sideSign = pad.side === "left" ? 1 : -1;
-    const paddleHalfLength = pad.paddleLength * 0.5;
-    const paddleHalfHeight = 1.36;
-    const paddleHalfDepth = pad.paddleWidth * 0.34 + 0.06;
-    const edgeRadius = Math.min(paddleHalfHeight, paddleHalfDepth) * 0.55;
-    const addedColliderUnderOffset = 0.68;
+    const paddleRadius = Math.max(0.2, pad.paddleWidth * 0.42);
+    const paddleBodyLength = Math.max(0.24, pad.paddleLength - paddleRadius * 2);
+    const paddleCapsuleHalfLength = paddleBodyLength * 0.5 + paddleRadius;
+    const paddleHalfLength = paddleCapsuleHalfLength * BOUNCY_PAD_VISUAL_SCALE_Y * 0.98;
+    const paddleHalfHeight = paddleRadius * BOUNCY_PAD_VISUAL_SCALE_X * 0.94;
+    const paddleHalfDepth =
+      paddleRadius * BOUNCY_PAD_VISUAL_SCALE_Z * 1.08 * BOUNCY_PAD_COLLIDER_DEPTH_MULTIPLIER;
+    const paddleCenterY =
+      BOUNCY_PAD_PIVOT_Y +
+      BOUNCY_PAD_PADDLE_Y_BASE -
+      paddleRadius * (BOUNCY_PAD_VISUAL_SCALE_X - 1);
+    const paddleReach = pad.paddleLength * BOUNCY_PAD_REACH_RATIO;
+    const edgeRadius = Math.min(paddleHalfHeight, paddleHalfDepth) * 0.34;
     const paddleCollider = RAPIER.ColliderDesc.roundCuboid(
       paddleHalfLength,
       paddleHalfHeight,
       paddleHalfDepth,
       edgeRadius,
     )
-      .setTranslation(
-        sideSign * pad.paddleLength * 0.5,
-        0.34 - addedColliderUnderOffset,
-        0,
-      )
+      .setTranslation(sideSign * paddleReach, paddleCenterY, 0)
       .setFriction(0.68)
       .setRestitution(0);
-    const guardCollider = RAPIER.ColliderDesc.cuboid(
-      pad.paddleLength * 0.5,
-      0.16,
-      pad.paddleWidth * 0.3,
-    )
-      .setTranslation(
-        sideSign * pad.paddleLength * 0.5,
-        0.12 - addedColliderUnderOffset,
-        0,
-      )
+    const guardCollider = RAPIER.ColliderDesc.cuboid(0.24, 0.2, 0.24)
+      .setTranslation(0, -0.04, 0)
       .setFriction(0.66)
       .setRestitution(0);
     context.world.createCollider(baseCollider, body);
     context.world.createCollider(paddleCollider, body);
     context.world.createCollider(guardCollider, body);
     context.obstacleBodyById.set(pad.id, body);
-
-    const jointData = RAPIER.JointData.revolute(
-      { x: 0, y: 0, z: 0 },
-      { x: 0, y: 0, z: 0 },
-      { x: 0, y: 1, z: 0 },
-    );
-    const joint = context.world.createImpulseJoint(
-      jointData,
-      anchorBody,
-      body,
-      true,
-    ) as unknown as RAPIER.RevoluteImpulseJoint;
-    joint.configureMotorPosition(
-      pad.sweepAngle,
-      BOUNCY_PAD_MOTOR_STIFFNESS,
-      BOUNCY_PAD_MOTOR_DAMPING,
-    );
-    context.bouncyPadJointById.set(pad.id, joint);
   }
 }
 
 export function updateWaveObstacleAnimation(host: ObstacleAnimationHost): void {
+  updateObstacleWireframeVisibility(host.obstacleMeshById);
+
   for (const rotator of host.rotatorObstacles) {
     rotator.angle += rotator.spinSpeed * rotator.spinDir * host.fixedStep;
     if (rotator.angle > Math.PI * 2) {
@@ -1055,18 +1230,29 @@ export function updateWaveObstacleAnimation(host: ObstacleAnimationHost): void {
         : -THREE.MathUtils.degToRad(8);
     const endYaw =
       pad.side === "left" ? -Math.PI * 0.5 : Math.PI * 0.5;
-    pad.sweepAngle = THREE.MathUtils.lerp(startYaw, endYaw, cycle);
+    const targetSweepAngle = THREE.MathUtils.lerp(startYaw, endYaw, cycle);
+    const maxStep = BOUNCY_PAD_MAX_ANGULAR_SPEED * host.fixedStep;
+    const angleDelta = THREE.MathUtils.clamp(
+      targetSweepAngle - pad.sweepAngle,
+      -maxStep,
+      maxStep,
+    );
+    pad.sweepAngle += angleDelta;
     const paddle = host.bouncyPadPaddleById.get(pad.id);
     if (paddle) {
       paddle.rotation.y = pad.sweepAngle;
     }
-    const joint = host.bouncyPadJointById.get(pad.id);
-    if (joint) {
-      joint.configureMotorPosition(
-        pad.sweepAngle,
-        BOUNCY_PAD_MOTOR_STIFFNESS,
-        BOUNCY_PAD_MOTOR_DAMPING,
+    const body = host.obstacleBodyById.get(pad.id);
+    if (body) {
+      const rotation = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(-pad.tilt, pad.sweepAngle, 0),
       );
+      body.setNextKinematicRotation({
+        x: rotation.x,
+        y: rotation.y,
+        z: rotation.z,
+        w: rotation.w,
+      });
     }
   }
 
@@ -1078,10 +1264,7 @@ export function updateWaveObstacleAnimation(host: ObstacleAnimationHost): void {
     const currentPulse = host.bouncerPulseById.get(bouncer.id) ?? 0;
     const nextPulse = Math.max(0, currentPulse - host.fixedStep * 5.2);
     host.bouncerPulseById.set(bouncer.id, nextPulse);
-    const bouncerBaseScale =
-      1 +
-      (PINBALL_BOUNCER_IMPULSE_MULTIPLIER - 1) *
-        PINBALL_BOUNCER_VISUAL_SCALE_PER_MULTIPLIER;
+    const bouncerBaseScale = getPinballBouncerBaseScale();
     const pulseScaleBoost =
       0.3 + (PINBALL_BOUNCER_IMPULSE_MULTIPLIER - 1) * 0.06;
     const targetScale = bouncerBaseScale + nextPulse * pulseScaleBoost;
