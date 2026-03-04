@@ -5,7 +5,7 @@ import { type TerritoryGrid } from './Territory.ts';
 const TERRITORY_Y = 0.03;
 const TERRITORY_HEIGHT = 0.14;
 const TRAIL_Y = 0.22;
-const CELL_SIZE = 0.12;
+const CELL_SIZE = 0.18;
 const BORDER_WIDTH = 1.0;
 
 export class Renderer {
@@ -374,19 +374,146 @@ export class Renderer {
       if (bc < cols - 1) { const ni = br * cols + bc + 1;       if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br, bc + 1); } }
     }
 
-    // --- Smooth the binary field for interpolated marching squares ---
+    // --- Grid-resolution SDF + Catmull-Rom interpolation ---
+    // 1. Compute SDF at GRID resolution (where each cell = 1 unit)
+    // 2. Catmull-Rom interpolate at render resolution for smooth contours
+    // This produces smooth curves because the SDF varies continuously,
+    // unlike binary data which has hard 0/1 transitions.
     const smooth = new Float32Array(cols * rows);
-    for (let i = 0; i < field.length; i++) smooth[i] = field[i];
-    for (let pass = 0; pass < 3; pass++) {
-      const src = Float32Array.from(smooth);
+
+    const gData = grid.data;
+    const gSz = grid.size;
+    const gCell = grid.cellSize;
+    const gHalf = grid.halfMap;
+
+    // Sub-grid covering this territory + padding
+    const pad = 6;
+    const sMinC = Math.max(0, bounds.minC - pad);
+    const sMaxC = Math.min(gSz - 1, bounds.maxC + pad);
+    const sMinR = Math.max(0, bounds.minR - pad);
+    const sMaxR = Math.min(gSz - 1, bounds.maxR + pad);
+    const sCols = sMaxC - sMinC + 1;
+    const sRows = sMaxR - sMinR + 1;
+
+    // Binary ownership at grid resolution
+    const gOwn = new Uint8Array(sCols * sRows);
+    for (let r = 0; r < sRows; r++) {
+      for (let c = 0; c < sCols; c++) {
+        if (gData[(sMinR + r) * gSz + sMinC + c] === id) gOwn[r * sCols + c] = 1;
+      }
+    }
+
+    // Chamfer DT at grid resolution
+    const dE = new Float32Array(sCols * sRows); // dist to nearest empty
+    const dF = new Float32Array(sCols * sRows); // dist to nearest filled
+    dE.fill(9999);
+    dF.fill(9999);
+    for (let i = 0; i < sCols * sRows; i++) {
+      if (!gOwn[i]) dE[i] = 0;
+      else dF[i] = 0;
+    }
+
+    const D1 = 1.0, D2 = 1.414;
+    const chamfer = (d: Float32Array, w: number, h: number) => {
+      for (let r = 0; r < h; r++) {
+        for (let c = 0; c < w; c++) {
+          const i = r * w + c;
+          if (r > 0) {
+            d[i] = Math.min(d[i], d[i - w] + D1);
+            if (c > 0) d[i] = Math.min(d[i], d[i - w - 1] + D2);
+            if (c < w - 1) d[i] = Math.min(d[i], d[i - w + 1] + D2);
+          }
+          if (c > 0) d[i] = Math.min(d[i], d[i - 1] + D1);
+        }
+      }
+      for (let r = h - 1; r >= 0; r--) {
+        for (let c = w - 1; c >= 0; c--) {
+          const i = r * w + c;
+          if (r < h - 1) {
+            d[i] = Math.min(d[i], d[i + w] + D1);
+            if (c > 0) d[i] = Math.min(d[i], d[i + w - 1] + D2);
+            if (c < w - 1) d[i] = Math.min(d[i], d[i + w + 1] + D2);
+          }
+          if (c < w - 1) d[i] = Math.min(d[i], d[i + 1] + D1);
+        }
+      }
+    };
+
+    chamfer(dE, sCols, sRows);
+    chamfer(dF, sCols, sRows);
+
+    // Grid-resolution SDF: positive inside, negative outside
+    const gridSDF = new Float32Array(sCols * sRows);
+    for (let i = 0; i < sCols * sRows; i++) {
+      gridSDF[i] = gOwn[i] ? dE[i] : -dF[i];
+    }
+
+    // Catmull-Rom interpolation of grid SDF at each render cell (fully inlined)
+    const BAND = 3;
+    const halfBand = 0.5 / BAND;
+    const sColsM1 = sCols - 1;
+    const sRowsM1 = sRows - 1;
+    const gxBase = gHalf / gCell - 0.5 - sMinC;
+    const gzBase = gHalf / gCell - 0.5 - sMinR;
+    const cellToGrid = 1 / gCell;
+
+    for (let r = 0; r < rows; r++) {
+      const gz = (minZ + r * CELL_SIZE) * cellToGrid + gzBase;
+      const gj = Math.floor(gz);
+      const fz = gz - gj;
+      const fz2 = fz * fz, fz3 = fz2 * fz;
+      // Z weights hoisted per row
+      const wz0 = 0.5 * (-fz + 2 * fz2 - fz3);
+      const wz1 = 0.5 * (2 - 5 * fz2 + 3 * fz3);
+      const wz2 = 0.5 * (fz + 4 * fz2 - 3 * fz3);
+      const wz3 = 0.5 * (-fz2 + fz3);
+      // Row offsets clamped once per row
+      const r0 = (gj - 1 < 0 ? 0 : gj - 1 > sRowsM1 ? sRowsM1 : gj - 1) * sCols;
+      const r1 = (gj < 0 ? 0 : gj > sRowsM1 ? sRowsM1 : gj) * sCols;
+      const r2 = (gj + 1 < 0 ? 0 : gj + 1 > sRowsM1 ? sRowsM1 : gj + 1) * sCols;
+      const r3 = (gj + 2 < 0 ? 0 : gj + 2 > sRowsM1 ? sRowsM1 : gj + 2) * sCols;
+      const rowOff = r * cols;
+
+      for (let c = 0; c < cols; c++) {
+        const gx = (minX + c * CELL_SIZE) * cellToGrid + gxBase;
+        const gi = Math.floor(gx);
+        const fx = gx - gi;
+        const fx2 = fx * fx, fx3 = fx2 * fx;
+        const wx0 = 0.5 * (-fx + 2 * fx2 - fx3);
+        const wx1 = 0.5 * (2 - 5 * fx2 + 3 * fx3);
+        const wx2 = 0.5 * (fx + 4 * fx2 - 3 * fx3);
+        const wx3 = 0.5 * (-fx2 + fx3);
+
+        const c0 = gi - 1 < 0 ? 0 : gi - 1 > sColsM1 ? sColsM1 : gi - 1;
+        const c1 = gi < 0 ? 0 : gi > sColsM1 ? sColsM1 : gi;
+        const c2 = gi + 1 < 0 ? 0 : gi + 1 > sColsM1 ? sColsM1 : gi + 1;
+        const c3 = gi + 2 < 0 ? 0 : gi + 2 > sColsM1 ? sColsM1 : gi + 2;
+
+        const sd =
+          wz0 * (wx0 * gridSDF[r0 + c0] + wx1 * gridSDF[r0 + c1] + wx2 * gridSDF[r0 + c2] + wx3 * gridSDF[r0 + c3]) +
+          wz1 * (wx0 * gridSDF[r1 + c0] + wx1 * gridSDF[r1 + c1] + wx2 * gridSDF[r1 + c2] + wx3 * gridSDF[r1 + c3]) +
+          wz2 * (wx0 * gridSDF[r2 + c0] + wx1 * gridSDF[r2 + c1] + wx2 * gridSDF[r2 + c2] + wx3 * gridSDF[r2 + c3]) +
+          wz3 * (wx0 * gridSDF[r3 + c0] + wx1 * gridSDF[r3 + c1] + wx2 * gridSDF[r3 + c2] + wx3 * gridSDF[r3 + c3]);
+
+        const v = sd * halfBand + 0.5;
+        smooth[rowOff + c] = v < 0 ? 0 : v > 1 ? 1 : v;
+      }
+    }
+
+    // Light blur pass on boundary cells to remove remaining staircase artifacts
+    {
+      const blurSrc = new Float32Array(smooth);
       for (let r = 1; r < rows - 1; r++) {
         for (let c = 1; c < cols - 1; c++) {
           const i = r * cols + c;
-          smooth[i] = (
-            src[i - cols - 1] + src[i - cols] + src[i - cols + 1] +
-            src[i - 1] + src[i] + src[i + 1] +
-            src[i + cols - 1] + src[i + cols] + src[i + cols + 1]
-          ) / 9;
+          const v = blurSrc[i];
+          if (v > 0.01 && v < 0.99) {
+            smooth[i] = (
+              blurSrc[i - cols - 1] + blurSrc[i - cols] + blurSrc[i - cols + 1] +
+              blurSrc[i - 1] + v * 4 + blurSrc[i + 1] +
+              blurSrc[i + cols - 1] + blurSrc[i + cols] + blurSrc[i + cols + 1]
+            ) / 12;
+          }
         }
       }
     }
