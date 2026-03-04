@@ -92,6 +92,8 @@ export function createPhysicsWorld(
 
 const ULTRA_FAST_TONE_DOWN_SCALE = 0.28;
 const LOW_SPEED_ACCEL_BOOST_MAX = 2.0;
+const STEER_TO_DRIVE_RATIO_BASE = 1.5;
+const BASE_STEERING_IMPULSE_SCALE = 0.26;
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
@@ -389,25 +391,11 @@ export function stepPhysicsTick(host: PhysicsHost, stepSeconds: number): void {
     .clone()
     .applyAxisAngle(new THREE.Vector3(0, 1, 0), host.steeringAngle)
     .normalize();
+  const rightDirection = new THREE.Vector3()
+    .crossVectors(forward, new THREE.Vector3(0, 1, 0))
+    .normalize();
   const airborne = isAirborne(host, positionBeforeStep);
   const controlScale = airborne ? host.airControlMultiplier : 1;
-  const steerImpulse =
-    host.nudgeImpulse *
-    host.speedMultiplier *
-    host.steeringImpulseScale *
-    controlScale *
-    ULTRA_FAST_TONE_DOWN_SCALE *
-    accelRecoveryBoost;
-  if (inputAxis !== 0) {
-    host.marbleBody.applyImpulse(
-      {
-        x: steerDirection.x * steerImpulse,
-        y: 0,
-        z: steerDirection.z * steerImpulse,
-      },
-      true,
-    );
-  }
   const driveImpulse =
     host.nudgeImpulse *
     host.speedMultiplier *
@@ -415,11 +403,24 @@ export function stepPhysicsTick(host: PhysicsHost, stepSeconds: number): void {
     controlScale *
     ULTRA_FAST_TONE_DOWN_SCALE *
     accelRecoveryBoost;
+  const steerRatioScale =
+    host.steeringImpulseScale / Math.max(0.001, BASE_STEERING_IMPULSE_SCALE);
+  const steerImpulse = driveImpulse * STEER_TO_DRIVE_RATIO_BASE * steerRatioScale;
+  if (inputAxis !== 0) {
+    host.marbleBody.applyImpulse(
+      {
+        x: rightDirection.x * inputAxis * steerImpulse,
+        y: 0,
+        z: rightDirection.z * inputAxis * steerImpulse,
+      },
+      true,
+    );
+  }
   host.marbleBody.applyImpulse(
     {
-      x: steerDirection.x * driveImpulse,
+      x: forward.x * driveImpulse,
       y: 0,
-      z: steerDirection.z * driveImpulse,
+      z: forward.z * driveImpulse,
     },
     true,
   );
