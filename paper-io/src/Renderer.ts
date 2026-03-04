@@ -319,8 +319,6 @@ export class Renderer {
       });
     }
 
-    // Sample directly from the territory grid's own cell coordinates to avoid
-    // alignment mismatches that leave residual enemy color fragments.
     const pad = 2;
     const gMinC = Math.max(0, bounds.minC - pad);
     const gMaxC = Math.min(grid.size - 1, bounds.maxC + pad);
@@ -332,30 +330,63 @@ export class Renderer {
 
     const [minX, minZ] = grid.toWorld(gMinC, gMinR);
 
-    const field = new Uint8Array(cols * rows);
+    // Build a signed distance field: positive inside territory, negative outside.
+    // We blur the binary field to get smooth contour edges.
+    const sdf = new Float32Array(cols * rows);
     for (let r = 0; r < rows; r++) {
       const gr = gMinR + r;
       for (let c = 0; c < cols; c++) {
         const gc = gMinC + c;
-        if (grid.data[gr * grid.size + gc] === id) {
-          field[r * cols + c] = 1;
+        sdf[r * cols + c] = grid.data[gr * grid.size + gc] === id ? 1.0 : -1.0;
+      }
+    }
+
+    // Multi-pass box blur on the SDF for smooth boundaries
+    const BLUR_PASSES = 3;
+    const tmp = new Float32Array(cols * rows);
+    for (let pass = 0; pass < BLUR_PASSES; pass++) {
+      // Horizontal blur (radius 1)
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const i = r * cols + c;
+          const l = c > 0 ? sdf[i - 1] : sdf[i];
+          const ri = c < cols - 1 ? sdf[i + 1] : sdf[i];
+          tmp[i] = (l + sdf[i] + ri) / 3.0;
+        }
+      }
+      // Vertical blur (radius 1)
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const i = r * cols + c;
+          const u = r > 0 ? tmp[i - cols] : tmp[i];
+          const d = r < rows - 1 ? tmp[i + cols] : tmp[i];
+          sdf[i] = (u + tmp[i] + d) / 3.0;
         }
       }
     }
 
-    // --- Compute distance from territory boundary (BFS inward) ---
+    // BFS distance from boundary (for height bevel), operating on original ownership
     const borderCells = Math.max(1, Math.ceil(BORDER_WIDTH / CELL_SIZE));
     const distField = new Uint8Array(cols * rows);
     distField.fill(255);
     const bfsQ: number[] = [];
 
     for (let r = 0; r < rows; r++) {
+      const gr = gMinR + r;
       for (let c = 0; c < cols; c++) {
+        const gc = gMinC + c;
         const i = r * cols + c;
-        if (!field[i]) { distField[i] = 0; continue; }
-        if (r === 0 || r === rows - 1 || c === 0 || c === cols - 1 ||
-            !field[(r - 1) * cols + c] || !field[(r + 1) * cols + c] ||
-            !field[r * cols + c - 1] || !field[r * cols + c + 1]) {
+        const owned = grid.data[gr * grid.size + gc] === id;
+        if (!owned) { distField[i] = 0; continue; }
+        if (r === 0 || r === rows - 1 || c === 0 || c === cols - 1) {
+          distField[i] = 0; bfsQ.push(r, c); continue;
+        }
+        const gru = gMinR + r - 1, grd = gMinR + r + 1;
+        const gcl = gMinC + c - 1, gcr = gMinC + c + 1;
+        if (grid.data[gru * grid.size + gc] !== id ||
+            grid.data[grd * grid.size + gc] !== id ||
+            grid.data[gr * grid.size + gcl] !== id ||
+            grid.data[gr * grid.size + gcr] !== id) {
           distField[i] = 0;
           bfsQ.push(r, c);
         }
@@ -368,32 +399,44 @@ export class Renderer {
       const bc = bfsQ[qi++];
       const nd = distField[br * cols + bc] + 1;
       if (nd > borderCells) continue;
-      if (br > 0)        { const ni = (br - 1) * cols + bc;     if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br - 1, bc); } }
-      if (br < rows - 1) { const ni = (br + 1) * cols + bc;     if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br + 1, bc); } }
-      if (bc > 0)        { const ni = br * cols + bc - 1;       if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br, bc - 1); } }
-      if (bc < cols - 1) { const ni = br * cols + bc + 1;       if (field[ni] && distField[ni] > nd) { distField[ni] = nd; bfsQ.push(br, bc + 1); } }
+      if (br > 0)        { const ni = (br - 1) * cols + bc;     if (distField[ni] > nd && grid.data[(gMinR + br - 1) * grid.size + (gMinC + bc)] === id) { distField[ni] = nd; bfsQ.push(br - 1, bc); } }
+      if (br < rows - 1) { const ni = (br + 1) * cols + bc;     if (distField[ni] > nd && grid.data[(gMinR + br + 1) * grid.size + (gMinC + bc)] === id) { distField[ni] = nd; bfsQ.push(br + 1, bc); } }
+      if (bc > 0)        { const ni = br * cols + bc - 1;       if (distField[ni] > nd && grid.data[(gMinR + br) * grid.size + (gMinC + bc - 1)] === id) { distField[ni] = nd; bfsQ.push(br, bc - 1); } }
+      if (bc < cols - 1) { const ni = br * cols + bc + 1;       if (distField[ni] > nd && grid.data[(gMinR + br) * grid.size + (gMinC + bc + 1)] === id) { distField[ni] = nd; bfsQ.push(br, bc + 1); } }
     }
 
-    // --- Build mesh with height gradient (raised plateau with beveled edges) ---
+    // --- Interpolated marching squares on the blurred SDF ---
     const verts: number[] = [];
     const indices: number[] = [];
     const vertMap = new Map<number, number>();
 
+    const sampleHeight = (x: number, z: number): number => {
+      const fc = (x - minX) / CELL_SIZE;
+      const fr = (z - minZ) / CELL_SIZE;
+      const c0 = Math.max(0, Math.min(cols - 1, Math.floor(fc)));
+      const r0 = Math.max(0, Math.min(rows - 1, Math.floor(fr)));
+      const c1 = Math.min(cols - 1, c0 + 1);
+      const r1 = Math.min(rows - 1, r0 + 1);
+      const tc = fc - c0;
+      const tr = fr - r0;
+      const d00 = distField[r0 * cols + c0];
+      const d10 = distField[r0 * cols + c1];
+      const d01 = distField[r1 * cols + c0];
+      const d11 = distField[r1 * cols + c1];
+      const d = d00 * (1 - tc) * (1 - tr) + d10 * tc * (1 - tr) + d01 * (1 - tc) * tr + d11 * tc * tr;
+      const t = Math.min(d / borderCells, 1.0);
+      const st = t * t * (3 - 2 * t);
+      return TERRITORY_Y + st * TERRITORY_HEIGHT;
+    };
+
     const addVert = (x: number, z: number): number => {
-      const qx = Math.round(x * 1000);
-      const qz = Math.round(z * 1000);
-      const key = qx * 131072 + qz;
+      const qx = Math.round(x * 500);
+      const qz = Math.round(z * 500);
+      const key = qx * 262144 + qz;
       const existing = vertMap.get(key);
       if (existing !== undefined) return existing;
 
-      const gc = Math.max(0, Math.min(cols - 1, Math.round((x - minX) / CELL_SIZE)));
-      const gr = Math.max(0, Math.min(rows - 1, Math.round((z - minZ) / CELL_SIZE)));
-      const dist = distField[gr * cols + gc];
-      const t = Math.min(dist / borderCells, 1.0);
-      const st = t * t * (3 - 2 * t); // smoothstep
-
-      const y = TERRITORY_Y + st * TERRITORY_HEIGHT;
-
+      const y = sampleHeight(x, z);
       const idx = verts.length / 3;
       verts.push(x, y, z);
       vertMap.set(key, idx);
@@ -404,22 +447,31 @@ export class Renderer {
       indices.push(addVert(x0, z0), addVert(x1, z1), addVert(x2, z2));
     };
 
+    // Linearly interpolate where the SDF crosses zero along a cell edge
+    const lerp01 = (v0: number, v1: number): number => {
+      if (Math.abs(v1 - v0) < 0.0001) return 0.5;
+      return Math.max(0, Math.min(1, -v0 / (v1 - v0)));
+    };
+
     for (let r = 0; r < rows - 1; r++) {
       for (let c = 0; c < cols - 1; c++) {
-        const tl = field[r * cols + c];
-        const tr = field[r * cols + (c + 1)];
-        const brc = field[(r + 1) * cols + (c + 1)];
-        const bl = field[(r + 1) * cols + c];
+        const v_tl = sdf[r * cols + c];
+        const v_tr = sdf[r * cols + (c + 1)];
+        const v_br = sdf[(r + 1) * cols + (c + 1)];
+        const v_bl = sdf[(r + 1) * cols + c];
 
-        const config = (tl << 3) | (tr << 2) | (brc << 1) | bl;
+        const b_tl = v_tl > 0 ? 1 : 0;
+        const b_tr = v_tr > 0 ? 1 : 0;
+        const b_br = v_br > 0 ? 1 : 0;
+        const b_bl = v_bl > 0 ? 1 : 0;
+
+        const config = (b_tl << 3) | (b_tr << 2) | (b_br << 1) | b_bl;
         if (config === 0) continue;
 
         const x0 = minX + c * CELL_SIZE;
         const x1 = minX + (c + 1) * CELL_SIZE;
         const z0 = minZ + r * CELL_SIZE;
         const z1 = minZ + (r + 1) * CELL_SIZE;
-        const mx = (x0 + x1) / 2;
-        const mz = (z0 + z1) / 2;
 
         if (config === 15) {
           addTri(x0, z0, x1, z0, x1, z1);
@@ -427,10 +479,16 @@ export class Renderer {
           continue;
         }
 
-        const tmx = mx, tmz = z0;
-        const rmx = x1, rmz = mz;
-        const bmx = mx, bmz = z1;
-        const lmx = x0, lmz = mz;
+        // Interpolated edge crossing points
+        const t_top = lerp01(v_tl, v_tr);
+        const t_right = lerp01(v_tr, v_br);
+        const t_bottom = lerp01(v_bl, v_br);
+        const t_left = lerp01(v_tl, v_bl);
+
+        const tmx = x0 + t_top * CELL_SIZE, tmz = z0;
+        const rmx = x1, rmz = z0 + t_right * CELL_SIZE;
+        const bmx = x0 + t_bottom * CELL_SIZE, bmz = z1;
+        const lmx = x0, lmz = z0 + t_left * CELL_SIZE;
 
         switch (config) {
           case 1: addTri(x0, z1, lmx, lmz, bmx, bmz); break;
@@ -456,7 +514,6 @@ export class Renderer {
       return;
     }
 
-    // Main raised territory mesh
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     geo.setIndex(indices);
@@ -471,14 +528,12 @@ export class Renderer {
     this.scene.add(mesh);
     this.territoryObjects.set(id, mesh);
 
-    // Drop shadow: flat copy of the territory at ground level, offset to simulate light direction
     const oldShadow = this.territoryShadows.get(id);
     if (oldShadow) {
       this.scene.remove(oldShadow);
       oldShadow.geometry.dispose();
     }
 
-    // Drop shadow offset matches top-left sun: shadow falls toward +X, -Z
     const shadowOffset = 0.18;
     const shadowPositions = new Float32Array(verts.length);
     for (let i = 0; i < verts.length; i += 3) {
