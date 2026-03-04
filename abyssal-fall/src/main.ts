@@ -477,6 +477,7 @@ class Game {
   private shieldBuffer: AudioBuffer | null = null;
   private jumpBuffer: AudioBuffer | null = null;
   private heartPickupBuffer: AudioBuffer | null = null;
+  private buttonClickBuffer: AudioBuffer | null = null;
   private readonly UNIFORM_SFX_VOLUME: number = 0.55;
   private readonly UNIFORM_SYNTH_PEAK_GAIN: number = 0.14;
   private readonly MAGNET_RADIUS: number = 200;
@@ -541,6 +542,7 @@ class Game {
     const tryStartFromUi = (): void => {
       if (this.gameState !== "start" && this.gameState !== "gameOver") return;
       try {
+        this.playButtonClickSound();
         this.triggerHaptic("light");
         this.startGame();
       } catch (err) {
@@ -558,36 +560,45 @@ class Game {
     // Restart button
     document.getElementById("restart-btn")?.addEventListener("click", tryStartFromUi);
     
-    // Settings button
+    // How to play / back buttons
     document.getElementById("how-to-play-btn")?.addEventListener("click", () => {
+      this.playButtonClickSound();
+      this.triggerHaptic("light");
       document.getElementById("start-screen")?.classList.add("hidden");
       document.getElementById("how-to-play-screen")?.classList.remove("hidden");
     });
     document.getElementById("how-to-play-back-btn")?.addEventListener("click", () => {
+      this.playButtonClickSound();
+      this.triggerHaptic("light");
       document.getElementById("how-to-play-screen")?.classList.add("hidden");
       document.getElementById("start-screen")?.classList.remove("hidden");
     });
 
     document.getElementById("settings-btn")?.addEventListener("click", () => {
+      this.playButtonClickSound();
       this.triggerHaptic("light");
       this.openSettings();
     });
     
     // Settings toggles
     document.getElementById("toggle-music")?.addEventListener("click", () => {
+      this.playButtonClickSound();
       this.toggleSetting("music");
     });
     
     document.getElementById("toggle-fx")?.addEventListener("click", () => {
+      this.playButtonClickSound();
       this.toggleSetting("fx");
     });
     
     document.getElementById("toggle-haptics")?.addEventListener("click", () => {
+      this.playButtonClickSound();
       this.toggleSetting("haptics");
     });
     
     // Settings close
     document.getElementById("settings-close")?.addEventListener("click", () => {
+      this.playButtonClickSound();
       this.triggerHaptic("light");
       this.closeSettings();
     });
@@ -1473,6 +1484,11 @@ class Game {
       this.heartPickupBuffer = buf;
       console.log("[loadAudio]", "Heart pickup audio decoded");
     });
+
+    this.decodeAudioFile("assets/sfx/button-click.mp3").then((buf) => {
+      this.buttonClickBuffer = buf;
+      console.log("[loadAudio]", "Button click audio decoded");
+    });
   }
   
   private getAudioCtx(): AudioContext {
@@ -1530,7 +1546,12 @@ class Game {
 
   private playJumpSound(): void {
     if (!this.settings.fx) return;
-    this.playSfx(this.jumpBuffer, this.UNIFORM_SFX_VOLUME * 0.7);
+    this.playSfx(this.jumpBuffer, this.UNIFORM_SFX_VOLUME * 1.1);
+  }
+
+  private playButtonClickSound(): void {
+    if (!this.settings.fx) return;
+    this.playSfx(this.buttonClickBuffer, this.UNIFORM_SFX_VOLUME * 1.0);
   }
 
   private playHeartPickupSound(): void {
@@ -3117,8 +3138,8 @@ class Game {
     const roomCenterX = (this.SHOP_ROOM_LEFT + this.SHOP_ROOM_RIGHT) * 0.5;
     const floorTop = this.SHOP_ROOM_BOTTOM - CONFIG.WALL_BLOCK_SIZE;
     // Tall collision rect: bottom stays near floor so player can reach it,
-    // but visual center (rect midpoint) sits ~60px above the floor.
-    const rectHeight = 80;
+    // but visual center (rect midpoint) sits ~110px above the floor.
+    const rectHeight = 130;
     const rectY = floorTop - rectHeight - 4;
     return {
       id: "heart_pickup",
