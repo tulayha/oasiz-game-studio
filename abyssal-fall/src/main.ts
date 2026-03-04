@@ -86,6 +86,13 @@ interface RoomEntryContext {
   returnVy: number;
 }
 
+interface ChestOffer {
+  type: "heart" | "powerup";
+  powerupType?: PowerUpType;
+  cost: number;
+  purchased: boolean;
+}
+
 type PlayerAnimState = "idle" | "run" | "jump" | "fall" | "shoot" | "hit" | "slide" | "rollingJump";
 interface PlayerAnimConfig {
   src: string;
@@ -263,6 +270,7 @@ class Game {
   private roomPowerupPickup: RoomPowerupPickup | null = null;
   private selectedRoomItemId: RoomItemId | null = null;
   private previousRoomItemId: RoomItemId | null = null;
+  private chestOffers: ChestOffer[] | null = null;
   private debugInvincible: boolean = false;
   private debugControlEl: HTMLDivElement | null = null;
   private debugLightingLabelEl: HTMLDivElement | null = null;
@@ -1667,8 +1675,15 @@ class Game {
 
   private applyPlayerDamage(killerX: number, killerY: number): void {
     if (this.debugDrawHitboxes && this.debugInvincible) return;
-    if (this.powerUpManager.hasPowerUp("SHIELD")) return;
     if (this.playerController.isInvulnerable()) return;
+    // Shield bubble absorbs exactly 1 hit then shatters
+    if (this.powerUpManager.hasShieldBubble()) {
+      this.powerUpManager.breakShieldBubble();
+      this.playShieldSound();
+      this.addScreenShake(3);
+      this.triggerHaptic("medium");
+      return;
+    }
     const player = this.playerController.getPlayer();
     this.worldDoorwaySystem.preloadForDepth(player.y);
     this.playerController.takeDamage();
@@ -2502,6 +2517,8 @@ class Game {
     this.selectedRoomItemId = null;
     this.roomItems = [];
     this.roomPowerupPickup = null;
+    this.hideChestOffersUI();
+    this.chestOffers = null;
     this.shopTestBreakableDestroyed = false;
     this.shopTestBreakableRespawnFrames = 0;
     this.runUpgrades = {
@@ -2818,22 +2835,6 @@ class Game {
       return;
     }
 
-    if (this.currentRoomType === "powerup" && this.roomPowerupPickup && !this.roomPowerupPickup.collected) {
-      const playerRect = this.playerController.getRect();
-      const pickupRect = {
-        x: this.roomPowerupPickup.x - this.roomPowerupPickup.width / 2,
-        y: this.roomPowerupPickup.y - this.roomPowerupPickup.height / 2,
-        width: this.roomPowerupPickup.width,
-        height: this.roomPowerupPickup.height,
-      };
-      if (this.isRectOverlapping(playerRect, pickupRect)) {
-        this.roomPowerupPickup.collected = true;
-        this.powerUpManager.grantPowerUp(this.roomPowerupPickup.type);
-        this.triggerPowerUpAnnouncement(this.roomPowerupPickup.type);
-        this.triggerHaptic("success");
-      }
-    }
-
     this.updateShopTestBreakableRespawn();
 
     this.updateDroppedGems();
@@ -2862,9 +2863,7 @@ class Game {
 
     this.updateBullets();
     this.powerUpManager.updateVisualsOnly();
-    if (this.currentRoomType !== "powerup") {
-      this.updateRoomItemSelection();
-    }
+    this.updateRoomItemSelection();
     this.updateHUD();
   }
 
@@ -3151,6 +3150,104 @@ class Game {
     };
   }
 
+  private buildChestOffers(): ChestOffer[] {
+    const allTypes: PowerUpType[] = ["BLAST", "LASER", "SHIELD", "LIGHTNING", "MAGNET"];
+    // Fisher-Yates shuffle to pick 2 distinct types
+    for (let i = allTypes.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allTypes[i], allTypes[j]] = [allTypes[j], allTypes[i]];
+    }
+    const [p1, p2] = allTypes;
+    return [
+      { type: "heart",   cost: 40,  purchased: false },
+      { type: "powerup", powerupType: p1, cost: 80, purchased: false },
+      { type: "powerup", powerupType: p2, cost: 80, purchased: false },
+    ];
+  }
+
+  private buyChestOffer(index: number): void {
+    if (!this.chestOffers) return;
+    const offer = this.chestOffers[index];
+    if (offer.purchased) return;
+    if (this.gems < offer.cost) {
+      this.playRoomNegativeBeep();
+      this.triggerHaptic("error");
+      // briefly flash the card insufficient state
+      const card = document.getElementById(`chest-offer-${index}`);
+      if (card) {
+        card.classList.add("offer-insufficient");
+        setTimeout(() => card.classList.remove("offer-insufficient"), 500);
+      }
+      return;
+    }
+    this.gems -= offer.cost;
+    offer.purchased = true;
+    const player = this.playerController.getPlayer();
+    if (offer.type === "heart") {
+      player.hp = Math.min(player.maxHp, player.hp + 1);
+      this.previousHp = player.hp;
+      this.playHeartPickupSound();
+    } else if (offer.powerupType) {
+      this.powerUpManager.grantPowerUp(offer.powerupType);
+      this.triggerPowerUpAnnouncement(offer.powerupType);
+    }
+    this.playButtonClickSound();
+    this.triggerHaptic("success");
+    this.hideChestOffersUI();
+    this.chestOffers = null;
+    this.updateHUD();
+  }
+
+  private renderChestOffersUI(): void {
+    if (!this.chestOffers) return;
+    const panel = document.getElementById("chest-offers");
+    if (!panel) return;
+
+    this.chestOffers.forEach((offer, i) => {
+      const nameEl   = document.getElementById(`offer-name-${i}`);
+      const descEl   = document.getElementById(`offer-desc-${i}`);
+      const costEl   = document.getElementById(`offer-cost-${i}`);
+      const iconEl   = document.getElementById(`offer-icon-${i}`);
+      const buyBtn   = document.getElementById(`offer-buy-${i}`) as HTMLButtonElement | null;
+      const card     = document.getElementById(`chest-offer-${i}`);
+      if (!nameEl || !descEl || !costEl || !iconEl || !buyBtn || !card) return;
+
+      if (offer.type === "heart") {
+        nameEl.textContent = "HEART";
+        descEl.textContent = "Restore 1 HP";
+        iconEl.innerHTML = '<img src="assets/shop-icons/heart_red.png" alt="heart" style="width:40px;height:40px;object-fit:contain;">';
+        card.style.setProperty("--offer-accent", "#ff4466");
+      } else if (offer.powerupType) {
+        const info = POWERUP_INFO[offer.powerupType];
+        nameEl.textContent = info.name;
+        descEl.textContent = info.description;
+        iconEl.innerHTML = `<div style="width:36px;height:36px;border-radius:50%;background:${info.color};opacity:0.9;"></div>`;
+        card.style.setProperty("--offer-accent", info.color);
+      }
+
+      costEl.textContent = `${offer.cost}`;
+      buyBtn.onclick = null;
+      buyBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.buyChestOffer(i);
+      };
+      card.classList.remove("offer-insufficient");
+      card.style.animationDelay = `${i * 80}ms`;
+    });
+
+    panel.classList.remove("hidden");
+  }
+
+  private hideChestOffersUI(): void {
+    const panel = document.getElementById("chest-offers");
+    if (panel) panel.classList.add("hidden");
+    // Remove click handlers
+    for (let i = 0; i < 3; i++) {
+      const btn = document.getElementById(`offer-buy-${i}`) as HTMLButtonElement | null;
+      if (btn) btn.onclick = null;
+    }
+  }
+
   private enterSpecialRoom(roomType: DoorwayRoomType, worldSide: ShopSide): void {
     this.currentRoomEntranceSide = this.getOppositePassageSide(worldSide);
     this.currentRoomType = roomType;
@@ -3160,21 +3257,9 @@ class Game {
     this.selectedRoomItemId = null;
     this.pendingRoomPowerupReward = null;
     this.roomPowerupPickup = null;
-    if (roomType === "shop") {
-      this.roomItems = this.createShopRoomItems();
-      this.roomItems.push(this.createHeartPickupItem());
-      if (this.SHOP_TEST_MODE) {
-        this.shopTestBreakableDestroyed = false;
-        this.shopTestBreakableRespawnFrames = 0;
-      }
-    } else if (roomType === "chest") {
-      this.roomItems = this.createChestRoomItems();
-      this.roomItems.push(this.createHeartPickupItem());
-    } else {
-      const rewardType = this.pickRandomPowerupType();
-      this.roomItems = [this.createHeartPickupItem()];
-      this.roomPowerupPickup = this.createRoomPowerupPickup(rewardType);
-    }
+    this.chestOffers = null;
+    // ALL room types now contain a chest
+    this.roomItems = this.createChestRoomItems();
 
     const player = this.playerController.getPlayer();
     const startX = this.currentRoomEntranceSide === "left"
@@ -3197,6 +3282,8 @@ class Game {
     this.roomItems = [];
     this.roomPowerupPickup = null;
     this.shopTestBreakableRespawnFrames = 0;
+    this.hideChestOffersUI();
+    this.chestOffers = null;
 
     const player = this.playerController.getPlayer();
     const returnX = this.roomEntryContext ? this.roomEntryContext.returnX : player.x;
@@ -3331,8 +3418,8 @@ class Game {
       this.triggerChestGemBurst(item.rect.x + item.rect.width / 2, item.rect.y + item.rect.height / 2);
       this.playTreasureRingSound();
       this.addScreenShake(4);
-    } else if (item.id === "powerup_cache" && item.rewardPowerupType) {
-      this.pendingRoomPowerupReward = item.rewardPowerupType;
+      this.chestOffers = this.buildChestOffers();
+      this.renderChestOffersUI();
     }
 
     if (item.id === "heart_pickup") {
@@ -6246,15 +6333,6 @@ class Game {
     this.drawPlatformGeometry(ctx, interiorTunnelFloorSupport);
     this.drawPlatformGeometry(ctx, interiorTunnelFloor);
 
-    if (this.currentRoomType === "powerup" && this.roomPowerupPickup && !this.roomPowerupPickup.collected) {
-      this.drawSinglePowerUpOrb(
-        this.roomPowerupPickup.x,
-        this.roomPowerupPickup.y,
-        this.roomPowerupPickup.type,
-        this.roomPowerupPickup.glowPhase,
-        true
-      );
-    }
 
     // Draw items
     for (const item of this.roomItems) {
@@ -6445,142 +6523,30 @@ class Game {
   }
 
   private drawSpecialRoomOverlay(): void {
-    // powerup rooms may contain a heart_pickup — allow overlay to render for it
-    if (this.currentRoomType === "powerup" && this.selectedRoomItemId !== "heart_pickup") return;
-
     const ctx = this.ctx;
     const selected = this.roomItems.find((item) => item.id === this.selectedRoomItemId) ?? null;
+    if (!selected || selected.id !== "chest_cache") return;
 
     const wallClearance = CONFIG.WALL_BLOCK_SIZE + 10;
     const popupLeft = this.SHOP_ROOM_LEFT + wallClearance;
     const popupRight = this.SHOP_ROOM_RIGHT - wallClearance;
     const popupMaxWidth = Math.max(120, popupRight - popupLeft);
 
-    if (this.currentRoomType === "chest") {
-      if (!selected || selected.id !== "chest_cache") return;
-      const panelWidth = Math.min(244, popupMaxWidth);
-      const panelHeight = 42;
-      const panelX = popupLeft + (popupMaxWidth - panelWidth) * 0.5;
-      const panelY = this.SHOP_ROOM_TOP + 38;
-      ctx.fillStyle = "rgba(6, 22, 40, 0.9)";
-      ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
-      ctx.strokeStyle = "rgba(180, 235, 255, 0.82)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
-      ctx.fillStyle = "rgba(235, 248, 255, 0.98)";
-      ctx.font = "8px 'Press Start 2P'";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const msg = selected.soldOut ? "CHEST OPENED" : "OPEN CHEST WITH SHOOT BUTTON!";
-      ctx.fillText(msg, panelX + panelWidth * 0.5, panelY + panelHeight * 0.5 + 1);
-      return;
-    }
-
-    const panelWidth = Math.min(236, popupMaxWidth);
-    const panelHeight = selected ? (selected.cost > 0 ? 96 : 104) : 40;
-    const shakeX = this.roomNoFundsTimer > 0 ? Math.sin(this.frameCount * 0.85) * 4 : 0;
-    const panelX = popupLeft + (popupMaxWidth - panelWidth) * 0.5 + shakeX;
-    const panelY = this.SHOP_ROOM_TOP + 48;
-    const rightInset = 10;
-
-    const fitText = (text: string, maxWidth: number): string => {
-      if (ctx.measureText(text).width <= maxWidth) return text;
-      let out = text;
-      while (out.length > 3 && ctx.measureText(`${out}...`).width > maxWidth) {
-        out = out.slice(0, -1);
-      }
-      return `${out}...`;
-    };
-    const wrapText = (text: string, maxWidth: number, maxLines: number): string[] => {
-      const words = text.split(/\s+/).filter((w) => w.length > 0);
-      if (words.length === 0) return [""];
-      const lines: string[] = [];
-      let current = words[0];
-      for (let i = 1; i < words.length; i++) {
-        const candidate = `${current} ${words[i]}`;
-        if (ctx.measureText(candidate).width <= maxWidth) {
-          current = candidate;
-        } else {
-          lines.push(current);
-          current = words[i];
-          if (lines.length >= maxLines - 1) break;
-        }
-      }
-      const usedWordCount = lines.join(" ").split(/\s+/).filter((w) => w.length > 0).length;
-      const remainingWords = words.slice(usedWordCount);
-      let lastLine = remainingWords.join(" ");
-      if (ctx.measureText(lastLine).width > maxWidth) {
-        while (lastLine.length > 3 && ctx.measureText(`${lastLine}...`).width > maxWidth) {
-          lastLine = lastLine.slice(0, -1);
-        }
-        lastLine = `${lastLine}...`;
-      }
-      lines.push(lastLine);
-      return lines.slice(0, maxLines);
-    };
-
-    ctx.fillStyle = "rgba(6, 22, 40, 0.88)";
+    const panelWidth = Math.min(244, popupMaxWidth);
+    const panelHeight = 42;
+    const panelX = popupLeft + (popupMaxWidth - panelWidth) * 0.5;
+    const panelY = this.SHOP_ROOM_TOP + 38;
+    ctx.fillStyle = "rgba(6, 22, 40, 0.9)";
     ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
-    ctx.strokeStyle = "rgba(180, 235, 255, 0.8)";
+    ctx.strokeStyle = "rgba(180, 235, 255, 0.82)";
     ctx.lineWidth = 2;
     ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
-
-    ctx.fillStyle = "#ff7ad9";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.font = "10px 'Press Start 2P'";
-    if (this.gemSimpleImg && this.gemSimpleImg.complete) {
-      ctx.drawImage(this.gemSimpleImg, panelX + 10, panelY + 8, 12, 12);
-    }
-    ctx.fillText(`x ${this.gems}`, panelX + 26, panelY + 14);
-
-    if (!selected) {
-      ctx.fillStyle = "rgba(210, 236, 255, 0.92)";
-      ctx.fillText("STEP ON A KIOSK", panelX + 10, panelY + 30);
-      return;
-    }
-
     ctx.fillStyle = "rgba(235, 248, 255, 0.98)";
-    ctx.font = "9px 'Press Start 2P'";
-    ctx.fillText(fitText(selected.name, panelWidth - 20), panelX + 10, panelY + 30);
-    ctx.fillStyle = "rgba(192, 230, 255, 0.95)";
-    const explainer = this.getShopKioskExplainer(selected);
-    const explainerText = explainer.length > 0 ? explainer.toUpperCase() : selected.description.toUpperCase();
-    const explainerLines = wrapText(explainerText, panelWidth - 20, 2);
-    for (let i = 0; i < explainerLines.length; i++) {
-      ctx.fillText(explainerLines[i], panelX + 10, panelY + 44 + i * 10);
-    }
-    const infoBottomY = panelY + 44 + (explainerLines.length - 1) * 10;
-    const costRowY = infoBottomY + 13;
-    const actionRowY = selected.cost <= 0 ? costRowY + 12 : costRowY;
-
-    if (selected.cost > 0) {
-      if (this.gemSimpleImg && this.gemSimpleImg.complete) {
-        ctx.drawImage(this.gemSimpleImg, panelX + 10, costRowY - 6, 12, 12);
-      }
-      ctx.fillStyle = "rgba(255, 232, 160, 0.98)";
-      ctx.fillText(`x ${selected.cost}`, panelX + 26, costRowY);
-    }
-
-    if (selected.soldOut) {
-      ctx.fillStyle = "rgba(255, 190, 110, 0.95)";
-      ctx.fillText("SOLD OUT", panelX + panelWidth - 96, costRowY);
-    } else if (selected.cost <= 0 || this.gems >= selected.cost) {
-      ctx.fillStyle = "rgba(200, 255, 210, 0.95)";
-      const actionLabel = selected.id === "chest_cache"
-        ? "OPEN"
-        : selected.id === "powerup_cache"
-          ? "CLAIM"
-          : "PRESS ACTION";
-      const actionText = selected.cost <= 0 ? `PRESS ACTION: ${actionLabel}` : actionLabel;
-      const actionWidth = ctx.measureText(actionText).width;
-      const actionX = Math.max(panelX + 10, panelX + panelWidth - actionWidth - rightInset);
-      ctx.fillText(actionText, actionX, actionRowY);
-    } else {
-      ctx.fillStyle = "rgba(255, 120, 120, 0.95)";
-      const msg = this.roomNoFundsTimer > 0 ? "NOT ENOUGH GEMS" : "INSUFFICIENT GEMS";
-      ctx.fillText(msg, panelX + panelWidth - 164, costRowY);
-    }
+    ctx.font = "8px 'Press Start 2P'";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const msg = selected.soldOut ? "CHEST OPENED" : "OPEN CHEST WITH SHOOT BUTTON!";
+    ctx.fillText(msg, panelX + panelWidth * 0.5, panelY + panelHeight * 0.5 + 1);
   }
 
   private drawDeathFreezeHighlight(): void {
@@ -8014,6 +7980,45 @@ class Game {
     ctx.arc(player.x, player.y, POWERUP_CONSTANTS.SHIELD_RADIUS, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Absorb bubble — translucent purple tinted circle while active
+    const bubbleRadius = 44;
+    if (this.powerUpManager.hasShieldBubble()) {
+      const pulse = 0.14 + Math.sin(this.frameCount * 0.12) * 0.06;
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = `rgba(204, 136, 255, ${pulse})`;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, bubbleRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(204, 136, 255, ${0.55 + Math.sin(this.frameCount * 0.12) * 0.1})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, bubbleRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Shatter ring after bubble breaks
+    const breakFrames = this.powerUpManager.shieldBubbleBreakFrames;
+    if (breakFrames > 0) {
+      const t = breakFrames / 22; // 1 → 0 as animation plays
+      const expandedR = bubbleRadius + (1 - t) * 46;
+      ctx.save();
+      ctx.globalAlpha = t * 0.85;
+      ctx.strokeStyle = "rgba(230, 180, 255, 1)";
+      ctx.lineWidth = 3 * t;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, expandedR, 0, Math.PI * 2);
+      ctx.stroke();
+      // Second faint ring slightly behind
+      ctx.globalAlpha = t * 0.35;
+      ctx.lineWidth = 6 * t;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, expandedR - 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
   
   private drawBlastExplosions(): void {

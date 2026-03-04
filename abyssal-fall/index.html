@@ -900,6 +900,125 @@
                 font-size: 0.52rem;
             }
         }
+
+        /* ============================================================
+           Chest Offer Cards
+           ============================================================ */
+        @keyframes cardReveal {
+            from { transform: translateY(48px) scale(0.88); opacity: 0; }
+            to   { transform: translateY(0)    scale(1);    opacity: 1; }
+        }
+        @keyframes offerShake {
+            0%,100% { transform: translateX(0); }
+            20%     { transform: translateX(-6px); }
+            40%     { transform: translateX(6px); }
+            60%     { transform: translateX(-4px); }
+            80%     { transform: translateX(4px); }
+        }
+
+        .chest-offers {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: flex-end;
+            gap: 10px;
+            padding: 0 10px 14px;
+            pointer-events: none;
+            z-index: 80;
+        }
+        .chest-offers.hidden {
+            display: none;
+        }
+
+        .chest-offer-card {
+            flex: 1;
+            max-width: 140px;
+            background: #0d2845;
+            border: 3px solid #040f1e;
+            box-shadow:
+                inset 2px 2px 0 rgba(80,170,255,0.28),
+                inset -3px -3px 0 rgba(0,0,0,0.5),
+                4px 4px 0 #020c1a;
+            padding: 10px 8px 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            pointer-events: auto;
+            animation: cardReveal 0.28s cubic-bezier(0.22,1,0.36,1) both;
+            border-top: 3px solid var(--offer-accent, #00A1E4);
+        }
+
+        .chest-offer-card.offer-insufficient {
+            animation: offerShake 0.4s ease-out;
+        }
+
+        .offer-icon {
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .offer-name {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.52rem;
+            color: var(--offer-accent, #c8ecff);
+            text-align: center;
+            text-shadow: 1px 1px 0 #020c1a;
+            letter-spacing: 1px;
+            line-height: 1.4;
+        }
+
+        .offer-desc {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.42rem;
+            color: #7ab8d8;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .offer-cost-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.55rem;
+            color: #ffe888;
+            text-shadow: 1px 1px 0 #020c1a;
+        }
+
+        .offer-gem-icon {
+            color: #44ddaa;
+            font-size: 0.65rem;
+        }
+
+        .offer-buy-btn {
+            font-size: 0.5rem !important;
+            padding: 8px 12px !important;
+            margin: 2px 0 0 !important;
+            width: 100%;
+            text-align: center;
+        }
+
+        @media (pointer: coarse) {
+            .chest-offer-card {
+                max-width: none;
+                padding: 10px 8px 8px;
+            }
+            .chest-offers {
+                padding: 0 8px 140px;
+                gap: 8px;
+            }
+            .offer-buy-btn {
+                padding: 10px 8px !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1074,6 +1193,40 @@
                 <div class="toggle active" id="toggle-haptics"></div>
             </div>
             <button class="btn settings-close" id="settings-close">CLOSE</button>
+        </div>
+
+        <!-- Chest Offer Cards -->
+        <div id="chest-offers" class="chest-offers hidden">
+            <div class="chest-offer-card" id="chest-offer-0" style="--offer-accent: #ff4466;">
+                <div class="offer-icon" id="offer-icon-0"></div>
+                <div class="offer-name" id="offer-name-0"></div>
+                <div class="offer-desc" id="offer-desc-0"></div>
+                <div class="offer-cost-row">
+                    <span class="offer-gem-icon">&#9670;</span>
+                    <span id="offer-cost-0"></span>
+                </div>
+                <button class="btn offer-buy-btn" id="offer-buy-0">BUY</button>
+            </div>
+            <div class="chest-offer-card" id="chest-offer-1" style="--offer-accent: #00ffcc;">
+                <div class="offer-icon" id="offer-icon-1"></div>
+                <div class="offer-name" id="offer-name-1"></div>
+                <div class="offer-desc" id="offer-desc-1"></div>
+                <div class="offer-cost-row">
+                    <span class="offer-gem-icon">&#9670;</span>
+                    <span id="offer-cost-1"></span>
+                </div>
+                <button class="btn offer-buy-btn" id="offer-buy-1">BUY</button>
+            </div>
+            <div class="chest-offer-card" id="chest-offer-2" style="--offer-accent: #cc88ff;">
+                <div class="offer-icon" id="offer-icon-2"></div>
+                <div class="offer-name" id="offer-name-2"></div>
+                <div class="offer-desc" id="offer-desc-2"></div>
+                <div class="offer-cost-row">
+                    <span class="offer-gem-icon">&#9670;</span>
+                    <span id="offer-cost-2"></span>
+                </div>
+                <button class="btn offer-buy-btn" id="offer-buy-2">BUY</button>
+            </div>
         </div>
     </div>
 

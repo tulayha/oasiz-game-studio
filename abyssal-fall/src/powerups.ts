@@ -157,6 +157,10 @@ export class PowerUpManager {
   
   // Track which milestones have been spawned
   private spawnedMilestones: Set<number> = new Set();
+
+  // Shield absorb bubble — blocks exactly 1 hit then shatters
+  private shieldBubbleActive: boolean = false;
+  shieldBubbleBreakFrames: number = 0; // countdown for shatter ring animation (public for renderer)
   
   // Available types to cycle through
   private typeIndex: number = 0;
@@ -181,7 +185,15 @@ export class PowerUpManager {
     this.typeIndex = 0;
     this.visibleOrbsScratch.length = 0;
     this.shieldPositionsScratch.length = 0;
+    this.shieldBubbleActive = false;
+    this.shieldBubbleBreakFrames = 0;
   }
+
+  hasShieldBubble(): boolean { return this.shieldBubbleActive; }
+
+  activateShieldBubble(): void { this.shieldBubbleActive = true; this.shieldBubbleBreakFrames = 0; }
+
+  breakShieldBubble(): void { this.shieldBubbleActive = false; this.shieldBubbleBreakFrames = 22; }
   
   // ============= ORB SPAWNING =============
   
@@ -283,9 +295,10 @@ export class PowerUpManager {
       totalFrames: durationFrames,
     }];
 
-    // Initialize shields if this is a shield powerup
+    // Initialize shields + bubble if this is a shield powerup
     if (type === "SHIELD" && this.shields.length === 0) {
       this.initShields();
+      this.activateShieldBubble();
     } else if (type !== "SHIELD") {
       this.shields = [];
     }
@@ -296,6 +309,9 @@ export class PowerUpManager {
   /** Grant a powerup directly (used by room rewards). */
   grantPowerUp(type: PowerUpType): void {
     this.activatePowerUp(type);
+    if (type === "SHIELD") {
+      this.activateShieldBubble();
+    }
   }
 
   private getPowerUpDurationFrames(type: PowerUpType): number {
@@ -332,6 +348,7 @@ export class PowerUpManager {
       }
     }
 
+    if (this.shieldBubbleBreakFrames > 0) this.shieldBubbleBreakFrames--;
     this.updateVisualEffectsAndAnnouncement();
     
     // Clean up collected orbs that are far away (3 chunks above camera)
@@ -341,6 +358,7 @@ export class PowerUpManager {
   /** Update non-timer animations/effects while keeping active durations frozen. */
   updateVisualsOnly(): void {
     this.updateVisualEffectsAndAnnouncement();
+    if (this.shieldBubbleBreakFrames > 0) this.shieldBubbleBreakFrames--;
   }
 
   private updateVisualEffectsAndAnnouncement(): void {
