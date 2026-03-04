@@ -22,7 +22,10 @@ import {
   lineIntersectsRect,
   projectRayToArenaWall,
 } from "../physics/geometryMath.js";
-import { segmentIntersectsShipShield } from "../physics/shieldGeometry.js";
+import {
+  runSweptProjectileHitShipCollisions,
+  runSweptShipTunnelingGuards,
+} from "./simulationSweptCollisions.js";
 
 interface RuntimeYellowBlockLike {
   block: {
@@ -33,6 +36,30 @@ interface RuntimeYellowBlockLike {
   };
   body: Matter.Body | null;
   hp: number;
+}
+
+export type CollisionTelemetryEventKind =
+  | "projectile_wall_swept_hit"
+  | "projectile_shield_swept_hit"
+  | "projectile_ship_swept_hit"
+  | "projectile_pilot_swept_hit"
+  | "projectile_sweep_no_hit"
+  | "ship_ship_tunnel_resolved"
+  | "ship_pilot_tunnel_resolved";
+
+export interface CollisionTelemetryEvent {
+  kind: CollisionTelemetryEventKind;
+  nowMs: number;
+  projectileId?: string;
+  ownerId?: string;
+  shipPlayerId?: string;
+  pilotPlayerId?: string;
+  targetPlayerId?: string;
+  t?: number;
+  startX?: number;
+  startY?: number;
+  endX?: number;
+  endY?: number;
 }
 
 export interface SimulationCollisionHandlersContext {
@@ -60,6 +87,7 @@ export interface SimulationCollisionHandlersContext {
   destroyAsteroid: (asteroid: RuntimeAsteroid) => void;
   grantPowerUp: (playerId: string, type: RuntimePowerUp["type"]) => void;
   removePowerUpBody: (powerUpId: string) => void;
+  onCollisionTelemetry?: (event: CollisionTelemetryEvent) => void;
 }
 
 export function handleProjectileHitShipCollision(
@@ -228,6 +256,12 @@ export function handleShipHitPowerUpCollision(
   ctx.removePowerUpBody(powerUpId);
 }
 
+export interface SweptPose {
+  x: number;
+  y: number;
+  angle: number;
+}
+
 export function damageYellowBlock(
   ctx: SimulationCollisionHandlersContext,
   blockIndex: number,
@@ -353,183 +387,42 @@ export function checkSweptProjectileHitShipCollisions(
   previousProjectilePositions: ReadonlyMap<string, Vec2>,
   _previousProjectileVelocities: ReadonlyMap<string, Vec2>,
   deferredProjectileWallHits?: ReadonlySet<string>,
+  previousShipPoses?: ReadonlyMap<string, SweptPose>,
+  pilotBodies?: ReadonlyMap<string, Matter.Body>,
+  previousPilotPoses?: ReadonlyMap<string, SweptPose>,
 ): void {
-  if (ctx.projectileBodies.size <= 0 || shipBodies.size <= 0) return;
-
-  const shipBodyList = [...shipBodies.values()];
-  const shipBodyEntries = [...shipBodies.entries()];
-  const projectileEntries = [...ctx.projectileBodies.entries()];
-
-  for (const [projectileId, projectileBody] of projectileEntries) {
-    if (!ctx.projectileBodies.has(projectileId)) continue;
-    const previous = previousProjectilePositions.get(projectileId);
-    if (!previous) continue;
-
-    const start = previous;
-    const end = projectileBody.position;
-    const sweepWidth = getBodySweepWidth(projectileBody);
-    const sweepSegments: [Vec2, Vec2][] = [[start, end]];
-    const projectileOwnerId =
-      ctx.getPluginString(projectileBody, "ownerId") ?? "";
-    const projectileRadius = getProjectileRadius(projectileBody, sweepWidth);
-    const hasDeferredWallHit =
-      deferredProjectileWallHits?.has(projectileId) ?? false;
-
-    for (const [segmentStart, segmentEnd] of sweepSegments) {
-      if (!ctx.projectileBodies.has(projectileId)) break;
-      const orderedShieldHits = queryOrderedShieldHitsAlongSegment(
-        ctx,
-        shipBodyEntries,
-        projectileOwnerId,
-        segmentStart,
-        segmentEnd,
-        projectileRadius,
-      );
-      const orderedShipBodies = queryOrderedShipBodiesAlongSegment(
-        shipBodyList,
-        segmentStart,
-        segmentEnd,
-        sweepWidth,
-      );
-      const wallHitT = hasDeferredWallHit
-        ? computeWallHitT(
-            segmentStart,
-            segmentEnd,
-            projectileRadius,
-            ARENA_WIDTH,
-            ARENA_HEIGHT,
-          )
-        : null;
-      let wallHandled = wallHitT === null;
-      let shieldIndex = 0;
-      let shipIndex = 0;
-      while (
-        ctx.projectileBodies.has(projectileId) &&
-        (shieldIndex < orderedShieldHits.length ||
-          shipIndex < orderedShipBodies.length ||
-          !wallHandled)
-      ) {
-        const nextShield = orderedShieldHits[shieldIndex];
-        const nextShip = orderedShipBodies[shipIndex];
-        const nextShieldT = nextShield?.t ?? Infinity;
-        const nextShipT = nextShip
-          ? projectPointOntoSegmentT(segmentStart, segmentEnd, nextShip.position)
-          : Infinity;
-        const nextWallT = wallHandled ? Infinity : wallHitT ?? Infinity;
-
-        if (nextWallT <= nextShieldT && nextWallT <= nextShipT) {
-          wallHandled = true;
-          const projectileIdAtWall = ctx.getPluginString(projectileBody, "entityId");
-          if (!projectileIdAtWall || !ctx.projectileBodies.has(projectileIdAtWall)) {
-            break;
-          }
-          ctx.removeProjectileEntity(projectileIdAtWall);
-          break;
-        }
-
-        if (nextShieldT <= nextShipT) {
-          shieldIndex += 1;
-          const consumed = applySweptProjectileShieldHit(
-            ctx,
-            projectileBody,
-            nextShield.playerId,
-          );
-          if (consumed) break;
-          continue;
-        }
-
-        shipIndex += 1;
-        if (!ctx.projectileBodies.has(projectileId)) break;
-        handleProjectileHitShipCollision(ctx, projectileBody, nextShip);
-      }
-    }
-  }
+  runSweptProjectileHitShipCollisions(
+    ctx,
+    shipBodies,
+    previousProjectilePositions,
+    _previousProjectileVelocities,
+    deferredProjectileWallHits,
+    previousShipPoses,
+    pilotBodies,
+    previousPilotPoses,
+    {
+      onProjectileHitShip: handleProjectileHitShipCollision,
+      onProjectileHitPilot: handleProjectileHitPilotCollision,
+    },
+  );
 }
 
-function applySweptProjectileShieldHit(
+export function applySweptShipTunnelingGuards(
   ctx: SimulationCollisionHandlersContext,
-  projectileBody: Matter.Body,
-  shipPlayerId: string,
-): boolean {
-  const projectileId = ctx.getPluginString(projectileBody, "entityId");
-  if (!projectileId || !ctx.projectileBodies.has(projectileId)) return false;
-
-  const powerUp = ctx.playerPowerUps.get(shipPlayerId);
-  if (powerUp?.type !== "SHIELD") return false;
-
-  powerUp.shieldHits += 1;
-  ctx.removeProjectileEntity(projectileId);
-  ctx.triggerScreenShake(3, 0.1);
-  if (powerUp.shieldHits >= POWERUP_SHIELD_HITS) {
-    ctx.playerPowerUps.delete(shipPlayerId);
-  }
-  return true;
-}
-
-function queryOrderedShieldHitsAlongSegment(
-  ctx: SimulationCollisionHandlersContext,
-  shipBodyEntries: ReadonlyArray<readonly [string, Matter.Body]>,
-  projectileOwnerId: string,
-  start: Vec2,
-  end: Vec2,
-  projectileRadius: number,
-): Array<{ playerId: string; t: number }> {
-  const hits: Array<{ playerId: string; t: number }> = [];
-
-  for (const [shipPlayerId, shipBody] of shipBodyEntries) {
-    if (shipPlayerId === projectileOwnerId) continue;
-    const shipPlayer = ctx.players.get(shipPlayerId);
-    if (!shipPlayer || !shipPlayer.ship.alive) continue;
-    if (shipPlayer.ship.invulnerableUntil > ctx.nowMs) continue;
-    const powerUp = ctx.playerPowerUps.get(shipPlayerId);
-    if (powerUp?.type !== "SHIELD") continue;
-
-    if (
-      !segmentIntersectsShipShield(
-        shipPlayer.ship,
-        start.x,
-        start.y,
-        end.x,
-        end.y,
-        projectileRadius,
-      )
-    ) {
-      continue;
-    }
-
-    hits.push({
-      playerId: shipPlayerId,
-      t: projectPointOntoSegmentT(start, end, shipBody.position),
-    });
-  }
-
-  hits.sort((a, b) => a.t - b.t);
-  return hits;
-}
-
-function queryOrderedShipBodiesAlongSegment(
-  shipBodyList: Matter.Body[],
-  start: Vec2,
-  end: Vec2,
-  sweepWidth: number,
-): Matter.Body[] {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (dx * dx + dy * dy <= 1e-9) return [];
-
-  const collisions = Matter.Query.ray(shipBodyList, start, end, sweepWidth);
-  if (collisions.length <= 0) return [];
-
-  const shipBodiesById = new Map<number, Matter.Body>();
-  for (const collision of collisions) {
-    const hitBody = collision.bodyA.parent ?? collision.bodyA;
-    shipBodiesById.set(hitBody.id, hitBody);
-  }
-
-  return [...shipBodiesById.values()].sort(
-    (bodyA, bodyB) =>
-      projectPointOntoSegmentT(start, end, bodyA.position) -
-      projectPointOntoSegmentT(start, end, bodyB.position),
+  shipBodies: ReadonlyMap<string, Matter.Body>,
+  pilotBodies: ReadonlyMap<string, Matter.Body>,
+  previousShipPoses?: ReadonlyMap<string, SweptPose>,
+  previousPilotPoses?: ReadonlyMap<string, SweptPose>,
+): void {
+  runSweptShipTunnelingGuards(
+    ctx,
+    shipBodies,
+    pilotBodies,
+    previousShipPoses,
+    previousPilotPoses,
+    {
+      onShipHitPilot: handleShipHitPilotCollision,
+    },
   );
 }
 
@@ -562,88 +455,4 @@ function isPointInCone(
   const pointAngle = Math.atan2(dy, dx);
   const angleDiff = normalizeAngle(pointAngle - coneAngle);
   return Math.abs(angleDiff) <= coneWidth * 0.5;
-}
-
-function projectPointOntoSegmentT(start: Vec2, end: Vec2, point: Vec2): number {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq <= 1e-9) return 0;
-  return ((point.x - start.x) * dx + (point.y - start.y) * dy) / lenSq;
-}
-
-function getBodySweepWidth(body: Matter.Body): number {
-  const circleRadius =
-    typeof body.circleRadius === "number" ? body.circleRadius : undefined;
-  if (circleRadius && circleRadius > 0) {
-    return circleRadius * 2;
-  }
-
-  const width = Math.max(0, body.bounds.max.x - body.bounds.min.x);
-  const height = Math.max(0, body.bounds.max.y - body.bounds.min.y);
-  const diameter = Math.max(width, height);
-  return Math.max(1e-4, diameter);
-}
-
-function getProjectileRadius(body: Matter.Body, sweepWidth: number): number {
-  const circleRadius =
-    typeof body.circleRadius === "number" ? body.circleRadius : undefined;
-  if (circleRadius && circleRadius > 0) {
-    return circleRadius;
-  }
-  return Math.max(0, sweepWidth * 0.5);
-}
-
-function computeWallHitT(
-  start: Vec2,
-  end: Vec2,
-  projectileRadius: number,
-  arenaWidth: number,
-  arenaHeight: number,
-): number | null {
-  const minX = projectileRadius;
-  const maxX = arenaWidth - projectileRadius;
-  const minY = projectileRadius;
-  const maxY = arenaHeight - projectileRadius;
-
-  if (
-    start.x < minX ||
-    start.x > maxX ||
-    start.y < minY ||
-    start.y > maxY
-  ) {
-    return 0;
-  }
-
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (dx * dx + dy * dy <= 1e-9) return null;
-
-  let bestT = Infinity;
-  const pushCandidate = (t: number): void => {
-    if (t < 0 || t > 1) return;
-    if (t < bestT) bestT = t;
-  };
-
-  if (dx > 1e-9) {
-    const t = (maxX - start.x) / dx;
-    const y = start.y + dy * t;
-    if (y >= minY && y <= maxY) pushCandidate(t);
-  } else if (dx < -1e-9) {
-    const t = (minX - start.x) / dx;
-    const y = start.y + dy * t;
-    if (y >= minY && y <= maxY) pushCandidate(t);
-  }
-
-  if (dy > 1e-9) {
-    const t = (maxY - start.y) / dy;
-    const x = start.x + dx * t;
-    if (x >= minX && x <= maxX) pushCandidate(t);
-  } else if (dy < -1e-9) {
-    const t = (minY - start.y) / dy;
-    const x = start.x + dx * t;
-    if (x >= minX && x <= maxX) pushCandidate(t);
-  }
-
-  return Number.isFinite(bestT) ? bestT : null;
 }
