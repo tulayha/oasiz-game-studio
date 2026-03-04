@@ -19,6 +19,8 @@
  * - Modify MIN_ANGULAR_SPACING for minimum gap between embedded knives
  */
 
+import { oasiz } from "@oasiz/sdk";
+
 // Import assets
 import background1Url from "../Assets/Backgrounds/Back 1.png";
 import background2Url from "../Assets/Backgrounds/Back 2.png";
@@ -813,7 +815,16 @@ class KnifeHitGame {
 
     // Pre-create bottom knife icons to avoid DOM churn during throws
     this.initKnifeIconStrip();
-    
+
+    // Platform lifecycle hooks
+    oasiz.onPause(() => {
+      if (this.state === "PLAYING") this.pause();
+      this.stopBgm();
+    });
+    oasiz.onResume(() => {
+      if (this.settings.music) this.startBgm();
+    });
+
     // Start game loop
     this.gameLoop(0);
   }
@@ -1483,6 +1494,7 @@ class KnifeHitGame {
   
   private saveWeapon(): void {
     this.safeStorageSet("knifeHitWeapon", this.currentWeapon);
+    this.saveGameStateAll();
   }
 
   private loadTotalCoins(): number {
@@ -1495,6 +1507,7 @@ class KnifeHitGame {
 
   private saveTotalCoins(): void {
     this.safeStorageSet("knifeHitCoins", String(this.coinBank));
+    this.saveGameStateAll();
   }
 
   private loadHighestLevel(): number {
@@ -1505,30 +1518,75 @@ class KnifeHitGame {
     }
   }
 
+  private saveGameStateAll(flush = false): void {
+    const state = {
+      coinBank: this.coinBank,
+      currentWeapon: this.currentWeapon,
+      weaponUnlocks: {
+        pen: this.weaponUnlocks.pen,
+        kunai: this.weaponUnlocks.kunai,
+        pencil: this.weaponUnlocks.pencil,
+      },
+      highestUnlockedLevel: this.highestUnlockedLevel,
+    };
+    oasiz.saveGameState(state);
+    if (flush) oasiz.flushGameState();
+  }
+
   private saveHighestLevel(): void {
     this.safeStorageSet("knifeHitHighestLevel", String(this.highestUnlockedLevel));
+    this.saveGameStateAll();
   }
 
   private loadProgression(): void {
-    this.coinBank = this.loadTotalCoins();
-    this.highestUnlockedLevel = this.loadHighestLevel();
+    // Load from oasiz.loadGameState() (cross-device), falling back to localStorage
+    const cloudState = oasiz.loadGameState() as {
+      coinBank?: number;
+      currentWeapon?: WeaponType;
+      weaponUnlocks?: Partial<Record<WeaponType, boolean>>;
+      highestUnlockedLevel?: number;
+    };
 
-    // Load unlocks
-    const rawUnlocks = this.safeStorageGet(ECONOMY.UNLOCKS_STORAGE_KEY);
-    if (rawUnlocks) {
-      try {
-        const obj = JSON.parse(rawUnlocks) as Partial<Record<WeaponType, boolean>>;
-        this.weaponUnlocks = {
-          knife: true,
-          kunai: Boolean(obj.kunai),
-          pen: Boolean(obj.pen),
-          pencil: Boolean(obj.pencil),
-        };
-      } catch {
-        this.weaponUnlocks = { knife: true, kunai: false, pen: false, pencil: false };
+    const hasCloudState = Object.keys(cloudState).length > 0;
+
+    if (hasCloudState) {
+      this.coinBank = typeof cloudState.coinBank === "number" ? Math.max(0, cloudState.coinBank) : 0;
+      this.highestUnlockedLevel =
+        typeof cloudState.highestUnlockedLevel === "number"
+          ? Math.max(0, cloudState.highestUnlockedLevel)
+          : 0;
+      const unlocks = cloudState.weaponUnlocks ?? {};
+      this.weaponUnlocks = {
+        knife: true,
+        kunai: Boolean(unlocks.kunai),
+        pen: Boolean(unlocks.pen),
+        pencil: Boolean(unlocks.pencil),
+      };
+      const validWeapons: WeaponType[] = ["knife", "kunai", "pen", "pencil"];
+      if (cloudState.currentWeapon && validWeapons.includes(cloudState.currentWeapon)) {
+        this.currentWeapon = cloudState.currentWeapon;
       }
     } else {
-      this.weaponUnlocks = { knife: true, kunai: false, pen: false, pencil: false };
+      // Fallback: read legacy localStorage values
+      this.coinBank = this.loadTotalCoins();
+      this.highestUnlockedLevel = this.loadHighestLevel();
+
+      const rawUnlocks = this.safeStorageGet(ECONOMY.UNLOCKS_STORAGE_KEY);
+      if (rawUnlocks) {
+        try {
+          const obj = JSON.parse(rawUnlocks) as Partial<Record<WeaponType, boolean>>;
+          this.weaponUnlocks = {
+            knife: true,
+            kunai: Boolean(obj.kunai),
+            pen: Boolean(obj.pen),
+            pencil: Boolean(obj.pencil),
+          };
+        } catch {
+          this.weaponUnlocks = { knife: true, kunai: false, pen: false, pencil: false };
+        }
+      } else {
+        this.weaponUnlocks = { knife: true, kunai: false, pen: false, pencil: false };
+      }
     }
 
     // If the saved weapon is locked, force fallback to knife
@@ -1544,6 +1602,7 @@ class KnifeHitGame {
       ECONOMY.UNLOCKS_STORAGE_KEY,
       JSON.stringify({ kunai: this.weaponUnlocks.kunai, pen: this.weaponUnlocks.pen, pencil: this.weaponUnlocks.pencil })
     );
+    this.saveGameStateAll();
   }
 
   private addCoins(amount: number): void {
@@ -2138,6 +2197,7 @@ class KnifeHitGame {
     } else {
       // Game complete
       this.state = "GAME_OVER";
+      this.saveGameStateAll(true);
       this.gameOverScreen.classList.remove("hidden");
     }
   }
@@ -2407,8 +2467,8 @@ class KnifeHitGame {
   }
 
   private triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error"): void {
-    if (this.settings.haptics && typeof (window as any).triggerHaptic === "function") {
-      setTimeout(() => (window as any).triggerHaptic(type), 0);
+    if (this.settings.haptics) {
+      oasiz.triggerHaptic(type);
     }
   }
 
@@ -2454,6 +2514,7 @@ class KnifeHitGame {
         this.roundTimerActive = false;
         this.updateTimerDisplay();
         this.flushCoinSave();
+        this.saveGameStateAll(true);
         this.gameOverActive = true;
         this.gameOverTimeout = true;
         this.state = "GAME_OVER";
@@ -2768,6 +2829,7 @@ class KnifeHitGame {
             }
             
             this.flushCoinSave();
+            this.saveGameStateAll(true);
             this.gameOverActive = true;
             this.state = "GAME_OVER";
             this.roundTimerActive = false;
@@ -2856,8 +2918,8 @@ class KnifeHitGame {
                 this.successSound.play().catch(() => {});
               }
               
-              if (this.currentLevel >= this.highestUnlockedLevel && typeof (window as any).submitScore === "function") {
-                (window as any).submitScore(this.currentLevel + 1);
+              if (this.currentLevel >= this.highestUnlockedLevel) {
+                oasiz.submitScore(this.currentLevel + 1);
               }
             }
           }
