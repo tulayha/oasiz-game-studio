@@ -198,7 +198,7 @@ export class Game {
   private updateGame(dt: number): void {
     if (this.paused || this.gameOver) return;
 
-    this.inputHandler.update();
+    this.inputHandler.update(dt);
 
     const players = this.players;
     const playerCount = players.length;
