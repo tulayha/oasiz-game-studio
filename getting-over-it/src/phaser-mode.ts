@@ -490,131 +490,220 @@ class ClimbScene extends Phaser.Scene {
     const hx = this.hammerPos.x;
     const hy = this.hammerPos.y;
     const cam = this.cameras.main;
+    const cL  = cam.scrollX - 20;
+    const cT  = cam.scrollY - 20;
+    const cW  = cam.width  + 40;
+    const cH  = cam.height + 40;
 
-    // Background
-    gfx.fillStyle(0x0a0a0f);
-    gfx.fillRect(cam.scrollX - 10, cam.scrollY - 10, cam.width + 20, cam.height + 20);
+    // ── 1. Kitchen wall — cream tiles ────────────────────────────────────────
+    gfx.fillStyle(0xFFFBF0);
+    gfx.fillRect(cL, cT, cW, cH);
 
-    // Ground
-    gfx.fillStyle(0x0d0b08);
-    gfx.fillRect(0, GROUND_Y, WORLD_W, 200);
-    gfx.lineStyle(3, 0x4b5563);
-    gfx.lineBetween(0, GROUND_Y, WORLD_W, GROUND_Y);
+    const TILE = 64;
+    const tx0  = Math.floor(cam.scrollX / TILE) * TILE;
+    const ty0  = Math.floor(cam.scrollY / TILE) * TILE;
+    gfx.lineStyle(1, 0xE2D8C8, 0.9);
+    for (let tx = tx0; tx < cam.scrollX + cam.width + TILE; tx += TILE)
+      gfx.lineBetween(tx, cT, tx, cT + cH);
+    for (let ty = ty0; ty < cam.scrollY + cam.height + TILE; ty += TILE)
+      gfx.lineBetween(cL, ty, cL + cW, ty);
 
-    // Rocks
-    for (const rock of ROCKS) {
-      const v = rock.verts;
+    // ── 2. Wooden counter surface (ground) ───────────────────────────────────
+    gfx.fillStyle(0x7C4A1E);
+    gfx.fillRect(cL, GROUND_Y, cW, 260);
+    gfx.lineStyle(1, 0x5E3410, 0.55);
+    for (let g = 0; g < 260; g += 20)
+      gfx.lineBetween(cL, GROUND_Y + g, cL + cW, GROUND_Y + g + 3);
+    gfx.fillStyle(0x9A6132);
+    gfx.fillRect(cL, GROUND_Y - 7, cW, 10);
+    gfx.lineStyle(2, 0x5C3011);
+    gfx.lineBetween(cL, GROUND_Y - 7, cL + cW, GROUND_Y - 7);
+    gfx.lineBetween(cL, GROUND_Y + 3,  cL + cW, GROUND_Y + 3);
+
+    // ── 3. Kitchen items (rocks) ──────────────────────────────────────────────
+    for (let ri = 0; ri < ROCKS.length; ri++) {
+      const rock = ROCKS[ri];
+      const v    = rock.verts;
       if (v.length < 3) continue;
-      gfx.fillStyle(0x374151);
+
+      let vMinX = Infinity, vMaxX = -Infinity, vMinY = Infinity, vMaxY = -Infinity;
+      for (const p of v) {
+        if (p.x < vMinX) vMinX = p.x;
+        if (p.x > vMaxX) vMaxX = p.x;
+        if (p.y < vMinY) vMinY = p.y;
+        if (p.y > vMaxY) vMaxY = p.y;
+      }
+
+      let fill = 0xF5F5F0, stroke = 0x2563EB, sw = 3;
+      type KItem = 'board'|'plate'|'pot'|'bowl'|'mug'|'pan';
+      let kind: KItem = 'plate';
+
+      if (ri === 0) {
+        fill = 0xA07040; stroke = 0x7A5230; sw = 3; kind = 'board';
+      } else {
+        switch ((ri - 1) % 6) {
+          case 0: fill = 0xF5F5F0; stroke = 0x2563EB; sw = 3; kind = 'plate'; break;
+          case 1: fill = 0x374151; stroke = 0x9CA3AF; sw = 2; kind = 'pot';   break;
+          case 2: fill = 0xFEF3C7; stroke = 0xD97706; sw = 2; kind = 'bowl';  break;
+          case 3: fill = 0x9A6132; stroke = 0x7A4E22; sw = 2; kind = 'board'; break;
+          case 4: fill = 0xD95040; stroke = 0x7F1D1D; sw = 2; kind = 'mug';   break;
+          case 5: fill = 0x1F2937; stroke = 0x6B7280; sw = 2; kind = 'pan';   break;
+        }
+      }
+
+      gfx.fillStyle(fill);
       gfx.beginPath();
       gfx.moveTo(v[0].x, v[0].y);
       for (let i = 1; i < v.length; i++) gfx.lineTo(v[i].x, v[i].y);
-      gfx.closePath();
-      gfx.fillPath();
-      gfx.lineStyle(2, 0x4b5563);
+      gfx.closePath(); gfx.fillPath();
+      gfx.lineStyle(sw, stroke);
       gfx.beginPath();
       gfx.moveTo(v[0].x, v[0].y);
       for (let i = 1; i < v.length; i++) gfx.lineTo(v[i].x, v[i].y);
-      gfx.closePath();
-      gfx.strokePath();
-      let topIdx = 0;
-      for (let i = 1; i < v.length; i++) { if (v[i].y < v[topIdx].y) topIdx = i; }
-      const ni = (topIdx + 1) % v.length, pi = (topIdx - 1 + v.length) % v.length;
-      gfx.lineStyle(1, 0x6b7280);
-      gfx.lineBetween(v[pi].x, v[pi].y, v[topIdx].x, v[topIdx].y);
-      gfx.lineBetween(v[topIdx].x, v[topIdx].y, v[ni].x, v[ni].y);
-      gfx.lineStyle(1, 0x1f2937);
-      for (let i = 0; i < 2; i++) {
-        const a = (i * 2.1 + rock.cx * 0.013 + rock.cy * 0.007) % (Math.PI * 2);
-        const len = 12 + ((i * 13 + Math.abs(rock.cx * 0.4)) % 18);
-        gfx.lineBetween(rock.cx, rock.cy, rock.cx + Math.cos(a) * len, rock.cy + Math.sin(a) * len);
+      gfx.closePath(); gfx.strokePath();
+
+      const cx = rock.cx, cy = rock.cy;
+      switch (kind) {
+        case 'plate': {
+          const r = Math.hypot(cx - vMinX, cy - vMinY) * 0.62;
+          gfx.lineStyle(sw, stroke, 0.75);
+          gfx.strokeCircle(cx, cy, r);
+          gfx.lineStyle(2, 0xFFFFFF, 0.55);
+          gfx.strokeCircle(cx - r * 0.25, cy - r * 0.25, r * 0.45);
+          break;
+        }
+        case 'pot': {
+          gfx.lineStyle(3, 0x6B7280);
+          gfx.lineBetween(cx - 22, vMinY + 9, cx + 22, vMinY + 9);
+          gfx.fillStyle(0x9CA3AF);
+          gfx.fillCircle(cx, vMinY + 5, 5);
+          gfx.lineStyle(1, 0x4B5563);
+          gfx.strokeCircle(cx, vMinY + 5, 5);
+          gfx.fillStyle(0x4B5563);
+          gfx.fillRect(vMinX - 10, cy - 5, 10, 10);
+          gfx.fillRect(vMaxX,      cy - 5, 10, 10);
+          gfx.lineStyle(1, 0x6B7280);
+          gfx.strokeRect(vMinX - 10, cy - 5, 10, 10);
+          gfx.strokeRect(vMaxX,      cy - 5, 10, 10);
+          break;
+        }
+        case 'bowl': {
+          gfx.lineStyle(2, 0xFFFDE8, 0.7);
+          gfx.strokeEllipse(cx - 4, cy - 4, 28, 12);
+          break;
+        }
+        case 'board': {
+          gfx.lineStyle(1, 0x6B4020, 0.45);
+          for (let gy2 = vMinY + 7; gy2 < vMaxY; gy2 += 7)
+            gfx.lineBetween(vMinX + 3, gy2, vMaxX - 3, gy2);
+          gfx.lineStyle(2, 0xC08050, 0.3);
+          gfx.strokeCircle(cx, cy, Math.min(vMaxX - cx, vMaxY - cy) * 0.8);
+          break;
+        }
+        case 'mug': {
+          const midY = (vMinY + vMaxY) / 2;
+          gfx.lineStyle(3, stroke);
+          gfx.strokeCircle(vMaxX + 7, midY, 9);
+          gfx.lineStyle(2, 0xFCA5A5);
+          gfx.lineBetween(cx - 14, vMinY + 5, cx + 14, vMinY + 5);
+          break;
+        }
+        case 'pan': {
+          const midY = (vMinY + vMaxY) / 2;
+          gfx.fillStyle(0x374151);
+          gfx.fillRoundedRect(vMaxX, midY - 5, 28, 10, 3);
+          gfx.lineStyle(1, 0x6B7280);
+          gfx.strokeRoundedRect(vMaxX, midY - 5, 28, 10, 3);
+          gfx.lineStyle(2, 0x4B5563, 0.5);
+          gfx.lineBetween(cx - 12, cy - 6, cx + 16, cy - 8);
+          break;
+        }
       }
     }
 
-    // Arms + Hands
-    const shoulderOff = BODY_R * 0.7, shoulderY = by - 2;
-    const hmX = bx + (hx - bx) * 0.4, hmY = by + (hy - by) * 0.4;
-    const drawArm = (sx: number, sy: number) => {
-      const dx = hmX - sx, dy = hmY - sy;
-      const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      const al = Math.min(d, BODY_R * 2.5);
-      const ex = sx + (dx / d) * al, ey = sy + (dy / d) * al;
-      gfx.lineStyle(4, 0x78563d);
-      gfx.lineBetween(sx, sy, ex, ey);
-      const hs = HAND_R + Math.min(2, d * 0.02);
-      gfx.fillStyle(0x9e7b5a);
-      gfx.fillCircle(ex, ey, hs);
-      gfx.lineStyle(1, 0x5a3e28);
-      gfx.strokeCircle(ex, ey, hs);
-      return { x: ex, y: ey };
-    };
-    const lh = drawArm(bx - shoulderOff, shoulderY);
-    const rh = drawArm(bx + shoulderOff, shoulderY);
-
-    // Pickaxe handle
-    const gx = (lh.x + rh.x) / 2, gy = (lh.y + rh.y) / 2;
-    gfx.lineStyle(5, 0x92400e);
-    gfx.lineBetween(gx, gy, hx, hy);
-
-    // Pickaxe head (fixed orientation)
-    const pw = 20, ph = 8;
-    gfx.fillStyle(hammerOnRock ? 0xfbbf24 : 0x9ca3af);
-    gfx.beginPath();
-    gfx.moveTo(hx - pw * 0.6, hy + ph);
-    gfx.lineTo(hx - pw * 0.1, hy - ph * 0.5);
-    gfx.lineTo(hx + pw * 0.1, hy - ph * 0.5);
-    gfx.lineTo(hx + pw * 0.6, hy + ph);
-    gfx.lineTo(hx, hy + ph * 0.3);
-    gfx.closePath();
-    gfx.fillPath();
-    gfx.lineStyle(1, 0x374151);
-    gfx.strokePath();
+    // ── 4. Toothpick ──────────────────────────────────────────────────────────
+    const TR    = BODY_R + 5;
+    const tAng  = Math.atan2(hy - by, hx - bx);
+    const tSrcX = bx + Math.cos(tAng) * TR;
+    const tSrcY = by + Math.sin(tAng) * TR;
+    gfx.lineStyle(3, 0xD4A574);
+    gfx.lineBetween(tSrcX, tSrcY, hx, hy);
+    gfx.lineStyle(1, 0xB08040, 0.6);
+    gfx.lineBetween(tSrcX + 1, tSrcY + 1, hx + 1, hy + 1);
+    const tipX = hx + Math.cos(tAng) * 7;
+    const tipY = hy + Math.sin(tAng) * 7;
+    gfx.fillStyle(0xA06828);
+    gfx.fillTriangle(
+      hx + Math.cos(tAng - 1.3) * 3, hy + Math.sin(tAng - 1.3) * 3,
+      hx + Math.cos(tAng + 1.3) * 3, hy + Math.sin(tAng + 1.3) * 3,
+      tipX, tipY,
+    );
     if (hammerOnRock) {
-      gfx.fillStyle(0xfbbf24, 0.25);
-      gfx.fillCircle(hx, hy, cfg.hammerR + 6);
+      gfx.fillStyle(0xFEF08A, 0.35);
+      gfx.fillCircle(hx, hy, 16);
+      gfx.lineStyle(1, 0xEAB308, 0.55);
+      gfx.strokeCircle(hx, hy, 20);
     }
 
-    // Cauldron
-    gfx.fillStyle(0x374151);
-    gfx.fillEllipse(bx, by + BODY_R + 4, 40, 12);
-    gfx.lineStyle(1, 0x4b5563);
-    gfx.strokeEllipse(bx, by + BODY_R + 4, 40, 12);
+    // ── 5. Tomato player ──────────────────────────────────────────────────────
+    gfx.fillStyle(0x000000, 0.1);
+    gfx.fillEllipse(bx + 4, by + TR + 1, TR * 2.4, 10);
 
-    // Player body
-    gfx.fillStyle(0x78563d);
-    gfx.fillCircle(bx, by, BODY_R);
-    gfx.fillStyle(0x2d1f14, 0.4);
-    gfx.fillCircle(bx + 2, by + 2, BODY_R - 2);
-    gfx.lineStyle(1.5, 0x5a3e28);
-    gfx.strokeCircle(bx, by, BODY_R);
+    gfx.fillStyle(0xE53E3E);
+    gfx.fillCircle(bx, by, TR);
 
-    // Head
-    const headX = bx, headY = by - BODY_R - HEAD_R + 4;
-    const msx = this.mouseScreen.x, msy = -this.mouseScreen.y;
-    const headFlipped = msx < 0;
-    let headDeg = (180 / Math.PI) * Math.atan2(msy, Math.abs(msx));
-    headDeg = Math.max(-30, Math.min(30, headDeg));
-    gfx.fillStyle(0xd4a574);
-    gfx.fillCircle(headX, headY, HEAD_R);
-    gfx.lineStyle(1, 0x8b6b4a);
-    gfx.strokeCircle(headX, headY, HEAD_R);
-    const eox = headFlipped ? -3 : 3, esp = 4, eyeY = headY - 2;
+    gfx.fillStyle(0xB91C1C, 0.28);
+    gfx.fillEllipse(bx, by + TR * 0.3, TR * 2, TR * 1.4);
+
+    gfx.lineStyle(1.5, 0xC53030, 0.35);
+    for (let rib = -1; rib <= 1; rib++) {
+      const rx2 = bx + rib * (TR * 0.44);
+      gfx.lineBetween(rx2, by - TR + 5, rx2, by + TR - 5);
+    }
+
+    gfx.fillStyle(0xFF8080, 0.5);
+    gfx.fillCircle(bx - TR * 0.32, by - TR * 0.32, TR * 0.35);
+    gfx.fillStyle(0xFFFFFF, 0.25);
+    gfx.fillCircle(bx - TR * 0.36, by - TR * 0.36, TR * 0.18);
+
+    gfx.lineStyle(2, 0xB91C1C);
+    gfx.strokeCircle(bx, by, TR);
+
+    // Calyx leaves
+    const leafCx = bx, leafCy = by - TR + 2;
+    gfx.fillStyle(0x16A34A);
+    for (let li = 0; li < 5; li++) {
+      const la  = (li / 5) * Math.PI * 2 - Math.PI / 2;
+      const lx1 = leafCx + Math.cos(la - 0.35) * 4;
+      const ly1 = leafCy + Math.sin(la - 0.35) * 4;
+      const lx2 = leafCx + Math.cos(la + 0.35) * 4;
+      const ly2 = leafCy + Math.sin(la + 0.35) * 4;
+      const ltx = leafCx + Math.cos(la) * 11;
+      const lty = leafCy + Math.sin(la) * 8;
+      gfx.fillTriangle(lx1, ly1, lx2, ly2, ltx, lty);
+    }
+    gfx.fillStyle(0x15803D);
+    gfx.fillRect(leafCx - 1.5, leafCy - 9, 3, 9);
+
+    // Face
+    const facing  = this.mouseScreen.x >= 0 ? 1 : -1;
+    const eyeOffX = 6 * facing;
+    const eyeY    = by - 4;
     if (this.isEyesClosed) {
-      gfx.lineStyle(1.5, 0x2d1f14);
-      gfx.lineBetween(headX + eox - esp - 2, eyeY, headX + eox - esp + 2, eyeY);
-      gfx.lineBetween(headX + eox + esp - 2, eyeY, headX + eox + esp + 2, eyeY);
+      gfx.lineStyle(2, 0x7F1D1D);
+      gfx.lineBetween(bx + eyeOffX - 5, eyeY, bx + eyeOffX + 5, eyeY);
+      gfx.lineBetween(bx - eyeOffX - 3, eyeY, bx - eyeOffX + 3, eyeY);
     } else {
-      gfx.fillStyle(0xffffff);
-      gfx.fillCircle(headX + eox - esp, eyeY, 2.5);
-      gfx.fillCircle(headX + eox + esp, eyeY, 2.5);
-      const ps = headFlipped ? -0.8 : 0.8;
-      gfx.fillStyle(0x1a1008);
-      gfx.fillCircle(headX + eox - esp + ps, eyeY, 1.2);
-      gfx.fillCircle(headX + eox + esp + ps, eyeY, 1.2);
+      gfx.fillStyle(0xFFFFFF);
+      gfx.fillCircle(bx + eyeOffX,       eyeY, 3.5);
+      gfx.fillCircle(bx - eyeOffX * 0.5, eyeY, 3);
+      gfx.fillStyle(0x1A0000);
+      gfx.fillCircle(bx + eyeOffX       + facing * 0.8, eyeY, 1.8);
+      gfx.fillCircle(bx - eyeOffX * 0.5 + facing * 0.8, eyeY, 1.5);
     }
-    const mx = headX + (headFlipped ? -1 : 1);
-    gfx.lineStyle(1, 0x5a3020);
-    gfx.lineBetween(mx - 2.5, headY + 4, mx + 2.5, headY + 4);
+    gfx.lineStyle(2, 0x7F1D1D);
+    gfx.lineBetween(bx - 5, by + 6, bx - 1, by + 8);
+    gfx.lineBetween(bx - 1, by + 8, bx + 5, by + 6);
   }
 }
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>Stone Ascent</title>
+  <title>Tomatoo Ascent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Cinzel+Decorative:wght@400;700&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
       width: 100%; height: 100%;
       overflow: hidden;
       touch-action: none;
-      background: #0a0a0f;
+      background: #FFFbF0;
       font-family: 'Cinzel', serif;
       user-select: none;
       -webkit-user-select: none;
@@ -51,7 +51,7 @@
 
     /* ── Start Screen ─────────────────────────────────────────── */
     #start-screen {
-      background: linear-gradient(170deg, #0d1117 0%, #1a1206 40%, #0f0d09 100%);
+      background: linear-gradient(170deg, #FFF8EE 0%, #FFF0DC 50%, #FEE8CC 100%);
       overflow: hidden;
     }
 
@@ -73,22 +73,22 @@
       font-family: 'Cinzel Decorative', serif;
       font-weight: 900;
       font-size: clamp(2.4rem, 8vw, 5rem);
-      color: #c8a96e;
+      color: #B91C1C;
       text-shadow:
-        0 0 30px rgba(200, 169, 110, 0.4),
-        2px 3px 0 #3a2a10,
-        4px 6px 0 #1a1008;
+        0 0 30px rgba(229,62,62,0.35),
+        2px 3px 0 #7f1d1d,
+        4px 6px 0 #4a0a0a;
       letter-spacing: 0.05em;
       animation: titlePulse 3s ease-in-out infinite;
     }
     @keyframes titlePulse {
-      0%, 100% { text-shadow: 0 0 30px rgba(200,169,110,0.4), 2px 3px 0 #3a2a10, 4px 6px 0 #1a1008; }
-      50%       { text-shadow: 0 0 60px rgba(200,169,110,0.7), 2px 3px 0 #3a2a10, 4px 6px 0 #1a1008; }
+      0%, 100% { text-shadow: 0 0 30px rgba(229,62,62,0.35), 2px 3px 0 #7f1d1d, 4px 6px 0 #4a0a0a; }
+      50%       { text-shadow: 0 0 60px rgba(229,62,62,0.65), 2px 3px 0 #7f1d1d, 4px 6px 0 #4a0a0a; }
     }
 
     .start-subtitle {
       font-size: clamp(0.75rem, 2vw, 1rem);
-      color: #7a6a4a;
+      color: #9A6132;
       letter-spacing: 0.3em;
       text-transform: uppercase;
       margin-top: 0.4rem;
@@ -103,20 +103,20 @@
     #start-preview {
       width: 100%; height: 100%;
       border-radius: 50%;
-      border: 2px solid rgba(200, 169, 110, 0.3);
-      box-shadow: 0 0 40px rgba(0,0,0,0.8), inset 0 0 20px rgba(200,169,110,0.05);
+      border: 2px solid rgba(229, 62, 62, 0.35);
+      box-shadow: 0 0 40px rgba(229,62,62,0.15), inset 0 0 20px rgba(229,62,62,0.05);
     }
 
     .start-instructions {
       font-size: clamp(0.7rem, 1.8vw, 0.9rem);
-      color: #6a5a3a;
+      color: #9A6132;
       text-align: center;
       margin-bottom: 1.8rem;
       letter-spacing: 0.08em;
       line-height: 1.8;
     }
     .start-instructions span {
-      color: #a88a50;
+      color: #B91C1C;
     }
 
     /* ── Physics selector ─────────────────────────────────────── */
@@ -129,7 +129,7 @@
     .physics-mode-label {
       font-size: 0.6rem;
       letter-spacing: 0.3em;
-      color: #5a4a2a;
+      color: #9A6132;
       text-transform: uppercase;
       margin-bottom: 0.75rem;
     }
@@ -143,35 +143,35 @@
 
     .physics-card {
       font-family: 'Cinzel', serif;
-      background: rgba(8, 6, 3, 0.75);
-      border: 1px solid rgba(200, 169, 110, 0.25);
+      background: rgba(255,251,240,0.85);
+      border: 1px solid rgba(229,62,62,0.3);
       border-radius: 6px;
       padding: 0.9rem 1.2rem;
       cursor: pointer;
       width: clamp(100px, 22vw, 140px);
       transition: all 0.18s;
       text-align: center;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 15px rgba(154,97,50,0.15);
     }
     .physics-card:hover {
-      border-color: rgba(200, 169, 110, 0.6);
-      background: rgba(200, 169, 110, 0.07);
+      border-color: rgba(229,62,62,0.65);
+      background: rgba(255,240,220,0.95);
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.6), 0 0 20px rgba(200,169,110,0.1);
+      box-shadow: 0 6px 20px rgba(154,97,50,0.2), 0 0 20px rgba(229,62,62,0.1);
     }
-    .physics-card:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+    .physics-card:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(154,97,50,0.2); }
 
     .physics-card-title {
       font-weight: 700;
       font-size: clamp(0.8rem, 2vw, 0.95rem);
       letter-spacing: 0.12em;
-      color: #c8a96e;
+      color: #B91C1C;
       margin-bottom: 0.5rem;
     }
 
     .physics-card-desc {
       font-size: clamp(0.52rem, 1.3vw, 0.65rem);
-      color: #6a5a3a;
+      color: #9A6132;
       letter-spacing: 0.05em;
       line-height: 1.6;
     }
@@ -191,31 +191,32 @@
     @media (pointer: coarse) { #hud { padding-top: 130px; } }
 
     .hud-box {
-      background: rgba(5, 4, 2, 0.7);
-      border: 1px solid rgba(200, 169, 110, 0.25);
+      background: rgba(255,251,240,0.88);
+      border: 1px solid rgba(229,62,62,0.3);
       border-radius: 4px;
       padding: 0.4rem 1.2rem;
       text-align: center;
       backdrop-filter: blur(4px);
+      box-shadow: 0 2px 10px rgba(154,97,50,0.15);
     }
 
     .hud-height {
       font-size: clamp(1.6rem, 5vw, 2.2rem);
       font-weight: 700;
-      color: #c8a96e;
+      color: #B91C1C;
       line-height: 1.1;
     }
 
     .hud-label {
       font-size: 0.6rem;
       letter-spacing: 0.25em;
-      color: #5a4a2a;
+      color: #9A6132;
       text-transform: uppercase;
     }
 
     .hud-max {
       font-size: 0.75rem;
-      color: #7a6a4a;
+      color: #C53030;
       margin-top: 0.15rem;
     }
 
@@ -224,8 +225,8 @@
       position: fixed;
       top: 45px; right: 16px;
       width: 44px; height: 44px;
-      background: rgba(5, 4, 2, 0.75);
-      border: 1px solid rgba(200, 169, 110, 0.3);
+      background: rgba(255,251,240,0.88);
+      border: 1px solid rgba(229,62,62,0.3);
       border-radius: 6px;
       cursor: pointer;
       z-index: 15;
@@ -234,22 +235,22 @@
       backdrop-filter: blur(4px);
     }
     #settings-btn.hidden { display: none; }
-    #settings-btn:hover { background: rgba(20, 14, 5, 0.9); }
+    #settings-btn:hover { background: rgba(255,240,220,0.95); }
     @media (pointer: coarse) { #settings-btn { top: 120px; } }
 
     .gear-icon {
       width: 22px; height: 22px;
-      fill: #c8a96e;
+      fill: #B91C1C;
     }
 
     /* ── Quit Button ──────────────────────────────────────────── */
     #quit-btn {
       position: fixed;
       top: 45px; left: 16px;
-      background: rgba(5, 4, 2, 0.75);
-      border: 1px solid rgba(200, 169, 110, 0.2);
+      background: rgba(255,251,240,0.88);
+      border: 1px solid rgba(229,62,62,0.25);
       border-radius: 6px;
-      color: #7a6a4a;
+      color: #9A6132;
       font-family: 'Cinzel', serif;
       font-size: 0.65rem;
       letter-spacing: 0.15em;
@@ -260,7 +261,7 @@
       backdrop-filter: blur(4px);
     }
     #quit-btn.hidden { display: none; }
-    #quit-btn:hover { color: #c8a96e; border-color: rgba(200,169,110,0.4); }
+    #quit-btn:hover { color: #B91C1C; border-color: rgba(229,62,62,0.5); }
     @media (pointer: coarse) { #quit-btn { top: 120px; } }
 
     /* ── Settings Modal ───────────────────────────────────────── */
@@ -269,24 +270,24 @@
       inset: 0;
       z-index: 30;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(154,97,50,0.3);
       backdrop-filter: blur(6px);
     }
     #settings-modal.hidden { display: none; }
 
     .settings-panel {
-      background: linear-gradient(170deg, #1a1510 0%, #100d08 100%);
-      border: 1px solid rgba(200, 169, 110, 0.3);
+      background: linear-gradient(170deg, #FFF8EE 0%, #FFF0DC 100%);
+      border: 1px solid rgba(229,62,62,0.3);
       border-radius: 8px;
       padding: 2rem;
       width: clamp(260px, 80vw, 340px);
-      box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+      box-shadow: 0 20px 60px rgba(154,97,50,0.25);
     }
 
     .settings-title {
       font-family: 'Cinzel Decorative', serif;
       font-size: 1.1rem;
-      color: #c8a96e;
+      color: #B91C1C;
       letter-spacing: 0.15em;
       text-align: center;
       margin-bottom: 1.5rem;
@@ -298,7 +299,7 @@
       align-items: center;
       margin-bottom: 1.1rem;
       padding-bottom: 1.1rem;
-      border-bottom: 1px solid rgba(200, 169, 110, 0.1);
+      border-bottom: 1px solid rgba(229,62,62,0.12);
     }
     .settings-row:last-of-type { border-bottom: none; margin-bottom: 1.5rem; }
 
@@ -306,20 +307,20 @@
       display: flex;
       align-items: center;
       gap: 0.7rem;
-      color: #a89060;
+      color: #9A6132;
       font-size: 0.85rem;
       letter-spacing: 0.1em;
     }
 
     .settings-row-label svg {
       width: 18px; height: 18px;
-      fill: #c8a96e;
+      fill: #B91C1C;
     }
 
     .toggle {
       width: 48px; height: 26px;
-      background: #1e1a12;
-      border: 1px solid rgba(200,169,110,0.3);
+      background: #E8D0B8;
+      border: 1px solid rgba(229,62,62,0.25);
       border-radius: 13px;
       cursor: pointer;
       position: relative;
@@ -332,11 +333,11 @@
       top: 3px; left: 3px;
       width: 18px; height: 18px;
       border-radius: 50%;
-      background: #5a4a2a;
+      background: #C8906A;
       transition: transform 0.25s, background 0.25s;
     }
-    .toggle.active { background: rgba(200,169,110,0.25); border-color: #c8a96e; }
-    .toggle.active::after { transform: translateX(22px); background: #c8a96e; }
+    .toggle.active { background: rgba(229,62,62,0.2); border-color: #B91C1C; }
+    .toggle.active::after { transform: translateX(22px); background: #B91C1C; }
 
     .settings-close {
       width: 100%;
@@ -344,26 +345,26 @@
       font-size: 0.8rem;
       letter-spacing: 0.2em;
       padding: 0.75rem;
-      background: linear-gradient(180deg, #c8a96e 0%, #8a6a30 100%);
-      color: #0d0905;
+      background: linear-gradient(180deg, #E53E3E 0%, #9B2C2C 100%);
+      color: #FFF8EE;
       border: none;
       border-radius: 4px;
       cursor: pointer;
       transition: all 0.15s;
-      box-shadow: 0 3px 0 #3a2a10;
+      box-shadow: 0 3px 0 #7F1D1D;
     }
     .settings-close:hover  { transform: translateY(-1px); }
-    .settings-close:active { transform: translateY(1px); box-shadow: 0 1px 0 #3a2a10; }
+    .settings-close:active { transform: translateY(1px); box-shadow: 0 1px 0 #7F1D1D; }
 
     /* ── Quit / Results Screen ────────────────────────────────── */
     #quit-screen {
-      background: linear-gradient(170deg, #0d1117 0%, #1a1206 40%, #0f0d09 100%);
+      background: linear-gradient(170deg, #FFF8EE 0%, #FFF0DC 50%, #FEE8CC 100%);
     }
 
     .quit-title {
       font-family: 'Cinzel Decorative', serif;
       font-size: clamp(1.4rem, 5vw, 2.2rem);
-      color: #c8a96e;
+      color: #B91C1C;
       letter-spacing: 0.1em;
       margin-bottom: 0.5rem;
     }
@@ -371,7 +372,7 @@
     .quit-label {
       font-size: 0.7rem;
       letter-spacing: 0.3em;
-      color: #5a4a2a;
+      color: #9A6132;
       text-transform: uppercase;
       margin-bottom: 2rem;
     }
@@ -379,15 +380,15 @@
     .quit-height-display {
       font-size: clamp(3.5rem, 14vw, 6rem);
       font-weight: 700;
-      color: #c8a96e;
-      text-shadow: 0 0 40px rgba(200,169,110,0.4);
+      color: #B91C1C;
+      text-shadow: 0 0 40px rgba(229,62,62,0.3);
       line-height: 1;
       margin-bottom: 0.3rem;
     }
 
     .quit-height-unit {
       font-size: clamp(1rem, 3vw, 1.4rem);
-      color: #8a7a5a;
+      color: #9A6132;
       margin-bottom: 2.5rem;
     }
 
@@ -404,16 +405,16 @@
       font-size: clamp(0.85rem, 2vw, 1rem);
       letter-spacing: 0.15em;
       padding: 0.9rem 2rem;
-      background: linear-gradient(180deg, #c8a96e 0%, #8a6a30 100%);
-      color: #0d0905;
+      background: linear-gradient(180deg, #E53E3E 0%, #9B2C2C 100%);
+      color: #FFF8EE;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      box-shadow: 0 4px 0 #3a2a10;
+      box-shadow: 0 4px 0 #7F1D1D;
       transition: all 0.15s;
     }
-    .play-again-btn:hover  { transform: translateY(-2px); box-shadow: 0 6px 0 #3a2a10; }
-    .play-again-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #3a2a10; }
+    .play-again-btn:hover  { transform: translateY(-2px); box-shadow: 0 6px 0 #7F1D1D; }
+    .play-again-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #7F1D1D; }
 
     /* ── Height milestone toast ───────────────────────────────── */
     #milestone-toast {
@@ -421,8 +422,8 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%) scale(0.8);
-      background: rgba(5, 4, 2, 0.92);
-      border: 1px solid rgba(200, 169, 110, 0.5);
+      background: rgba(255,251,240,0.95);
+      border: 1px solid rgba(229,62,62,0.5);
       border-radius: 6px;
       padding: 0.8rem 2rem;
       text-align: center;
@@ -431,6 +432,7 @@
       opacity: 0;
       transition: opacity 0.3s, transform 0.3s;
       backdrop-filter: blur(8px);
+      box-shadow: 0 4px 20px rgba(154,97,50,0.2);
     }
     #milestone-toast.show {
       opacity: 1;
@@ -439,12 +441,12 @@
     .toast-height {
       font-size: 1.6rem;
       font-weight: 700;
-      color: #c8a96e;
+      color: #B91C1C;
     }
     .toast-label {
       font-size: 0.6rem;
       letter-spacing: 0.3em;
-      color: #8a7a5a;
+      color: #9A6132;
       text-transform: uppercase;
     }
 
@@ -452,12 +454,12 @@
     #cursor {
       position: fixed;
       width: 12px; height: 12px;
-      background: radial-gradient(circle, #c8a96e 30%, transparent 70%);
+      background: radial-gradient(circle, #E53E3E 30%, transparent 70%);
       border-radius: 50%;
       pointer-events: none;
       z-index: 100;
       transform: translate(-50%, -50%);
-      mix-blend-mode: screen;
+      mix-blend-mode: multiply;
     }
   </style>
 </head>
@@ -480,8 +482,8 @@
     <div class="start-bg-rocks" id="start-bg-rocks"></div>
 
     <div class="start-title-wrap">
-      <div class="start-title">Stone Ascent</div>
-      <div class="start-subtitle">Getting Over It — With a Pickaxe</div>
+      <div class="start-title">Tomatoo Ascent</div>
+      <div class="start-subtitle">Getting Over It — With a Toothpick</div>
     </div>
 
     <div class="start-canvas-wrap">

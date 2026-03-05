@@ -465,91 +465,146 @@ function update(): void {
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
 function drawGround(): void {
-  const left  = w2s(-2000, GROUND_Y);
-  const right = w2s( 2000, GROUND_Y);
-  const screenY = left.y;
+  const screenY = w2s(0, GROUND_Y).y;
 
-  // Fill below ground
-  ctx.fillStyle = '#0d0b08';
+  // Wooden counter fill
+  ctx.fillStyle = '#7C4A1E';
   ctx.fillRect(0, screenY, canvas.width, canvas.height - screenY);
 
-  // Ground surface line
-  ctx.beginPath();
-  ctx.moveTo(0, screenY);
-  ctx.lineTo(canvas.width, screenY);
-  ctx.strokeStyle = '#4b5563';
-  ctx.lineWidth   = 3;
-  ctx.stroke();
-
-  // Stone texture strip just below surface
-  const stripeH = 22;
-  const stripeG = ctx.createLinearGradient(0, screenY, 0, screenY + stripeH);
-  stripeG.addColorStop(0, '#374151');
-  stripeG.addColorStop(1, '#1f2937');
-  ctx.fillStyle = stripeG;
-  ctx.fillRect(0, screenY, canvas.width, stripeH);
-
-  // Deterministic pebble marks along the surface
-  for (let wx = -2000; wx < 2000; wx += 120) {
-    const s = w2s(wx, GROUND_Y - 4);
-    if (s.x < -10 || s.x > canvas.width + 10) continue;
-    const r = 3 + ((Math.abs(wx * 7 + 13)) % 5);
+  // Wood grain streaks
+  ctx.strokeStyle = 'rgba(94,52,16,0.55)';
+  ctx.lineWidth   = 1;
+  for (let g = 0; g < canvas.height - screenY; g += 20) {
     ctx.beginPath();
-    ctx.ellipse(s.x, s.y, r, r * 0.55, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#4b5563';
-    ctx.fill();
+    ctx.moveTo(0,            screenY + g);
+    ctx.lineTo(canvas.width, screenY + g + 3);
+    ctx.stroke();
   }
 
-  // Suppress unused warning
-  void right;
+  // Countertop lip
+  ctx.fillStyle = '#9A6132';
+  ctx.fillRect(0, screenY - 7, canvas.width, 10);
+  ctx.strokeStyle = '#5C3011';
+  ctx.lineWidth   = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, screenY - 7); ctx.lineTo(canvas.width, screenY - 7); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, screenY + 3); ctx.lineTo(canvas.width, screenY + 3); ctx.stroke();
 }
 
 function drawBackground(): void {
-  // Gradient from deep cave (bottom) to open sky (top)
-  const top = w2s(0, -1200);
-  const bot = w2s(0,  400);
-  const grad = ctx.createLinearGradient(0, top.y, 0, bot.y);
-  grad.addColorStop(0,   '#0d1525');
-  grad.addColorStop(0.5, '#0a0a0f');
-  grad.addColorStop(1,   '#0f0d09');
-  ctx.fillStyle = grad;
+  // Kitchen wall — cream background with tile grid
+  ctx.fillStyle = '#FFFbF0';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const TILE = 64;
+  const ox = ((-camX % TILE) + TILE) % TILE + canvas.width * 0.5;
+  const oy = ((-camY % TILE) + TILE) % TILE + canvas.height * 0.62;
+  ctx.strokeStyle = 'rgba(226,216,200,0.9)';
+  ctx.lineWidth   = 1;
+  for (let tx = ox % TILE; tx < canvas.width  + TILE; tx += TILE) {
+    ctx.beginPath(); ctx.moveTo(tx, 0); ctx.lineTo(tx, canvas.height); ctx.stroke();
+  }
+  for (let ty = oy % TILE; ty < canvas.height + TILE; ty += TILE) {
+    ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(canvas.width, ty); ctx.stroke();
+  }
 }
 
-function drawRock(rock: Rock): void {
-  const sv = rock.verts.map(v => w2s(v.x, v.y));
-  const sc = w2s(rock.cx, rock.cy);
+function drawRock(rock: Rock, ri: number): void {
+  const sv  = rock.verts.map(v => w2s(v.x, v.y));
+  const sc  = w2s(rock.cx, rock.cy);
+  const svMinX = Math.min(...sv.map(p => p.x));
+  const svMaxX = Math.max(...sv.map(p => p.x));
+  const svMinY = Math.min(...sv.map(p => p.y));
+  const svMaxY = Math.max(...sv.map(p => p.y));
 
+  // ── Assign kitchen item type by rock index ──
+  type KItem = 'board'|'plate'|'pot'|'bowl'|'mug'|'pan';
+  let fill = '#F5F5F0', stroke = '#2563EB', sw = 3;
+  let kind: KItem = 'plate';
+  if (ri === 0) {
+    fill = '#A07040'; stroke = '#7A5230'; sw = 3; kind = 'board';
+  } else {
+    switch ((ri - 1) % 6) {
+      case 0: fill = '#F5F5F0'; stroke = '#2563EB'; sw = 3; kind = 'plate'; break;
+      case 1: fill = '#374151'; stroke = '#9CA3AF'; sw = 2; kind = 'pot';   break;
+      case 2: fill = '#FEF3C7'; stroke = '#D97706'; sw = 2; kind = 'bowl';  break;
+      case 3: fill = '#9A6132'; stroke = '#7A4E22'; sw = 2; kind = 'board'; break;
+      case 4: fill = '#D95040'; stroke = '#7F1D1D'; sw = 2; kind = 'mug';   break;
+      case 5: fill = '#1F2937'; stroke = '#6B7280'; sw = 2; kind = 'pan';   break;
+    }
+  }
+
+  // Draw polygon fill
   ctx.beginPath();
   ctx.moveTo(sv[0].x, sv[0].y);
   for (let i = 1; i < sv.length; i++) ctx.lineTo(sv[i].x, sv[i].y);
   ctx.closePath();
-
-  // Radial gradient: lighter on top-left, darker on bottom-right
-  const g = ctx.createRadialGradient(sc.x - 22, sc.y - 22, 6, sc.x, sc.y, 115);
-  g.addColorStop(0,   '#6b7280');
-  g.addColorStop(0.5, '#374151');
-  g.addColorStop(1,   '#111827');
-  ctx.fillStyle = g;
+  ctx.fillStyle   = fill;
   ctx.fill();
-
-  // Edge highlight
-  ctx.strokeStyle = '#4b5563';
-  ctx.lineWidth   = 2;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth   = sw;
   ctx.stroke();
 
-  // Deterministic cracks (never Math.random in render)
+  // ── Type-specific decorations ──
   ctx.save();
-  ctx.clip();
-  ctx.strokeStyle = 'rgba(0,0,0,0.38)';
-  ctx.lineWidth   = 1;
-  for (let i = 0; i < 3; i++) {
-    const a   = (i * 2.094 + rock.cx * 0.013 + rock.cy * 0.007) % (Math.PI * 2);
-    const len = 16 + ((i * 13 + Math.abs(rock.cx * 0.4 + rock.cy * 0.3)) % 24);
-    ctx.beginPath();
-    ctx.moveTo(sc.x, sc.y);
-    ctx.lineTo(sc.x + Math.cos(a) * len, sc.y + Math.sin(a) * len);
-    ctx.stroke();
+  switch (kind) {
+    case 'plate': {
+      const r = Math.hypot(sc.x - svMinX, sc.y - svMinY) * 0.62;
+      ctx.strokeStyle = stroke;
+      ctx.globalAlpha = 0.75;
+      ctx.lineWidth   = sw;
+      ctx.beginPath(); ctx.arc(sc.x, sc.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#FFFFFF'; ctx.globalAlpha = 0.55; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sc.x - r * 0.25, sc.y - r * 0.25, r * 0.45, 0, Math.PI * 2); ctx.stroke();
+      break;
+    }
+    case 'pot': {
+      ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 3; ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.moveTo(sc.x - 22, svMinY + 9); ctx.lineTo(sc.x + 22, svMinY + 9); ctx.stroke();
+      ctx.fillStyle = '#9CA3AF';
+      ctx.beginPath(); ctx.arc(sc.x, svMinY + 5, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#4B5563'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(sc.x, svMinY + 5, 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#4B5563';
+      ctx.fillRect(svMinX - 10, sc.y - 5, 10, 10);
+      ctx.fillRect(svMaxX,      sc.y - 5, 10, 10);
+      ctx.strokeRect(svMinX - 10, sc.y - 5, 10, 10);
+      ctx.strokeRect(svMaxX,      sc.y - 5, 10, 10);
+      break;
+    }
+    case 'bowl': {
+      ctx.strokeStyle = '#FFFDE8'; ctx.globalAlpha = 0.7; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(sc.x - 4, sc.y - 4, 14, 6, 0, 0, Math.PI * 2); ctx.stroke();
+      break;
+    }
+    case 'board': {
+      ctx.strokeStyle = '#6B4020'; ctx.globalAlpha = 0.45; ctx.lineWidth = 1;
+      for (let gy2 = svMinY + 7; gy2 < svMaxY; gy2 += 7) {
+        ctx.beginPath(); ctx.moveTo(svMinX + 3, gy2); ctx.lineTo(svMaxX - 3, gy2); ctx.stroke();
+      }
+      break;
+    }
+    case 'mug': {
+      const midY = (svMinY + svMaxY) / 2;
+      ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.arc(svMaxX + 7, midY, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#FCA5A5'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sc.x - 14, svMinY + 5); ctx.lineTo(sc.x + 14, svMinY + 5); ctx.stroke();
+      break;
+    }
+    case 'pan': {
+      const midY = (svMinY + svMaxY) / 2;
+      ctx.fillStyle = '#374151'; ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.roundRect(svMaxX, midY - 5, 28, 10, 3);
+      ctx.fill();
+      ctx.strokeStyle = '#6B7280'; ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.strokeStyle = '#4B5563'; ctx.globalAlpha = 0.5; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sc.x - 12, sc.y - 6); ctx.lineTo(sc.x + 16, sc.y - 8); ctx.stroke();
+      break;
+    }
   }
   ctx.restore();
 }
@@ -562,116 +617,160 @@ function drawPlayer(): void {
   const tipWX = player.gripped ? player.gripX : player.x + Math.cos(armAngle) * ARM_LEN;
   const tipWY = player.gripped ? player.gripY : player.y + Math.sin(armAngle) * ARM_LEN;
 
-  const bs = w2s(player.x,  player.y);
-  const ts = w2s(tipWX, tipWY);
+  const bs  = w2s(player.x, player.y);
+  const ts  = w2s(tipWX, tipWY);
+  const TR  = PLAYER_R + 5;
 
-  // ── Stone slab the figure sits on ──
-  ctx.save();
-  ctx.translate(bs.x, bs.y + 16);
+  // ── Toothpick ──
+  const tSrcX = bs.x + Math.cos(armAngle) * TR;
+  const tSrcY = bs.y + Math.sin(armAngle) * TR;
   ctx.beginPath();
-  ctx.ellipse(0, 0, 24, 7, 0, 0, Math.PI * 2);
-  const slabG = ctx.createLinearGradient(-24, 0, 24, 0);
-  slabG.addColorStop(0, '#4b5563');
-  slabG.addColorStop(1, '#1f2937');
-  ctx.fillStyle = slabG;
-  ctx.fill();
-  ctx.strokeStyle = '#374151';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
-
-  // ── Pickaxe handle ──
-  ctx.beginPath();
-  ctx.moveTo(bs.x, bs.y);
-  ctx.lineTo(ts.x, ts.y);
-  ctx.strokeStyle = '#92400e';
-  ctx.lineWidth   = 5;
+  ctx.moveTo(tSrcX, tSrcY);
+  ctx.lineTo(ts.x,  ts.y);
+  ctx.strokeStyle = '#D4A574';
+  ctx.lineWidth   = 3;
   ctx.lineCap     = 'round';
   ctx.stroke();
-
-  // ── Pickaxe head ──
-  ctx.save();
-  ctx.translate(ts.x, ts.y);
-  ctx.rotate(armAngle);
   ctx.beginPath();
-  ctx.moveTo( 14,  0);
-  ctx.lineTo(  5, -7);
-  ctx.lineTo(-13, -4);
-  ctx.lineTo(-13,  4);
-  ctx.lineTo(  5,  7);
-  ctx.closePath();
-  const hg = ctx.createLinearGradient(-13, 0, 14, 0);
-  hg.addColorStop(0, '#6b7280');
-  hg.addColorStop(1, '#e5e7eb');
-  ctx.fillStyle   = hg;
-  ctx.fill();
-  ctx.strokeStyle = '#374151';
+  ctx.moveTo(tSrcX + 1, tSrcY + 1);
+  ctx.lineTo(ts.x  + 1, ts.y  + 1);
+  ctx.strokeStyle = 'rgba(176,128,64,0.6)';
   ctx.lineWidth   = 1;
   ctx.stroke();
-  ctx.restore();
-
-  // ── Body (stone climber) ──
+  // Pointed tip
+  const tipX = ts.x + Math.cos(armAngle) * 7;
+  const tipY = ts.y + Math.sin(armAngle) * 7;
   ctx.beginPath();
-  ctx.arc(bs.x, bs.y, 16, 0, Math.PI * 2);
-  const bg = ctx.createRadialGradient(bs.x - 5, bs.y - 5, 2, bs.x, bs.y, 16);
-  bg.addColorStop(0, '#78563d');
-  bg.addColorStop(1, '#2d1f14');
-  ctx.fillStyle   = bg;
-  ctx.fill();
-  ctx.strokeStyle = '#5a3e28';
-  ctx.lineWidth   = 1.5;
-  ctx.stroke();
-
-  // ── Eyes (face toward arm direction) ──
-  const perp = armAngle + Math.PI / 2;
-  const ex   = Math.cos(armAngle) * 5;
-  const ey   = Math.sin(armAngle) * 5;
-  const px   = Math.cos(perp) * 3.5;
-  const py   = Math.sin(perp) * 3.5;
-  ctx.fillStyle = '#c8a96e';
-  ctx.beginPath();
-  ctx.arc(bs.x + ex + px, bs.y + ey + py, 2.2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(bs.x + ex - px, bs.y + ey - py, 2.2, 0, Math.PI * 2);
+  ctx.moveTo(ts.x + Math.cos(armAngle - 1.3) * 3, ts.y + Math.sin(armAngle - 1.3) * 3);
+  ctx.lineTo(ts.x + Math.cos(armAngle + 1.3) * 3, ts.y + Math.sin(armAngle + 1.3) * 3);
+  ctx.lineTo(tipX, tipY);
+  ctx.closePath();
+  ctx.fillStyle = '#A06828';
   ctx.fill();
 
-  // ── Grip indicator (gold glow at anchor) ──
+  // ── Grip glow when hooked ──
   if (player.gripped) {
     const gs = w2s(player.gripX, player.gripY);
     ctx.beginPath();
-    ctx.arc(gs.x, gs.y, 8, 0, Math.PI * 2);
-    ctx.fillStyle   = 'rgba(251,191,36,0.9)';
+    ctx.arc(gs.x, gs.y, 16, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(254,240,138,0.35)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(251,191,36,0.35)';
-    ctx.lineWidth   = 5;
+    ctx.beginPath();
+    ctx.arc(gs.x, gs.y, 20, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(234,179,8,0.55)';
+    ctx.lineWidth   = 1;
     ctx.stroke();
   }
+
+  // ── Drop shadow ──
+  ctx.beginPath();
+  ctx.ellipse(bs.x + 4, bs.y + TR + 1, TR * 1.2, 5, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  ctx.fill();
+
+  // ── Tomato body ──
+  ctx.beginPath();
+  ctx.arc(bs.x, bs.y, TR, 0, Math.PI * 2);
+  ctx.fillStyle = '#E53E3E';
+  ctx.fill();
+
+  // Bottom shading
+  ctx.beginPath();
+  ctx.ellipse(bs.x, bs.y + TR * 0.3, TR, TR * 0.7, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(185,28,28,0.28)';
+  ctx.fill();
+
+  // Vertical ribs
+  ctx.strokeStyle = 'rgba(197,48,48,0.35)';
+  ctx.lineWidth   = 1.5;
+  for (let rib = -1; rib <= 1; rib++) {
+    const rx2 = bs.x + rib * (TR * 0.44);
+    ctx.beginPath();
+    ctx.moveTo(rx2, bs.y - TR + 5);
+    ctx.lineTo(rx2, bs.y + TR - 5);
+    ctx.stroke();
+  }
+
+  // Specular highlight
+  ctx.beginPath();
+  ctx.arc(bs.x - TR * 0.32, bs.y - TR * 0.32, TR * 0.35, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,128,128,0.5)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(bs.x - TR * 0.36, bs.y - TR * 0.36, TR * 0.18, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fill();
+
+  // Outline
+  ctx.beginPath();
+  ctx.arc(bs.x, bs.y, TR, 0, Math.PI * 2);
+  ctx.strokeStyle = '#B91C1C';
+  ctx.lineWidth   = 2;
+  ctx.stroke();
+
+  // ── Calyx leaves ──
+  const leafCx = bs.x, leafCy = bs.y - TR + 2;
+  ctx.fillStyle = '#16A34A';
+  for (let li = 0; li < 5; li++) {
+    const la  = (li / 5) * Math.PI * 2 - Math.PI / 2;
+    const lx1 = leafCx + Math.cos(la - 0.35) * 4;
+    const ly1 = leafCy + Math.sin(la - 0.35) * 4;
+    const lx2 = leafCx + Math.cos(la + 0.35) * 4;
+    const ly2 = leafCy + Math.sin(la + 0.35) * 4;
+    const ltx = leafCx + Math.cos(la) * 11;
+    const lty = leafCy + Math.sin(la) * 8;
+    ctx.beginPath();
+    ctx.moveTo(lx1, ly1);
+    ctx.lineTo(lx2, ly2);
+    ctx.lineTo(ltx, lty);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = '#15803D';
+  ctx.fillRect(leafCx - 1.5, leafCy - 9, 3, 9);
+
+  // ── Face ──
+  const facing  = mouseWX >= player.x ? 1 : -1;
+  const eyeOffX = 6 * facing;
+  const eyeY    = bs.y - 4;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath(); ctx.arc(bs.x + eyeOffX,       eyeY, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(bs.x - eyeOffX * 0.5, eyeY, 3,   0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1A0000';
+  ctx.beginPath(); ctx.arc(bs.x + eyeOffX       + facing * 0.8, eyeY, 1.8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(bs.x - eyeOffX * 0.5 + facing * 0.8, eyeY, 1.5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#7F1D1D';
+  ctx.lineWidth   = 2;
+  ctx.beginPath();
+  ctx.moveTo(bs.x - 5, bs.y + 6);
+  ctx.lineTo(bs.x - 1, bs.y + 8);
+  ctx.lineTo(bs.x + 5, bs.y + 6);
+  ctx.stroke();
 }
 
 function drawHUD(): void {
-  // Height box
+  // Height box — kitchen cream card
   const bx = canvas.width / 2 - 62, by = 52, bw = 124, bh = 42;
-  ctx.fillStyle   = 'rgba(5,4,2,0.72)';
-  ctx.strokeStyle = 'rgba(200,169,110,0.25)';
-  ctx.lineWidth   = 1;
+  ctx.fillStyle   = 'rgba(255,251,240,0.88)';
+  ctx.strokeStyle = 'rgba(229,62,62,0.4)';
+  ctx.lineWidth   = 1.5;
   ctx.beginPath();
   ctx.rect(bx, by, bw, bh);
   ctx.fill();
   ctx.stroke();
 
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#c8a96e';
+  ctx.fillStyle = '#B91C1C';
   ctx.font      = 'bold 22px Cinzel, serif';
   ctx.fillText(maxHeight + 'm', canvas.width / 2, by + 28);
-  ctx.fillStyle = '#5a4a2a';
+  ctx.fillStyle = '#9A6132';
   ctx.font      = '9px Cinzel, serif';
   ctx.fillText('ALTITUDE', canvas.width / 2, by + 40);
 
   // Control hint (fade after 5 s)
   if (hintAlpha > 0) {
     ctx.globalAlpha = hintAlpha;
-    ctx.fillStyle   = 'rgba(200,169,110,0.85)';
+    ctx.fillStyle   = 'rgba(185,28,28,0.85)';
     ctx.font        = '13px Cinzel, serif';
     const isTouch   = window.matchMedia('(pointer: coarse)').matches;
     const hint      = isTouch ? 'Drag to aim  •  Tap to grip / release' : 'Move mouse to aim  •  Click to grip / release';
@@ -721,7 +820,7 @@ function loop(): void {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawBackground();
     drawGround();
-    ROCKS.forEach(drawRock);
+    ROCKS.forEach((rock, i) => drawRock(rock, i));
     drawPlayer();
     drawHUD();
   }
