@@ -26,6 +26,10 @@
       --fs-btn:   12px;   /* all buttons, interactive elements, meta text */
       --fs-body:  14px;   /* secondary body text, roles, descriptions */
       --fs-title: 18px;   /* card names, key display values */
+
+      /* ─── LAYOUT ─── */
+      --topbar-h:  58px;
+      --strip-h:  130px;
     }
 
     html, body {
@@ -49,40 +53,33 @@
       z-index: 0;
     }
 
-    /* ─── SCALE STAGE ─── */
-    #stage {
-      position: fixed;
-      top: 0; left: 0;
-      width: 1280px;
-      height: 720px;
-      transform-origin: top left;
-      z-index: 1;
-    }
-
     /* ─── ROOT ─── */
     .root {
-      width: 1280px;
-      height: 720px;
+      width: 100%;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
       position: relative;
     }
 
-    /* ─── TOPBAR ─── */
+    /* ─── TOPBAR — fixed to device top ─── */
     .topbar {
-      height: 58px;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--topbar-h);
       display: flex;
       align-items: center;
       gap: 16px;
       padding: 0 28px;
-      flex-shrink: 0;
       border-bottom: 1px solid var(--border);
       background: rgba(6,11,22,0.88);
       backdrop-filter: blur(10px);
-      position: relative;
       z-index: 10;
     }
+
+    /* occupies topbar space in flex flow so body starts below it */
+    .topbar-rail { height: var(--topbar-h); flex-shrink: 0; }
 
     .logo {
       display: flex;
@@ -184,7 +181,7 @@
     }
     .leave-btn:hover { color: #f87171; background: rgba(220,38,38,0.14); border-color: rgba(248,113,113,0.36); }
 
-    /* ─── BODY ─── */
+    /* ─── BODY — fills all space between topbar and bottom of viewport ─── */
     .body {
       flex: 1;
       display: flex;
@@ -216,23 +213,24 @@
       z-index: 4;
     }
 
-    /* bottom bleed — blends card columns into the control strip */
+    /* bottom bleed — cards fade into the control strip gradient */
     .body-fade-bottom {
       position: absolute;
       bottom: 0; left: 0; right: 0;
-      height: 80px;
+      height: 100px;
       background: linear-gradient(to bottom, transparent 0%, var(--bg) 100%);
       pointer-events: none;
       z-index: 3;
     }
 
-    /* ─── CARD TRAY ─── */
+    /* ─── CARD TRAY — horizontal padding gives edge bleeds room to breathe ─── */
     .card-tray {
       display: flex;
       flex-direction: row;
       align-items: stretch;
       flex: 1;
       min-height: 0;
+      padding: 0 32px;
     }
 
     /* ─── PLAYER CARD — full-height column ─── */
@@ -508,17 +506,14 @@
     .empty-btn:hover { color: var(--gold-lt); border-color: rgba(217,119,6,0.3); background: rgba(217,119,6,0.05); }
     .empty-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-    /* ─── CONTROL STRIP ─── */
-    /* overlaps bottom of body with negative margin; gradient fades transparent→dark */
+    /* ─── CONTROL STRIP — fixed to device bottom, full width ─── */
     .ctrl-strip {
-      flex-shrink: 0;
-      height: 152px;
-      margin-top: -58px;
-      padding-top: 58px;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: var(--strip-h);
       display: flex;
       align-items: stretch;
       background: linear-gradient(to bottom, rgba(6,11,22,0) 0%, rgba(6,11,22,0.9) 22%, rgba(6,11,22,0.97) 100%);
-      position: relative;
       z-index: 8;
       pointer-events: none;
     }
@@ -529,7 +524,7 @@
       display: flex;
       align-items: center;
       gap: 14px;
-      padding: 8px 20px 24px 26px;
+      padding: 28px 20px 20px 28px;
       flex: 0 0 420px;
     }
     .map-thumb-wrap {
@@ -594,7 +589,7 @@
       flex-direction: column;
       justify-content: center;
       gap: 5px;
-      padding: 8px 24px 24px;
+      padding: 28px 24px 20px;
       flex: 0 0 190px;
     }
     .cs-mode-label {
@@ -640,7 +635,7 @@
       align-items: flex-end;
       justify-content: center;
       gap: 8px;
-      padding: 8px 26px 24px 24px;
+      padding: 28px 28px 20px 24px;
     }
     .launch-status {
       display: flex;
@@ -695,7 +690,7 @@
 
     /* ─── MAP PICKER MODAL ─── */
     .modal-bg {
-      position: absolute; inset: 0;
+      position: fixed; inset: 0;
       background: rgba(4,8,18,0.82);
       backdrop-filter: blur(6px);
       z-index: 50;
@@ -704,7 +699,7 @@
     }
     .modal-bg.open { opacity: 1; pointer-events: all; }
     .map-modal {
-      position: absolute;
+      position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%) scale(0.94);
       width: 760px;
@@ -764,108 +759,109 @@
 </head>
 <body>
 
-<div id="stage">
-  <div class="root">
+<div class="root">
 
-    <!-- TOPBAR -->
-    <div class="topbar">
-      <div class="logo">
-        <div class="logo-mark">
-          <svg viewBox="0 0 24 24" fill="none">
-            <polygon points="12,3 20,12 12,21 4,12" fill="none" stroke="#d97706" stroke-width="1.8"/>
-            <circle cx="12" cy="12" r="3" fill="#d97706"/>
-          </svg>
-        </div>
-        <div>
-          <div class="logo-text">ASTRO PARTY</div>
-          <div class="logo-sub">Mission Lobby</div>
-        </div>
+  <!-- TOPBAR — fixed to device top -->
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none">
+          <polygon points="12,3 20,12 12,21 4,12" fill="none" stroke="#d97706" stroke-width="1.8"/>
+          <circle cx="12" cy="12" r="3" fill="#d97706"/>
+        </svg>
       </div>
-      <div class="topbar-divider"></div>
-      <div class="topbar-spacer"></div>
-      <div class="session-group">
-        <button class="sgbtn" id="sglocal"  onclick="setSession('local')">Local Skirmish</button>
-        <button class="sgbtn on" id="sgonline" onclick="setSession('online')">Online Match</button>
-      </div>
-      <div class="room-tag" id="room-tag">
-        <div class="room-tag-dot"></div>
-        <span class="room-tag-label">Room</span>
-        <span class="room-tag-code">KXZQ</span>
-        <button class="room-tag-copy" title="Copy">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-          </svg>
-        </button>
-      </div>
-      <button class="leave-btn">Leave</button>
-    </div>
-
-    <!-- BODY: full-height card columns + edge/bottom fades -->
-    <div class="body">
-      <div class="card-tray" id="tray"></div>
-      <div class="body-fade-bottom"></div>
-    </div>
-
-    <!-- CONTROL STRIP: overlaps body bottom with negative margin -->
-    <div class="ctrl-strip">
-      <div class="cs-map">
-        <div class="map-thumb-wrap">
-          <canvas class="map-thumb" id="map-thumb" width="110" height="74"></canvas>
-        </div>
-        <div class="map-meta">
-          <div class="map-meta-head">
-            <div class="map-section-label">Arena</div>
-            <button class="map-change" onclick="openPicker()">Change Arena</button>
-          </div>
-          <div class="map-title" id="map-title">Classic Rotation</div>
-          <div class="map-desc" id="map-desc">Random map each round</div>
-        </div>
-      </div>
-
-      <div class="cs-div"></div>
-
-      <div class="cs-mode">
-        <div class="cs-mode-label">Game Mode</div>
-        <div class="cs-mode-val" id="mode-val">Standard</div>
-        <button class="cs-mode-cycle" onclick="cycleMode()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <polyline points="23 4 23 10 17 10"/>
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-          </svg>
-          Cycle Mode
-        </button>
-      </div>
-
-      <div class="cs-div"></div>
-
-      <div class="cs-launch">
-        <div class="launch-status">
-          <div class="lstatus-dot" id="ldot"></div>
-          <div class="lstatus-text" id="ltext">Ready to launch</div>
-        </div>
-        <button class="launch-btn" id="launch-btn">
-          <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-          Launch Match
-        </button>
+      <div>
+        <div class="logo-text">ASTRO PARTY</div>
+        <div class="logo-sub">Mission Lobby</div>
       </div>
     </div>
-
-  </div>
-
-  <!-- MAP PICKER MODAL -->
-  <div class="modal-bg" id="modal-bg" onclick="closePicker()"></div>
-  <div class="map-modal" id="map-modal">
-    <div class="modal-head">
-      <div class="modal-title">Select Arena</div>
-      <button class="modal-close" onclick="closePicker()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    <div class="topbar-divider"></div>
+    <div class="topbar-spacer"></div>
+    <div class="session-group">
+      <button class="sgbtn" id="sglocal"  onclick="setSession('local')">Local Skirmish</button>
+      <button class="sgbtn on" id="sgonline" onclick="setSession('online')">Online Match</button>
+    </div>
+    <div class="room-tag" id="room-tag">
+      <div class="room-tag-dot"></div>
+      <span class="room-tag-label">Room</span>
+      <span class="room-tag-code">KXZQ</span>
+      <button class="room-tag-copy" title="Copy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
         </svg>
       </button>
     </div>
-    <div class="modal-grid" id="modal-grid"></div>
+    <button class="leave-btn">Leave</button>
   </div>
+
+  <!-- placeholder that takes topbar's space in the flex flow -->
+  <div class="topbar-rail"></div>
+
+  <!-- BODY: full-height card columns + edge/bottom fades -->
+  <div class="body">
+    <div class="card-tray" id="tray"></div>
+    <div class="body-fade-bottom"></div>
+  </div>
+
+</div>
+
+<!-- CONTROL STRIP — fixed to device bottom, full width -->
+<div class="ctrl-strip">
+  <div class="cs-map">
+    <div class="map-thumb-wrap">
+      <canvas class="map-thumb" id="map-thumb" width="110" height="74"></canvas>
+    </div>
+    <div class="map-meta">
+      <div class="map-meta-head">
+        <div class="map-section-label">Arena</div>
+        <button class="map-change" onclick="openPicker()">Change Arena</button>
+      </div>
+      <div class="map-title" id="map-title">Classic Rotation</div>
+      <div class="map-desc" id="map-desc">Random map each round</div>
+    </div>
+  </div>
+
+  <div class="cs-div"></div>
+
+  <div class="cs-mode">
+    <div class="cs-mode-label">Game Mode</div>
+    <div class="cs-mode-val" id="mode-val">Standard</div>
+    <button class="cs-mode-cycle" onclick="cycleMode()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      Cycle Mode
+    </button>
+  </div>
+
+  <div class="cs-div"></div>
+
+  <div class="cs-launch">
+    <div class="launch-status">
+      <div class="lstatus-dot" id="ldot"></div>
+      <div class="lstatus-text" id="ltext">Ready to launch</div>
+    </div>
+    <button class="launch-btn" id="launch-btn">
+      <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+      Launch Match
+    </button>
+  </div>
+</div>
+
+<!-- MAP PICKER MODAL -->
+<div class="modal-bg" id="modal-bg" onclick="closePicker()"></div>
+<div class="map-modal" id="map-modal">
+  <div class="modal-head">
+    <div class="modal-title">Select Arena</div>
+    <button class="modal-close" onclick="closePicker()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  </div>
+  <div class="modal-grid" id="modal-grid"></div>
 </div>
 
 <!-- DEMO BAR -->
@@ -1199,20 +1195,6 @@ function setSession(s) {
   render();
 }
 
-// ── SCALE ─────────────────────────────────────────────────
-
-function rescale() {
-  const el = document.getElementById('stage');
-  const sx = window.innerWidth / 1280;
-  const sy = window.innerHeight / 720;
-  const s  = Math.min(sx, sy);
-  const ox = (window.innerWidth  - 1280*s) / 2;
-  const oy = (window.innerHeight - 720*s)  / 2;
-  el.style.transform = `translate(${ox}px,${oy}px) scale(${s})`;
-}
-
-window.addEventListener('resize', rescale);
-rescale();
 render();
 </script>
 </body>
