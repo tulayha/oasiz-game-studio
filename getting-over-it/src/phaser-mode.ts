@@ -274,6 +274,53 @@ function destroyDevPanel(): void {
   }
 }
 
+// ─── Hand helper (Hand.cs port) ─────────────────────────────────────────────
+function drawTomatoHand(
+  gfx: Phaser.GameObjects.Graphics,
+  sx: number, sy: number,
+  hx: number, hy: number,
+  isRight: boolean,
+): void {
+  const dx   = hx - sx;
+  const dy   = hy - sy;
+  const dist = Math.hypot(dx, dy) || 1;
+
+  const ux = dx / dist, uy = dy / dist;
+  const px = -uy,       py =  ux;
+
+  const ARM_MAX = (BODY_R + 5) * 2.6;
+  const armLen  = Math.min(dist, ARM_MAX);
+  const ax = sx + ux * armLen;
+  const ay = sy + uy * armLen;
+
+  const open     = Math.min(1, dist / 90);
+  const flip     = isRight ? (dy >= 0) : (dy < 0);
+  const flipSign = flip ? -1 : 1;
+
+  gfx.lineStyle(3.5, 0xC53030);
+  gfx.lineBetween(sx, sy, ax, ay);
+
+  gfx.fillStyle(0xE53E3E);
+  gfx.fillCircle(ax, ay, 5.5);
+  gfx.lineStyle(1.5, 0xB91C1C);
+  gfx.strokeCircle(ax, ay, 5.5);
+
+  const lateralStep = (3 + open * 4) * flipSign;
+  const fwdBase     = 7 + open * 5;
+  for (const lat of [-1, 0, 1]) {
+    const lw  = lat * lateralStep;
+    const fwd = fwdBase - Math.abs(lat) * 1.5;
+    const fx2 = ax + ux * fwd + px * lw;
+    const fy2 = ay + uy * fwd + py * lw;
+    gfx.lineStyle(2.5, 0xC53030);
+    gfx.lineBetween(ax + px * lw * 0.3, ay + py * lw * 0.3, fx2, fy2);
+    gfx.fillStyle(0xE53E3E);
+    gfx.fillCircle(fx2, fy2, 3.5);
+    gfx.lineStyle(1.5, 0xB91C1C);
+    gfx.strokeCircle(fx2, fy2, 3.5);
+  }
+}
+
 // ─── Phaser Scene ───────────────────────────────────────────────────────────
 class ClimbScene extends Phaser.Scene {
   private playerBody!: MatterJS.BodyType;
@@ -621,8 +668,13 @@ class ClimbScene extends Phaser.Scene {
       }
     }
 
-    // ── 4. Toothpick ──────────────────────────────────────────────────────────
-    const TR    = BODY_R + 5;
+    // ── 4. Hands (Hand.cs) ───────────────────────────────────────────────────
+    const TR   = BODY_R + 5;
+    const sOff = TR * 0.65;
+    drawTomatoHand(gfx, bx - sOff, by + 3, hx, hy, false);
+    drawTomatoHand(gfx, bx + sOff, by + 3, hx, hy, true);
+
+    // ── 5. Toothpick ──────────────────────────────────────────────────────────
     const tAng  = Math.atan2(hy - by, hx - bx);
     const tSrcX = bx + Math.cos(tAng) * TR;
     const tSrcY = by + Math.sin(tAng) * TR;

@@ -215,17 +215,19 @@ function distToEdges(px: number, py: number, verts: { x: number; y: number }[]):
   return best;
 }
 
-// Used by binary search ONLY — stops hammer when it enters a rock polygon
+// Used by binary search ONLY — stops hammer when it enters a rock polygon or ground
 function isHammerInsideRock(hx: number, hy: number): boolean {
+  if (hy >= GROUND_Y) return true;
   for (const rock of ROCKS) {
     if (pointInPoly(hx, hy, rock.verts)) return true;
   }
   return false;
 }
 
-// Used for FORCE APPLICATION — true when hammer is on or near a rock surface
+// Used for FORCE APPLICATION — true when hammer is on or near a rock/ground surface
 function isHammerNearRock(hx: number, hy: number): boolean {
   const hr = cfg.hammerR;
+  if (hy >= GROUND_Y - hr) return true;
   for (const rock of ROCKS) {
     if (pointInPoly(hx, hy, rock.verts)) return true;
     if (distToEdges(hx, hy, rock.verts) < hr) return true;
@@ -353,6 +355,65 @@ function createDevPanel(): HTMLElement {
 
 function destroyDevPanel(): void {
   if (devPanelEl) { devPanelEl.remove(); devPanelEl = null; }
+}
+
+// ─── Hand helper (Hand.cs port) ──────────────────────────────────────────────
+// Hand.cs: rotates sprite from Vector3.down → handDir; flips X per (rightHand ^ handDir.y>0)
+// Canvas Y is inverted vs Unity, so Unity "handDir.y > 0" = canvas dy < 0 (hammer above shoulder).
+function drawTomatoHand(
+  gfx: Phaser.GameObjects.Graphics,
+  sx: number, sy: number,   // shoulder origin
+  hx: number, hy: number,   // hammer handle target
+  isRight: boolean,
+): void {
+  const dx   = hx - sx;
+  const dy   = hy - sy;
+  const dist = Math.hypot(dx, dy) || 1;
+
+  // Unit vectors along arm and perpendicular
+  const ux = dx / dist, uy = dy / dist;
+  const px = -uy,       py =  ux;          // perp: 90° left of arm
+
+  // Arm length capped so it doesn't exceed shoulder→hammer distance
+  const ARM_MAX = (BODY_R + 5) * 2.6;
+  const armLen  = Math.min(dist, ARM_MAX);
+  const ax = sx + ux * armLen;
+  const ay = sy + uy * armLen;
+
+  // Openness 0–1 (Hand.cs: spriteIndex = magnitude * 8, clamped)
+  const open = Math.min(1, dist / 90);
+
+  // flipX logic from Hand.cs — canvas dy<0 ↔ Unity handDir.y>0 (hammer is above shoulder)
+  const flip      = isRight ? (dy >= 0) : (dy < 0);
+  const flipSign  = flip ? -1 : 1;
+
+  // ── Arm ──────────────────────────────────────────────────────────────────
+  gfx.lineStyle(3.5, 0xC53030);
+  gfx.lineBetween(sx, sy, ax, ay);
+
+  // ── Palm ─────────────────────────────────────────────────────────────────
+  gfx.fillStyle(0xE53E3E);
+  gfx.fillCircle(ax, ay, 5.5);
+  gfx.lineStyle(1.5, 0xB91C1C);
+  gfx.strokeCircle(ax, ay, 5.5);
+
+  // ── Three fingers (spread in perp direction, extend toward hammer) ────────
+  const lateralStep = (3 + open * 4) * flipSign;
+  const fwdBase     = 7 + open * 5;
+  const lats = [-1, 0, 1];
+  for (const lat of lats) {
+    const lw  = lat * lateralStep;
+    const fwd = fwdBase - Math.abs(lat) * 1.5;   // middle finger longest
+    const fx2 = ax + ux * fwd + px * lw;
+    const fy2 = ay + uy * fwd + py * lw;
+    // Knuckle stub
+    gfx.lineStyle(2.5, 0xC53030);
+    gfx.lineBetween(ax + px * lw * 0.3, ay + py * lw * 0.3, fx2, fy2);
+    gfx.fillStyle(0xE53E3E);
+    gfx.fillCircle(fx2, fy2, 3.5);
+    gfx.lineStyle(1.5, 0xB91C1C);
+    gfx.strokeCircle(fx2, fy2, 3.5);
+  }
 }
 
 // ─── Phaser Scene ────────────────────────────────────────────────────────────
@@ -765,9 +826,14 @@ class Box2DClimbScene extends Phaser.Scene {
       }
     }
 
-    // ── 4. Toothpick ─────────────────────────────────────────────────────────
+    // ── 4. Hands (Hand.cs) ───────────────────────────────────────────────────
+    const TR      = BODY_R + 5;  // tomato visual radius
+    const sOff    = TR * 0.65;
+    drawTomatoHand(gfx, bx - sOff, by + 3, hx, hy, false);  // left hand
+    drawTomatoHand(gfx, bx + sOff, by + 3, hx, hy, true);   // right hand
+
+    // ── 5. Toothpick ─────────────────────────────────────────────────────────
     // Wooden stick — extends from just outside tomato body to the tip
-    const TR    = BODY_R + 5;  // tomato visual radius
     const tAng  = Math.atan2(hy - by, hx - bx);
     const tSrcX = bx + Math.cos(tAng) * TR;  // start at tomato surface
     const tSrcY = by + Math.sin(tAng) * TR;

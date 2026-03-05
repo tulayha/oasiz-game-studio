@@ -241,18 +241,27 @@ function tryGrip(): void {
   const tipX  = player.x + Math.cos(angle) * ARM_LEN;
   const tipY  = player.y + Math.sin(angle) * ARM_LEN;
 
+  // Check rocks
   for (const rock of ROCKS) {
     if (canGrip(tipX, tipY, rock)) {
       player.gripped = true;
       player.gripX   = tipX;
       player.gripY   = tipY;
-      // Body angle from grip
       player.theta   = Math.atan2(player.y - tipY, player.x - tipX);
       player.omega   = 0;
-      // Seed the grip-angle tracker so first delta is 0
       prevGripAngle  = Math.atan2(mouseWY - tipY, mouseWX - tipX);
       return;
     }
+  }
+
+  // Check ground surface — can hook toothpick into the counter top
+  if (Math.abs(tipY - GROUND_Y) < GRIP_RADIUS) {
+    player.gripped = true;
+    player.gripX   = tipX;
+    player.gripY   = GROUND_Y;
+    player.theta   = Math.atan2(player.y - GROUND_Y, player.x - tipX);
+    player.omega   = 0;
+    prevGripAngle  = Math.atan2(mouseWY - GROUND_Y, mouseWX - tipX);
   }
 }
 
@@ -609,6 +618,59 @@ function drawRock(rock: Rock, ri: number): void {
   ctx.restore();
 }
 
+// ── Hand helper (Hand.cs port, canvas) ───────────────────────────────────────
+function drawTomatoHandCanvas(
+  sx: number, sy: number,
+  hx: number, hy: number,
+  isRight: boolean,
+): void {
+  const dx   = hx - sx;
+  const dy   = hy - sy;
+  const dist = Math.hypot(dx, dy) || 1;
+
+  const ux = dx / dist, uy = dy / dist;
+  const px = -uy,       py =  ux;
+
+  const ARM_MAX  = (PLAYER_R + 5) * 2.6;
+  const armLen   = Math.min(dist, ARM_MAX);
+  const ax = sx + ux * armLen;
+  const ay = sy + uy * armLen;
+
+  const open     = Math.min(1, dist / 90);
+  const flip     = isRight ? (dy >= 0) : (dy < 0);
+  const flipSign = flip ? -1 : 1;
+
+  // Arm
+  ctx.strokeStyle = '#C53030';
+  ctx.lineWidth   = 3.5;
+  ctx.lineCap     = 'round';
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ax, ay); ctx.stroke();
+
+  // Palm
+  ctx.fillStyle   = '#E53E3E';
+  ctx.beginPath(); ctx.arc(ax, ay, 5.5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#B91C1C'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(ax, ay, 5.5, 0, Math.PI * 2); ctx.stroke();
+
+  // Fingers
+  const lateralStep = (3 + open * 4) * flipSign;
+  const fwdBase     = 7 + open * 5;
+  for (const lat of [-1, 0, 1]) {
+    const lw  = lat * lateralStep;
+    const fwd = fwdBase - Math.abs(lat) * 1.5;
+    const fx2 = ax + ux * fwd + px * lw;
+    const fy2 = ay + uy * fwd + py * lw;
+    ctx.strokeStyle = '#C53030'; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(ax + px * lw * 0.3, ay + py * lw * 0.3);
+    ctx.lineTo(fx2, fy2); ctx.stroke();
+    ctx.fillStyle = '#E53E3E';
+    ctx.beginPath(); ctx.arc(fx2, fy2, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#B91C1C'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(fx2, fy2, 3.5, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
 function drawPlayer(): void {
   const armAngle = player.gripped
     ? Math.atan2(player.gripY - player.y, player.gripX - player.x)
@@ -620,6 +682,11 @@ function drawPlayer(): void {
   const bs  = w2s(player.x, player.y);
   const ts  = w2s(tipWX, tipWY);
   const TR  = PLAYER_R + 5;
+
+  // ── Hands (draw behind toothpick) ──
+  const sOff = TR * 0.65;
+  drawTomatoHandCanvas(bs.x - sOff, bs.y + 3, ts.x, ts.y, false);
+  drawTomatoHandCanvas(bs.x + sOff, bs.y + 3, ts.x, ts.y, true);
 
   // ── Toothpick ──
   const tSrcX = bs.x + Math.cos(armAngle) * TR;
