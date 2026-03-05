@@ -844,24 +844,18 @@ function drawPlayer(): void {
   const ts  = w2s(tipWX, tipWY);
   const TR  = PLAYER_R + 5;
 
-  // ── Hands (draw behind toothpick) ──
-  const sOff = TR * 0.65;
-  drawTomatoHandCanvas(bs.x - sOff, bs.y + 3, ts.x, ts.y, false);
-  drawTomatoHandCanvas(bs.x + sOff, bs.y + 3, ts.x, ts.y, true);
-
-  // ── Toothpick ──
-  const tSrcX = bs.x + Math.cos(armAngle) * TR;
-  const tSrcY = bs.y + Math.sin(armAngle) * TR;
+  // ── Toothpick — drawn first; hands on top; tomato body covers inner base ──
+  const tDist = Math.hypot(ts.x - bs.x, ts.y - bs.y) || 1;
   ctx.beginPath();
-  ctx.moveTo(tSrcX, tSrcY);
-  ctx.lineTo(ts.x,  ts.y);
+  ctx.moveTo(bs.x, bs.y);
+  ctx.lineTo(ts.x, ts.y);
   ctx.strokeStyle = '#D4A574';
   ctx.lineWidth   = 3;
   ctx.lineCap     = 'round';
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(tSrcX + 1, tSrcY + 1);
-  ctx.lineTo(ts.x  + 1, ts.y  + 1);
+  ctx.moveTo(bs.x + 1, bs.y + 1);
+  ctx.lineTo(ts.x + 1, ts.y + 1);
   ctx.strokeStyle = 'rgba(176,128,64,0.6)';
   ctx.lineWidth   = 1;
   ctx.stroke();
@@ -875,6 +869,17 @@ function drawPlayer(): void {
   ctx.closePath();
   ctx.fillStyle = '#A06828';
   ctx.fill();
+
+  // ── Hands grip the shaft — drawn on top of stick so they appear to hold it ──
+  const sOff   = TR * 0.65;
+  const g1Dist = Math.min(TR * 1.7, tDist * 0.38);
+  const g2Dist = Math.min(TR * 3.2, tDist * 0.72);
+  const lgX = bs.x + Math.cos(armAngle) * g1Dist;
+  const lgY = bs.y + Math.sin(armAngle) * g1Dist;
+  const rgX = bs.x + Math.cos(armAngle) * g2Dist;
+  const rgY = bs.y + Math.sin(armAngle) * g2Dist;
+  drawTomatoHandCanvas(bs.x - sOff, bs.y + 3, lgX, lgY, false);
+  drawTomatoHandCanvas(bs.x + sOff, bs.y + 3, rgX, rgY, true);
 
   // ── Grip glow when hooked ──
   if (player.gripped) {

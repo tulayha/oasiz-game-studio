@@ -946,22 +946,18 @@ class Box2DClimbScene extends Phaser.Scene {
       drawKitchenItemGfx(gfx, cx, cy, w, h, kind);
     }
 
-    // ── 4. Hands (Hand.cs) ───────────────────────────────────────────────────
-    const TR      = BODY_R + 5;  // tomato visual radius
-    const sOff    = TR * 0.65;
-    drawTomatoHand(gfx, bx - sOff, by + 3, hx, hy, false);  // left hand
-    drawTomatoHand(gfx, bx + sOff, by + 3, hx, hy, true);   // right hand
-
-    // ── 5. Toothpick ─────────────────────────────────────────────────────────
-    // Wooden stick — extends from just outside tomato body to the tip
+    // ── 4. Toothpick + Hands (held naturally) ────────────────────────────────
+    // Stick is drawn first; hands drawn on top appear to grip the shaft.
+    // The tomato body (rendered next) covers the hidden inner portion of the stick.
+    const TR    = BODY_R + 5;  // tomato visual radius
     const tAng  = Math.atan2(hy - by, hx - bx);
-    const tSrcX = bx + Math.cos(tAng) * TR;  // start at tomato surface
-    const tSrcY = by + Math.sin(tAng) * TR;
-    gfx.lineStyle(3, 0xD4A574);   // tan bamboo colour
-    gfx.lineBetween(tSrcX, tSrcY, hx, hy);
-    // Darker second line for round-stick depth
+    const tDist = Math.hypot(hx - bx, hy - by) || 1;
+
+    // Draw stick from tomato centre — tomato circle painted later hides the base
+    gfx.lineStyle(3, 0xD4A574);
+    gfx.lineBetween(bx, by, hx, hy);
     gfx.lineStyle(1, 0xB08040, 0.6);
-    gfx.lineBetween(tSrcX + 1, tSrcY + 1, hx + 1, hy + 1);
+    gfx.lineBetween(bx + 1, by + 1, hx + 1, hy + 1);
     // Pointed tip
     const tipX = hx + Math.cos(tAng) * 7;
     const tipY = hy + Math.sin(tAng) * 7;
@@ -978,6 +974,17 @@ class Box2DClimbScene extends Phaser.Scene {
       gfx.lineStyle(1, 0xEAB308, 0.55);
       gfx.strokeCircle(hx, hy, 20);
     }
+
+    // Hands grip the shaft at two points — NOT the tip
+    const sOff   = TR * 0.65;
+    const g1Dist = Math.min(TR * 1.7, tDist * 0.38);  // left — near base
+    const g2Dist = Math.min(TR * 3.2, tDist * 0.72);  // right — further out
+    const lgX = bx + Math.cos(tAng) * g1Dist;
+    const lgY = by + Math.sin(tAng) * g1Dist;
+    const rgX = bx + Math.cos(tAng) * g2Dist;
+    const rgY = by + Math.sin(tAng) * g2Dist;
+    drawTomatoHand(gfx, bx - sOff, by + 3, lgX, lgY, false);  // left grips near base
+    drawTomatoHand(gfx, bx + sOff, by + 3, rgX, rgY, true);   // right grips further out
 
     // ── 5. Tomato player ──────────────────────────────────────────────────────
     // Drop shadow

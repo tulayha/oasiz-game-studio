@@ -757,19 +757,15 @@ class ClimbScene extends Phaser.Scene {
     }
 
     // ── 4. Hands (Hand.cs) ───────────────────────────────────────────────────
-    const TR   = BODY_R + 5;
-    const sOff = TR * 0.65;
-    drawTomatoHand(gfx, bx - sOff, by + 3, hx, hy, false);
-    drawTomatoHand(gfx, bx + sOff, by + 3, hx, hy, true);
-
-    // ── 5. Toothpick ──────────────────────────────────────────────────────────
+    // ── 4. Toothpick + Hands (held naturally) ────────────────────────────────
+    const TR    = BODY_R + 5;
     const tAng  = Math.atan2(hy - by, hx - bx);
-    const tSrcX = bx + Math.cos(tAng) * TR;
-    const tSrcY = by + Math.sin(tAng) * TR;
+    const tDist = Math.hypot(hx - bx, hy - by) || 1;
+
     gfx.lineStyle(3, 0xD4A574);
-    gfx.lineBetween(tSrcX, tSrcY, hx, hy);
+    gfx.lineBetween(bx, by, hx, hy);
     gfx.lineStyle(1, 0xB08040, 0.6);
-    gfx.lineBetween(tSrcX + 1, tSrcY + 1, hx + 1, hy + 1);
+    gfx.lineBetween(bx + 1, by + 1, hx + 1, hy + 1);
     const tipX = hx + Math.cos(tAng) * 7;
     const tipY = hy + Math.sin(tAng) * 7;
     gfx.fillStyle(0xA06828);
@@ -784,6 +780,17 @@ class ClimbScene extends Phaser.Scene {
       gfx.lineStyle(1, 0xEAB308, 0.55);
       gfx.strokeCircle(hx, hy, 20);
     }
+
+    // Hands grip the shaft at two points — drawn on top of stick
+    const sOff   = TR * 0.65;
+    const g1Dist = Math.min(TR * 1.7, tDist * 0.38);
+    const g2Dist = Math.min(TR * 3.2, tDist * 0.72);
+    const lgX = bx + Math.cos(tAng) * g1Dist;
+    const lgY = by + Math.sin(tAng) * g1Dist;
+    const rgX = bx + Math.cos(tAng) * g2Dist;
+    const rgY = by + Math.sin(tAng) * g2Dist;
+    drawTomatoHand(gfx, bx - sOff, by + 3, lgX, lgY, false);
+    drawTomatoHand(gfx, bx + sOff, by + 3, rgX, rgY, true);
 
     // ── 5. Tomato player ──────────────────────────────────────────────────────
     gfx.fillStyle(0x000000, 0.1);
