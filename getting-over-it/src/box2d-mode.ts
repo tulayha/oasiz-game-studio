@@ -40,7 +40,7 @@ const HEAD_R  = 12;
 const HAND_R  = 5;
 const GROUND_Y = 580;
 const SPAWN_X  = 400;
-const SPAWN_Y  = 500;
+const SPAWN_Y  = 460;  // raised so the player spawns above all ground-level rocks
 const WORLD_W  = 800;
 const MAX_VERTS = 7; // Box2D polygon vertex cap (conservative)
 
@@ -70,21 +70,62 @@ function generateRock(
   return { cx, cy, verts };
 }
 
+// ─── Procedural messy-pile map ────────────────────────────────────────────────
+// Each rock is placed relative to the PREVIOUS rock (incremental), not a global
+// formula.  Y advances by (TREND_UP + large noise), then clamped so no single
+// step is ever unclimbable.  X advances by a variable amount to create both
+// tight "pile" clusters and occasional gaps.
+//
+// Spawn safety: slope starts at x = 530, well to the right of SPAWN_X = 400,
+// so no rock can ever overlap the spawn position.
+const PILE_START_X    = 530;  // first slope rock — right of spawn (x=400) so no overlap
+const PILE_START_Y    = 552;  // near ground level
+const PILE_COUNT      = 22;   // number of rocks on the pile
+const PILE_TREND_UP   = 32;   // average upward step per rock (px)  — gentle overall slope
+const PILE_NOISE_AMP  = 58;   // ±px of random deviation   — large = messy-pile feel
+const PILE_MAX_UP     = 66;   // clamp: maximum single step upward   (keeps it climbable)
+const PILE_MAX_DOWN   = 20;   // clamp: maximum single step downward (pile can dip a bit)
+const PILE_STEP_BASE  = 88;   // nominal horizontal distance between rock centres
+const PILE_STEP_NOISE = 36;   // ±px horizontal noise (clusters some rocks, gaps others)
+
 function buildRockLayout(): RockData[] {
   const rocks: RockData[] = [];
-  rocks.push(generateRock(400, 560, 200, 28, 6, 1.1));
-  let curY = 490;
-  let side = -1;
-  for (let i = 0; i < 25; i++) {
-    const hOff = 60 + seeded(i * 3.1) * 50;
-    const cx   = 400 + side * hOff;
-    const rx   = 55  + seeded(i * 5.7 + 10) * 30;
-    const ry   = 22  + seeded(i * 7.3 + 20) * 16;
-    const n    = 6   + Math.floor(seeded(i * 11.1 + 30) * 2); // 6 or 7
-    rocks.push(generateRock(cx, curY, rx, ry, n, i * 1.37 + 0.5));
-    curY -= 65 + seeded(i * 4.9 + 40) * 20;
-    side *= -1;
+
+  // ── Wide flat base — player spawns at (400, 460) and falls onto this ──────
+  rocks.push(generateRock(300, 562, 295, 24, 6, 1.1));
+
+  // ── Incremental messy-pile loop ───────────────────────────────────────────
+  let px = PILE_START_X;
+  let py = PILE_START_Y;
+
+  for (let i = 0; i < PILE_COUNT; i++) {
+    // 1. Raw vertical step = upward trend + large noise
+    const noise  = (seeded(i * 4.1 + 2.7) - 0.5) * 2 * PILE_NOISE_AMP;
+    const rawDy  = PILE_TREND_UP + noise;
+
+    // 2. Clamp so the step is never a cliff (too high) or a slide (too low).
+    //    This is what makes every step climbable while still feeling chaotic.
+    const stepDy = Math.max(-PILE_MAX_DOWN, Math.min(PILE_MAX_UP, rawDy));
+    const cy     = py - stepDy;   // subtract because screen Y goes downward
+
+    // 3. Variable X step — tighter = cluster/pile, wider = exposed gap
+    const dxNoise = (seeded(i * 8.3 + 4.1) - 0.5) * 2 * PILE_STEP_NOISE;
+    const dx      = Math.max(62, Math.round(PILE_STEP_BASE + dxNoise));
+
+    // 4. Rock shape variety: wide+flat OR rounder, with different vertex counts
+    const rx = 50 + seeded(i * 5.3 + 1.9) * 42;  // 50 – 92 px  (radius)
+    const ry = 20 + seeded(i * 7.7 + 3.5) * 28;  // 20 – 48 px
+    const n  = 6  + Math.floor(seeded(i * 13.1 + 5.3) * 2);
+
+    rocks.push(generateRock(px, cy, rx, ry, n, i * 1.73 + 0.9));
+
+    px += dx;
+    py  = cy;  // next rock departs from this one's Y, not from a global formula
   }
+
+  // ── Summit — clearly wider so the player knows they made it ───────────────
+  rocks.push(generateRock(px + 65, py - 42, 108, 22, 6, 38.5));
+
   return rocks;
 }
 
@@ -291,24 +332,20 @@ class Box2DClimbScene extends Phaser.Scene {
     const { worldId } = CreateWorld({ worldDef });
     this.worldId = worldId;
 
-    // Ground (static box)
+    // Ground floor — wide enough to span the whole slope (x: -300 → 3200)
+    // Centre at x=1450, half-width=1750 → covers slope rocks up to x≈2200
     CreateBoxPolygon({
       worldId,
       type: STATIC,
-      position: new b2Vec2(WORLD_W / 2 / PPM, -(GROUND_Y + 25) / PPM),
-      size: new b2Vec2((WORLD_W + 400) / 2 / PPM, 25 / PPM),
+      position: new b2Vec2(1450 / PPM, -(GROUND_Y + 25) / PPM),
+      size: new b2Vec2(1750 / PPM, 25 / PPM),
       friction: 0.9,
     });
 
-    // Left and right walls
+    // Left wall only — slope extends rightward so no right wall needed
     CreateBoxPolygon({
       worldId, type: STATIC,
       position: new b2Vec2(10 / PPM, -300 / PPM),
-      size: new b2Vec2(20 / PPM, 600 / PPM), friction: 0.5,
-    });
-    CreateBoxPolygon({
-      worldId, type: STATIC,
-      position: new b2Vec2((WORLD_W - 10) / PPM, -300 / PPM),
       size: new b2Vec2(20 / PPM, 600 / PPM), friction: 0.5,
     });
 
@@ -487,16 +524,21 @@ class Box2DClimbScene extends Phaser.Scene {
     gfx.fillStyle(0x0a0a0f);
     gfx.fillRect(cam.scrollX - 10, cam.scrollY - 10, cam.width + 20, cam.height + 20);
 
-    // Ground
+    // Ground — drawn wide enough to cover the full slope width
     gfx.fillStyle(0x0d0b08);
-    gfx.fillRect(0, GROUND_Y, WORLD_W + 400, 200);
+    gfx.fillRect(cam.scrollX - 20, GROUND_Y, cam.width + 40, 200);
     gfx.lineStyle(3, 0x4b5563);
-    gfx.lineBetween(0, GROUND_Y, WORLD_W + 400, GROUND_Y);
+    gfx.lineBetween(cam.scrollX - 20, GROUND_Y, cam.scrollX + cam.width + 20, GROUND_Y);
 
-    // Rocks
+    // Rocks — skip rocks fully outside the current camera view
+    const cullL = cam.scrollX - 150;
+    const cullR = cam.scrollX + cam.width  + 150;
+    const cullT = cam.scrollY - 150;
+    const cullB = cam.scrollY + cam.height + 150;
     for (const rock of ROCKS) {
       const v = rock.verts;
       if (v.length < 3) continue;
+      if (rock.cx < cullL || rock.cx > cullR || rock.cy < cullT || rock.cy > cullB) continue;
       gfx.fillStyle(0x374151);
       gfx.beginPath();
       gfx.moveTo(v[0].x, v[0].y);
