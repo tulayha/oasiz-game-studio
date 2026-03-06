@@ -3,6 +3,7 @@ import { Game } from "../Game";
 export interface ViewportController {
   isMobile: boolean;
   updateViewportVars: () => void;
+  subscribeViewportChange: (listener: () => void) => () => void;
 }
 
 function parsePx(value: string): number {
@@ -12,6 +13,13 @@ function parsePx(value: string): number {
 
 export function createViewportController(game: Game): ViewportController {
   const isMobile = window.matchMedia("(pointer: coarse)").matches;
+  const viewportChangeListeners = new Set<() => void>();
+
+  function notifyViewportChange(): void {
+    for (const listener of [...viewportChangeListeners]) {
+      listener();
+    }
+  }
 
   function updateViewportVars(): void {
     const root = document.documentElement;
@@ -70,6 +78,7 @@ export function createViewportController(game: Game): ViewportController {
     root.dataset.layout = layoutMode;
 
     game.handleResize();
+    notifyViewportChange();
   }
 
   updateViewportVars();
@@ -84,7 +93,16 @@ export function createViewportController(game: Game): ViewportController {
     document.getElementById("rotateOverlay")?.remove();
   }
 
-  return { isMobile, updateViewportVars };
+  return {
+    isMobile,
+    updateViewportVars,
+    subscribeViewportChange: (listener: () => void): (() => void) => {
+      viewportChangeListeners.add(listener);
+      return (): void => {
+        viewportChangeListeners.delete(listener);
+      };
+    },
+  };
 }
 
 export async function tryLockOrientation(isMobile: boolean): Promise<void> {

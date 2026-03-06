@@ -234,6 +234,7 @@ async function init(): Promise<void> {
   let liveMatchIntroTrackPoll: ReturnType<typeof setInterval> | null = null;
   let liveMatchIntroZoomPoll: ReturnType<typeof setInterval> | null = null;
   let liveMatchIntroHideTimer: ReturnType<typeof setTimeout> | null = null;
+  let touchLayoutSyncRaf = 0;
   const liveIntroOverlay = document.getElementById(
     "demoPlayerIntroOverlay",
   ) as HTMLElement | null;
@@ -550,6 +551,7 @@ async function init(): Promise<void> {
     elements.starsContainer.classList.remove("demo-stars", "active");
     syncPlatformGameplayActivity();
     screenController.showScreen("start");
+    syncDemoTouchLayoutForState();
     startUI.resetStartButtons(false);
     startUI.setBeforeAction(null);
   }
@@ -598,6 +600,23 @@ async function init(): Promise<void> {
       game.clearTouchLayout();
     }
   }
+
+  function scheduleTouchLayoutSync(): void {
+    if (!viewport.isMobile) {
+      return;
+    }
+    if (touchLayoutSyncRaf !== 0) {
+      return;
+    }
+    touchLayoutSyncRaf = requestAnimationFrame(() => {
+      touchLayoutSyncRaf = 0;
+      syncDemoTouchLayoutForState();
+    });
+  }
+
+  viewport.subscribeViewportChange(() => {
+    scheduleTouchLayoutSync();
+  });
 
   async function startDemoSession(showAttract = true): Promise<void> {
     // Clean up any existing demo first
@@ -712,6 +731,7 @@ async function init(): Promise<void> {
     demoOverlay = null;
     syncPlatformGameplayActivity();
     screenController.showScreen("start");
+    syncDemoTouchLayoutForState();
     startUI.resetStartButtons(false);
     startUI.setBeforeAction(null);
   }
@@ -892,10 +912,6 @@ async function init(): Promise<void> {
       }
 
       screenController.updateControlHints();
-
-      if (viewport.isMobile && game.getPhase() === "PLAYING") {
-        game.updateTouchLayout();
-      }
     },
 
     onCountdownUpdate: (count: number) => {
@@ -946,6 +962,7 @@ async function init(): Promise<void> {
   settingsUI.updateSettingsUI();
   advancedSettingsUI.updateAdvancedSettingsUI();
   screenController.showScreen("start");
+  syncDemoTouchLayoutForState();
   startUI.resetStartButtons(true);
   syncAudioToPhase(currentPhase, null);
   syncPlatformGameplayActivity();
@@ -966,6 +983,7 @@ async function init(): Promise<void> {
       screenController,
       restoreLiveUi: () => {
         syncScreenToPhase(game.getPhase(), false, currentPhase);
+        syncDemoTouchLayoutForState();
       },
       playDemo: async () => {
         try {

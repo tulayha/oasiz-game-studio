@@ -31,6 +31,33 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-06 - Mobile touch input latch fix (layout ownership + teardown safety)
+
+- Scope:
+  - Fixed stuck rotate/fire input on mobile by removing touch-layout rebuild coupling from player-meta updates and hardening touch-zone lifecycle release behavior.
+- Key changes:
+  - `astro-party/src/main.ts`:
+    - removed mobile `updateTouchLayout()` call from `onPlayersUpdate` so gameplay stat/meta updates no longer tear down controls.
+    - added viewport-driven, RAF-throttled touch-layout sync via `viewport.subscribeViewportChange`.
+    - added explicit touch-layout sync on direct start-screen show paths and debug restore path.
+  - `astro-party/src/ui/screens.ts`:
+    - removed touch-layout side effects from `showScreen` to keep screen controller presentation-only.
+  - `astro-party/src/ui/viewport.ts`:
+    - added `subscribeViewportChange` API and viewport-change notifications after geometry updates.
+  - `astro-party/src/systems/input/touchZones.ts`:
+    - added idempotent setup signature to skip unnecessary rebuilds.
+    - added force-release logic during destroy/reset so slot button state is explicitly released when zones are torn down.
+    - added global touch-release reconciliation (`touchend`/`touchcancel`) plus blur/visibility fail-safe release handling.
+  - `astro-party/ARCHITECTURE.md`:
+    - documented touch-layout orchestration ownership in `main.ts` and presentation-only responsibility in `ui/screens.ts`.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Touch controls are no longer rebuilt on combat/player-meta churn, and teardown paths cannot leave rotate/fire latched.
+- Architecture outcome:
+  - changed.
+
 ## 2026-03-06 - Platform game-state utility + feature wrapper split
 
 - Scope:

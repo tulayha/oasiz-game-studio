@@ -111,6 +111,8 @@ Input:
   - input systems -> `Game` -> downstream consumers.
 - Mobile controls:
   - `MultiInputManager` + `TouchZoneManager` own touch-zone behavior.
+  - `main.ts` owns when touch layout is refreshed (phase/context + viewport changes).
+  - `src/ui/screens.ts` remains presentation-only and must not mutate touch layout state.
 
 Audio:
 - `assetManifest.ts` defines IDs, paths, channels, and scene mapping.

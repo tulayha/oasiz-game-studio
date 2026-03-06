@@ -195,11 +195,6 @@ export function createScreenController(
 
     if (isMobile) {
       elements.mobileControls.classList.remove("active");
-      if (screen === "game") {
-        game.updateTouchLayout();
-      } else {
-        game.clearTouchLayout();
-      }
     } else {
       elements.mobileControls.classList.toggle("active", screen === "game");
     }

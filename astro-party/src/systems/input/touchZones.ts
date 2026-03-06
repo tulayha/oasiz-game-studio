@@ -18,15 +18,43 @@ const CORNER_POSITIONS = [
 export class TouchZoneManager {
   private touchZoneContainer: HTMLElement | null = null;
   private touchZoneElements: HTMLElement[] = [];
+  private managedSlotButtons: Array<{ slot: number; button: ButtonType }> = [];
   private currentLayout: TouchLayout | null = null;
+  private lastSetupSignature: string | null = null;
   private activeTouches: Map<number, { slot: number; button: ButtonType }> =
     new Map();
+  private readonly handleWindowBlur = (): void => {
+    this.forceReleaseAllTouches();
+  };
+  private readonly handleVisibilityChange = (): void => {
+    if (document.hidden) {
+      this.forceReleaseAllTouches();
+    }
+  };
+  private readonly handleGlobalTouchRelease = (e: TouchEvent): void => {
+    this.reconcileTouches(e.touches);
+  };
 
   constructor(
     private slots: Map<number, SlotState>,
     private isMobile: boolean,
   ) {
     this.touchZoneContainer = document.getElementById("touchZones");
+    if (this.isMobile) {
+      window.addEventListener("blur", this.handleWindowBlur);
+      document.addEventListener(
+        "visibilitychange",
+        this.handleVisibilityChange,
+      );
+      window.addEventListener("touchend", this.handleGlobalTouchRelease, {
+        passive: true,
+        capture: true,
+      });
+      window.addEventListener("touchcancel", this.handleGlobalTouchRelease, {
+        passive: true,
+        capture: true,
+      });
+    }
   }
 
   /**
@@ -43,6 +71,19 @@ export class TouchZoneManager {
     slotToColor: Map<number, string>,
   ): void {
     if (!this.isMobile || !this.touchZoneContainer) return;
+    const bounds = this.getTouchZoneBounds();
+    const setupSignature = this.buildSetupSignature(
+      layout,
+      localSlotOrder,
+      slotToColor,
+      bounds,
+    );
+    if (
+      setupSignature === this.lastSetupSignature &&
+      this.touchZoneElements.length > 0
+    ) {
+      return;
+    }
 
     // Clear existing zones
     this.destroyTouchZones();
@@ -60,15 +101,19 @@ export class TouchZoneManager {
         this.createCornerLayout(localSlotOrder, slotToColor);
         break;
     }
+    this.lastSetupSignature = setupSignature;
   }
 
   destroyTouchZones(): void {
+    this.forceReleaseAllTouches();
     for (const el of this.touchZoneElements) {
       el.remove();
     }
     this.touchZoneElements = [];
+    this.managedSlotButtons = [];
     this.activeTouches.clear();
     this.currentLayout = null;
+    this.lastSetupSignature = null;
 
     if (this.touchZoneContainer) {
       this.touchZoneContainer.classList.remove("active");
@@ -80,11 +125,7 @@ export class TouchZoneManager {
   }
 
   reset(): void {
-    this.activeTouches.clear();
-
-    for (const el of this.touchZoneElements) {
-      el.classList.remove("pressed");
-    }
+    this.forceReleaseAllTouches();
   }
 
   /**
@@ -365,6 +406,7 @@ export class TouchZoneManager {
       sub.textContent = config.sublabel;
       zone.appendChild(sub);
     }
+    this.managedSlotButtons.push({ slot: config.slot, button: config.button });
 
     // Touch event handlers
     zone.addEventListener(
@@ -391,11 +433,7 @@ export class TouchZoneManager {
       for (let i = 0; i < e.changedTouches.length; i++) {
         this.activeTouches.delete(e.changedTouches[i].identifier);
       }
-      // Check if any other finger is still on this zone/button
-      if (!this.isSlotButtonStillTouched(config.slot, config.button)) {
-        this.updateSlotFromTouch(config.slot, config.button, false);
-        zone.classList.remove("pressed");
-      }
+      this.syncSlotButtonsFromActiveTouches();
     });
 
     zone.addEventListener("touchcancel", (e) => {
@@ -403,10 +441,7 @@ export class TouchZoneManager {
       for (let i = 0; i < e.changedTouches.length; i++) {
         this.activeTouches.delete(e.changedTouches[i].identifier);
       }
-      if (!this.isSlotButtonStillTouched(config.slot, config.button)) {
-        this.updateSlotFromTouch(config.slot, config.button, false);
-        zone.classList.remove("pressed");
-      }
+      this.syncSlotButtonsFromActiveTouches();
     });
 
     this.touchZoneContainer.appendChild(zone);
@@ -447,6 +482,79 @@ export class TouchZoneManager {
       state.buttonA = pressed;
     } else {
       state.buttonB = pressed;
+    }
+  }
+
+  private buildSetupSignature(
+    layout: TouchLayout,
+    localSlotOrder: number[],
+    slotToColor: Map<number, string>,
+    bounds: { width: number; height: number },
+  ): string {
+    const slotParts = localSlotOrder
+      .map((slot) => {
+        return slot.toString() + ":" + (slotToColor.get(slot) ?? "");
+      })
+      .join(",");
+    const width = Math.round(bounds.width);
+    const height = Math.round(bounds.height);
+    return layout + "|" + slotParts + "|" + width.toString() + "x" + height.toString();
+  }
+
+  private reconcileTouches(touches: TouchList): void {
+    if (!this.isMobile || this.activeTouches.size <= 0) {
+      return;
+    }
+    const stillActive = new Set<number>();
+    for (let i = 0; i < touches.length; i++) {
+      stillActive.add(touches[i].identifier);
+    }
+    let changed = false;
+    for (const identifier of [...this.activeTouches.keys()]) {
+      if (!stillActive.has(identifier)) {
+        this.activeTouches.delete(identifier);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.syncSlotButtonsFromActiveTouches();
+    }
+  }
+
+  private forceReleaseAllTouches(): void {
+    if (this.activeTouches.size <= 0 && this.managedSlotButtons.length <= 0) {
+      return;
+    }
+    this.activeTouches.clear();
+    this.syncSlotButtonsFromActiveTouches();
+  }
+
+  private syncSlotButtonsFromActiveTouches(): void {
+    const seen = new Set<string>();
+    for (const mapping of this.managedSlotButtons) {
+      const key = mapping.slot.toString() + ":" + mapping.button;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      const pressed = this.isSlotButtonStillTouched(mapping.slot, mapping.button);
+      this.updateSlotFromTouch(mapping.slot, mapping.button, pressed);
+      this.setZonePressedVisual(mapping.slot, mapping.button, pressed);
+    }
+  }
+
+  private setZonePressedVisual(
+    slot: number,
+    button: ButtonType,
+    pressed: boolean,
+  ): void {
+    for (const zone of this.touchZoneElements) {
+      const zoneSlot = Number(zone.dataset.slot);
+      const zoneButton = zone.dataset.button;
+      if (zoneSlot !== slot || zoneButton !== button) {
+        continue;
+      }
+      zone.classList.toggle("pressed", pressed);
     }
   }
 
