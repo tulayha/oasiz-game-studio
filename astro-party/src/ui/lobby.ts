@@ -97,18 +97,36 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     element.setAttribute("aria-disabled", locked ? "true" : "false");
   }
 
+  function isLocalSession(): boolean {
+    return game.getSessionMode() === "local";
+  }
+
+  function canShowLocalAddOption(): boolean {
+    const hasRemote = game.hasRemotePlayers();
+    const supportsLocalPlayers = game.supportsLocalPlayers();
+    return isLocalSession() && supportsLocalPlayers && !hasRemote;
+  }
+
+  function updateSessionModeIndicator(): void {
+    const isLocal = isLocalSession();
+    elements.sessionModeIndicator.setAttribute("data-mode", isLocal ? "local" : "online");
+    elements.sessionModeLocal.classList.toggle("on", isLocal);
+    elements.sessionModeOnline.classList.toggle("on", !isLocal);
+  }
+
   function updateRoomCodeVisibility(): void {
     const roomContainer = elements.roomCodeDisplay.closest(
       ".room-tag",
     ) as HTMLElement | null;
     if (!roomContainer) return;
-    const isLocal = game.getSessionMode() === "local";
+    const isLocal = isLocalSession();
     roomContainer.style.display = isLocal || isPlatform ? "none" : "flex";
   }
 
   function updateRoomCode(code: string): void {
+    updateSessionModeIndicator();
     updateRoomCodeVisibility();
-    if (game.getSessionMode() === "local" || isPlatform) {
+    if (isLocalSession() || isPlatform) {
       elements.roomCodeDisplay.textContent = "----";
       return;
     }
@@ -125,20 +143,27 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     }
 
     elements.addBotSection.classList.remove("hidden");
-    elements.addAIBotBtn.disabled = false;
+    elements.addAIBotBtn.disabled = !isLeader;
     setHostLocked(elements.addAIBotBtn, !isLeader);
     elements.addAIBotBtn.title = isLeader
       ? "Add AI Bot"
       : "Only the room leader can add AI bots";
 
-    const hasRemote = game.hasRemotePlayers();
     const supportsLocalPlayers = game.supportsLocalPlayers();
-    const canShowLocal = supportsLocalPlayers && !hasRemote;
+    const canShowLocal = canShowLocalAddOption();
     elements.addLocalPlayerBtn.style.display = canShowLocal ? "flex" : "none";
-    elements.addLocalPlayerBtn.disabled = !supportsLocalPlayers;
-    setHostLocked(elements.addLocalPlayerBtn, supportsLocalPlayers && !isLeader);
+    elements.addLocalPlayerBtn.disabled = !canShowLocal || !isLeader;
+    setHostLocked(elements.addLocalPlayerBtn, canShowLocal && !isLeader);
     if (!supportsLocalPlayers) {
       elements.addLocalPlayerBtn.title = "Local players are deferred in this version";
+      return;
+    }
+    if (!isLocalSession()) {
+      elements.addLocalPlayerBtn.title = "Switch to local mode to add local players";
+      return;
+    }
+    if (!canShowLocal) {
+      elements.addLocalPlayerBtn.title = "Local add disabled while remote players are present";
       return;
     }
     elements.addLocalPlayerBtn.title = isLeader
@@ -164,6 +189,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     const myPlayerId = game.getMyPlayerId();
     const isLeader = game.isLeader();
     const leaderId = game.getLeaderId();
+    const canShowLocalAdd = canShowLocalAddOption();
 
     const crownSVG =
       '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 19h14l1-9-4.5 3.5L12 6 8.5 13.5 4 10l1 9z"/></svg>';
@@ -224,6 +250,11 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
         const canAdd = isLeader;
         const plusCircleSVGFill =
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/></svg>';
+        const localAddButtonHtml = canShowLocalAdd
+          ? '<button class="empty-btn" data-action="add-local"' +
+            (canAdd ? "" : " disabled") +
+            ">+ Local</button>"
+          : "";
         html += `<div class="pcard pcard--empty">
           <div class="card-scene">
             <div class="empty-content">
@@ -231,7 +262,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
               <div class="empty-label">${SLOTS[i]} \u2014 Empty</div>
               <div class="empty-btns">
                 <button class="empty-btn" data-action="add-ai" ${canAdd ? "" : "disabled"}>+ Add AI</button>
-                <button class="empty-btn" data-action="add-local" ${canAdd ? "" : "disabled"}>+ Local</button>
+                ${localAddButtonHtml}
               </div>
             </div>
           </div>
@@ -243,25 +274,36 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
 
     const hasEnoughPlayers = players.length >= 2;
     elements.startGameBtn.disabled = !hasEnoughPlayers || !isLeader;
-    setHostLocked(elements.startGameBtn, isLeader ? false : hasEnoughPlayers);
-    elements.startGameBtn.title = isLeader
-      ? "Start match"
-      : "Only the room leader can start the match";
+    setHostLocked(elements.startGameBtn, !isLeader);
+    if (!hasEnoughPlayers) {
+      elements.startGameBtn.title = "Need at least 2 players";
+    } else if (isLeader) {
+      elements.startGameBtn.title = "Start match";
+    } else {
+      elements.startGameBtn.title = "Only the room leader can start the match";
+    }
 
     updateLaunchStatus(players.length, isLeader);
     updateBotControlsVisibility(players.length, isLeader);
 
     elements.gameModeSection.classList.toggle("readonly", !isLeader);
-    elements.modeCycleBtn.disabled = false;
-    elements.rulesetCycleBtn.disabled = false;
-    elements.advancedSettingsBtn.disabled = false;
+    elements.modeCycleBtn.disabled = !isLeader;
+    elements.rulesetCycleBtn.disabled = !isLeader;
+    elements.advancedSettingsBtn.disabled = !isLeader;
     setHostLocked(elements.modeCycleBtn, !isLeader);
     setHostLocked(elements.rulesetCycleBtn, !isLeader);
     setHostLocked(elements.advancedSettingsBtn, !isLeader);
+    elements.modeCycleBtn.title = isLeader
+      ? "Cycle game mode"
+      : "Only the room leader can edit game mode";
+    elements.rulesetCycleBtn.title = isLeader
+      ? "Cycle ruleset"
+      : "Only the room leader can change ruleset";
     elements.advancedSettingsBtn.title = isLeader
       ? "Open advanced settings"
       : "Only the room leader can edit advanced settings";
 
+    updateSessionModeIndicator();
     updateRoomCodeVisibility();
     setRulesetUI(game.getRuleset(), "remote");
     updateMapSelector();
@@ -433,11 +475,16 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     const ruleset = game.getRuleset();
     for (const [mapId, card] of mapPickerCards) {
       const allowed = isMapAllowedForRuleset(mapId, ruleset);
+      const lockedByHost = !isLeader;
       card.classList.toggle("active", mapId === selectedMapId);
       card.classList.toggle("disabled", !allowed);
-      card.disabled = !allowed;
-      card.title = allowed ? "" : "Unavailable for selected ruleset";
-      setHostLocked(card, !isLeader);
+      card.disabled = !allowed || lockedByHost;
+      card.title = !allowed
+        ? "Unavailable for selected ruleset"
+        : lockedByHost
+          ? "Only the room leader can change the arena"
+          : "";
+      setHostLocked(card, lockedByHost);
     }
   }
 
@@ -463,7 +510,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     const selectedMapId = game.getMapId();
     elements.mapSelectorSection.classList.toggle("hidden", false);
     elements.mapSelectorSection.classList.toggle("readonly", !lobbyIsLeader);
-    elements.openMapPickerBtn.disabled = false;
+    elements.openMapPickerBtn.disabled = !lobbyIsLeader;
     setHostLocked(elements.openMapPickerBtn, !lobbyIsLeader);
     elements.openMapPickerBtn.title = lobbyIsLeader
       ? "Change arena"

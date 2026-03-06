@@ -20,6 +20,9 @@ export const elements = {
   backToStartBtn: getElement<HTMLButtonElement>("backToStartBtn"),
 
   // Lobby screen
+  sessionModeIndicator: getElement<HTMLElement>("sessionModeIndicator"),
+  sessionModeLocal: getElement<HTMLElement>("sessionModeLocal"),
+  sessionModeOnline: getElement<HTMLElement>("sessionModeOnline"),
   roomCodeDisplay: getElement<HTMLElement>("roomCodeDisplay"),
   copyCodeBtn: getElement<HTMLButtonElement>("copyCodeBtn"),
   playersList: getElement<HTMLElement>("playersList"),
