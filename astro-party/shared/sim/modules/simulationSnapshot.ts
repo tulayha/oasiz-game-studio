@@ -39,6 +39,7 @@ export function buildPlayerListPayload(
       customName: player.name,
       profileName: player.name,
       botType: player.botType ?? undefined,
+      shipSkinId: player.shipSkinId,
       colorIndex: player.colorIndex,
       keySlot: player.keySlot,
       kills: player.kills,

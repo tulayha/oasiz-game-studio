@@ -20,13 +20,12 @@ import {
 import { DemoController } from "./demo/DemoController";
 import { DemoOverlayUI } from "./demo/DemoOverlayUI";
 import { elements } from "./ui/elements";
+import { isDemoSeen, markDemoSeen } from "./preferences/demoSeen";
 import {
   gameplayStart as platformGameplayStart,
   gameplayStop as platformGameplayStop,
   getPlayerName as getPlatformPlayerName,
   getRoomCode as getPlatformRoomCode,
-  loadGameState as loadPlatformGameState,
-  saveGameState as savePlatformGameState,
 } from "./platform/oasizBridge";
 
 declare const __APP_VERSION__: string;
@@ -36,27 +35,6 @@ declare global {
   interface Window {
     getCurrentSeed?: () => number | null;
     setNextSeed?: (seed: number) => void;
-  }
-}
-
-/** Returns true if the player has already seen the demo in platform state. */
-function isDemoSeen(): boolean {
-  try {
-    const saved = loadPlatformGameState();
-    if (saved.demo_seen === true) return true;
-  } catch {
-    // platform API unavailable
-  }
-  return false;
-}
-
-/** Marks the demo as seen in platform state only. */
-function markDemoSeen(): void {
-  try {
-    const existing = loadPlatformGameState();
-    savePlatformGameState({ ...existing, demo_seen: true });
-  } catch {
-    // platform API unavailable
   }
 }
 

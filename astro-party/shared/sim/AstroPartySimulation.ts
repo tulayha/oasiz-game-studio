@@ -121,6 +121,11 @@ import {
   sanitizePlayerName,
   type PlayerControlsContext,
 } from "./modules/simulationPlayerControls.js";
+import {
+  DEFAULT_SHIP_SKIN_ID,
+  SHIP_SKIN_IDS,
+  isShipSkinId,
+} from "../geometry/ShipSkins.js";
 
 // System imports
 import { updateBots } from "./systems/AISystem.js";
@@ -321,7 +326,11 @@ export class AstroPartySimulation implements SimState {
 
   // ============= PUBLIC API (called by Room) =============
 
-  addHuman(sessionId: string, requestedName?: string): void {
+  addHuman(
+    sessionId: string,
+    requestedName?: string,
+    requestedShipSkinId?: string,
+  ): void {
     if (this.players.size >= this.maxPlayers) {
       this.hooks.onError(sessionId, "ROOM_FULL", "Room is full");
       return;
@@ -330,12 +339,14 @@ export class AstroPartySimulation implements SimState {
     const id = sessionId;
     const customName = sanitizePlayerName(requestedName);
     const allocation = this.identityAllocator.allocateHuman(id, customName);
+    const shipSkinId = this.resolveInitialShipSkinId(requestedShipSkinId);
     const player = this.createPlayer(
       id,
       sessionId,
       allocation.displayName,
       false,
       null,
+      shipSkinId,
       allocation.colorIndex,
     );
     this.players.set(id, player);
@@ -386,6 +397,16 @@ export class AstroPartySimulation implements SimState {
     const name = sanitizePlayerName(rawName);
     if (!name) return;
     player.name = name;
+    this.syncPlayers();
+  }
+
+  setShipSkin(sessionId: string, rawShipSkinId: string): void {
+    const player = getHumanBySession(this.createPlayerControlsContext(), sessionId);
+    if (!player) return;
+    const shipSkinId = this.normalizeShipSkinId(rawShipSkinId);
+    if (!shipSkinId) return;
+    if (player.shipSkinId === shipSkinId) return;
+    player.shipSkinId = shipSkinId;
     this.syncPlayers();
   }
 
@@ -781,6 +802,7 @@ export class AstroPartySimulation implements SimState {
       allocation.displayName,
       true,
       "ai",
+      this.resolveInitialShipSkinId(),
       allocation.colorIndex,
     );
     this.players.set(id, player);
@@ -818,6 +840,7 @@ export class AstroPartySimulation implements SimState {
       allocation.displayName,
       true,
       "local",
+      this.resolveInitialShipSkinId(),
       allocation.colorIndex,
     );
     player.keySlot = normalizedKeySlot;
@@ -1766,6 +1789,7 @@ export class AstroPartySimulation implements SimState {
     name: string,
     isBot: boolean,
     botType: "ai" | "local" | null,
+    shipSkinId: string,
     colorIndex: number,
   ): RuntimePlayer {
     return {
@@ -1774,6 +1798,7 @@ export class AstroPartySimulation implements SimState {
       name,
       isBot,
       botType,
+      shipSkinId,
       colorIndex,
       kills: 0,
       roundWins: 0,
@@ -1827,6 +1852,23 @@ export class AstroPartySimulation implements SimState {
         isReloading: false,
       },
     };
+  }
+
+  private normalizeShipSkinId(rawShipSkinId: string | undefined): string | null {
+    if (typeof rawShipSkinId !== "string") return null;
+    const normalized = rawShipSkinId.trim();
+    if (!isShipSkinId(normalized)) return null;
+    return normalized;
+  }
+
+  private resolveInitialShipSkinId(rawShipSkinId?: string): string {
+    const explicit = this.normalizeShipSkinId(rawShipSkinId);
+    if (explicit) return explicit;
+    if (SHIP_SKIN_IDS.length <= 0) {
+      return DEFAULT_SHIP_SKIN_ID;
+    }
+    const index = this.idRng.nextInt(0, SHIP_SKIN_IDS.length - 1);
+    return SHIP_SKIN_IDS[index];
   }
 
   private buildPlayerPayload(): PlayerListPayload {

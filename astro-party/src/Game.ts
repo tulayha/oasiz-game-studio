@@ -51,6 +51,12 @@ import {
   isScoreSubmissionEligibleBotType,
   shouldSubmitScoreToPlatform,
 } from "../shared/sim/scoring.js";
+import {
+  getShipSkinOverrideForPlayer,
+  isShipSkinId,
+  setShipSkinOverrideForPlayer,
+  type ShipSkinId,
+} from "../shared/geometry/ShipSkins.js";
 import { getShipTrailWorldPoint } from "../shared/geometry/ShipRenderAnchors";
 import { isMapAllowedForContext } from "../shared/sim/maps.js";
 import { isClientDebugToolsRequested } from "./debug/debugTools";
@@ -1206,10 +1212,19 @@ export class Game {
   private syncPlayersFromMeta(meta?: PlayerMetaMap): void {
     if (!meta) return;
     this.processCombatToastsFromMeta(meta);
+    const myPlayerId = this.network.getMyPlayerId();
     let changed = false;
     for (const [playerId, player] of this.playerMgr.players) {
       const networkMeta = meta.get(playerId);
       if (!networkMeta) continue;
+
+      if (playerId !== myPlayerId && isShipSkinId(networkMeta.shipSkinId)) {
+        const currentSkin = getShipSkinOverrideForPlayer(playerId);
+        if (currentSkin !== networkMeta.shipSkinId) {
+          setShipSkinOverrideForPlayer(playerId, networkMeta.shipSkinId);
+          changed = true;
+        }
+      }
 
       if (
         Number.isFinite(networkMeta.kills) &&
@@ -1887,6 +1902,10 @@ export class Game {
 
   setPlayerName(name: string): void {
     this.network.setCustomName(name);
+  }
+
+  setMyShipSkin(skinId: ShipSkinId): void {
+    this.network.setShipSkin(skinId);
   }
 
   setMapElementsVisible(visible: boolean): void {

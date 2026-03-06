@@ -259,6 +259,10 @@ export class NetworkManager {
     this.transport.setCustomName(name);
   }
 
+  setShipSkin(skinId: string): void {
+    this.transport.setShipSkin(skinId);
+  }
+
   async disconnect(): Promise<void> {
     await this.transport.disconnect();
   }

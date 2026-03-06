@@ -343,6 +343,10 @@ app.post("/match/create", async (req, res) => {
   try {
     const playerName =
       typeof req.body?.playerName === "string" ? req.body.playerName : undefined;
+    const playerShipSkinId =
+      typeof req.body?.playerShipSkinId === "string"
+        ? req.body.playerShipSkinId
+        : undefined;
     const roomCode = generateUniqueRoomCode(roomCodeLength);
     const room = await matchMaker.createRoom("astro_party", {
       roomCode,
@@ -352,6 +356,7 @@ app.post("/match/create", async (req, res) => {
     registerRoomCode(room.roomId, roomCode);
     const seatReservation = await matchMaker.joinById(room.roomId, {
       playerName,
+      playerShipSkinId,
     });
 
     res.json({
@@ -413,8 +418,13 @@ app.post("/match/join", async (req, res) => {
 
     const playerName =
       typeof req.body?.playerName === "string" ? req.body.playerName : undefined;
+    const playerShipSkinId =
+      typeof req.body?.playerShipSkinId === "string"
+        ? req.body.playerShipSkinId
+        : undefined;
     const seatReservation = await matchMaker.joinById(roomId, {
       playerName,
+      playerShipSkinId,
     });
 
     res.json({

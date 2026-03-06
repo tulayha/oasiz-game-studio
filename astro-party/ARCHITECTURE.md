@@ -57,9 +57,14 @@ Systems:
 
 Networking:
 - `src/network/*`: transport integration, snapshot/event sync, metadata mapping.
+  - Player metadata contract now includes `shipSkinId` for authoritative cross-client skin sync.
 
 UI:
 - `src/ui/*`: start/lobby/game/end screens, settings, overlays, modals.
+
+Platform state + preferences:
+- `src/platform/platformGameState.ts`: generic wrapper around platform game-state persistence (`loadGameState`/`saveGameState`).
+- `src/preferences/*`: feature wrappers for platform-persisted values (currently demo-seen and preferred ship skin).
 
 Demo:
 - `src/demo/DemoController.ts`: demo state machine ownership.
@@ -87,6 +92,7 @@ Audio:
 - `server/src/*` HTTP endpoints: matchmaking, health checks, and ops stats.
 - `server/loadtest/*`: synthetic client harnesses (`roomcode`, `lobbyfill`, capacity sweep orchestrator) and observed-run tooling (`run-observed-loadtest.ps1`, `astro-observe.sh`, parser/index builder).
 - `server/observed-runs/*`: local artifact store + static dashboard (`dashboard/index.html`) for multi-run timeline/incident comparison from file-based artifacts.
+- Matchmaking/room contract now accepts optional `playerShipSkinId` at join/create and room command `cmd:set_skin` for authoritative player skin updates.
 
 ## Key Ownership Boundaries
 

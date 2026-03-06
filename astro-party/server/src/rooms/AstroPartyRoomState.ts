@@ -5,6 +5,7 @@ export class RoomPlayerMetaState extends Schema {
   @type("string") customName = "";
   @type("string") profileName = "";
   @type("string") botType = "";
+  @type("string") shipSkinId = "";
   @type("number") colorIndex = 0;
   @type("number") keySlot = -1;
   @type("number") kills = 0;

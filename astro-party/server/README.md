@@ -425,13 +425,19 @@ Client debug tools are enabled in either case:
 
 - `GET /healthz` -> `{ ok: true }`
 - `POST /match/create`
-  - body: `{ "playerName"?: string }`
+  - body: `{ "playerName"?: string, "playerShipSkinId"?: string }`
   - returns: `{ roomCode, roomId, seatReservation }`
 - `POST /match/join`
-  - body: `{ "roomCode": string, "playerName"?: string }`
+  - body: `{ "roomCode": string, "playerName"?: string, "playerShipSkinId"?: string }`
   - returns success payload: `{ ok: true, roomCode, roomId, seatReservation }`
   - invalid/missing/locked room code cases return `{ ok: false, error, message }`
   - unexpected join failures return HTTP `409` with `{ error: "JOIN_FAILED", message }`
+
+## Room message contract
+
+- `cmd:set_skin`
+  - client -> room payload: `{ "skinId": string }`
+  - behavior: applies the player's authoritative `shipSkinId` in simulation state and propagates through normal player-meta snapshots.
 
 ## Deploy note
 

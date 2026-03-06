@@ -4,13 +4,21 @@ import { elements } from "./elements";
 import { getMapDefinition, isMapAllowedForRuleset } from "../../shared/sim/maps.js";
 import { applySvgColorSlots } from "../../shared/geometry/EntityAssets.js";
 import {
+  type ShipSkinId,
   getShipSkin,
+  getShipSkinOverrideForPlayer,
   resolveShipSkinIdForPlayer,
+  setShipSkinOverrideForPlayer,
+  SHIP_SKIN_IDS,
 } from "../../shared/geometry/ShipSkins.js";
 import { renderMapPreviewOnCanvas } from "./mapPreview";
 import { escapeHtml } from "./text";
 import { createUIFeedback } from "../feedback/uiFeedback";
 import { isPlatformRuntime } from "../platform/oasizBridge";
+import {
+  getOrCreatePreferredShipSkinId,
+  setPreferredShipSkinId,
+} from "../preferences/preferredShipSkin";
 
 export interface LobbyUI {
   updateLobbyUI: (players: PlayerData[]) => void;
@@ -56,6 +64,53 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     local: "Local Player",
     online: "Remote Player",
   };
+  const SHIP_SYNC_DEBOUNCE_MS = 160;
+  let pendingShipSkinSyncTimer: number | null = null;
+  let pendingShipSkinSyncId: ShipSkinId | null = null;
+  let preferredSkinId: ShipSkinId | null = null;
+
+  function applyPreferredSkinToSelf(): void {
+    if (!preferredSkinId) return;
+    const myPlayerId = game.getMyPlayerId();
+    if (!myPlayerId) return;
+    setShipSkinOverrideForPlayer(myPlayerId, preferredSkinId);
+  }
+
+  function scheduleShipSkinSync(skinId: ShipSkinId): void {
+    pendingShipSkinSyncId = skinId;
+    if (pendingShipSkinSyncTimer !== null) {
+      window.clearTimeout(pendingShipSkinSyncTimer);
+      pendingShipSkinSyncTimer = null;
+    }
+    pendingShipSkinSyncTimer = window.setTimeout(() => {
+      pendingShipSkinSyncTimer = null;
+      const queuedSkin = pendingShipSkinSyncId;
+      if (!queuedSkin) return;
+      pendingShipSkinSyncId = null;
+      game.setMyShipSkin(queuedSkin);
+    }, SHIP_SYNC_DEBOUNCE_MS);
+  }
+
+  function cycleMyShipSkin(): void {
+    const myPlayerId = game.getMyPlayerId();
+    if (!myPlayerId) return;
+    if (SHIP_SKIN_IDS.length <= 0) return;
+
+    const currentSkin =
+      getShipSkinOverrideForPlayer(myPlayerId) ??
+      resolveShipSkinIdForPlayer(myPlayerId);
+    const currentIndex = SHIP_SKIN_IDS.indexOf(currentSkin);
+    const nextIndex =
+      currentIndex >= 0 ? (currentIndex + 1) % SHIP_SKIN_IDS.length : 0;
+    const nextSkinId = SHIP_SKIN_IDS[nextIndex];
+    setShipSkinOverrideForPlayer(myPlayerId, nextSkinId);
+    preferredSkinId = nextSkinId;
+    setPreferredShipSkinId(nextSkinId);
+    scheduleShipSkinSync(nextSkinId);
+    feedback.button();
+    updateLobbyUI(game.getPlayers());
+  }
+  preferredSkinId = getOrCreatePreferredShipSkinId();
 
   function hexToRgb(hex: string): string {
     const r = parseInt(hex.slice(1, 3), 16);
@@ -230,9 +285,12 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     const isLeader = game.isLeader();
     const leaderId = game.getLeaderId();
     const canShowLocalAdd = canShowLocalAddOption();
+    applyPreferredSkinToSelf();
 
     const crownSVG =
       '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 19h14l1-9-4.5 3.5L12 6 8.5 13.5 4 10l1 9z"/></svg>';
+    const cycleSkinIconSVG =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.86-5.66"/><polyline points="18 2 18 8 12 8"/><path d="M20 12a8 8 0 0 1-13.86 5.66"/><polyline points="6 22 6 16 12 16"/></svg>';
 
     let html = "";
     for (let i = 0; i < 4; i++) {
@@ -265,6 +323,13 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
           actionBtn = `<button class="card-act" data-action="${action}" data-player-id="${player.id}">${label}</button>`;
         }
 
+        const skinCycleBtn = isSelf
+          ? `<button class="card-skin-cycle" data-action="cycle-skin" data-player-id="${player.id}" title="Change ship skin" aria-label="Change ship skin">${cycleSkinIconSVG}</button>`
+          : "";
+        const actionControls = skinCycleBtn || actionBtn
+          ? `<div class="card-footer-actions">${skinCycleBtn}${actionBtn}</div>`
+          : "<span></span>";
+
         html += `<div class="pcard pcard--filled" style="--pc:${color};--pc-rgb:${rgb}">
           <div class="card-glow"></div>
           <div class="card-slot">${SLOTS[i]}</div>
@@ -282,7 +347,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
             <div class="card-role">${PLAYER_ROLE[type]}</div>
             <div class="card-footer">
               ${isLeaderPlayer ? `<span class="host-pip">${crownSVG}Host</span>` : "<span></span>"}
-              ${actionBtn}
+              ${actionControls}
             </div>
           </div>
         </div>`;
@@ -366,6 +431,11 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
       elements.addAIBotBtn.click();
     } else if (action === "add-local") {
       elements.addLocalPlayerBtn.click();
+    } else if (action === "cycle-skin" && playerId) {
+      if (playerId !== game.getMyPlayerId()) {
+        return;
+      }
+      cycleMyShipSkin();
     } else if ((action === "remove" || action === "kick") && playerId) {
       if (!game.isLeader()) {
         showHostOnlyActionToast();

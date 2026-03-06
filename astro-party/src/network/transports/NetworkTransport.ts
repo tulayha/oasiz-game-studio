@@ -32,6 +32,7 @@ export interface PlayerMeta {
   customName?: string;
   profileName?: string;
   botType?: "ai" | "local";
+  shipSkinId?: string;
   colorIndex?: number;
   keySlot?: number;
   kills?: number;
@@ -145,6 +146,7 @@ export interface NetworkTransport {
   ): void;
 
   setCustomName(name: string): void;
+  setShipSkin(skinId: string): void;
   addAIBot(): Promise<unknown | null>;
   addLocalBot(keySlot: number): Promise<unknown | null>;
   removeBot(playerId: string): Promise<boolean>;

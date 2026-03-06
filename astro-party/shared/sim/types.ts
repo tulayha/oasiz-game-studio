@@ -231,6 +231,7 @@ export interface PlayerListMeta {
   customName: string;
   profileName?: string;
   botType?: "ai" | "local";
+  shipSkinId: string;
   colorIndex: number;
   keySlot?: number;
   kills: number;
@@ -337,6 +338,7 @@ export interface RuntimePlayer {
   name: string;
   isBot: boolean;
   botType: "ai" | "local" | null;
+  shipSkinId: string;
   keySlot?: number;
   colorIndex: number;
   kills: number;

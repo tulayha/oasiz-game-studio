@@ -1,5 +1,6 @@
 import { AstroPartySimulation } from "../../../shared/sim/AstroPartySimulation";
 import { getPlayerName as getPlatformPlayerName } from "../../platform/oasizBridge";
+import { getOrCreatePreferredShipSkinId } from "../../preferences/preferredShipSkin";
 import type {
   AdvancedSettingsSync,
   DebugPhysicsTuningPayload,
@@ -43,6 +44,7 @@ class LocalPlayerState implements NetworkPlayerState {
   getState(key: string): unknown {
     if (key === "customName") return this.meta.customName;
     if (key === "colorIndex") return this.meta.colorIndex;
+    if (key === "shipSkinId") return this.meta.shipSkinId;
     if (key === "botType") return this.meta.botType;
     if (key === "keySlot") return this.meta.keySlot;
     if (key === "kills") return this.meta.kills ?? 0;
@@ -154,6 +156,7 @@ export class LocalSharedSimTransport implements NetworkTransport {
     this.simulation.addHuman(
       this.mySessionId,
       this.readInjectedPlayerName() ?? undefined,
+      this.getPreferredShipSkinId(),
     );
     if (this.isDemoMode) {
       this.simulation.setRuleset(this.mySessionId, "ENDLESS_RESPAWN");
@@ -378,6 +381,11 @@ export class LocalSharedSimTransport implements NetworkTransport {
   setCustomName(name: string): void {
     if (!this.simulation || !this.mySessionId) return;
     this.simulation.setName(this.mySessionId, name);
+  }
+
+  setShipSkin(skinId: string): void {
+    if (!this.simulation || !this.mySessionId) return;
+    this.simulation.setShipSkin(this.mySessionId, skinId);
   }
 
   async addAIBot(): Promise<unknown | null> {
@@ -615,6 +623,7 @@ export class LocalSharedSimTransport implements NetworkTransport {
       customName: meta.customName,
       profileName: meta.profileName,
       botType: meta.botType,
+      shipSkinId: meta.shipSkinId,
       colorIndex: meta.colorIndex,
       keySlot: Number.isFinite(meta.keySlot) ? meta.keySlot : undefined,
       kills: meta.kills,
@@ -744,6 +753,10 @@ export class LocalSharedSimTransport implements NetworkTransport {
 
   private readInjectedPlayerName(): string | null {
     return getPlatformPlayerName();
+  }
+
+  private getPreferredShipSkinId(): string {
+    return getOrCreatePreferredShipSkinId();
   }
 
 }

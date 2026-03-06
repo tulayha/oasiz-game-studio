@@ -282,3 +282,25 @@ Durable implementation learnings to avoid repeating known mistakes.
   - `AGENTS.md`
   - `progress.md`
   - `src/main.ts`
+
+## 2026-03-06 - Contract changes require a docs impact matrix, not progress-only logging
+
+- Context:
+  - Ship-skin sync work changed cross-runtime contracts and persistence ownership, while follow-up updates focused on `progress.md`.
+- Wrong assumption:
+  - Updating only `progress.md` was enough documentation coverage for the milestone.
+- Detection signal:
+  - User explicitly challenged missing doc updates and requested justification across architecture/readme scope.
+- Corrected approach:
+  - Run an explicit doc impact matrix whenever runtime contracts/ownership change:
+    - `ARCHITECTURE.md` for ownership/boundaries
+    - `server/README.md` for API/room command contract
+    - `shared/README.md` for shared payload contract notes
+    - `progress.md` milestone for traceability
+- Guardrail:
+  - Do not close a contract-changing milestone until architecture + affected readmes are updated (or explicitly justified as unchanged) and captured in one progress entry.
+- Related files:
+  - `ARCHITECTURE.md`
+  - `server/README.md`
+  - `shared/README.md`
+  - `progress.md`

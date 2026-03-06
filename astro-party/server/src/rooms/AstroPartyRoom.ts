@@ -48,6 +48,9 @@ interface SetMapMessage {
   mapId: number;
 }
 interface EndMatchMessage {}
+interface SetSkinMessage {
+  skinId?: string;
+}
 
 interface SetAdvancedSettingsMessage extends AdvancedSettingsSync {}
 interface SetDevModeMessage {
@@ -241,6 +244,11 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       this.simulation.setName(client.sessionId, payload.name ?? "");
     });
 
+    this.onMessage("cmd:set_skin", (client, payload: SetSkinMessage = {}) => {
+      opsStats.recordCommand("cmd:set_skin");
+      this.simulation.setShipSkin(client.sessionId, payload.skinId ?? "");
+    });
+
     this.onMessage("cmd:input", (client, payload: PlayerInputMessage) => {
       opsStats.recordCommand("cmd:input");
       opsStats.recordInput(
@@ -355,9 +363,16 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
     });
   }
 
-  onJoin(client: Client, options?: { playerName?: string }): void {
+  onJoin(
+    client: Client,
+    options?: { playerName?: string; playerShipSkinId?: string },
+  ): void {
     opsStats.recordClientJoined(client.sessionId);
-    this.simulation.addHuman(client.sessionId, options?.playerName);
+    this.simulation.addHuman(
+      client.sessionId,
+      options?.playerName,
+      options?.playerShipSkinId,
+    );
     this.asteroidColliderSentBySession.set(client.sessionId, new Set());
     if (this.latestSnapshot) {
       this.sendSnapshotToClient(client, this.latestSnapshot);
@@ -432,6 +447,7 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       }
       const nextProfileName = meta.profileName ?? "";
       const nextBotType = meta.botType ?? "";
+      const nextShipSkinId = meta.shipSkinId ?? "";
       const nextKeySlot = Number.isFinite(meta.keySlot) ? (meta.keySlot as number) : -1;
       const nextIsBot = Boolean(meta.isBot);
 
@@ -439,6 +455,7 @@ export class AstroPartyRoom extends Room<AstroPartyRoomState> {
       if (target.customName !== meta.customName) target.customName = meta.customName;
       if (target.profileName !== nextProfileName) target.profileName = nextProfileName;
       if (target.botType !== nextBotType) target.botType = nextBotType;
+      if (target.shipSkinId !== nextShipSkinId) target.shipSkinId = nextShipSkinId;
       if (target.colorIndex !== meta.colorIndex) target.colorIndex = meta.colorIndex;
       if (target.keySlot !== nextKeySlot) target.keySlot = nextKeySlot;
       if (target.kills !== meta.kills) target.kills = meta.kills;

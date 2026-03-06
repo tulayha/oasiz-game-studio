@@ -52,6 +52,12 @@ export const SHIP_SKIN_IDS: ReadonlyArray<ShipSkinId> = Object.freeze(
 );
 
 export const DEFAULT_SHIP_SKIN_ID: ShipSkinId = SHIP_SKIN_IDS[0];
+const playerShipSkinOverrides = new Map<string, ShipSkinId>();
+
+export function isShipSkinId(value: unknown): value is ShipSkinId {
+  if (typeof value !== "string") return false;
+  return SHIP_SKIN_IDS.includes(value as ShipSkinId);
+}
 
 export function getShipSkin(id: ShipSkinId): ShipSkinDefinition {
   const skin = SHIP_SKINS[id];
@@ -70,7 +76,27 @@ function hashPlayerId(playerId: string): number {
   return hash >>> 0;
 }
 
+export function setShipSkinOverrideForPlayer(
+  playerId: string,
+  skinId: ShipSkinId | null,
+): void {
+  if (!playerId) return;
+  if (skinId === null) {
+    playerShipSkinOverrides.delete(playerId);
+    return;
+  }
+  playerShipSkinOverrides.set(playerId, skinId);
+}
+
+export function getShipSkinOverrideForPlayer(playerId: string): ShipSkinId | null {
+  return playerShipSkinOverrides.get(playerId) ?? null;
+}
+
 export function resolveShipSkinIdForPlayer(playerId: string): ShipSkinId {
+  const override = playerShipSkinOverrides.get(playerId);
+  if (override) {
+    return override;
+  }
   const ids = SHIP_SKIN_IDS;
   if (ids.length <= 0) {
     throw new Error("[ShipSkins] No ship skins configured");

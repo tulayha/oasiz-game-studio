@@ -22,6 +22,7 @@ This is the source of truth for deterministic simulation behavior so multiplayer
 ## Working with shared code
 
 - Keep updates deterministic and platform-agnostic (avoid browser-only or Node-only APIs here).
+- Keep shared player metadata contract aligned across sim/server/client; `PlayerListMeta` includes `shipSkinId` and is the authoritative cross-client skin field.
 - If you update entity SVG inputs in `shared/assets/entities`, regenerate geometry payloads:
   - `cd astro-party && bun run generate:entities`
 - If you change simulation behavior, validate both runtimes:

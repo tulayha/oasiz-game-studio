@@ -31,6 +31,67 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-06 - Platform game-state utility + feature wrapper split
+
+- Scope:
+  - Applied option 2 refactor: moved platform persistence access into a generic utility and split feature wrappers for demo-seen and preferred ship skin.
+- Key changes:
+  - Added generic platform state utility:
+    - `astro-party/src/platform/platformGameState.ts`
+  - Added feature wrappers:
+    - `astro-party/src/preferences/demoSeen.ts`
+    - `astro-party/src/preferences/preferredShipSkin.ts`
+  - Rewired call sites:
+    - `astro-party/src/main.ts` now uses demo wrapper (`isDemoSeen`, `markDemoSeen`)
+    - `astro-party/src/ui/lobby.ts` now uses preferred-skin wrapper imports
+    - `astro-party/src/network/transports/ColyseusTransport.ts` and `LocalSharedSimTransport.ts` now use preferred-skin wrapper imports
+  - Removed old single-purpose helper:
+    - `astro-party/src/playerProfile.ts`
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Persistence access is now centrally abstracted and feature wrappers are explicit by domain, avoiding an over-broad profile module name.
+
+## 2026-03-06 - Ship skin sync: local-first self + debounced server updates
+
+- Scope:
+  - Implemented self-authoritative local skin switching with debounced server sync and full player-meta propagation so other players see updates.
+- Key changes:
+  - `astro-party/src/playerProfile.ts`:
+    - added platform game-state helpers for preferred ship skin (`preferred_ship_skin_id`) with first-time default generation and in-memory cache.
+  - `astro-party/src/ui/lobby.ts`:
+    - removed `localStorage` skin persistence path.
+    - wired preferred skin load/save through platform profile helper.
+    - added dedicated debounced skin sync send (`setMyShipSkin`) on top of existing tap guard debounce.
+    - kept local-first immediate self preview updates.
+  - `astro-party/src/Game.ts`:
+    - added `setMyShipSkin`.
+    - applied authoritative `shipSkinId` overrides only for non-self players in `syncPlayersFromMeta`.
+  - `astro-party/src/network/*`:
+    - added `setShipSkin` transport contract + manager forwarding.
+    - included `shipSkinId` in transport player meta.
+    - `ColyseusTransport` create/join now sends `playerShipSkinId` with `playerName`.
+    - `LocalSharedSimTransport` seeds local simulation with preferred skin and supports `setShipSkin`.
+  - `astro-party/shared/sim/*`:
+    - added `shipSkinId` to runtime player + player-list payload meta.
+    - added simulation APIs for initial skin assignment and `setShipSkin`.
+  - `astro-party/server/src/*`:
+    - matchmaking endpoints now accept/pass `playerShipSkinId`.
+    - room handles `cmd:set_skin`.
+    - room schema/state mirrors `shipSkinId` and syncs it from simulation payloads.
+  - `astro-party/shared/geometry/ShipSkins.ts`:
+    - added `isShipSkinId` guard export used across profile/sim/game parsing.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+- Outcome:
+  - Self skin switching is local-first and immediate.
+  - Server updates are debounced from client side.
+  - Other clients receive authoritative skin updates via normal player-meta sync.
+
 ## 2026-03-06 - Lobby cleanup completion check
 
 - Scope:
@@ -95,6 +156,31 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 - Validation:
   - `bun run typecheck` passed.
   - `bun run build` passed.
+
+## 2026-03-06 - Ship-skin docs alignment (architecture + readme contracts)
+
+- Scope:
+  - Closed doc-governance gaps after ship-skin sync and platform-state wrapper refactor by updating architecture and affected readmes.
+- Key changes:
+  - `astro-party/ARCHITECTURE.md`:
+    - documented `shipSkinId` in player metadata contract.
+    - documented platform state ownership split:
+      - `src/platform/platformGameState.ts`
+      - `src/preferences/*`
+    - documented server contract additions (`playerShipSkinId`, `cmd:set_skin`).
+  - `astro-party/server/README.md`:
+    - updated `/match/create` and `/match/join` request bodies to include optional `playerShipSkinId`.
+    - added `cmd:set_skin` room message contract section.
+  - `astro-party/shared/README.md`:
+    - recorded `PlayerListMeta.shipSkinId` as authoritative shared player skin field.
+  - `astro-party/.agents/learning.md`:
+    - added learning entry for "docs impact matrix vs progress-only updates".
+- Validation:
+  - Docs-only update; no runtime commands rerun.
+- Outcome:
+  - Documentation now matches shipped runtime contracts for player ship skin sync and platform-persisted preference ownership.
+- Architecture outcome:
+  - changed.
 
 ## Milestone Journal
 

@@ -3,6 +3,7 @@ import {
   getPlayerName as getPlatformPlayerName,
   shareRoomCode as sharePlatformRoomCode,
 } from "../../platform/oasizBridge";
+import { getOrCreatePreferredShipSkinId } from "../../preferences/preferredShipSkin";
 import {
   AdvancedSettingsSync,
   AsteroidColliderSync,
@@ -57,6 +58,7 @@ interface RoomStatePlayerMeta {
   customName?: string;
   profileName?: string;
   botType?: "ai" | "local" | "";
+  shipSkinId?: string;
   colorIndex?: number;
   keySlot?: number;
   kills?: number;
@@ -109,6 +111,7 @@ class ColyseusPlayerState implements NetworkPlayerState {
   getState(key: string): unknown {
     if (key === "customName") return this.meta.customName;
     if (key === "colorIndex") return this.meta.colorIndex;
+    if (key === "shipSkinId") return this.meta.shipSkinId;
     if (key === "botType") return this.meta.botType;
     if (key === "keySlot") return this.meta.keySlot;
     if (key === "kills") return this.meta.kills ?? 0;
@@ -177,12 +180,13 @@ export class ColyseusTransport implements NetworkTransport {
   async createRoom(): Promise<string> {
     await this.cleanupConnection();
     const playerName = this.readInjectedPlayerName();
+    const playerShipSkinId = this.getPreferredShipSkinId();
     const response = await this.fetchJson<MatchCreateResponse>(
       this.httpUrl + "/match/create",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerName }),
+        body: JSON.stringify({ playerName, playerShipSkinId }),
       },
     );
     await this.connectSeat(response.seatReservation, response.roomCode);
@@ -193,13 +197,14 @@ export class ColyseusTransport implements NetworkTransport {
   async joinRoom(roomCode: string): Promise<boolean> {
     await this.cleanupConnection();
     const playerName = this.readInjectedPlayerName();
+    const playerShipSkinId = this.getPreferredShipSkinId();
     try {
       const response = await this.fetchJson<MatchJoinResponse>(
         this.httpUrl + "/match/join",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roomCode, playerName }),
+          body: JSON.stringify({ roomCode, playerName, playerShipSkinId }),
         },
       );
       if (this.isMatchJoinErrorResponse(response)) {
@@ -426,6 +431,11 @@ export class ColyseusTransport implements NetworkTransport {
   setCustomName(name: string): void {
     if (!this.room) return;
     this.room.send("cmd:set_name", { name });
+  }
+
+  setShipSkin(skinId: string): void {
+    if (!this.room) return;
+    this.room.send("cmd:set_skin", { skinId });
   }
 
   async addAIBot(): Promise<unknown | null> {
@@ -1039,6 +1049,7 @@ export class ColyseusTransport implements NetworkTransport {
         value?.botType === "ai" || value?.botType === "local"
           ? value.botType
           : undefined,
+      shipSkinId: this.normalizeStateString(value?.shipSkinId) ?? undefined,
       colorIndex: Number.isFinite(value?.colorIndex)
         ? (value.colorIndex as number)
         : 0,
@@ -1159,6 +1170,7 @@ export class ColyseusTransport implements NetworkTransport {
           meta.customName ?? "",
           meta.profileName ?? "",
           meta.botType ?? "",
+          meta.shipSkinId ?? "",
           (meta.colorIndex ?? 0).toString(),
           (meta.keySlot ?? -1).toString(),
           (meta.kills ?? 0).toString(),
@@ -1360,6 +1372,10 @@ export class ColyseusTransport implements NetworkTransport {
 
   private readInjectedPlayerName(): string | null {
     return getPlatformPlayerName();
+  }
+
+  private getPreferredShipSkinId(): string {
+    return getOrCreatePreferredShipSkinId();
   }
 
   private applyRulesetAndContextFromState(state: RoomStateView): void {
