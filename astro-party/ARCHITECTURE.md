@@ -4,7 +4,7 @@ Current architecture and ownership map for `astro-party`.
 
 Companion source-of-truth docs:
 - `AGENTS.md`: implementation policy and guardrails
-- `GAME_MODES.md`: canonical mode terminology and ruleset/context contracts
+- `.tools/docs/GAME_MODES.md`: canonical mode terminology and ruleset/context contracts
 - `progress.md`: active planning threads and milestone history
 
 ## Update Contract
@@ -27,7 +27,7 @@ Companion source-of-truth docs:
   - `Ruleset`: core match progression rules.
   - `Experience Context`: onboarding/attract/live interaction behavior.
   - `Screen Flow`: UI presentation state.
-- Canonical naming and behavior contracts for these axes are defined in `GAME_MODES.md`.
+- Canonical naming and behavior contracts for these axes are defined in `.tools/docs/GAME_MODES.md`.
 - Architecture and implementation must not collapse these axes into one overloaded "demo mode" concept.
 
 ## Client Topology
@@ -99,7 +99,7 @@ Audio:
 Phase and screen orchestration:
 - `GameFlowManager` owns runtime phase progression for the active ruleset.
 - `main.ts` owns mapping phase -> UI screens and demo interception logic.
-- `GAME_MODES.md` owns canonical definitions for allowed ruleset/context combinations and expected phase progression.
+- `.tools/docs/GAME_MODES.md` owns canonical definitions for allowed ruleset/context combinations and expected phase progression.
 
 Onboarding/attract context:
 - `DemoController` owns onboarding/attract context transitions.

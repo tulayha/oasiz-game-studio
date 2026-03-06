@@ -3,8 +3,8 @@
 Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanning.
 
 - Full milestone history before this condense pass is archived at:
-  - `astro-party/progress.archive.2026-02-28.md`
-  - `astro-party/progress.archive.2026-03-04.md`
+  - `astro-party/.tools/docs/archive/progress.archive.2026-02-28.md`
+  - `astro-party/.tools/docs/archive/progress.archive.2026-03-04.md`
 - This file keeps active-thread visibility plus milestone-level outcomes and validation signals.
 
 ## Progress Usage Contract (Effective 2026-03-04)

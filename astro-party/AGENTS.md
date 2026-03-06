@@ -9,7 +9,7 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
 - Keep docs separated by purpose:
   - `AGENTS.md`: execution policy and durable guardrails.
   - `ARCHITECTURE.md`: current system ownership and architecture map.
-  - `GAME_MODES.md`: canonical mode terminology and ruleset/context contracts.
+  - `.tools/docs/GAME_MODES.md`: canonical mode terminology and ruleset/context contracts.
   - `.agents/learning.md`: agent-specific implementation learnings and anti-repeat patterns.
   - `progress.md`: living task reference + milestone journal.
 
@@ -119,7 +119,7 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
 - Before diving into implementation files, load high-signal context in this order:
   - `AGENTS.md` (policy and guardrails)
   - `ARCHITECTURE.md` (ownership and system boundaries)
-  - `GAME_MODES.md` (ruleset/context source of truth for mode behavior)
+  - `.tools/docs/GAME_MODES.md` (ruleset/context source of truth for mode behavior)
 - Then load task-specific docs only (not all docs by default):
   - audio task: `assets/audio-src/README.md`
   - shared sim/assets task: `shared/README.md`, `shared/assets/entities/README.md`, `shared/assets/ships/README.md`
@@ -132,7 +132,7 @@ This file is game-specific guidance for `astro-party/` and is additive to the re
 
 Read before touching related area:
 - `README.md`: overall dev/build/runtime flow.
-- `GAME_MODES.md`: canonical mode contracts and phase flow by ruleset.
+- `.tools/docs/GAME_MODES.md`: canonical mode contracts and phase flow by ruleset.
 - `assets/audio-src/README.md`: audio conversion workflow and source rename mapping.
 - `shared/README.md`: deterministic/shared constraints.
 - `shared/assets/entities/README.md`: entity SVG contract and generation flow.
@@ -157,7 +157,7 @@ Update when behavior/process changes:
   - match start: `START -> LOBBY -> MATCH_INTRO -> COUNTDOWN -> PLAYING`
   - round loop: `ROUND_END -> COUNTDOWN -> PLAYING`
   - match end: `... -> GAME_END`
-- Ruleset/context naming and behavior must follow `GAME_MODES.md`.
+- Ruleset/context naming and behavior must follow `.tools/docs/GAME_MODES.md`.
 - Do not conflate onboarding tutorial and background attract behavior under one generic "demo" mode.
 - Keep ruleset semantics and experience-context behavior separated.
 - Onboarding/attract contexts must not cause transient screen jumps through unrelated states.

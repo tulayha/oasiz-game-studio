@@ -207,7 +207,7 @@ Durable implementation learnings to avoid repeating known mistakes.
   - `src/systems/rendering/GameRenderer.ts`
   - `src/systems/rendering/Renderer.ts`
   - `src/systems/rendering/layers/EntityVisualsRenderer.ts`
-  - `lag-findings-deep-pass.md`
+  - `.tools/docs/lag-findings-deep-pass.md`
 
 ## 2026-03-02 - Mode/flow refactors require immediate dead-path sweeps
 
@@ -226,7 +226,7 @@ Durable implementation learnings to avoid repeating known mistakes.
   - `src/demo/DemoController.ts`
   - `src/ui/screens.ts`
   - `shared/game/mapConfigs.ts`
-  - `GAME_MODES.md`
+  - `.tools/docs/GAME_MODES.md`
 
 ## 2026-03-02 - Intermittent lag triage must lock capture conditions first
 
@@ -241,7 +241,7 @@ Durable implementation learnings to avoid repeating known mistakes.
 - Guardrail:
   - For random/intermittent lag reports, do not jump to mitigation first; lock reproducibility and capture conditions before ranking root-cause candidates.
 - Related files:
-  - `lag-findings-deep-pass.md`
+  - `.tools/docs/lag-findings-deep-pass.md`
   - `progress.md`
 
 ## 2026-03-04 - Collision hot-path changes need deterministic harness coverage first
