@@ -820,6 +820,22 @@ class AudioManagerClass {
     this.playAsset("sfxUiClick", false);
   }
 
+  async playUIClickPositive(): Promise<void> {
+    this.playAsset("sfxUiClickPositive", false);
+  }
+
+  async playUIClickNegative(): Promise<void> {
+    this.playAsset("sfxUiClickNegative", false);
+  }
+
+  async playLobbyEnterTransitionCue(): Promise<void> {
+    await this.playCue("PAGE_INTRO_IN");
+  }
+
+  async playLobbyExitTransitionCue(): Promise<void> {
+    await this.playCue("PAGE_INTRO_OUT");
+  }
+
   async playPilotEject(): Promise<void> {
     this.playAsset("sfxPilotEject", false);
   }

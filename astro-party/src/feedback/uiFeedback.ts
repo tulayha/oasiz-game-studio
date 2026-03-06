@@ -13,22 +13,24 @@ export type UIFeedbackScope =
 export type UIFeedbackPreset =
   | "button"
   | "subtle"
+  | "negative"
   | "confirm"
   | "error"
   | "forceLight";
 
 interface UIFeedbackConfig {
   haptic?: HapticType;
-  sound?: "uiClick";
+  sound?: "uiClickPositive" | "uiClickNegative";
   forceLightHaptic?: boolean;
 }
 
 const UI_FEEDBACK_PRESETS: Record<UIFeedbackPreset, UIFeedbackConfig> = {
-  button: { haptic: "light", sound: "uiClick" },
-  subtle: { haptic: "light" },
-  confirm: { haptic: "medium" },
-  error: { haptic: "error" },
-  forceLight: { forceLightHaptic: true },
+  button: { haptic: "light", sound: "uiClickPositive" },
+  subtle: { haptic: "light", sound: "uiClickNegative" },
+  negative: { haptic: "light", sound: "uiClickNegative" },
+  confirm: { haptic: "medium", sound: "uiClickPositive" },
+  error: { haptic: "error", sound: "uiClickNegative" },
+  forceLight: { forceLightHaptic: true, sound: "uiClickPositive" },
 };
 
 const UI_FEEDBACK_OVERRIDES: Partial<
@@ -58,14 +60,17 @@ export function playUIFeedback(
     triggerHaptic(config.haptic);
   }
 
-  if (config.sound === "uiClick") {
-    void AudioManager.playUIClick();
+  if (config.sound === "uiClickPositive") {
+    void AudioManager.playUIClickPositive();
+  } else if (config.sound === "uiClickNegative") {
+    void AudioManager.playUIClickNegative();
   }
 }
 
 export interface ScopedUIFeedback {
   button: () => void;
   subtle: () => void;
+  negative: () => void;
   confirm: () => void;
   error: () => void;
   forceLight: () => void;
@@ -75,6 +80,7 @@ export function createUIFeedback(scope: UIFeedbackScope): ScopedUIFeedback {
   return {
     button: () => playUIFeedback(scope, "button"),
     subtle: () => playUIFeedback(scope, "subtle"),
+    negative: () => playUIFeedback(scope, "negative"),
     confirm: () => playUIFeedback(scope, "confirm"),
     error: () => playUIFeedback(scope, "error"),
     forceLight: () => playUIFeedback(scope, "forceLight"),

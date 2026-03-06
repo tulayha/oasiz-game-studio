@@ -19,7 +19,7 @@ export function createSettingsUI(openLeaveModal: () => void): SettingsUI {
   }
 
   function openSettingsModal(): void {
-    feedback.subtle();
+    feedback.button();
     elements.settingsModal.classList.add("active");
     elements.settingsBackdrop.classList.add("active");
   }
@@ -54,13 +54,13 @@ export function createSettingsUI(openLeaveModal: () => void): SettingsUI {
   elements.toggleMusic.addEventListener("click", () => {
     SettingsManager.toggle("music");
     updateSettingsUI();
-    feedback.subtle();
+    feedback.button();
   });
 
   elements.toggleFx.addEventListener("click", () => {
     SettingsManager.toggle("fx");
     updateSettingsUI();
-    feedback.subtle();
+    feedback.button();
   });
 
   elements.toggleHaptics.addEventListener("click", () => {
@@ -72,7 +72,7 @@ export function createSettingsUI(openLeaveModal: () => void): SettingsUI {
   elements.toggleHints.addEventListener("click", () => {
     SettingsManager.toggle("controlHints");
     updateSettingsUI();
-    feedback.subtle();
+    feedback.button();
   });
 
   return {

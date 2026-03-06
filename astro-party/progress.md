@@ -31,6 +31,56 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-07 - UI click polarity + start/lobby transition cues
+
+- Scope:
+  - Added positive/negative UI button click sound mapping and wired dedicated start/lobby transition cues.
+- Key changes:
+  - `astro-party/assets/audio-src/`:
+    - Added trimmed source variants:
+      - `sfx-ui-click-positive.wav` (from `futuristic-ui-positive-selection-davies-aguirre-2-2-00-00.mp3`)
+      - `sfx-ui-click-negative.wav` (from `futuristic-ui-negative-selection-davies-aguirre-1-00-00.mp3`)
+      - `sfx-page-intro-in.wav` (from `page_intro.wav`)
+      - `sfx-page-intro-out.wav` (from `page_intro_reversed.wav`)
+  - `astro-party/src/audio/assetManifest.ts`:
+    - Added new audio assets:
+      - `sfxUiClickPositive` -> `sfx-ui-click-positive.ogg`
+      - `sfxUiClickNegative` -> `sfx-ui-click-negative.ogg`
+      - `sfxPageIntroIn` -> `sfx-page-intro-in.ogg`
+      - `sfxPageIntroOut` -> `sfx-page-intro-out.ogg`
+    - Added cue IDs:
+      - `PAGE_INTRO_IN`
+      - `PAGE_INTRO_OUT`
+  - `astro-party/src/AudioManager.ts`:
+    - Added:
+      - `playUIClickPositive()`
+      - `playUIClickNegative()`
+      - `playLobbyEnterTransitionCue()`
+      - `playLobbyExitTransitionCue()`
+  - `astro-party/src/feedback/uiFeedback.ts`:
+    - UI feedback sound model now supports polarity:
+      - `button`/`confirm` -> positive click
+      - `subtle`/`negative`/`error` -> negative click
+    - Added `negative` preset/method and mapped `forceLight` to also play positive click.
+  - UI call-site tuning:
+    - `astro-party/src/ui/startScreen.ts`: join-room + start-settings buttons now use positive click.
+    - `astro-party/src/ui/settings.ts`: open settings + music/fx/hints toggles now use positive click.
+    - `astro-party/src/ui/lobby.ts`: room-code copy success now uses positive click.
+    - `astro-party/src/ui/screens.ts`: end-screen Continue/Play Again now use positive click.
+  - `astro-party/src/main.ts`:
+    - Plays `page_intro` cue on `START -> LOBBY`.
+    - Plays reversed cue on `LOBBY -> START`.
+  - `astro-party/assets/audio-src/README.md`:
+    - Updated expected output list and mapping docs for new click-polarity and transition assets.
+- Validation:
+  - `astro-party`: `bun run process:audio -- --only sfx-ui-click-positive.ogg,sfx-ui-click-negative.ogg,sfx-page-intro-in.ogg,sfx-page-intro-out.ogg` passed.
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - UI button audio now distinguishes positive vs negative actions, and start/lobby transitions have dedicated in/out cues.
+- Architecture outcome:
+  - no change required.
+
 ## 2026-03-07 - Start screen button labels, styles, SVG crop, spacing, pointer-events fix
 
 - Scope:

@@ -212,7 +212,7 @@ export function createStartScreenUI(
   });
 
   elements.joinRoomBtn.addEventListener("click", () => {
-    feedback.subtle();
+    feedback.button();
     // Don't call beforeAction here — just showing the join form doesn't commit
     // to any action; the demo should keep running until the user actually submits.
     showJoinSection();
@@ -263,7 +263,7 @@ export function createStartScreenUI(
   elements.startSettingsBtn.addEventListener("click", (event) => {
     if (startActionInFlight || secondaryActionInFlight) return;
     if (isSecondaryTapGuardBlocked(event)) return;
-    feedback.subtle();
+    feedback.button();
     onOpenSettings?.();
   });
 

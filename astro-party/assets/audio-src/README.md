@@ -47,6 +47,10 @@ Expected output filenames in `public/assets/audio`:
 - sfx-respawn.ogg
 - sfx-powerup.ogg
 - sfx-ui-click.ogg
+- sfx-ui-click-positive.ogg
+- sfx-ui-click-negative.ogg
+- sfx-page-intro-in.ogg
+- sfx-page-intro-out.ogg
 - sfx-pilot-eject.ogg
 - sfx-pilot-death.ogg
 
@@ -72,6 +76,14 @@ UI click variants:
 - `sfx-ui-click-fast-1p6x-tight.wav` -> `sfx-ui-click.wav` (previous active)
 - `sfx-ui-click-previous.wav` (previous active source)
 - Additional alternates: `sfx-ui-click-fast-1p2x.wav`, `sfx-ui-click-fast-1p3x.wav`, `sfx-ui-click-fast-1p4x-tight.wav`, `sfx-ui-click-fast-1p5x.wav`, `sfx-ui-click-fast-1p8x-tight.wav`, `sfx-ui-click-fast-2p0x-tight.wav`
+
+UI click polarity variants (2026-03-07):
+- `futuristic-ui-positive-selection-davies-aguirre-2-2-00-00.mp3` -> `sfx-ui-click-positive.wav` -> `sfx-ui-click-positive.ogg` (active for positive UI button clicks)
+- `futuristic-ui-negative-selection-davies-aguirre-1-00-00.mp3` -> `sfx-ui-click-negative.wav` -> `sfx-ui-click-negative.ogg` (active for negative UI button clicks)
+
+Start/lobby transition cues (2026-03-07):
+- `page_intro.wav` -> `sfx-page-intro-in.wav` -> `sfx-page-intro-in.ogg` (START -> LOBBY transition)
+- `page_intro_reversed.wav` -> `sfx-page-intro-out.wav` -> `sfx-page-intro-out.ogg` (LOBBY -> START transition)
 
 Countdown variants:
 - `sfx-countdown.wav` (active, tail-noise-trimmed)

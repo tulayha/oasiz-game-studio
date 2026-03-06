@@ -18,6 +18,10 @@ export type AudioAssetId =
   | "sfxRespawn"
   | "sfxPowerup"
   | "sfxUiClick"
+  | "sfxUiClickPositive"
+  | "sfxUiClickNegative"
+  | "sfxPageIntroIn"
+  | "sfxPageIntroOut"
   | "sfxPilotEject"
   | "sfxPilotDeath";
 
@@ -185,6 +189,42 @@ export const AUDIO_ASSETS: Record<AudioAssetId, AudioAssetDefinition> = {
     volume: 0.65,
     preload: "metadata",
   },
+  sfxUiClickPositive: {
+    id: "sfxUiClickPositive",
+    channel: "ui",
+    relativePath: "sfx-ui-click-positive.ogg",
+    url: "./assets/audio/sfx-ui-click-positive.ogg",
+    loop: false,
+    volume: 0.68,
+    preload: "metadata",
+  },
+  sfxUiClickNegative: {
+    id: "sfxUiClickNegative",
+    channel: "ui",
+    relativePath: "sfx-ui-click-negative.ogg",
+    url: "./assets/audio/sfx-ui-click-negative.ogg",
+    loop: false,
+    volume: 0.68,
+    preload: "metadata",
+  },
+  sfxPageIntroIn: {
+    id: "sfxPageIntroIn",
+    channel: "ui",
+    relativePath: "sfx-page-intro-in.ogg",
+    url: "./assets/audio/sfx-page-intro-in.ogg",
+    loop: false,
+    volume: 0.72,
+    preload: "metadata",
+  },
+  sfxPageIntroOut: {
+    id: "sfxPageIntroOut",
+    channel: "ui",
+    relativePath: "sfx-page-intro-out.ogg",
+    url: "./assets/audio/sfx-page-intro-out.ogg",
+    loop: false,
+    volume: 0.72,
+    preload: "metadata",
+  },
   sfxPilotEject: {
     id: "sfxPilotEject",
     channel: "fx",
@@ -220,11 +260,17 @@ export const AUDIO_SCENE_MUSIC: Record<AudioSceneId, AudioAssetId | null> = {
   RESULTS: "resultsSting",
 };
 
-export type AudioCueId = "SPLASH_STING" | "LOGO_STING";
+export type AudioCueId =
+  | "SPLASH_STING"
+  | "LOGO_STING"
+  | "PAGE_INTRO_IN"
+  | "PAGE_INTRO_OUT";
 
 export const AUDIO_CUE_ASSETS: Record<AudioCueId, AudioAssetId> = {
   SPLASH_STING: "splashScreenSting",
   LOGO_STING: "logoRevealSting",
+  PAGE_INTRO_IN: "sfxPageIntroIn",
+  PAGE_INTRO_OUT: "sfxPageIntroOut",
 };
 
 export function resolveAudioAssetUrl(assetId: AudioAssetId): string {

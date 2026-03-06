@@ -877,6 +877,9 @@ async function init(): Promise<void> {
         if (suppressNextStartPhaseEffects) {
           break;
         }
+        if (previousPhase === "LOBBY") {
+          void AudioManager.playLobbyExitTransitionCue();
+        }
         screenController.showScreen("start");
         startUI.resetStartButtons(previousPhase !== "START");
         // Restart the background AI battle when returning from a real match.
@@ -886,6 +889,9 @@ async function init(): Promise<void> {
         }
         break;
       case "LOBBY":
+        if (previousPhase === "START") {
+          void AudioManager.playLobbyEnterTransitionCue();
+        }
         screenController.showScreen("lobby");
         lobbyUI.updateRoomCode(game.getRoomCode());
         lobbyUI.updateMapSelector();

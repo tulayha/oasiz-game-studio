@@ -611,7 +611,7 @@ export function bindEndScreenUI(game: Game): void {
 
   elements.continueBtn.addEventListener("click", async (event) => {
     if (!shouldHandleTap(event.currentTarget)) return;
-    feedback.subtle();
+    feedback.button();
     if (game.isLeader()) {
       elements.continueBtn.disabled = true;
       elements.playAgainBtn.disabled = true;
@@ -625,7 +625,7 @@ export function bindEndScreenUI(game: Game): void {
 
   elements.playAgainBtn.addEventListener("click", async (event) => {
     if (!shouldHandleTap(event.currentTarget)) return;
-    feedback.subtle();
+    feedback.button();
     if (game.isLeader()) {
       elements.continueBtn.disabled = true;
       elements.playAgainBtn.disabled = true;
