@@ -3342,15 +3342,21 @@
       pointer-events: none;
     }
     #lobbyScreen .meta-ident {
-      width: 1.125rem;
-      height: 1.125rem;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
+      gap: 0.3rem;
       color: rgba(160,180,220,0.72);
       opacity: 0.95;
     }
-    #lobbyScreen .meta-ident svg { width: 0.875rem; height: 0.875rem; }
+    #lobbyScreen .meta-ident svg { width: 0.875rem; height: 0.875rem; flex-shrink: 0; }
+    #lobbyScreen .meta-label {
+      font-family: 'Space Mono', monospace;
+      font-size: var(--fs-label);
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      line-height: 1;
+    }
     #lobbyScreen .meta-ident--you { color: rgba(var(--pc-rgb), 0.92); }
     #lobbyScreen .meta-ident--ai { color: #a78bfa; }
     #lobbyScreen .meta-ident--local { color: #fcd34d; }

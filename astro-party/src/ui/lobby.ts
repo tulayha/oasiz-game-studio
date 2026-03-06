@@ -326,7 +326,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
     }
     return `<div class="card-glow"></div>
           <div class="card-meta">
-            <span class="meta-ident ${META_ICON_CLS[type]}" title="${BADGE_LBL[type]}" aria-label="${BADGE_LBL[type]}">${BADGE_ICO[type]}</span>
+            <span class="meta-ident ${META_ICON_CLS[type]}" title="${BADGE_LBL[type]}" aria-label="${BADGE_LBL[type]}">${BADGE_ICO[type]}<span class="meta-label">${BADGE_LBL[type]}</span></span>
             <div class="card-meta-right">
               ${isLeaderPlayer ? `<span class="meta-host" title="Host" aria-label="Host">${CROWN_SVG}</span>` : ""}
               <span class="card-slot">${SLOTS[slotIdx]}</span>
