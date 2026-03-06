@@ -59,7 +59,7 @@ export function createLobbyUI(game: Game, isMobile: boolean): LobbyUI {
   const BADGE_CLS = { you: "", ai: "tb--ai", local: "tb--local", online: "tb--online" };
   const BADGE_LBL = { you: "You", ai: "AI Bot", local: "Local", online: "Online" };
   const PLAYER_ROLE = {
-    you: "Room Leader",
+    you: "You",
     ai: "AI Opponent",
     local: "Local Player",
     online: "Remote Player",

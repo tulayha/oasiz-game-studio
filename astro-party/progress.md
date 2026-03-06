@@ -182,6 +182,37 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 - Architecture outcome:
   - changed.
 
+## 2026-03-06 - Lobby card footer layering fix (host/remove/skin controls)
+
+- Scope:
+  - Fixed visual darkening on player-card footer controls caused by tray gradient layering.
+- Key changes:
+  - `astro-party/index.html`:
+    - raised player card stack order (`#lobbyScreen .pcard` z-index).
+    - explicitly raised footer/control layers (`.card-footer`, `.card-footer-actions`, `.host-pip`, `.card-skin-cycle`, `.card-act`) so host/remove/skin UI stays above ambient gradients.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Bottom card controls now render above gradient overlays instead of appearing dimmed.
+- Architecture outcome:
+  - no change required.
+
+## 2026-03-06 - Lobby self-role label correction
+
+- Scope:
+  - Fixed incorrect self card role text in online lobby on non-host clients.
+- Key changes:
+  - `astro-party/src/ui/lobby.ts`:
+    - changed `PLAYER_ROLE.you` from `"Room Leader"` to `"You"` so self cards no longer mislabel non-host players as leader.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Non-host players now see their own card labeled correctly while host authority remains indicated via the `Host` pip.
+- Architecture outcome:
+  - no change required.
+
 ## Milestone Journal
 
 ## 2026-03-04 - Server Docker hardening + pinned Node/npm deployment baseline
