@@ -2,10 +2,10 @@
 export const MAP_SIZE = 120;
 export const MAP_HALF = MAP_SIZE / 2;
 export const MAP_RADIUS = MAP_HALF; // circular arena radius
-export const PLAYER_SPEED = 10; // units per second
-export const TRAIL_SAMPLE_DIST = 0.25;
+export const PLAYER_SPEED = 8; // units per second
+export const TRAIL_SAMPLE_DIST = 0.12;
 export const START_RADIUS = 3;
-export const START_TERRITORY_SEGMENTS = 32;
+export const START_TERRITORY_SEGMENTS = 64;
 
 // ─── Directions ───
 export enum Direction {
@@ -34,6 +34,9 @@ export enum BotBehavior {
   EXPAND = "EXPAND",
   RETURN_HOME = "RETURN_HOME",
   FLEE = "FLEE",
+  ATTACK_TRAIL = "ATTACK_TRAIL",
+  DEFEND_BORDER = "DEFEND_BORDER",
+  HUNT_WEAK_PLAYER = "HUNT_WEAK_PLAYER",
 }
 
 export type Difficulty = "easy" | "medium" | "hard";

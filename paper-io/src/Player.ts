@@ -124,6 +124,8 @@ export class InputHandler {
   private mouseActive = false;
   private originX = 0;
   private originY = 0;
+  private disposed = false;
+  private controller = new AbortController();
 
   constructor(player: PlayerState) {
     this.player = player;
@@ -136,38 +138,42 @@ export class InputHandler {
   }
 
   private setupKeyboard(): void {
-    window.addEventListener("keydown", (e) => {
-      switch (e.key) {
-        case "ArrowUp":
-        case "w":
-        case "W":
-          this.targetDir = { x: 0, z: -1 };
-          this.joystickDir = null;
-          this.player.hasInput = true;
-          break;
-        case "ArrowDown":
-        case "s":
-        case "S":
-          this.targetDir = { x: 0, z: 1 };
-          this.joystickDir = null;
-          this.player.hasInput = true;
-          break;
-        case "ArrowLeft":
-        case "a":
-        case "A":
-          this.targetDir = { x: -1, z: 0 };
-          this.joystickDir = null;
-          this.player.hasInput = true;
-          break;
-        case "ArrowRight":
-        case "d":
-        case "D":
-          this.targetDir = { x: 1, z: 0 };
-          this.joystickDir = null;
-          this.player.hasInput = true;
-          break;
-      }
-    });
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        switch (e.key) {
+          case "ArrowUp":
+          case "w":
+          case "W":
+            this.targetDir = { x: 0, z: -1 };
+            this.joystickDir = null;
+            this.player.hasInput = true;
+            break;
+          case "ArrowDown":
+          case "s":
+          case "S":
+            this.targetDir = { x: 0, z: 1 };
+            this.joystickDir = null;
+            this.player.hasInput = true;
+            break;
+          case "ArrowLeft":
+          case "a":
+          case "A":
+            this.targetDir = { x: -1, z: 0 };
+            this.joystickDir = null;
+            this.player.hasInput = true;
+            break;
+          case "ArrowRight":
+          case "d":
+          case "D":
+            this.targetDir = { x: 1, z: 0 };
+            this.joystickDir = null;
+            this.player.hasInput = true;
+            break;
+        }
+      },
+      { signal: this.controller.signal },
+    );
   }
 
   private setupJoystick(): void {
@@ -183,7 +189,7 @@ export class InputHandler {
         this.showJoystickAt(t.clientX, t.clientY);
         this.player.hasInput = true;
       },
-      { passive: false },
+      { passive: false, signal: this.controller.signal },
     );
 
     this.zone.addEventListener(
@@ -194,7 +200,7 @@ export class InputHandler {
         if (!t) return;
         this.updateJoystickFromTouch(t.clientX, t.clientY);
       },
-      { passive: false },
+      { passive: false, signal: this.controller.signal },
     );
 
     const endTouch = (e: TouchEvent) => {
@@ -203,30 +209,46 @@ export class InputHandler {
       this.activeId = null;
       this.hideJoystick();
     };
-    this.zone.addEventListener("touchend", endTouch);
-    this.zone.addEventListener("touchcancel", endTouch);
+    this.zone.addEventListener("touchend", endTouch, {
+      signal: this.controller.signal,
+    });
+    this.zone.addEventListener("touchcancel", endTouch, {
+      signal: this.controller.signal,
+    });
   }
 
   private setupMouse(): void {
-    this.zone.addEventListener("mousedown", (e) => {
-      if (this.activeId !== null) return;
-      this.mouseActive = true;
-      this.originX = e.clientX;
-      this.originY = e.clientY;
-      this.showJoystickAt(e.clientX, e.clientY);
-      this.player.hasInput = true;
-    });
+    this.zone.addEventListener(
+      "mousedown",
+      (e) => {
+        if (this.activeId !== null) return;
+        this.mouseActive = true;
+        this.originX = e.clientX;
+        this.originY = e.clientY;
+        this.showJoystickAt(e.clientX, e.clientY);
+        this.player.hasInput = true;
+      },
+      { signal: this.controller.signal },
+    );
 
-    window.addEventListener("mousemove", (e) => {
-      if (!this.mouseActive) return;
-      this.updateJoystickFromTouch(e.clientX, e.clientY);
-    });
+    window.addEventListener(
+      "mousemove",
+      (e) => {
+        if (!this.mouseActive) return;
+        this.updateJoystickFromTouch(e.clientX, e.clientY);
+      },
+      { signal: this.controller.signal },
+    );
 
-    window.addEventListener("mouseup", () => {
-      if (!this.mouseActive) return;
-      this.mouseActive = false;
-      this.hideJoystick();
-    });
+    window.addEventListener(
+      "mouseup",
+      () => {
+        if (!this.mouseActive) return;
+        this.mouseActive = false;
+        this.hideJoystick();
+      },
+      { signal: this.controller.signal },
+    );
   }
 
   private findTouch(list: TouchList): Touch | null {
@@ -302,5 +324,16 @@ export class InputHandler {
 
   updatePlayer(p: PlayerState): void {
     this.player = p;
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.controller.abort();
+    this.activeId = null;
+    this.mouseActive = false;
+    this.joystickDir = null;
+    this.targetDir = null;
+    this.hideJoystick();
   }
 }

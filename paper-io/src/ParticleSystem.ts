@@ -103,6 +103,10 @@ export class ParticleSystem {
     }
   }
 
+  hasActiveParticles(): boolean {
+    return this.activeCount > 0;
+  }
+
   dispose(): void {
     for (let i = 0; i < this.activeCount; i++) {
       const p = this.particles[i];

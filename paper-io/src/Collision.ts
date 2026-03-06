@@ -29,13 +29,16 @@ export function segmentsIntersect(
  * Point-in-polygon test using ray casting algorithm.
  */
 export function pointInPolygon(point: Vec2, polygon: Vec2[]): boolean {
-  const n = polygon.length;
+  const safePolygon = polygon.filter((vertex): vertex is Vec2 =>
+    Boolean(vertex && Number.isFinite(vertex.x) && Number.isFinite(vertex.z)),
+  );
+  const n = safePolygon.length;
   if (n < 3) return false;
 
   let inside = false;
   for (let i = 0, j = n - 1; i < n; j = i++) {
-    const pi = polygon[i];
-    const pj = polygon[j];
+    const pi = safePolygon[i];
+    const pj = safePolygon[j];
 
     if (
       pi.z > point.z !== pj.z > point.z &&
@@ -85,12 +88,19 @@ export function segmentIntersectsPolyline(
  * Find nearest point on a polygon boundary to a given point.
  */
 export function nearestPointOnPolygon(point: Vec2, polygon: Vec2[]): Vec2 {
-  let bestDist = Infinity;
-  let best: Vec2 = polygon[0];
+  const safePolygon = polygon.filter((vertex): vertex is Vec2 =>
+    Boolean(vertex && Number.isFinite(vertex.x) && Number.isFinite(vertex.z)),
+  );
+  if (safePolygon.length === 0) {
+    return { x: point.x, z: point.z };
+  }
 
-  for (let i = 0; i < polygon.length; i++) {
-    const a = polygon[i];
-    const b = polygon[(i + 1) % polygon.length];
+  let bestDist = Infinity;
+  let best: Vec2 = safePolygon[0];
+
+  for (let i = 0; i < safePolygon.length; i++) {
+    const a = safePolygon[i];
+    const b = safePolygon[(i + 1) % safePolygon.length];
 
     // Project point onto segment
     const abx = b.x - a.x;

@@ -27,6 +27,7 @@ export class Menu {
   private previewCamera: THREE.PerspectiveCamera | null = null;
   private previewCache: Map<string, string> = new Map();
   private previewRendererUnavailable = false;
+  private lastTapAt = 0;
 
   constructor(skinSystem: SkinSystem) {
     this.skinSystem = skinSystem;
@@ -41,22 +42,43 @@ export class Menu {
   private setupMenu(): void {
     this.buildShop();
 
-    document.getElementById("play-btn")!.addEventListener("click", () => {
-      this.onPlay?.(this.config);
-    });
+    document.getElementById("play-btn")!.addEventListener(
+      "click",
+      this.guardMenuTap("play", () => this.onPlay?.(this.config)),
+    );
 
     document.getElementById("how-to-toggle")!.addEventListener("click", () => {
       document.getElementById("how-to-content")!.classList.toggle("show");
     });
 
-    document.getElementById("go-play-again")!.addEventListener("click", () => {
-      this.hideGameOver();
-      this.onPlayAgain?.();
-    });
-    document.getElementById("go-main-menu")!.addEventListener("click", () => {
-      this.hideGameOver();
-      this.onMainMenu?.();
-    });
+    document.getElementById("go-play-again")!.addEventListener(
+      "click",
+      this.guardMenuTap("play-again", () => {
+        this.hideGameOver();
+        this.onPlayAgain?.();
+      }),
+    );
+    document.getElementById("go-main-menu")!.addEventListener(
+      "click",
+      this.guardMenuTap("main-menu", () => {
+        this.hideGameOver();
+        this.onMainMenu?.();
+      }),
+    );
+  }
+
+  private guardMenuTap(
+    action: string,
+    cb: () => void,
+  ): (event: MouseEvent) => void {
+    return (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const now = Date.now();
+      if (now - this.lastTapAt < 300) return;
+      this.lastTapAt = now;
+      cb();
+    };
   }
 
   private buildShop(): void {

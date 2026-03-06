@@ -7,14 +7,57 @@ import {
   TRAIL_OPACITY,
   type Vec2,
 } from "./constants.ts";
+import { debugLog } from "./debug-log.ts";
 import { type TerritoryGrid } from "./Territory.ts";
+import { type TerritoryMultiPolygon } from "./polygon-ops.ts";
 
 const TERRITORY_Y = 0.03;
 const TERRITORY_HEIGHT = 0.24;
-const TRAIL_Y = 0.22;
-const CELL_SIZE = 0.18;
+const TRAIL_Y = 0.022;
+const CELL_SIZE = 0.1;
 const BORDER_WIDTH = 1.0;
 const PATTERN_TILE = 5.0;
+const TAKEOVER_DURATION = 0.7;
+const TAKEOVER_WAVE_WIDTH = 1.8;
+const EXTRUDE_CURVE_SEGMENTS = 8;
+const TERRITORY_DEPTH_LAYERS = 3;
+const TERRITORY_DEPTH_OFFSET_X = -0.07;
+const TERRITORY_DEPTH_OFFSET_Z = 0.14;
+const TERRITORY_DEPTH_DROP = 0.02;
+const LOOP_POINT_SCALE = 1000;
+const LOOP_MIN_AREA = CELL_SIZE * CELL_SIZE * 6;
+const LOOP_MIN_DIST = CELL_SIZE * 0.16;
+
+interface TerritoryTakeoverEffect {
+  victimId: number;
+  mesh: THREE.Mesh;
+  material: THREE.Material;
+  startMs: number;
+  durationMs: number;
+  maxRadius: number;
+  uniforms: {
+    rippleOrigin: { value: THREE.Vector2 };
+    rippleRadius: { value: number };
+    rippleWidth: { value: number };
+    rippleColor: { value: THREE.Color };
+  };
+}
+
+interface ContourSegment {
+  a: Vec2;
+  b: Vec2;
+}
+
+interface ShapeBuildResult {
+  shapes: THREE.Shape[];
+  outerLoops: Vec2[][];
+}
+
+interface TerritoryMaterialSet {
+  top: THREE.MeshPhongMaterial;
+  depth: THREE.MeshPhongMaterial;
+  band: THREE.MeshPhongMaterial;
+}
 
 export class Renderer {
   scene: THREE.Scene;
@@ -22,17 +65,23 @@ export class Renderer {
   renderer: THREE.WebGLRenderer;
 
   private territoryObjects: Map<number, THREE.Mesh> = new Map();
+  private territoryDepthLayers: Map<number, THREE.Mesh[]> = new Map();
+  private territorySideBands: Map<number, THREE.Mesh> = new Map();
   private territoryShadows: Map<number, THREE.Mesh> = new Map();
-  private territoryMaterials: Map<number, THREE.MeshLambertMaterial> =
-    new Map();
+  private territoryContactShadows: Map<number, THREE.Mesh> = new Map();
+  private territoryMaterials: Map<number, TerritoryMaterialSet> = new Map();
   private territorySkinIds: Map<number, string> = new Map();
   private patternTextures: Map<string, THREE.Texture | null> = new Map();
   private shadowMaterial: THREE.MeshBasicMaterial | null = null;
+  private contactShadowMaterial: THREE.MeshBasicMaterial | null = null;
   private trailMeshes: Map<number, THREE.Mesh> = new Map();
   private trailMaterials: Map<number, THREE.MeshLambertMaterial> = new Map();
   private trailLengths: Map<number, number> = new Map();
+  private trailCapLogged: Set<number> = new Set();
+  private trailEarlyReturnLogged: Set<number> = new Set();
   private avatars: Map<number, THREE.Group> = new Map();
   private avatarLastPositions: Map<number, Vec2> = new Map();
+  private territoryTakeovers: TerritoryTakeoverEffect[] = [];
 
   private cameraTarget: Vec2 = { x: 0, z: 0 };
   private territoryRenderOrder = 0;
@@ -56,6 +105,7 @@ export class Renderer {
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
     this.createBoard();
     this.createLighting();
 
@@ -381,377 +431,159 @@ export class Renderer {
     avatar.add(crownGroup);
   }
 
-  updateTerritory(
-    id: number,
-    grid: TerritoryGrid,
-    color: number,
-    skinId = "",
-  ): void {
-    const old = this.territoryObjects.get(id);
-    if (old) {
-      this.scene.remove(old);
-      old.geometry.dispose();
+  private makePointKey(point: Vec2): string {
+    return `${Math.round(point.x * LOOP_POINT_SCALE)}:${Math.round(point.z * LOOP_POINT_SCALE)}`;
+  }
+
+  private makeEdgeKey(a: string, b: string): string {
+    return a < b ? `${a}|${b}` : `${b}|${a}`;
+  }
+
+  private loopArea(loop: Vec2[]): number {
+    let area = 0;
+    for (let i = 0; i < loop.length; i++) {
+      const curr = loop[i];
+      const next = loop[(i + 1) % loop.length];
+      area += curr.x * next.z - next.x * curr.z;
     }
-    const oldSh = this.territoryShadows.get(id);
-    if (oldSh) {
-      this.scene.remove(oldSh);
-      oldSh.geometry.dispose();
-      this.territoryShadows.delete(id);
+    return area * 0.5;
+  }
+
+  private pointInLoop(point: Vec2, loop: Vec2[]): boolean {
+    let inside = false;
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+      const pi = loop[i];
+      const pj = loop[j];
+      const intersects =
+        pi.z > point.z !== pj.z > point.z &&
+        point.x <
+          ((pj.x - pi.x) * (point.z - pi.z)) / (pj.z - pi.z + 1e-6) + pi.x;
+      if (intersects) inside = !inside;
     }
+    return inside;
+  }
 
-    const bounds = grid.getBounds(id);
-    if (!bounds) {
-      this.territoryObjects.delete(id);
-      const oldMat = this.territoryMaterials.get(id);
-      if (oldMat) {
-        oldMat.dispose();
-        this.territoryMaterials.delete(id);
-      }
-      this.territorySkinIds.delete(id);
-      return;
-    }
+  private simplifyLoop(loop: Vec2[]): Vec2[] {
+    if (loop.length <= 4) return loop.slice();
+    let pts = loop.slice();
+    let changed = true;
+    const minDistSq = LOOP_MIN_DIST * LOOP_MIN_DIST;
+    const collinearEpsilon = CELL_SIZE * 0.025;
 
-    // Recreate material if skin changed
-    const prevSkinId = this.territorySkinIds.get(id);
-    if (prevSkinId !== skinId) {
-      const oldMat = this.territoryMaterials.get(id);
-      if (oldMat) {
-        oldMat.dispose();
-        this.territoryMaterials.delete(id);
-      }
-      this.territorySkinIds.set(id, skinId);
-    }
-
-    let mat = this.territoryMaterials.get(id);
-    if (!mat) {
-      const patTex = this.getPatternTexture(skinId);
-      mat = new THREE.MeshLambertMaterial({
-        color: patTex ? 0xffffff : color,
-        map: patTex ?? null,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      this.territoryMaterials.set(id, mat);
-    }
-    if (!this.shadowMaterial) {
-      this.shadowMaterial = new THREE.MeshBasicMaterial({
-        color: 0x000000,
-        transparent: true,
-        opacity: 0.08,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-    }
-
-    // Compute world-space bounding box from grid bounds with padding
-    const [bMinX, bMinZ] = grid.toWorld(bounds.minC, bounds.minR);
-    const [bMaxX, bMaxZ] = grid.toWorld(bounds.maxC, bounds.maxR);
-
-    let minX = Math.floor(bMinX / CELL_SIZE) * CELL_SIZE - CELL_SIZE * 2;
-    let minZ = Math.floor(bMinZ / CELL_SIZE) * CELL_SIZE - CELL_SIZE * 2;
-    let maxX = Math.ceil(bMaxX / CELL_SIZE) * CELL_SIZE + CELL_SIZE * 2;
-    let maxZ = Math.ceil(bMaxZ / CELL_SIZE) * CELL_SIZE + CELL_SIZE * 2;
-
-    const cols = Math.round((maxX - minX) / CELL_SIZE) + 1;
-    const rows = Math.round((maxZ - minZ) / CELL_SIZE) + 1;
-
-    // Read ownership directly from the shared grid -- zero overlap guaranteed
-    const field = new Uint8Array(cols * rows);
-    for (let r = 0; r < rows; r++) {
-      const wz = minZ + r * CELL_SIZE;
-      for (let c = 0; c < cols; c++) {
-        const wx = minX + c * CELL_SIZE;
-        if (grid.isOwnedBy(wx, wz, id)) {
-          field[r * cols + c] = 1;
-        }
-      }
-    }
-
-    // --- Compute distance from territory boundary (BFS inward) ---
-    const borderCells = Math.max(1, Math.ceil(BORDER_WIDTH / CELL_SIZE));
-    const distField = new Uint8Array(cols * rows);
-    distField.fill(255);
-    const bfsQ: number[] = [];
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const i = r * cols + c;
-        if (!field[i]) {
-          distField[i] = 0;
+    while (changed && pts.length > 4) {
+      changed = false;
+      const next: Vec2[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const prev = pts[(i - 1 + pts.length) % pts.length];
+        const curr = pts[i];
+        const following = pts[(i + 1) % pts.length];
+        const dx = curr.x - prev.x;
+        const dz = curr.z - prev.z;
+        if (dx * dx + dz * dz < minDistSq) {
+          changed = true;
           continue;
         }
-        if (
-          r === 0 ||
-          r === rows - 1 ||
-          c === 0 ||
-          c === cols - 1 ||
-          !field[(r - 1) * cols + c] ||
-          !field[(r + 1) * cols + c] ||
-          !field[r * cols + c - 1] ||
-          !field[r * cols + c + 1]
-        ) {
-          distField[i] = 0;
-          bfsQ.push(r, c);
+        const ax = curr.x - prev.x;
+        const az = curr.z - prev.z;
+        const bx = following.x - curr.x;
+        const bz = following.z - curr.z;
+        const cross = Math.abs(ax * bz - az * bx);
+        const dot = ax * bx + az * bz;
+        if (cross < collinearEpsilon && dot >= 0) {
+          changed = true;
+          continue;
         }
+        next.push(curr);
+      }
+      pts = next;
+    }
+    return pts;
+  }
+
+  private smoothLoop(loop: Vec2[], iterations = 1): Vec2[] {
+    let pts = loop.slice();
+    for (let pass = 0; pass < iterations; pass++) {
+      if (pts.length < 3) break;
+      const smoothed: Vec2[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const curr = pts[i];
+        const next = pts[(i + 1) % pts.length];
+        smoothed.push({
+          x: curr.x * 0.75 + next.x * 0.25,
+          z: curr.z * 0.75 + next.z * 0.25,
+        });
+        smoothed.push({
+          x: curr.x * 0.25 + next.x * 0.75,
+          z: curr.z * 0.25 + next.z * 0.75,
+        });
+      }
+      pts = smoothed;
+    }
+    return pts;
+  }
+
+  private buildSideBandGeometry(
+    loops: Vec2[][],
+    offsetX: number,
+    offsetZ: number,
+    drop: number,
+  ): THREE.BufferGeometry | null {
+    const positions: number[] = [];
+    for (const loop of loops) {
+      if (loop.length < 3) continue;
+      for (let i = 0; i < loop.length; i++) {
+        const curr = loop[i];
+        const next = loop[(i + 1) % loop.length];
+        positions.push(
+          curr.x,
+          0,
+          curr.z,
+          next.x,
+          0,
+          next.z,
+          next.x + offsetX,
+          -drop,
+          next.z + offsetZ,
+          curr.x,
+          0,
+          curr.z,
+          next.x + offsetX,
+          -drop,
+          next.z + offsetZ,
+          curr.x + offsetX,
+          -drop,
+          curr.z + offsetZ,
+        );
       }
     }
 
-    let qi = 0;
-    while (qi < bfsQ.length) {
-      const br = bfsQ[qi++];
-      const bc = bfsQ[qi++];
-      const nd = distField[br * cols + bc] + 1;
-      if (nd > borderCells) continue;
-      if (br > 0) {
-        const ni = (br - 1) * cols + bc;
-        if (field[ni] && distField[ni] > nd) {
-          distField[ni] = nd;
-          bfsQ.push(br - 1, bc);
-        }
-      }
-      if (br < rows - 1) {
-        const ni = (br + 1) * cols + bc;
-        if (field[ni] && distField[ni] > nd) {
-          distField[ni] = nd;
-          bfsQ.push(br + 1, bc);
-        }
-      }
-      if (bc > 0) {
-        const ni = br * cols + bc - 1;
-        if (field[ni] && distField[ni] > nd) {
-          distField[ni] = nd;
-          bfsQ.push(br, bc - 1);
-        }
-      }
-      if (bc < cols - 1) {
-        const ni = br * cols + bc + 1;
-        if (field[ni] && distField[ni] > nd) {
-          distField[ni] = nd;
-          bfsQ.push(br, bc + 1);
-        }
-      }
-    }
+    if (positions.length === 0) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3),
+    );
+    geo.computeVertexNormals();
+    return geo;
+  }
 
-    // --- Grid-resolution SDF + Catmull-Rom interpolation ---
-    // 1. Compute SDF at GRID resolution (where each cell = 1 unit)
-    // 2. Catmull-Rom interpolate at render resolution for smooth contours
-    // This produces smooth curves because the SDF varies continuously,
-    // unlike binary data which has hard 0/1 transitions.
-    const smooth = new Float32Array(cols * rows);
-
-    const gData = grid.data;
-    const gSz = grid.size;
-    const gCell = grid.cellSize;
-    const gHalf = grid.halfMap;
-
-    // Sub-grid covering this territory + padding
-    const pad = 6;
-    const sMinC = Math.max(0, bounds.minC - pad);
-    const sMaxC = Math.min(gSz - 1, bounds.maxC + pad);
-    const sMinR = Math.max(0, bounds.minR - pad);
-    const sMaxR = Math.min(gSz - 1, bounds.maxR + pad);
-    const sCols = sMaxC - sMinC + 1;
-    const sRows = sMaxR - sMinR + 1;
-
-    // Binary ownership at grid resolution
-    const gOwn = new Uint8Array(sCols * sRows);
-    for (let r = 0; r < sRows; r++) {
-      for (let c = 0; c < sCols; c++) {
-        if (gData[(sMinR + r) * gSz + sMinC + c] === id)
-          gOwn[r * sCols + c] = 1;
-      }
-    }
-
-    // Chamfer DT at grid resolution
-    const dE = new Float32Array(sCols * sRows); // dist to nearest empty
-    const dF = new Float32Array(sCols * sRows); // dist to nearest filled
-    dE.fill(9999);
-    dF.fill(9999);
-    for (let i = 0; i < sCols * sRows; i++) {
-      if (!gOwn[i]) dE[i] = 0;
-      else dF[i] = 0;
-    }
-
-    const D1 = 1.0,
-      D2 = 1.414;
-    const chamfer = (d: Float32Array, w: number, h: number) => {
-      for (let r = 0; r < h; r++) {
-        for (let c = 0; c < w; c++) {
-          const i = r * w + c;
-          if (r > 0) {
-            d[i] = Math.min(d[i], d[i - w] + D1);
-            if (c > 0) d[i] = Math.min(d[i], d[i - w - 1] + D2);
-            if (c < w - 1) d[i] = Math.min(d[i], d[i - w + 1] + D2);
-          }
-          if (c > 0) d[i] = Math.min(d[i], d[i - 1] + D1);
-        }
-      }
-      for (let r = h - 1; r >= 0; r--) {
-        for (let c = w - 1; c >= 0; c--) {
-          const i = r * w + c;
-          if (r < h - 1) {
-            d[i] = Math.min(d[i], d[i + w] + D1);
-            if (c > 0) d[i] = Math.min(d[i], d[i + w - 1] + D2);
-            if (c < w - 1) d[i] = Math.min(d[i], d[i + w + 1] + D2);
-          }
-          if (c < w - 1) d[i] = Math.min(d[i], d[i + 1] + D1);
-        }
-      }
-    };
-
-    chamfer(dE, sCols, sRows);
-    chamfer(dF, sCols, sRows);
-
-    // Grid-resolution SDF: positive inside, negative outside
-    const gridSDF = new Float32Array(sCols * sRows);
-    for (let i = 0; i < sCols * sRows; i++) {
-      gridSDF[i] = gOwn[i] ? dE[i] : -dF[i];
-    }
-
-    // Catmull-Rom interpolation of grid SDF at each render cell (fully inlined)
-    const BAND = 3;
-    const halfBand = 0.5 / BAND;
-    const sColsM1 = sCols - 1;
-    const sRowsM1 = sRows - 1;
-    const gxBase = gHalf / gCell - 0.5 - sMinC;
-    const gzBase = gHalf / gCell - 0.5 - sMinR;
-    const cellToGrid = 1 / gCell;
-
-    for (let r = 0; r < rows; r++) {
-      const gz = (minZ + r * CELL_SIZE) * cellToGrid + gzBase;
-      const gj = Math.floor(gz);
-      const fz = gz - gj;
-      const fz2 = fz * fz,
-        fz3 = fz2 * fz;
-      // Z weights hoisted per row
-      const wz0 = 0.5 * (-fz + 2 * fz2 - fz3);
-      const wz1 = 0.5 * (2 - 5 * fz2 + 3 * fz3);
-      const wz2 = 0.5 * (fz + 4 * fz2 - 3 * fz3);
-      const wz3 = 0.5 * (-fz2 + fz3);
-      // Row offsets clamped once per row
-      const r0 = (gj - 1 < 0 ? 0 : gj - 1 > sRowsM1 ? sRowsM1 : gj - 1) * sCols;
-      const r1 = (gj < 0 ? 0 : gj > sRowsM1 ? sRowsM1 : gj) * sCols;
-      const r2 = (gj + 1 < 0 ? 0 : gj + 1 > sRowsM1 ? sRowsM1 : gj + 1) * sCols;
-      const r3 = (gj + 2 < 0 ? 0 : gj + 2 > sRowsM1 ? sRowsM1 : gj + 2) * sCols;
-      const rowOff = r * cols;
-
-      for (let c = 0; c < cols; c++) {
-        const gx = (minX + c * CELL_SIZE) * cellToGrid + gxBase;
-        const gi = Math.floor(gx);
-        const fx = gx - gi;
-        const fx2 = fx * fx,
-          fx3 = fx2 * fx;
-        const wx0 = 0.5 * (-fx + 2 * fx2 - fx3);
-        const wx1 = 0.5 * (2 - 5 * fx2 + 3 * fx3);
-        const wx2 = 0.5 * (fx + 4 * fx2 - 3 * fx3);
-        const wx3 = 0.5 * (-fx2 + fx3);
-
-        const c0 = gi - 1 < 0 ? 0 : gi - 1 > sColsM1 ? sColsM1 : gi - 1;
-        const c1 = gi < 0 ? 0 : gi > sColsM1 ? sColsM1 : gi;
-        const c2 = gi + 1 < 0 ? 0 : gi + 1 > sColsM1 ? sColsM1 : gi + 1;
-        const c3 = gi + 2 < 0 ? 0 : gi + 2 > sColsM1 ? sColsM1 : gi + 2;
-
-        const sd =
-          wz0 *
-            (wx0 * gridSDF[r0 + c0] +
-              wx1 * gridSDF[r0 + c1] +
-              wx2 * gridSDF[r0 + c2] +
-              wx3 * gridSDF[r0 + c3]) +
-          wz1 *
-            (wx0 * gridSDF[r1 + c0] +
-              wx1 * gridSDF[r1 + c1] +
-              wx2 * gridSDF[r1 + c2] +
-              wx3 * gridSDF[r1 + c3]) +
-          wz2 *
-            (wx0 * gridSDF[r2 + c0] +
-              wx1 * gridSDF[r2 + c1] +
-              wx2 * gridSDF[r2 + c2] +
-              wx3 * gridSDF[r2 + c3]) +
-          wz3 *
-            (wx0 * gridSDF[r3 + c0] +
-              wx1 * gridSDF[r3 + c1] +
-              wx2 * gridSDF[r3 + c2] +
-              wx3 * gridSDF[r3 + c3]);
-
-        const v = sd * halfBand + 0.5;
-        smooth[rowOff + c] = v < 0 ? 0 : v > 1 ? 1 : v;
-      }
-    }
-
-    // Light blur pass on boundary cells to remove remaining staircase artifacts
-    {
-      const blurSrc = new Float32Array(smooth);
-      for (let r = 1; r < rows - 1; r++) {
-        for (let c = 1; c < cols - 1; c++) {
-          const i = r * cols + c;
-          const v = blurSrc[i];
-          if (v > 0.01 && v < 0.99) {
-            smooth[i] =
-              (blurSrc[i - cols - 1] +
-                blurSrc[i - cols] +
-                blurSrc[i - cols + 1] +
-                blurSrc[i - 1] +
-                v * 4 +
-                blurSrc[i + 1] +
-                blurSrc[i + cols - 1] +
-                blurSrc[i + cols] +
-                blurSrc[i + cols + 1]) /
-              12;
-          }
-        }
-      }
-    }
-
-    // --- Build mesh with height gradient (raised plateau with beveled edges) ---
-    const verts: number[] = [];
-    const uvs: number[] = [];
-    const indices: number[] = [];
-    const vertMap = new Map<number, number>();
-
-    const addVert = (x: number, z: number): number => {
-      const qx = Math.round(x * 1000);
-      const qz = Math.round(z * 1000);
-      const key = qx * 131072 + qz;
-      const existing = vertMap.get(key);
-      if (existing !== undefined) return existing;
-
-      const gc = Math.max(
-        0,
-        Math.min(cols - 1, Math.round((x - minX) / CELL_SIZE)),
-      );
-      const gr = Math.max(
-        0,
-        Math.min(rows - 1, Math.round((z - minZ) / CELL_SIZE)),
-      );
-      const dist = distField[gr * cols + gc];
-      const t = Math.min(dist / borderCells, 1.0);
-      const st = t * t * (3 - 2 * t); // smoothstep
-
-      const y = TERRITORY_Y + st * TERRITORY_HEIGHT;
-
-      const idx = verts.length / 3;
-      verts.push(x, y, z);
-      uvs.push(x / PATTERN_TILE, z / PATTERN_TILE);
-      vertMap.set(key, idx);
-      return idx;
-    };
-
-    const addTri = (
-      x0: number,
-      z0: number,
-      x1: number,
-      z1: number,
-      x2: number,
-      z2: number,
-    ) => {
-      indices.push(addVert(x0, z0), addVert(x1, z1), addVert(x2, z2));
-    };
-
+  private extractContourLoops(
+    smooth: Float32Array,
+    rows: number,
+    cols: number,
+    minX: number,
+    minZ: number,
+  ): Vec2[][] {
+    const segments: ContourSegment[] = [];
     const ISO = 0.5;
     const isoLerp = (a: number, b: number, va: number, vb: number): number => {
       const d = vb - va;
       if (Math.abs(d) < 0.001) return (a + b) * 0.5;
       return a + ((ISO - va) / d) * (b - a);
+    };
+    const addSegment = (ax: number, az: number, bx: number, bz: number) => {
+      if (Math.abs(ax - bx) < 1e-5 && Math.abs(az - bz) < 1e-5) return;
+      segments.push({ a: { x: ax, z: az }, b: { x: bx, z: bz } });
     };
 
     for (let r = 0; r < rows - 1; r++) {
@@ -766,137 +598,513 @@ export class Renderer {
           ((vTR >= ISO ? 1 : 0) << 2) |
           ((vBR >= ISO ? 1 : 0) << 1) |
           (vBL >= ISO ? 1 : 0);
-        if (config === 0) continue;
+        if (config === 0 || config === 15) continue;
 
         const x0 = minX + c * CELL_SIZE;
         const x1 = minX + (c + 1) * CELL_SIZE;
         const z0 = minZ + r * CELL_SIZE;
         const z1 = minZ + (r + 1) * CELL_SIZE;
 
-        if (config === 15) {
-          addTri(x0, z0, x1, z0, x1, z1);
-          addTri(x0, z0, x1, z1, x0, z1);
-          continue;
-        }
-
-        // Interpolated edge crossings for smooth contours
-        const tmx = isoLerp(x0, x1, vTL, vTR),
-          tmz = z0;
-        const rmx = x1,
-          rmz = isoLerp(z0, z1, vTR, vBR);
-        const bmx = isoLerp(x0, x1, vBL, vBR),
-          bmz = z1;
-        const lmx = x0,
-          lmz = isoLerp(z0, z1, vTL, vBL);
+        const tmx = isoLerp(x0, x1, vTL, vTR);
+        const rmy = isoLerp(z0, z1, vTR, vBR);
+        const bmx = isoLerp(x0, x1, vBL, vBR);
+        const lmy = isoLerp(z0, z1, vTL, vBL);
 
         switch (config) {
           case 1:
-            addTri(x0, z1, lmx, lmz, bmx, bmz);
+            addSegment(x0, lmy, bmx, z1);
             break;
           case 2:
-            addTri(x1, z1, bmx, bmz, rmx, rmz);
-            break;
-          case 4:
-            addTri(x1, z0, rmx, rmz, tmx, tmz);
-            break;
-          case 8:
-            addTri(x0, z0, tmx, tmz, lmx, lmz);
+            addSegment(bmx, z1, x1, rmy);
             break;
           case 3:
-            addTri(x0, z1, lmx, lmz, rmx, rmz);
-            addTri(x0, z1, rmx, rmz, x1, z1);
+            addSegment(x0, lmy, x1, rmy);
             break;
-          case 6:
-            addTri(x1, z0, tmx, tmz, bmx, bmz);
-            addTri(x1, z0, bmx, bmz, x1, z1);
-            break;
-          case 12:
-            addTri(x0, z0, x1, z0, rmx, rmz);
-            addTri(x0, z0, rmx, rmz, lmx, lmz);
-            break;
-          case 9:
-            addTri(x0, z0, tmx, tmz, bmx, bmz);
-            addTri(x0, z0, bmx, bmz, x0, z1);
+          case 4:
+            addSegment(tmx, z0, x1, rmy);
             break;
           case 5:
-            addTri(x0, z1, lmx, lmz, bmx, bmz);
-            addTri(x1, z0, rmx, rmz, tmx, tmz);
+            addSegment(tmx, z0, x1, rmy);
+            addSegment(x0, lmy, bmx, z1);
             break;
-          case 10:
-            addTri(x0, z0, tmx, tmz, lmx, lmz);
-            addTri(x1, z1, bmx, bmz, rmx, rmz);
+          case 6:
+            addSegment(tmx, z0, bmx, z1);
             break;
           case 7:
-            addTri(x1, z0, tmx, tmz, lmx, lmz);
-            addTri(x1, z0, lmx, lmz, x0, z1);
-            addTri(x1, z0, x0, z1, x1, z1);
+            addSegment(tmx, z0, x0, lmy);
+            break;
+          case 8:
+            addSegment(x0, lmy, tmx, z0);
+            break;
+          case 9:
+            addSegment(tmx, z0, bmx, z1);
+            break;
+          case 10:
+            addSegment(x0, lmy, tmx, z0);
+            addSegment(bmx, z1, x1, rmy);
             break;
           case 11:
-            addTri(x0, z0, tmx, tmz, rmx, rmz);
-            addTri(x0, z0, rmx, rmz, x1, z1);
-            addTri(x0, z0, x1, z1, x0, z1);
+            addSegment(tmx, z0, x1, rmy);
+            break;
+          case 12:
+            addSegment(x0, lmy, x1, rmy);
             break;
           case 13:
-            addTri(x0, z0, x1, z0, rmx, rmz);
-            addTri(x0, z0, rmx, rmz, bmx, bmz);
-            addTri(x0, z0, bmx, bmz, x0, z1);
+            addSegment(bmx, z1, x1, rmy);
             break;
           case 14:
-            addTri(x0, z0, x1, z0, x1, z1);
-            addTri(x0, z0, x1, z1, bmx, bmz);
-            addTri(x0, z0, bmx, bmz, lmx, lmz);
+            addSegment(x0, lmy, bmx, z1);
             break;
         }
       }
     }
 
-    if (verts.length === 0) {
+    const pointMap = new Map<string, Vec2>();
+    const adjacency = new Map<string, string[]>();
+    const addLink = (from: Vec2, to: Vec2) => {
+      const fromKey = this.makePointKey(from);
+      const toKey = this.makePointKey(to);
+      pointMap.set(fromKey, from);
+      pointMap.set(toKey, to);
+      if (!adjacency.has(fromKey)) adjacency.set(fromKey, []);
+      if (!adjacency.has(toKey)) adjacency.set(toKey, []);
+      adjacency.get(fromKey)!.push(toKey);
+      adjacency.get(toKey)!.push(fromKey);
+    };
+
+    for (const segment of segments) addLink(segment.a, segment.b);
+
+    const usedEdges = new Set<string>();
+    const loops: Vec2[][] = [];
+
+    for (const [startKey, neighbors] of adjacency) {
+      for (const firstNeighbor of neighbors) {
+        const firstEdge = this.makeEdgeKey(startKey, firstNeighbor);
+        if (usedEdges.has(firstEdge)) continue;
+
+        const loopKeys = [startKey];
+        let prevKey = startKey;
+        let currentKey = firstNeighbor;
+        usedEdges.add(firstEdge);
+
+        for (let guard = 0; guard < adjacency.size * 3; guard++) {
+          if (currentKey === startKey) break;
+          loopKeys.push(currentKey);
+          const candidates = adjacency.get(currentKey) ?? [];
+          let nextKey = "";
+          for (const candidate of candidates) {
+            const edgeKey = this.makeEdgeKey(currentKey, candidate);
+            if (candidate === prevKey || usedEdges.has(edgeKey)) continue;
+            nextKey = candidate;
+            break;
+          }
+
+          if (!nextKey) {
+            const fallback = candidates.find(
+              (candidate) => candidate !== prevKey,
+            );
+            if (!fallback) break;
+            nextKey = fallback;
+          }
+
+          usedEdges.add(this.makeEdgeKey(currentKey, nextKey));
+          prevKey = currentKey;
+          currentKey = nextKey;
+        }
+
+        if (currentKey !== startKey || loopKeys.length < 3) continue;
+        const loop = loopKeys
+          .map((key) => pointMap.get(key))
+          .filter((point): point is Vec2 => Boolean(point));
+        if (loop.length < 3 || Math.abs(this.loopArea(loop)) < LOOP_MIN_AREA)
+          continue;
+        loops.push(loop);
+      }
+    }
+
+    return loops;
+  }
+
+  private buildShapesFromLoops(loops: Vec2[][]): ShapeBuildResult {
+    const cleaned = loops.filter(
+      (loop) =>
+        loop.length >= 3 && Math.abs(this.loopArea(loop)) >= LOOP_MIN_AREA,
+    );
+    if (cleaned.length === 0) return { shapes: [], outerLoops: [] };
+
+    const infos = cleaned.map((loop) => ({
+      loop,
+      area: Math.abs(this.loopArea(loop)),
+      parent: -1,
+    }));
+    const sorted = infos
+      .map((_, index) => index)
+      .sort((a, b) => infos[b].area - infos[a].area);
+
+    for (const idx of sorted) {
+      let bestParent = -1;
+      let bestArea = Number.POSITIVE_INFINITY;
+      for (const candidate of sorted) {
+        if (candidate === idx || infos[candidate].area <= infos[idx].area)
+          continue;
+        if (
+          this.pointInLoop(infos[idx].loop[0], infos[candidate].loop) &&
+          infos[candidate].area < bestArea
+        ) {
+          bestParent = candidate;
+          bestArea = infos[candidate].area;
+        }
+      }
+      infos[idx].parent = bestParent;
+    }
+
+    const depthMemo = new Map<number, number>();
+    const getDepth = (index: number): number => {
+      const cached = depthMemo.get(index);
+      if (cached !== undefined) return cached;
+      const parent = infos[index].parent;
+      const depth = parent === -1 ? 0 : getDepth(parent) + 1;
+      depthMemo.set(index, depth);
+      return depth;
+    };
+
+    const orientPoints = (
+      loop: Vec2[],
+      clockwise: boolean,
+    ): THREE.Vector2[] => {
+      const points = loop.map((point) => new THREE.Vector2(point.x, -point.z));
+      if (THREE.ShapeUtils.isClockWise(points) !== clockwise) points.reverse();
+      return points;
+    };
+
+    const shapes: THREE.Shape[] = [];
+    const outerLoops: Vec2[][] = [];
+    const shapeMap = new Map<number, THREE.Shape>();
+    for (const idx of sorted) {
+      const depth = getDepth(idx);
+      if (depth % 2 === 0) {
+        outerLoops.push(infos[idx].loop);
+        const shape = new THREE.Shape(orientPoints(infos[idx].loop, false));
+        shape.autoClose = true;
+        shapes.push(shape);
+        shapeMap.set(idx, shape);
+        continue;
+      }
+
+      let ancestor = infos[idx].parent;
+      while (ancestor !== -1 && getDepth(ancestor) % 2 === 1) {
+        ancestor = infos[ancestor].parent;
+      }
+      if (ancestor === -1) continue;
+      const hole = new THREE.Path(orientPoints(infos[idx].loop, true));
+      hole.autoClose = true;
+      shapeMap.get(ancestor)?.holes.push(hole);
+    }
+
+    return { shapes, outerLoops };
+  }
+
+  private buildShapesFromPolygons(
+    polygons: TerritoryMultiPolygon,
+  ): ShapeBuildResult {
+    const orientPoints = (
+      loop: Vec2[],
+      clockwise: boolean,
+    ): THREE.Vector2[] => {
+      const points = loop.map((point) => new THREE.Vector2(point.x, -point.z));
+      if (THREE.ShapeUtils.isClockWise(points) !== clockwise) points.reverse();
+      return points;
+    };
+
+    const shapes: THREE.Shape[] = [];
+    const outerLoops: Vec2[][] = [];
+
+    for (const polygon of polygons) {
+      if (
+        polygon.outer.length < 3 ||
+        Math.abs(this.loopArea(polygon.outer)) < LOOP_MIN_AREA
+      ) {
+        continue;
+      }
+      outerLoops.push(polygon.outer);
+      const shape = new THREE.Shape(orientPoints(polygon.outer, false));
+      shape.autoClose = true;
+      for (const holeLoop of polygon.holes) {
+        if (
+          holeLoop.length < 3 ||
+          Math.abs(this.loopArea(holeLoop)) < LOOP_MIN_AREA
+        ) {
+          continue;
+        }
+        const hole = new THREE.Path(orientPoints(holeLoop, true));
+        hole.autoClose = true;
+        shape.holes.push(hole);
+      }
+      shapes.push(shape);
+    }
+
+    return { shapes, outerLoops };
+  }
+
+  private clearTerritoryVisuals(id: number, disposeMaterials = false): void {
+    const terr = this.territoryObjects.get(id);
+    if (terr) {
+      this.scene.remove(terr);
+      terr.geometry.dispose();
       this.territoryObjects.delete(id);
+    }
+
+    const depthLayers = this.territoryDepthLayers.get(id);
+    if (depthLayers) {
+      for (const layer of depthLayers) {
+        this.scene.remove(layer);
+        layer.geometry.dispose();
+      }
+      this.territoryDepthLayers.delete(id);
+    }
+
+    const sideBand = this.territorySideBands.get(id);
+    if (sideBand) {
+      this.scene.remove(sideBand);
+      sideBand.geometry.dispose();
+      this.territorySideBands.delete(id);
+    }
+
+    const shadow = this.territoryShadows.get(id);
+    if (shadow) {
+      this.scene.remove(shadow);
+      shadow.geometry.dispose();
+      this.territoryShadows.delete(id);
+    }
+
+    const contactShadow = this.territoryContactShadows.get(id);
+    if (contactShadow) {
+      this.scene.remove(contactShadow);
+      contactShadow.geometry.dispose();
+      this.territoryContactShadows.delete(id);
+    }
+
+    if (disposeMaterials) {
+      const materials = this.territoryMaterials.get(id);
+      if (materials) {
+        materials.top.dispose();
+        materials.depth.dispose();
+        materials.band.dispose();
+        this.territoryMaterials.delete(id);
+      }
+      this.territorySkinIds.delete(id);
+    }
+  }
+
+  updateTerritory(
+    id: number,
+    grid: TerritoryGrid,
+    color: number,
+    skinId = "",
+  ): void {
+    const bounds = grid.getBounds(id);
+    if (!bounds) {
+      this.clearTerritoryVisuals(id, true);
       return;
     }
 
-    // Main raised territory mesh
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
-    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
+    // Recreate material if skin changed
+    const prevSkinId = this.territorySkinIds.get(id);
+    if (prevSkinId !== skinId) {
+      const oldMat = this.territoryMaterials.get(id);
+      if (oldMat) {
+        oldMat.top.dispose();
+        oldMat.depth.dispose();
+        oldMat.band.dispose();
+        this.territoryMaterials.delete(id);
+      }
+      this.territorySkinIds.set(id, skinId);
+    }
+
+    this.clearTerritoryVisuals(id);
+
+    let materials = this.territoryMaterials.get(id);
+    if (!materials) {
+      const patTex = this.getPatternTexture(skinId);
+      const topMat = new THREE.MeshPhongMaterial({
+        color: patTex ? 0xffffff : color,
+        map: patTex ?? null,
+        side: THREE.DoubleSide,
+        flatShading: false,
+        shininess: 12,
+        specular: new THREE.Color(0x95dff7),
+      });
+      const depthMat = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(color).multiplyScalar(0.7),
+        flatShading: true,
+        shininess: 10,
+        specular: new THREE.Color(0x72a3c3),
+      });
+      const bandMat = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(color).multiplyScalar(0.56),
+        flatShading: true,
+        shininess: 6,
+        specular: new THREE.Color(0x4c7692),
+        side: THREE.DoubleSide,
+      });
+      materials = { top: topMat, depth: depthMat, band: bandMat };
+      this.territoryMaterials.set(id, materials);
+    }
+    const patTex = this.getPatternTexture(skinId);
+    materials.top.color.setHex(patTex ? 0xffffff : color);
+    materials.top.map = patTex ?? null;
+    materials.top.needsUpdate = true;
+    materials.depth.color.copy(new THREE.Color(color).multiplyScalar(0.7));
+    materials.depth.needsUpdate = true;
+    materials.band.color.copy(new THREE.Color(color).multiplyScalar(0.56));
+    materials.band.needsUpdate = true;
+    if (!this.shadowMaterial) {
+      this.shadowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x8fb3d2,
+        transparent: true,
+        opacity: 0.14,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+    }
+    if (!this.contactShadowMaterial) {
+      this.contactShadowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x7288aa,
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+    }
+    const polygons = grid.getPolygons(id);
+    if (!polygons) {
+      this.clearTerritoryVisuals(id, true);
+      return;
+    }
+
+    const bMinX = bounds.minX;
+    const bMinZ = bounds.minZ;
+    const bMaxX = bounds.maxX;
+    const bMaxZ = bounds.maxZ;
+
+    const { shapes: rawShapes, outerLoops } =
+      this.buildShapesFromPolygons(polygons);
+    if (rawShapes.length === 0) {
+      return;
+    }
 
     const order = ++this.territoryRenderOrder;
+    const topGeo = new THREE.ShapeGeometry(rawShapes, EXTRUDE_CURVE_SEGMENTS);
+    topGeo.rotateX(-Math.PI / 2);
+    topGeo.computeVertexNormals();
 
-    const mesh = new THREE.Mesh(geo, mat!);
+    const mesh = new THREE.Mesh(topGeo, materials.top);
+    mesh.position.y = TERRITORY_Y;
     mesh.renderOrder = order;
-    mesh.castShadow = true;
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
     this.scene.add(mesh);
     this.territoryObjects.set(id, mesh);
 
-    // Drop shadow: flat copy of the territory at ground level, offset to simulate light direction
-    const oldShadow = this.territoryShadows.get(id);
-    if (oldShadow) {
-      this.scene.remove(oldShadow);
-      oldShadow.geometry.dispose();
+    const depthLayers: THREE.Mesh[] = [];
+    for (let layer = 1; layer <= TERRITORY_DEPTH_LAYERS; layer++) {
+      const t = layer / TERRITORY_DEPTH_LAYERS;
+      const layerGeo = new THREE.ShapeGeometry(
+        rawShapes,
+        EXTRUDE_CURVE_SEGMENTS,
+      );
+      layerGeo.rotateX(-Math.PI / 2);
+      layerGeo.computeVertexNormals();
+      const layerMesh = new THREE.Mesh(layerGeo, materials.depth);
+      layerMesh.position.set(
+        TERRITORY_DEPTH_OFFSET_X * t,
+        TERRITORY_Y - TERRITORY_DEPTH_DROP * t,
+        TERRITORY_DEPTH_OFFSET_Z * t,
+      );
+      layerMesh.renderOrder = order - 0.3 - layer * 0.01;
+      layerMesh.castShadow = false;
+      layerMesh.receiveShadow = true;
+      this.scene.add(layerMesh);
+      depthLayers.push(layerMesh);
+    }
+    this.territoryDepthLayers.set(id, depthLayers);
+
+    const sideBandGeo = this.buildSideBandGeometry(
+      outerLoops,
+      TERRITORY_DEPTH_OFFSET_X,
+      TERRITORY_DEPTH_OFFSET_Z,
+      TERRITORY_DEPTH_DROP,
+    );
+    if (sideBandGeo) {
+      const sideBandMesh = new THREE.Mesh(sideBandGeo, materials.band);
+      sideBandMesh.position.y = TERRITORY_Y;
+      sideBandMesh.renderOrder = order - 0.12;
+      sideBandMesh.castShadow = false;
+      sideBandMesh.receiveShadow = true;
+      this.scene.add(sideBandMesh);
+      this.territorySideBands.set(id, sideBandMesh);
     }
 
-    // Drop shadow offset matches top-left sun: shadow falls toward +X, -Z
-    const shadowOffset = 0.18;
-    const shadowPositions = new Float32Array(verts.length);
-    for (let i = 0; i < verts.length; i += 3) {
-      shadowPositions[i] = verts[i] + shadowOffset;
-      shadowPositions[i + 1] = 0.015;
-      shadowPositions[i + 2] = verts[i + 2] - shadowOffset;
-    }
-    const shadowGeo = new THREE.BufferGeometry();
-    shadowGeo.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(shadowPositions, 3),
+    const shadowCenterX = (bMinX + bMaxX) * 0.5;
+    const shadowCenterZ = (bMinZ + bMaxZ) * 0.5;
+    const footprintGeo = new THREE.ShapeGeometry(
+      rawShapes,
+      EXTRUDE_CURVE_SEGMENTS,
     );
-    shadowGeo.setIndex(indices);
+    footprintGeo.rotateX(-Math.PI / 2);
+
+    // Drop shadow: wide soft shadow on the ground
+    const shadowOffset = 0.16;
+    const shadowSpread = 1.02;
+    const shadowGeo = footprintGeo.clone();
+    const shadowPositions = (
+      shadowGeo.getAttribute("position") as THREE.BufferAttribute
+    ).array as Float32Array;
+    for (let i = 0; i < shadowPositions.length; i += 3) {
+      shadowPositions[i] =
+        shadowCenterX +
+        (shadowPositions[i] - shadowCenterX) * shadowSpread -
+        shadowOffset;
+      shadowPositions[i + 1] = 0.015;
+      shadowPositions[i + 2] =
+        shadowCenterZ +
+        (shadowPositions[i + 2] - shadowCenterZ) * shadowSpread -
+        shadowOffset * 0.9;
+    }
+    (shadowGeo.getAttribute("position") as THREE.BufferAttribute).needsUpdate =
+      true;
 
     const shadowMesh = new THREE.Mesh(shadowGeo, this.shadowMaterial!);
     shadowMesh.renderOrder = order - 1;
     this.scene.add(shadowMesh);
     this.territoryShadows.set(id, shadowMesh);
+
+    // Contact shadow: tighter edge shadow to make the territory feel thicker.
+    const contactOffset = 0.045;
+    const contactSpread = 1.006;
+    const contactGeo = footprintGeo.clone();
+    const contactPositions = (
+      contactGeo.getAttribute("position") as THREE.BufferAttribute
+    ).array as Float32Array;
+    for (let i = 0; i < contactPositions.length; i += 3) {
+      contactPositions[i] =
+        shadowCenterX +
+        (contactPositions[i] - shadowCenterX) * contactSpread -
+        contactOffset;
+      contactPositions[i + 1] = TERRITORY_Y - TERRITORY_DEPTH_DROP * 0.55;
+      contactPositions[i + 2] =
+        shadowCenterZ +
+        (contactPositions[i + 2] - shadowCenterZ) * contactSpread -
+        contactOffset * 0.85;
+    }
+    (contactGeo.getAttribute("position") as THREE.BufferAttribute).needsUpdate =
+      true;
+
+    const contactMesh = new THREE.Mesh(contactGeo, this.contactShadowMaterial!);
+    contactMesh.renderOrder = order - 0.5;
+    this.scene.add(contactMesh);
+    this.territoryContactShadows.set(id, contactMesh);
+    footprintGeo.dispose();
   }
 
   private static readonly MAX_TRAIL_POINTS = 512;
@@ -908,20 +1116,51 @@ export class Renderer {
     startTangent: Vec2 | null = null,
   ): void {
     const prevLen = this.trailLengths.get(id) ?? 0;
-    if (prevLen === trail.length && trail.length > 0) return;
-    this.trailLengths.set(id, trail.length);
+    const maxPts = Renderer.MAX_TRAIL_POINTS;
+    const n = Math.min(trail.length, maxPts);
+    if (trail.length > maxPts && !this.trailCapLogged.has(id)) {
+      this.trailCapLogged.add(id);
+      // #region agent log
+      debugLog("H1", "Renderer.ts:1117", "trail render cap reached", {
+        playerId: id,
+        trailLength: trail.length,
+        renderedLength: n,
+        prevLen,
+      });
+      // #endregion
+    }
+    if (prevLen === n && n > 0) {
+      if (trail.length > maxPts && !this.trailEarlyReturnLogged.has(id)) {
+        this.trailEarlyReturnLogged.add(id);
+        // #region agent log
+        debugLog(
+          "H2",
+          "Renderer.ts:1118",
+          "trail render early-return while capped",
+          {
+            playerId: id,
+            trailLength: trail.length,
+            renderedLength: n,
+            prevLen,
+          },
+        );
+        // #endregion
+      }
+      return;
+    }
+    this.trailLengths.set(id, n);
 
     let mesh = this.trailMeshes.get(id);
 
-    if (trail.length < 2) {
+    if (n < 2) {
       if (mesh) mesh.visible = false;
+      this.trailCapLogged.delete(id);
+      this.trailEarlyReturnLogged.delete(id);
       return;
     }
 
     const halfWidth = 0.25;
     const y = TRAIL_Y;
-    const maxPts = Renderer.MAX_TRAIL_POINTS;
-    const n = Math.min(trail.length, maxPts);
 
     if (!mesh) {
       let mat = this.trailMaterials.get(id);
@@ -954,6 +1193,11 @@ export class Renderer {
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", posAttr);
+      const normalArr = new Float32Array(maxPts * 2 * 3);
+      for (let i = 0; i < normalArr.length; i += 3) {
+        normalArr[i + 1] = 1;
+      }
+      geo.setAttribute("normal", new THREE.BufferAttribute(normalArr, 3));
       geo.setIndex(new THREE.BufferAttribute(idxArr, 1));
 
       mesh = new THREE.Mesh(geo, mat);
@@ -978,7 +1222,9 @@ export class Renderer {
         ? normalize(startTangent.x, startTangent.z)
         : null;
 
-    for (let i = 0; i < n; i++) {
+    const updateStart = trail.length >= prevLen ? Math.max(0, prevLen - 2) : 0;
+
+    for (let i = updateStart; i < n; i++) {
       let dx: number, dz: number;
       if (i === 0) {
         dx = trail[1].x - trail[0].x;
@@ -991,6 +1237,7 @@ export class Renderer {
         dz = trail[i + 1].z - trail[i - 1].z;
       }
       const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const alongDir = { x: dx / len, z: dz / len };
       const trailSide = { x: -dz / len, z: dx / len };
       let widthDir = trailSide;
 
@@ -1009,21 +1256,23 @@ export class Renderer {
 
       const px = widthDir.x * halfWidth;
       const pz = widthDir.z * halfWidth;
+      const capOffset = i === 0 ? -halfWidth : i === n - 1 ? halfWidth : 0;
+      const centerX = trail[i].x + alongDir.x * capOffset;
+      const centerZ = trail[i].z + alongDir.z * capOffset;
 
       const off = i * 6;
-      posArr[off] = trail[i].x + px;
+      posArr[off] = centerX + px;
       posArr[off + 1] = y;
-      posArr[off + 2] = trail[i].z + pz;
-      posArr[off + 3] = trail[i].x - px;
+      posArr[off + 2] = centerZ + pz;
+      posArr[off + 3] = centerX - px;
       posArr[off + 4] = y;
-      posArr[off + 5] = trail[i].z - pz;
+      posArr[off + 5] = centerZ - pz;
     }
 
     const posAttr = mesh.geometry.getAttribute(
       "position",
     ) as THREE.BufferAttribute;
     posAttr.needsUpdate = true;
-    mesh.geometry.computeVertexNormals();
     mesh.geometry.setDrawRange(0, Math.max(0, n - 1) * 6);
   }
 
@@ -1047,8 +1296,134 @@ export class Renderer {
     this.camera.lookAt(this.cameraTarget.x, 0, this.cameraTarget.z);
   }
 
+  removeTerritory(id: number): void {
+    this.clearTerritoryVisuals(id, true);
+  }
+
+  startTerritoryTakeover(
+    victimId: number,
+    _killerId: number,
+    origin: Vec2,
+    killerColor: number,
+    _killerSkinId = "",
+  ): void {
+    const victimMesh = this.territoryObjects.get(victimId);
+    if (!victimMesh) return;
+    this.cleanupTakeoversForVictim(victimId);
+
+    const sourceMaterial = Array.isArray(victimMesh.material)
+      ? victimMesh.material[0]
+      : victimMesh.material;
+    const material = sourceMaterial.clone();
+    const uniforms = {
+      rippleOrigin: { value: new THREE.Vector2(origin.x, origin.z) },
+      rippleRadius: { value: 0 },
+      rippleWidth: { value: TAKEOVER_WAVE_WIDTH },
+      rippleColor: { value: new THREE.Color(killerColor) },
+    };
+
+    material.transparent = true;
+    material.depthWrite = false;
+    material.onBeforeCompile = (
+      shader: Parameters<THREE.Material["onBeforeCompile"]>[0],
+    ) => {
+      shader.uniforms.rippleOrigin = uniforms.rippleOrigin;
+      shader.uniforms.rippleRadius = uniforms.rippleRadius;
+      shader.uniforms.rippleWidth = uniforms.rippleWidth;
+      shader.uniforms.rippleColor = uniforms.rippleColor;
+
+      shader.vertexShader =
+        "varying vec2 vWorldXZ;\n" +
+        shader.vertexShader.replace(
+          "#include <worldpos_vertex>",
+          "#include <worldpos_vertex>\n vWorldXZ = worldPosition.xz;",
+        );
+
+      shader.fragmentShader =
+        "uniform vec2 rippleOrigin;\n" +
+        "uniform float rippleRadius;\n" +
+        "uniform float rippleWidth;\n" +
+        "uniform vec3 rippleColor;\n" +
+        "varying vec2 vWorldXZ;\n" +
+        shader.fragmentShader.replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>
+          float rippleDist = distance(vWorldXZ, rippleOrigin);
+          float hideMask = smoothstep(rippleRadius - rippleWidth, rippleRadius + rippleWidth, rippleDist);
+          float wave = 1.0 - smoothstep(0.0, rippleWidth * 1.5, abs(rippleDist - rippleRadius));
+          diffuseColor.rgb = mix(diffuseColor.rgb, rippleColor, wave * 0.85);
+          diffuseColor.a *= hideMask;`,
+        );
+    };
+    material.needsUpdate = true;
+
+    const mesh = new THREE.Mesh(victimMesh.geometry.clone(), material);
+    mesh.renderOrder = victimMesh.renderOrder + 2;
+    mesh.position.copy(victimMesh.position);
+    mesh.rotation.copy(victimMesh.rotation);
+    mesh.scale.copy(victimMesh.scale);
+    this.scene.add(mesh);
+
+    const box = new THREE.Box3().setFromObject(mesh);
+    const corners = [
+      new THREE.Vector2(box.min.x, box.min.z),
+      new THREE.Vector2(box.min.x, box.max.z),
+      new THREE.Vector2(box.max.x, box.min.z),
+      new THREE.Vector2(box.max.x, box.max.z),
+    ];
+    let maxRadius = 0;
+    for (const corner of corners) {
+      maxRadius = Math.max(
+        maxRadius,
+        corner.distanceTo(uniforms.rippleOrigin.value),
+      );
+    }
+
+    this.territoryTakeovers.push({
+      victimId,
+      mesh,
+      material,
+      startMs: performance.now(),
+      durationMs: TAKEOVER_DURATION * 1000,
+      maxRadius: maxRadius + TAKEOVER_WAVE_WIDTH,
+      uniforms,
+    });
+
+    this.removeTerritory(victimId);
+    this.hideAvatar(victimId);
+  }
+
   render(): void {
+    this.updateTerritoryTakeovers();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  hasActiveEffects(): boolean {
+    return this.territoryTakeovers.length > 0;
+  }
+
+  private updateTerritoryTakeovers(): void {
+    if (this.territoryTakeovers.length === 0) return;
+    const now = performance.now();
+    this.territoryTakeovers = this.territoryTakeovers.filter((effect) => {
+      const t = Math.min(1, (now - effect.startMs) / effect.durationMs);
+      effect.uniforms.rippleRadius.value = effect.maxRadius * t;
+      if (t < 1) return true;
+      this.scene.remove(effect.mesh);
+      effect.mesh.geometry.dispose();
+      effect.material.dispose();
+      return false;
+    });
+  }
+
+  private cleanupTakeoversForVictim(victimId: number): void {
+    this.territoryTakeovers = this.territoryTakeovers.filter((effect) => {
+      if (victimId >= 0 && effect.victimId !== victimId) return true;
+      this.scene.remove(effect.mesh);
+      effect.mesh.geometry.dispose();
+      effect.material.dispose();
+      return false;
+    });
   }
 
   private disposeObject(obj: THREE.Object3D): void {
@@ -1581,23 +1956,8 @@ export class Renderer {
   }
 
   cleanupPlayer(id: number): void {
-    const terr = this.territoryObjects.get(id);
-    if (terr) {
-      this.scene.remove(terr);
-      terr.geometry.dispose();
-      this.territoryObjects.delete(id);
-    }
-    const shadow = this.territoryShadows.get(id);
-    if (shadow) {
-      this.scene.remove(shadow);
-      shadow.geometry.dispose();
-      this.territoryShadows.delete(id);
-    }
-    const tMat = this.territoryMaterials.get(id);
-    if (tMat) {
-      tMat.dispose();
-      this.territoryMaterials.delete(id);
-    }
+    this.removeTerritory(id);
+    this.cleanupTakeoversForVictim(id);
     const trail = this.trailMeshes.get(id);
     if (trail) {
       this.scene.remove(trail);
@@ -1610,13 +1970,13 @@ export class Renderer {
       this.trailMaterials.delete(id);
     }
     this.trailLengths.delete(id);
-    this.territorySkinIds.delete(id);
     this.avatarLastPositions.delete(id);
     this.hideAvatar(id);
   }
 
   dispose(): void {
     for (const [id] of this.avatars) this.cleanupPlayer(id);
+    this.cleanupTakeoversForVictim(-1);
     for (const tex of this.patternTextures.values()) tex?.dispose();
     this.patternTextures.clear();
     this.renderer.dispose();

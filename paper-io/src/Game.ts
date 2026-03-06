@@ -16,7 +16,7 @@ import {
   InputHandler,
 } from "./Player.ts";
 import { segmentsIntersect } from "./Collision.ts";
-import { BotController } from "./Bot.ts";
+import { BotController, type BotFrameContext } from "./Bot.ts";
 import { Renderer } from "./Renderer.ts";
 import { ParticleSystem } from "./ParticleSystem.ts";
 import { Audio } from "./Audio.ts";
@@ -25,6 +25,7 @@ import { Menu, type MenuConfig } from "./Menu.ts";
 import { SpatialHash } from "./SpatialHash.ts";
 import { TerritoryGrid } from "./Territory.ts";
 import { SkinSystem } from "./SkinSystem.ts";
+import { debugLog } from "./debug-log.ts";
 
 export class Game {
   private renderer: Renderer;
@@ -40,6 +41,7 @@ export class Game {
   private inputHandler!: InputHandler;
 
   private trailHash = new SpatialHash(4);
+  private indexedTrailLengths: Map<number, number> = new Map();
   private territoryGrid!: TerritoryGrid;
   private running = false;
   private paused = false;
@@ -52,6 +54,11 @@ export class Game {
   private peakPct = 0;
   private usedBotNames: Set<string> = new Set();
   private respawnTimers: Map<number, number> = new Map(); // playerId -> time remaining
+  private rafId = 0;
+  private idleFrameSkip = 0;
+  private territoryBusy = new Set<number>();
+  private debugTrailGrowthLogged = false;
+  private debugHumanTrailStateLogged = false;
 
   constructor() {
     const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
@@ -75,6 +82,11 @@ export class Game {
       if ((e.key === "r" || e.key === "R") && this.gameOver)
         this.startGame(this.menu.currentConfig);
       if (e.key === "Escape" && this.running) this.showMainMenu();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && this.rafId === 0) {
+        this.startRenderLoop();
+      }
     });
 
     this.showMainMenu();
@@ -134,6 +146,11 @@ export class Game {
     this.territoryGrid = new TerritoryGrid();
     this.usedBotNames = new Set();
     this.respawnTimers = new Map();
+    this.indexedTrailLengths.clear();
+    this.trailHash.clear();
+    this.territoryBusy.clear();
+    this.debugTrailGrowthLogged = false;
+    this.debugHumanTrailStateLogged = false;
 
     // Create players with skins
     const total = 1 + config.botCount;
@@ -218,8 +235,11 @@ export class Game {
   }
 
   private stopGame(): void {
+    this.inputHandler?.dispose();
     this.running = false;
     this.human = null;
+    this.trailHash.clear();
+    this.indexedTrailLengths.clear();
     for (const p of this.players) {
       this.renderer.cleanupPlayer(p.id);
     }
@@ -242,18 +262,11 @@ export class Game {
 
     const players = this.players;
     const playerCount = players.length;
+    const botFrameContext = this.buildBotFrameContext(players);
 
     for (let pi = 1; pi < playerCount; pi++) {
       const p = players[pi];
-      if (p.alive) this.botController.update(p, players, dt);
-    }
-
-    this.trailHash.clear();
-    for (let pi = 0; pi < playerCount; pi++) {
-      const p = players[pi];
-      if (p.alive && p.trail.length >= 2) {
-        this.trailHash.insertTrail(p.id, p.trail);
-      }
+      if (p.alive) this.botController.update(p, players, botFrameContext, dt);
     }
 
     const oldPos = this._oldPos;
@@ -261,6 +274,7 @@ export class Game {
     for (let pi = 0; pi < playerCount; pi++) {
       const p = players[pi];
       if (!p.alive) continue;
+      if (this.territoryBusy.has(p.id)) continue;
 
       if (p.isHuman && !this.started) {
         if (p.hasInput) this.started = true;
@@ -290,7 +304,7 @@ export class Game {
             hitTrail = true;
             break;
           } else {
-            this.killPlayer(other);
+            this.killPlayer(other, p);
           }
         }
       }
@@ -328,39 +342,101 @@ export class Game {
       }
 
       if (p.isTrailing) {
-        sampleTrailPoint(p);
-
         if (nowInTerritory && p.trail.length >= 3) {
-          p.trail.push({ x: newPos.x, z: newPos.z });
-
-          // Grid-based capture: automatically steals cells from other players
-          const affected = p.territory.captureFromTrail(p.trail);
-
-          // Update renderer for affected players whose territory was stolen
-          for (const otherId of affected) {
-            const other = players[otherId];
-            if (other && other.alive) {
-              other.territory.invalidateCache();
-              this.renderer.updateTerritory(
-                other.id,
-                this.territoryGrid,
-                other.color,
-                other.skinId,
-              );
-            }
+          const reentryPoint = p.territory.projectExitPoint(newPos, oldPos);
+          const captureTrail = [...p.trail];
+          const lastTrailPoint = captureTrail[captureTrail.length - 1];
+          if (
+            !lastTrailPoint ||
+            Math.abs(lastTrailPoint.x - reentryPoint.x) > 0.001 ||
+            Math.abs(lastTrailPoint.z - reentryPoint.z) > 0.001
+          ) {
+            captureTrail.push(reentryPoint);
           }
 
           p.trail = [];
           p.trailStartTangent = null;
           p.isTrailing = false;
-          this.renderer.updateTerritory(
-            p.id,
-            this.territoryGrid,
-            p.color,
-            p.skinId,
-          );
-          this.audio.territoryCaptured();
+          this.clearIndexedTrail(p.id);
+
+          this.beginTerritoryOperation([p.id], async () => {
+            const affected = await p.territory.captureFromTrail(captureTrail);
+            if (!this.running) return;
+
+            for (const otherId of affected) {
+              const other = players[otherId];
+              if (other && other.alive) {
+                other.territory.invalidateCache();
+                this.renderer.updateTerritory(
+                  other.id,
+                  this.territoryGrid,
+                  other.color,
+                  other.skinId,
+                );
+              }
+            }
+
+            this.renderer.updateTerritory(
+              p.id,
+              this.territoryGrid,
+              p.color,
+              p.skinId,
+            );
+            this.audio.territoryCaptured();
+          });
+        } else {
+          const prevTrailLen = p.trail.length;
+          sampleTrailPoint(p);
+          if (p.trail.length > prevTrailLen) {
+            this.trailHash.insertLatestSegment(p.id, p.trail);
+            this.indexedTrailLengths.set(p.id, p.trail.length);
+            if (
+              p.isHuman &&
+              !this.debugTrailGrowthLogged &&
+              p.trail.length >= 520
+            ) {
+              this.debugTrailGrowthLogged = true;
+              // #region agent log
+              debugLog(
+                "H1",
+                "Game.ts:387",
+                "human trail length exceeded render cap",
+                {
+                  trailLength: p.trail.length,
+                  indexedLength: this.indexedTrailLengths.get(p.id) ?? -1,
+                  isTrailing: p.isTrailing,
+                  x: Number(p.position.x.toFixed(3)),
+                  z: Number(p.position.z.toFixed(3)),
+                },
+              );
+              // #endregion
+            }
+          }
         }
+      }
+
+      if (
+        p.isHuman &&
+        !nowInTerritory &&
+        p.isTrailing &&
+        !this.debugHumanTrailStateLogged &&
+        p.trail.length >= 520
+      ) {
+        this.debugHumanTrailStateLogged = true;
+        // #region agent log
+        debugLog(
+          "H3",
+          "Game.ts:399",
+          "human still trailing outside territory",
+          {
+            trailLength: p.trail.length,
+            hasInput: p.hasInput,
+            isTrailing: p.isTrailing,
+            x: Number(p.position.x.toFixed(3)),
+            z: Number(p.position.z.toFixed(3)),
+          },
+        );
+        // #endregion
       }
     }
 
@@ -435,19 +511,83 @@ export class Game {
     this.checkGameOver();
   }
 
-  private killPlayer(player: PlayerState): void {
+  private killPlayer(player: PlayerState, killer?: PlayerState): void {
+    const deathPosition = { x: player.position.x, z: player.position.z };
+    const takeoverKiller =
+      killer && killer.alive && killer.id !== player.id ? killer : null;
+    const victimTrail =
+      player.trail.length > 0
+        ? player.trail.map((point) => ({ ...point }))
+        : [];
+    const lastTrailPoint = victimTrail[victimTrail.length - 1];
+    if (
+      lastTrailPoint &&
+      (Math.abs(lastTrailPoint.x - deathPosition.x) > 0.001 ||
+        Math.abs(lastTrailPoint.z - deathPosition.z) > 0.001)
+    ) {
+      victimTrail.push(deathPosition);
+    }
+
     player.alive = false;
     player.trail = [];
     player.trailStartTangent = null;
     player.isTrailing = false;
+    this.clearIndexedTrail(player.id);
 
     this.particleSystem.spawnDeathBurst(
-      player.position.x,
-      player.position.z,
+      deathPosition.x,
+      deathPosition.z,
       player.color,
     );
-    this.renderer.cleanupPlayer(player.id);
-    player.territory.clear();
+
+    if (takeoverKiller) {
+      this.beginTerritoryOperation([takeoverKiller.id], async () => {
+        const takeover = await player.territory.transferTo(takeoverKiller.id);
+        const claimedTrail =
+          await takeoverKiller.territory.claimTrailLine(victimTrail);
+        if (!this.running) return;
+
+        player.territory.invalidateCache();
+        takeoverKiller.territory.invalidateCache();
+        for (const otherId of claimedTrail) {
+          if (otherId === takeoverKiller.id || otherId === player.id) continue;
+          const other = this.players[otherId];
+          if (other && other.alive) {
+            other.territory.invalidateCache();
+            this.renderer.updateTerritory(
+              other.id,
+              this.territoryGrid,
+              other.color,
+              other.skinId,
+            );
+          }
+        }
+        if (takeover) {
+          this.renderer.startTerritoryTakeover(
+            player.id,
+            takeoverKiller.id,
+            deathPosition,
+            takeoverKiller.color,
+            takeoverKiller.skinId,
+          );
+        }
+        if (takeover || claimedTrail.size > 0) {
+          this.renderer.updateTerritory(
+            takeoverKiller.id,
+            this.territoryGrid,
+            takeoverKiller.color,
+            takeoverKiller.skinId,
+          );
+        }
+        this.renderer.removeTerritory(player.id);
+      });
+    } else {
+      this.renderer.cleanupPlayer(player.id);
+      player.territory.clear();
+    }
+
+    this.renderer.hideAvatar(player.id);
+    this.renderer.updateTrail(player.id, [], player.color, null);
 
     if (player.isHuman) this.audio.playerDeath();
     else {
@@ -570,6 +710,8 @@ export class Game {
     player.trailStartTangent = null;
     player.isTrailing = false;
     player.hasInput = false;
+    this.clearIndexedTrail(player.id);
+    this.territoryBusy.delete(player.id);
 
     // Reinit territory
     player.territory.clear();
@@ -624,14 +766,30 @@ export class Game {
   }
 
   private startRenderLoop(): void {
+    if (this.rafId) return;
     this.lastFrameTime = performance.now() / 1000;
 
     const loop = () => {
-      requestAnimationFrame(loop);
+      if (document.hidden) {
+        this.rafId = 0;
+        return;
+      }
+      this.rafId = requestAnimationFrame(loop);
       const now = performance.now() / 1000;
       const dt = Math.min(now - this.lastFrameTime, 0.05); // cap at 50ms
       this.lastFrameTime = now;
       this.gameTime += dt;
+
+      const hasActivity =
+        this.running ||
+        this.particleSystem.hasActiveParticles() ||
+        this.renderer.hasActiveEffects();
+      if (!hasActivity) {
+        this.idleFrameSkip = (this.idleFrameSkip + 1) % 6;
+        if (this.idleFrameSkip !== 0) return;
+      } else {
+        this.idleFrameSkip = 0;
+      }
 
       if (this.running) {
         this.updateGame(dt);
@@ -641,6 +799,49 @@ export class Game {
       this.renderer.render();
     };
 
-    loop();
+    this.rafId = requestAnimationFrame(loop);
+  }
+
+  private clearIndexedTrail(playerId: number): void {
+    this.trailHash.clearPlayer(playerId);
+    this.indexedTrailLengths.delete(playerId);
+  }
+
+  private beginTerritoryOperation(
+    playerIds: number[],
+    operation: () => Promise<void>,
+  ): void {
+    const lockedPlayers = new Set<number>(playerIds);
+    for (const player of this.players) {
+      if (player.alive) lockedPlayers.add(player.id);
+    }
+
+    for (const playerId of lockedPlayers) {
+      this.territoryBusy.add(playerId);
+    }
+
+    void operation()
+      .catch((error) => {
+        console.error("[Game] Territory operation failed", error);
+      })
+      .finally(() => {
+        for (const playerId of lockedPlayers) {
+          this.territoryBusy.delete(playerId);
+        }
+      });
+  }
+
+  private buildBotFrameContext(players: PlayerState[]): BotFrameContext {
+    let leaderId = -1;
+    let bestArea = -1;
+    for (const player of players) {
+      if (!player.alive) continue;
+      const area = player.territory.computeArea();
+      if (area > bestArea) {
+        bestArea = area;
+        leaderId = player.id;
+      }
+    }
+    return { leaderId };
   }
 }

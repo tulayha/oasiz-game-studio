@@ -1,308 +1,282 @@
-import { type Vec2, START_RADIUS, MAP_SIZE, MAP_HALF } from "./constants.ts";
-import { pointInPolygon } from "./Collision.ts";
+import { MAP_SIZE, START_RADIUS, type Vec2 } from "./constants.ts";
+import { nearestPointOnPolygon } from "./Collision.ts";
+import {
+  booleanGeomToTerritory,
+  cloneLoop,
+  cloneTerritory,
+  createCircleTerritory,
+  createPolylineStroke,
+  differenceTerritories,
+  loopArea,
+  pointInTerritory,
+  sanitizeTerritory,
+  signedLoopArea,
+  territoryArea,
+  territoryBounds,
+  territoryCentroid,
+  territoryToBooleanGeom,
+  type TerritoryMultiPolygon,
+  type TerritoryPolygon,
+  unionTerritories,
+} from "./polygon-ops.ts";
+import { TerritoryWorkerClient } from "./territory-worker-client.ts";
 
-const GRID_CELL = 0.1;
-const GRID_SIZE = Math.ceil(MAP_SIZE / GRID_CELL);
+const TRAIL_CLAIM_WIDTH = 0.5;
+const AREA_EPSILON = 0.0001;
+
+function isLikelyIOSWebKit(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent ?? "";
+  const platform = navigator.platform ?? "";
+  const isIOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  return isIOS && /AppleWebKit/i.test(ua);
+}
+
+function distSq(a: Vec2, b: Vec2): number {
+  const dx = a.x - b.x;
+  const dz = a.z - b.z;
+  return dx * dx + dz * dz;
+}
+
+function pointsEqual(a: Vec2, b: Vec2): boolean {
+  return Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.z - b.z) < 1e-6;
+}
+
+function normalizeLoop(loop: Vec2[]): Vec2[] {
+  const deduped: Vec2[] = [];
+  for (const point of loop) {
+    if (
+      deduped.length === 0 ||
+      !pointsEqual(deduped[deduped.length - 1], point)
+    ) {
+      deduped.push({ x: point.x, z: point.z });
+    }
+  }
+  if (
+    deduped.length > 1 &&
+    pointsEqual(deduped[0], deduped[deduped.length - 1])
+  ) {
+    deduped.pop();
+  }
+  return deduped;
+}
+
+function nearestLoopVertexIndex(point: Vec2, loop: Vec2[]): number {
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < loop.length; i++) {
+    const distance = distSq(point, loop[i]);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+function collectBoundaryArc(
+  loop: Vec2[],
+  fromIndex: number,
+  toIndex: number,
+  direction: 1 | -1,
+  fromPoint: Vec2,
+  toPoint: Vec2,
+): Vec2[] {
+  const result: Vec2[] = [{ x: fromPoint.x, z: fromPoint.z }];
+  const count = loop.length;
+  if (count === 0) return result;
+  let index = fromIndex;
+  let guard = 0;
+  while (index !== toIndex && guard < count + 2) {
+    index = (index + direction + count) % count;
+    result.push({ x: loop[index].x, z: loop[index].z });
+    guard++;
+  }
+  if (!pointsEqual(result[result.length - 1], toPoint)) {
+    result.push({ x: toPoint.x, z: toPoint.z });
+  }
+  return normalizeLoop(result);
+}
+
+type BoundarySegment = {
+  index: number;
+  a: Vec2;
+  b: Vec2;
+  point: Vec2;
+  distanceSq: number;
+};
+
+function nearestBoundarySegment(
+  loop: Vec2[],
+  point: Vec2,
+): BoundarySegment | null {
+  if (loop.length < 2) return null;
+  let best: BoundarySegment | null = null;
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % loop.length];
+    const abx = b.x - a.x;
+    const abz = b.z - a.z;
+    const ab2 = abx * abx + abz * abz;
+    if (ab2 < 1e-8) continue;
+    const apx = point.x - a.x;
+    const apz = point.z - a.z;
+    const t = Math.max(0, Math.min(1, (apx * abx + apz * abz) / ab2));
+    const projected = {
+      x: a.x + abx * t,
+      z: a.z + abz * t,
+    };
+    const distanceSq = distSq(projected, point);
+    if (!best || distanceSq < best.distanceSq) {
+      best = {
+        index: i,
+        a,
+        b,
+        point: projected,
+        distanceSq,
+      };
+    }
+  }
+  return best;
+}
+
+function insertBoundaryPoint(
+  loop: Vec2[],
+  point: Vec2,
+  segmentIndex: number,
+): { loop: Vec2[]; index: number } {
+  const count = loop.length;
+  if (count === 0) return { loop: [], index: 0 };
+
+  const startIndex = ((segmentIndex % count) + count) % count;
+  const nextIndex = (startIndex + 1) % count;
+  const start = loop[startIndex];
+  const end = loop[nextIndex];
+
+  if (pointsEqual(point, start))
+    return { loop: cloneLoop(loop), index: startIndex };
+  if (pointsEqual(point, end))
+    return { loop: cloneLoop(loop), index: nextIndex };
+
+  const nextLoop = cloneLoop(loop);
+  nextLoop.splice(startIndex + 1, 0, { x: point.x, z: point.z });
+  return { loop: nextLoop, index: startIndex + 1 };
+}
 
 export class TerritoryGrid {
-  readonly data: Int8Array;
-  readonly size = GRID_SIZE;
-  readonly cellSize = GRID_CELL;
-  readonly halfMap = MAP_HALF;
+  private readonly territories = new Map<number, Territory>();
+  private readonly worker = new TerritoryWorkerClient();
+  private readonly useWorker = !isLikelyIOSWebKit();
 
-  constructor() {
-    this.data = new Int8Array(GRID_SIZE * GRID_SIZE).fill(-1);
+  registerTerritory(playerId: number, territory: Territory): void {
+    this.territories.set(playerId, territory);
   }
 
-  toGrid(wx: number, wz: number): [number, number] {
-    return [
-      Math.max(
-        0,
-        Math.min(
-          this.size - 1,
-          Math.floor((wx + this.halfMap) / this.cellSize),
-        ),
-      ),
-      Math.max(
-        0,
-        Math.min(
-          this.size - 1,
-          Math.floor((wz + this.halfMap) / this.cellSize),
-        ),
-      ),
-    ];
+  getTerritory(playerId: number): Territory | undefined {
+    return this.territories.get(playerId);
   }
 
-  toWorld(gc: number, gr: number): [number, number] {
-    return [
-      gc * this.cellSize - this.halfMap + this.cellSize * 0.5,
-      gr * this.cellSize - this.halfMap + this.cellSize * 0.5,
-    ];
+  getTerritories(): IterableIterator<Territory> {
+    return this.territories.values();
   }
 
-  isOwnedBy(wx: number, wz: number, pid: number): boolean {
-    const [gc, gr] = this.toGrid(wx, wz);
-    return this.data[gr * this.size + gc] === pid;
+  getPolygons(playerId: number): TerritoryMultiPolygon | null {
+    return this.territories.get(playerId)?.getPolygons() ?? null;
   }
 
-  capture(playerId: number, trail: Vec2[]): Set<number> {
-    if (trail.length < 3) return new Set();
-
-    const affected = new Set<number>();
-
-    // Rasterize every trail segment into the grid so there are no gaps
-    for (let i = 0; i < trail.length - 1; i++) {
-      this.rasterizeSegment(trail[i], trail[i + 1], playerId, affected);
-    }
-    // Close the loop: connect last point back to first
-    this.rasterizeSegment(
-      trail[trail.length - 1],
-      trail[0],
-      playerId,
-      affected,
-    );
-
-    // Also fill interior via point-in-polygon for the area enclosed by the trail
-    let minC = this.size,
-      maxC = 0,
-      minR = this.size,
-      maxR = 0;
-    for (const v of trail) {
-      const [gc, gr] = this.toGrid(v.x, v.z);
-      if (gc < minC) minC = gc;
-      if (gc > maxC) maxC = gc;
-      if (gr < minR) minR = gr;
-      if (gr > maxR) maxR = gr;
-    }
-    minC = Math.max(0, minC - 1);
-    minR = Math.max(0, minR - 1);
-    maxC = Math.min(this.size - 1, maxC + 1);
-    maxR = Math.min(this.size - 1, maxR + 1);
-
-    for (let r = minR; r <= maxR; r++) {
-      for (let c = minC; c <= maxC; c++) {
-        const i = r * this.size + c;
-        if (this.data[i] === playerId) continue;
-        const [wx, wz] = this.toWorld(c, r);
-        if (pointInPolygon({ x: wx, z: wz }, trail)) {
-          const prev = this.data[i];
-          if (prev !== playerId && prev >= 0) affected.add(prev);
-          this.data[i] = playerId;
-        }
-      }
-    }
-
-    this.floodFillEnclosed(playerId, affected);
-    return affected;
+  getBounds(playerId: number): {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  } | null {
+    const territory = this.territories.get(playerId);
+    return territory ? territoryBounds(territory.getPolygons()) : null;
   }
 
-  /** Bresenham-style rasterization of a world-space segment into the grid */
-  private rasterizeSegment(
-    a: Vec2,
-    b: Vec2,
-    playerId: number,
-    affected: Set<number>,
-  ): void {
-    const [c0, r0] = this.toGrid(a.x, a.z);
-    const [c1, r1] = this.toGrid(b.x, b.z);
-
-    let c = c0,
-      r = r0;
-    const dc = Math.abs(c1 - c0);
-    const dr = Math.abs(r1 - r0);
-    const sc = c0 < c1 ? 1 : -1;
-    const sr = r0 < r1 ? 1 : -1;
-    let err = dc - dr;
-
-    for (;;) {
-      const i = r * this.size + c;
-      const prev = this.data[i];
-      if (prev !== playerId) {
-        if (prev >= 0) affected.add(prev);
-        this.data[i] = playerId;
-      }
-      if (c === c1 && r === r1) break;
-      const e2 = 2 * err;
-      if (e2 > -dr) {
-        err -= dr;
-        c += sc;
-      }
-      if (e2 < dc) {
-        err += dc;
-        r += sr;
-      }
+  async difference(
+    subject: TerritoryMultiPolygon,
+    clip: TerritoryMultiPolygon,
+  ): Promise<TerritoryMultiPolygon> {
+    const sanitizedSubject = sanitizeTerritory(subject);
+    const sanitizedClip = sanitizeTerritory(clip);
+    if (sanitizedSubject.length === 0 || sanitizedClip.length === 0)
+      return cloneTerritory(sanitizedSubject);
+    if (!this.useWorker) {
+      return differenceTerritories(sanitizedSubject, sanitizedClip);
     }
-  }
-
-  initCircle(playerId: number, cx: number, cz: number, radius: number): void {
-    const [minC, minR] = this.toGrid(
-      cx - radius - this.cellSize,
-      cz - radius - this.cellSize,
-    );
-    const [maxC, maxR] = this.toGrid(
-      cx + radius + this.cellSize,
-      cz + radius + this.cellSize,
-    );
-    const r2 = radius * radius;
-    for (let r = minR; r <= maxR; r++) {
-      for (let c = minC; c <= maxC; c++) {
-        const [wx, wz] = this.toWorld(c, r);
-        const dx = wx - cx,
-          dz = wz - cz;
-        if (dx * dx + dz * dz <= r2) {
-          this.data[r * this.size + c] = playerId;
-        }
-      }
-    }
-  }
-
-  clearPlayer(playerId: number): void {
-    for (let i = 0; i < this.data.length; i++) {
-      if (this.data[i] === playerId) this.data[i] = -1;
-    }
-  }
-
-  countCells(playerId: number): number {
-    let count = 0;
-    for (let i = 0; i < this.data.length; i++) {
-      if (this.data[i] === playerId) count++;
-    }
-    return count;
-  }
-
-  hasAnyCells(playerId: number): boolean {
-    for (let i = 0; i < this.data.length; i++) {
-      if (this.data[i] === playerId) return true;
-    }
-    return false;
-  }
-
-  getBounds(
-    playerId: number,
-  ): { minC: number; maxC: number; minR: number; maxR: number } | null {
-    let minC = this.size,
-      maxC = -1,
-      minR = this.size,
-      maxR = -1;
-    for (let r = 0; r < this.size; r++) {
-      for (let c = 0; c < this.size; c++) {
-        if (this.data[r * this.size + c] === playerId) {
-          if (c < minC) minC = c;
-          if (c > maxC) maxC = c;
-          if (r < minR) minR = r;
-          if (r > maxR) maxR = r;
-        }
-      }
-    }
-    return maxC >= 0 ? { minC, maxC, minR, maxR } : null;
-  }
-
-  private floodFillEnclosed(playerId: number, affected: Set<number>): void {
-    const sz = this.size;
-    const visited = new Uint8Array(sz * sz);
-    const stack: number[] = [];
-
-    for (let c = 0; c < sz; c++) {
-      if (this.data[c] !== playerId && !visited[c]) {
-        visited[c] = 1;
-        stack.push(c);
-      }
-      const bi = (sz - 1) * sz + c;
-      if (this.data[bi] !== playerId && !visited[bi]) {
-        visited[bi] = 1;
-        stack.push(bi);
-      }
-    }
-    for (let r = 1; r < sz - 1; r++) {
-      const li = r * sz;
-      if (this.data[li] !== playerId && !visited[li]) {
-        visited[li] = 1;
-        stack.push(li);
-      }
-      const ri = r * sz + sz - 1;
-      if (this.data[ri] !== playerId && !visited[ri]) {
-        visited[ri] = 1;
-        stack.push(ri);
-      }
-    }
-
-    while (stack.length > 0) {
-      const idx = stack.pop()!;
-      const r = (idx / sz) | 0;
-      const c = idx - r * sz;
-      if (r > 0) {
-        const ni = idx - sz;
-        if (!visited[ni] && this.data[ni] !== playerId) {
-          visited[ni] = 1;
-          stack.push(ni);
-        }
-      }
-      if (r < sz - 1) {
-        const ni = idx + sz;
-        if (!visited[ni] && this.data[ni] !== playerId) {
-          visited[ni] = 1;
-          stack.push(ni);
-        }
-      }
-      if (c > 0) {
-        const ni = idx - 1;
-        if (!visited[ni] && this.data[ni] !== playerId) {
-          visited[ni] = 1;
-          stack.push(ni);
-        }
-      }
-      if (c < sz - 1) {
-        const ni = idx + 1;
-        if (!visited[ni] && this.data[ni] !== playerId) {
-          visited[ni] = 1;
-          stack.push(ni);
-        }
-      }
-    }
-
-    for (let i = 0; i < sz * sz; i++) {
-      if (!visited[i] && this.data[i] !== playerId) {
-        const prev = this.data[i];
-        if (prev >= 0) affected.add(prev);
-        this.data[i] = playerId;
+    try {
+      const result = await this.worker.difference(
+        territoryToBooleanGeom(sanitizedSubject),
+        territoryToBooleanGeom(sanitizedClip),
+      );
+      return booleanGeomToTerritory(result);
+    } catch (error) {
+      try {
+        return differenceTerritories(sanitizedSubject, sanitizedClip);
+      } catch (fallbackError) {
+        console.warn("[TerritoryGrid] Difference failed; keeping subject", {
+          error,
+          fallbackError,
+        });
+        return cloneTerritory(sanitizedSubject);
       }
     }
   }
 }
 
 export class Territory {
-  private grid: TerritoryGrid;
-  private pid: number;
+  readonly playerId: number;
   dirty = true;
+
+  private readonly grid: TerritoryGrid;
+  private polygons: TerritoryMultiPolygon = [];
   private cachedArea = -1;
 
   constructor(grid: TerritoryGrid, playerId: number) {
     this.grid = grid;
-    this.pid = playerId;
+    this.playerId = playerId;
+    this.grid.registerTerritory(playerId, this);
+  }
+
+  getPolygons(): TerritoryMultiPolygon {
+    return cloneTerritory(this.polygons);
   }
 
   initAtSpawn(cx: number, cz: number): void {
-    this.grid.initCircle(this.pid, cx, cz, START_RADIUS);
-    this.dirty = true;
-    this.cachedArea = -1;
+    this.setPolygons(createCircleTerritory(cx, cz, START_RADIUS));
   }
 
-  containsPoint(p: Vec2): boolean {
-    return this.grid.isOwnedBy(p.x, p.z, this.pid);
+  containsPoint(point: Vec2): boolean {
+    return pointInTerritory(point, this.polygons);
   }
 
-  captureFromTrail(trailPoints: Vec2[]): Set<number> {
-    const affected = this.grid.capture(this.pid, trailPoints);
-    this.dirty = true;
-    this.cachedArea = -1;
-    // Invalidate cache for affected players too (handled externally)
-    return affected;
+  async captureFromTrail(trailPoints: Vec2[]): Promise<Set<number>> {
+    const capturedRegion = this.buildCaptureRegion(trailPoints);
+    if (capturedRegion.length === 0) return new Set();
+
+    const previousArea = this.computeArea();
+    const nextPolygons = unionTerritories(this.polygons, capturedRegion);
+    const nextArea = territoryArea(nextPolygons);
+    if (nextArea <= previousArea + AREA_EPSILON) return new Set();
+
+    this.setPolygons(nextPolygons);
+    return this.cropRegionFromOthers(capturedRegion);
+  }
+
+  async claimTrailLine(trailPoints: Vec2[]): Promise<Set<number>> {
+    if (trailPoints.length < 2) return new Set();
+    const claimedRegion = createPolylineStroke(trailPoints, TRAIL_CLAIM_WIDTH);
+    if (claimedRegion.length === 0) return new Set();
+    this.setPolygons(unionTerritories(this.polygons, claimedRegion));
+    return this.cropRegionFromOthers(claimedRegion);
   }
 
   computeArea(): number {
     if (this.cachedArea >= 0) return this.cachedArea;
-    this.cachedArea =
-      this.grid.countCells(this.pid) * this.grid.cellSize * this.grid.cellSize;
+    this.cachedArea = territoryArea(this.polygons);
     return this.cachedArea;
   }
 
@@ -310,53 +284,28 @@ export class Territory {
     return (this.computeArea() / (MAP_SIZE * MAP_SIZE)) * 100;
   }
 
-  getNearestBoundaryPoint(p: Vec2): Vec2 {
-    const [startC, startR] = this.grid.toGrid(p.x, p.z);
-    const sz = this.grid.size;
-    const data = this.grid.data;
-    const pid = this.pid;
+  getNearestBoundaryPoint(point: Vec2): Vec2 {
+    let bestPoint = { x: point.x, z: point.z };
+    let bestDistance = Number.POSITIVE_INFINITY;
 
-    let bestDist = Infinity;
-    let bestX = p.x,
-      bestZ = p.z;
-
-    for (let radius = 0; radius < 80; radius++) {
-      let found = false;
-      for (let dr = -radius; dr <= radius; dr++) {
-        for (let dc = -radius; dc <= radius; dc++) {
-          if (Math.abs(dr) < radius && Math.abs(dc) < radius) continue;
-          const r = startR + dr;
-          const c = startC + dc;
-          if (r < 0 || r >= sz || c < 0 || c >= sz) continue;
-          if (data[r * sz + c] !== pid) continue;
-
-          let boundary = false;
-          if (r === 0 || r === sz - 1 || c === 0 || c === sz - 1)
-            boundary = true;
-          else if (
-            data[(r - 1) * sz + c] !== pid ||
-            data[(r + 1) * sz + c] !== pid ||
-            data[r * sz + c - 1] !== pid ||
-            data[r * sz + c + 1] !== pid
-          )
-            boundary = true;
-
-          if (!boundary) continue;
-
-          const [wx, wz] = this.grid.toWorld(c, r);
-          const d2 = (wx - p.x) ** 2 + (wz - p.z) ** 2;
-          if (d2 < bestDist) {
-            bestDist = d2;
-            bestX = wx;
-            bestZ = wz;
-            found = true;
-          }
+    for (const polygon of this.polygons) {
+      const outerPoint = nearestPointOnPolygon(point, polygon.outer);
+      const outerDistance = distSq(point, outerPoint);
+      if (outerDistance < bestDistance) {
+        bestDistance = outerDistance;
+        bestPoint = outerPoint;
+      }
+      for (const hole of polygon.holes) {
+        const holePoint = nearestPointOnPolygon(point, hole);
+        const holeDistance = distSq(point, holePoint);
+        if (holeDistance < bestDistance) {
+          bestDistance = holeDistance;
+          bestPoint = holePoint;
         }
       }
-      if (found) break;
     }
 
-    return { x: bestX, z: bestZ };
+    return bestPoint;
   }
 
   projectExitPoint(inside: Vec2, outside: Vec2): Vec2 {
@@ -372,26 +321,39 @@ export class Territory {
     return { x: (a.x + b.x) * 0.5, z: (a.z + b.z) * 0.5 };
   }
 
-  getBoundaryTangent(p: Vec2, moveDir: Vec2): Vec2 {
-    const eps = this.grid.cellSize * 2;
-    const gx =
-      this.sampleCoverage(p.x + eps, p.z) - this.sampleCoverage(p.x - eps, p.z);
-    const gz =
-      this.sampleCoverage(p.x, p.z + eps) - this.sampleCoverage(p.x, p.z - eps);
-    const glen = Math.sqrt(gx * gx + gz * gz);
+  getBoundaryTangent(point: Vec2, moveDir: Vec2): Vec2 {
+    let bestSegment: BoundarySegment | null = null;
 
-    let tx: number;
-    let tz: number;
-
-    if (glen > 0.0001) {
-      tx = -gz / glen;
-      tz = gx / glen;
-    } else {
-      const dlen =
-        Math.sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z) || 1;
-      tx = -moveDir.z / dlen;
-      tz = moveDir.x / dlen;
+    for (const polygon of this.polygons) {
+      const outer = nearestBoundarySegment(polygon.outer, point);
+      if (
+        outer &&
+        (!bestSegment || outer.distanceSq < bestSegment.distanceSq)
+      ) {
+        bestSegment = outer;
+      }
+      for (const hole of polygon.holes) {
+        const inner = nearestBoundarySegment(hole, point);
+        if (
+          inner &&
+          (!bestSegment || inner.distanceSq < bestSegment.distanceSq)
+        ) {
+          bestSegment = inner;
+        }
+      }
     }
+
+    if (!bestSegment) {
+      const length =
+        Math.sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z) || 1;
+      return { x: -moveDir.z / length, z: moveDir.x / length };
+    }
+
+    let tx = bestSegment.b.x - bestSegment.a.x;
+    let tz = bestSegment.b.z - bestSegment.a.z;
+    const length = Math.sqrt(tx * tx + tz * tz) || 1;
+    tx /= length;
+    tz /= length;
 
     const refTx = -moveDir.z;
     const refTz = moveDir.x;
@@ -404,59 +366,178 @@ export class Territory {
   }
 
   hasTerritory(): boolean {
-    return this.grid.hasAnyCells(this.pid);
+    return this.polygons.length > 0 && this.computeArea() > AREA_EPSILON;
   }
 
   getCentroid(): Vec2 {
-    let sx = 0,
-      sz = 0,
-      n = 0;
-    const gsz = this.grid.size;
-    const data = this.grid.data;
-    for (let r = 0; r < gsz; r++) {
-      for (let c = 0; c < gsz; c++) {
-        if (data[r * gsz + c] === this.pid) {
-          const [wx, wz] = this.grid.toWorld(c, r);
-          sx += wx;
-          sz += wz;
-          n++;
-        }
-      }
-    }
-    return n > 0 ? { x: sx / n, z: sz / n } : { x: 0, z: 0 };
+    return territoryCentroid(this.polygons);
   }
 
   clear(): void {
-    this.grid.clearPlayer(this.pid);
-    this.dirty = true;
-    this.cachedArea = -1;
+    this.setPolygons([]);
+  }
+
+  async transferTo(playerId: number): Promise<{ changed: boolean } | null> {
+    if (this.polygons.length === 0) return null;
+    const target = this.grid.getTerritory(playerId);
+    if (!target) return null;
+    target.unionRegion(this.polygons);
+    this.clear();
+    return { changed: true };
   }
 
   invalidateCache(): void {
     this.cachedArea = -1;
   }
 
-  private sampleCoverage(wx: number, wz: number): number {
-    const [centerC, centerR] = this.grid.toGrid(wx, wz);
-    const radius = 2;
-    const sigma2 = this.grid.cellSize * this.grid.cellSize * 4;
-    let weighted = 0;
-    let totalWeight = 0;
+  private setPolygons(polygons: TerritoryMultiPolygon): void {
+    this.polygons = sanitizeTerritory(polygons);
+    this.dirty = true;
+    this.cachedArea = -1;
+  }
 
-    for (let dr = -radius; dr <= radius; dr++) {
-      for (let dc = -radius; dc <= radius; dc++) {
-        const c = Math.max(0, Math.min(this.grid.size - 1, centerC + dc));
-        const r = Math.max(0, Math.min(this.grid.size - 1, centerR + dr));
-        const [sx, sz] = this.grid.toWorld(c, r);
-        const dx = sx - wx;
-        const dz = sz - wz;
-        const weight = Math.exp(-(dx * dx + dz * dz) / sigma2);
-        if (this.grid.data[r * this.grid.size + c] === this.pid)
-          weighted += weight;
-        totalWeight += weight;
+  private unionRegion(region: TerritoryMultiPolygon): void {
+    this.setPolygons(unionTerritories(this.polygons, region));
+  }
+
+  private async cropRegionFromOthers(
+    region: TerritoryMultiPolygon,
+  ): Promise<Set<number>> {
+    const affected = new Set<number>();
+    for (const territory of this.grid.getTerritories()) {
+      if (territory.playerId === this.playerId || !territory.hasTerritory())
+        continue;
+      const changed = await territory.subtractRegion(region);
+      if (changed) affected.add(territory.playerId);
+    }
+    return affected;
+  }
+
+  private async subtractRegion(
+    region: TerritoryMultiPolygon,
+  ): Promise<boolean> {
+    const before = this.computeArea();
+    const nextPolygons = await this.grid.difference(this.polygons, region);
+    const nextArea = territoryArea(nextPolygons);
+    if (Math.abs(nextArea - before) <= AREA_EPSILON) return false;
+    this.setPolygons(nextPolygons);
+    return true;
+  }
+
+  private buildCaptureRegion(trailPoints: Vec2[]): TerritoryMultiPolygon {
+    const path = normalizeLoop(trailPoints);
+    if (path.length < 3 || this.polygons.length === 0) return [];
+
+    const start = path[0];
+    const end = path[path.length - 1];
+
+    let bestPolygon: TerritoryPolygon | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const polygon of this.polygons) {
+      const score =
+        distSq(nearestPointOnPolygon(start, polygon.outer), start) +
+        distSq(nearestPointOnPolygon(end, polygon.outer), end);
+      if (score < bestScore) {
+        bestScore = score;
+        bestPolygon = polygon;
       }
     }
 
-    return totalWeight > 0 ? weighted / totalWeight : 0;
+    if (!bestPolygon) return [];
+
+    const boundary = bestPolygon.outer;
+    const startSegment = nearestBoundarySegment(boundary, start);
+    if (!startSegment) return [];
+    const withStart = insertBoundaryPoint(
+      boundary,
+      startSegment.point,
+      startSegment.index,
+    );
+
+    const endSegment = nearestBoundarySegment(withStart.loop, end);
+    if (!endSegment) return [];
+    const withEnd = insertBoundaryPoint(
+      withStart.loop,
+      endSegment.point,
+      endSegment.index,
+    );
+
+    const startBoundary = withStart.loop[withStart.index];
+    const endBoundary = withEnd.loop[withEnd.index];
+    const boundaryStartIndex = nearestLoopVertexIndex(
+      startBoundary,
+      withEnd.loop,
+    );
+    const boundaryEndIndex = nearestLoopVertexIndex(endBoundary, withEnd.loop);
+
+    const resolvedPath = cloneLoop(path);
+    resolvedPath[0] = startBoundary;
+    resolvedPath[resolvedPath.length - 1] = endBoundary;
+
+    const arcForward = collectBoundaryArc(
+      withEnd.loop,
+      boundaryEndIndex,
+      boundaryStartIndex,
+      1,
+      endBoundary,
+      startBoundary,
+    );
+    const arcBackward = collectBoundaryArc(
+      withEnd.loop,
+      boundaryEndIndex,
+      boundaryStartIndex,
+      -1,
+      endBoundary,
+      startBoundary,
+    );
+
+    const candidateA: TerritoryMultiPolygon = [
+      {
+        outer: normalizeLoop([...resolvedPath, ...arcForward.slice(1)]),
+        holes: [],
+      },
+    ];
+    const candidateB: TerritoryMultiPolygon = [
+      {
+        outer: normalizeLoop([...resolvedPath, ...arcBackward.slice(1)]),
+        holes: [],
+      },
+    ];
+
+    const gainA = this.captureGain(candidateA);
+    const gainB = this.captureGain(candidateB);
+    const validA = gainA > AREA_EPSILON;
+    const validB = gainB > AREA_EPSILON;
+    if (!validA && !validB) {
+      return [];
+    }
+
+    let chosen: TerritoryMultiPolygon;
+    if (validA && validB) {
+      chosen = gainA <= gainB ? candidateA : candidateB;
+    } else {
+      chosen = validA ? candidateA : candidateB;
+    }
+
+    if (
+      chosen[0].outer.length < 3 ||
+      loopArea(chosen[0].outer) <= AREA_EPSILON
+    ) {
+      return [];
+    }
+
+    if (signedLoopArea(chosen[0].outer) > 0) {
+      chosen[0].outer.reverse();
+    }
+
+    return chosen;
+  }
+
+  private captureGain(candidate: TerritoryMultiPolygon): number {
+    return (
+      territoryArea(unionTerritories(this.polygons, candidate)) -
+      territoryArea(this.polygons)
+    );
   }
 }
