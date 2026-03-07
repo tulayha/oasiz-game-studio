@@ -332,7 +332,6 @@ export function createLobbyUI(
     }
     return `<div class="card-glow"></div>
           <div class="card-meta">
-            <span class="meta-ident ${META_ICON_CLS[type]}" title="${BADGE_LBL[type]}" aria-label="${BADGE_LBL[type]}">${BADGE_ICO[type]}<span class="meta-label">${BADGE_LBL[type]}</span></span>
             <div class="card-meta-right">
               ${isLeaderPlayer ? `<span class="meta-host" title="Host" aria-label="Host">${CROWN_SVG}</span>` : ""}
               <span class="card-slot">${SLOTS[slotIdx]}</span>
@@ -348,7 +347,7 @@ export function createLobbyUI(
             </div>
           </div>
           <div class="card-info">
-            <div class="card-name"><span class="card-name-text">${escapeHtml(player.name)}</span>${isSelf ? '<span class="card-name-you">YOU</span>' : ""}</div>
+            <div class="card-name"><span class="card-name-text">${escapeHtml(player.name)}</span>${isSelf ? '<span class="card-name-you">[YOU]</span>' : ""}</div>
             <div class="card-footer">${footerContent}</div>
           </div>`;
   }
