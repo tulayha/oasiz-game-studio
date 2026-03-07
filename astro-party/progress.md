@@ -745,6 +745,25 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 - Architecture outcome:
   - no change required.
 
+## 2026-03-07 - Lobby topbar + ctrl-strip layout cleanup
+
+- Scope:
+  - Removed dead branding from lobby topbar; increased topbar height; tightened ctrl-strip top gap and reduced strip height to give player cards more vertical room.
+- Key changes:
+  - `astro-party/index.html`:
+    - Removed logo block from topbar HTML: icon SVG, "ASTRO PARTY" text, "Mission Lobby" sub-label, and the adjacent topbar divider.
+    - Removed dead CSS: `.logo`, `.logo-mark`, `.logo-mark svg`, `.logo-text`, `.logo-sub` rule blocks.
+    - `--topbar-h`: `3.625rem` → `4.17rem` (+15%, base value bumped directly).
+    - `--strip-h`: `8.125rem` → `7rem` — strip shorter from the top (bottom-fixed), giving player cards ~1rem more vertical room.
+    - `cs-map align-items`: `center` → `flex-start` — thumbnail+meta anchors to top of strip.
+    - `cs-mode justify-content`: `center` → `flex-start` — content anchors to top; visual gap from border-top drops from `padding + free-space/2` to just `padding` (~0.75rem).
+    - `cs-launch justify-content`: `center` → `flex-start` — same; free space pools below launch button instead of splitting above/below it.
+    - Section top paddings halved: `cs-map` 1.75rem→0.875rem, `cs-mode` 1.5rem→0.75rem, `cs-launch` 1.75rem→0.875rem.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+- Architecture outcome:
+  - no change required.
+
 ## 2026-03-07 - attractCover timing race fix + graceful fade-out on button click
 
 - Scope:

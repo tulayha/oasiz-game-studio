@@ -2999,8 +2999,8 @@
       --fs-label: 0.7rem;
       --fs-ui: 0.9rem;
       --fs-display: 1.125rem;
-      --topbar-h: 3.625rem;
-      --strip-h: 8.125rem;
+      --topbar-h: 4.17rem;
+      --strip-h: 7rem;
       --side-pad: clamp(40px, 8vw, 100px);
     }
 
@@ -3085,35 +3085,6 @@
     #lobbyScreen .topbar-rail {
       height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
       flex-shrink: 0;
-    }
-
-    #lobbyScreen .logo {
-      display: flex;
-      align-items: center;
-      gap: 0.625rem;
-    }
-    #lobbyScreen .logo-mark {
-      width: 1.75rem; height: 1.75rem;
-      border: 0.125rem solid var(--gold);
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0;
-    }
-    #lobbyScreen .logo-mark svg { width: 0.875rem; height: 0.875rem; }
-    #lobbyScreen .logo-text {
-      font-family: 'Orbitron', sans-serif;
-      font-size: var(--fs-ui);
-      font-weight: 900;
-      letter-spacing: 0.14em;
-      color: var(--text);
-    }
-    #lobbyScreen .logo-sub {
-      font-family: 'Space Mono', monospace;
-      font-size: var(--fs-ui);
-      letter-spacing: 0.12em;
-      color: var(--gold);
-      text-transform: uppercase;
-      margin-top: 1px;
     }
 
     #lobbyScreen .topbar-divider { width: 1px; height: 1.5rem; background: var(--border2); }
@@ -3609,9 +3580,9 @@
 
     #lobbyScreen .cs-map {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 0.875rem;
-      padding: 1.75rem 1.25rem 1.25rem 1.75rem;
+      padding: 0.875rem 1.25rem 1.25rem 1.75rem;
       flex: 2 1 0;
       max-width: 26.25rem;
       min-width: 14rem;
@@ -3675,9 +3646,9 @@
     #lobbyScreen .cs-mode {
       display: flex;
       flex-direction: column;
-      justify-content: center;
+      justify-content: flex-start;
       gap: 0.5rem;
-      padding: 1.5rem 1.25rem 1.25rem;
+      padding: 0.75rem 1.25rem 1.25rem;
       flex: 1 1 0;
       max-width: 10.5rem;
       min-width: 8rem;
@@ -3753,9 +3724,9 @@
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      justify-content: center;
+      justify-content: flex-start;
       gap: 0.5rem;
-      padding: 1.75rem 1.75rem 1.25rem 1.5rem;
+      padding: 0.875rem 1.75rem 1.25rem 1.5rem;
     }
     #lobbyScreen .launch-status {
       display: flex;
@@ -3964,19 +3935,6 @@
 
       <!-- TOPBAR -->
       <div class="topbar">
-        <div class="logo">
-          <div class="logo-mark">
-            <svg viewBox="0 0 24 24" fill="none">
-              <polygon points="12,3 20,12 12,21 4,12" fill="none" stroke="#d97706" stroke-width="1.8"/>
-              <circle cx="12" cy="12" r="3" fill="#d97706"/>
-            </svg>
-          </div>
-          <div>
-            <div class="logo-text">ASTRO PARTY</div>
-            <div class="logo-sub">Mission Lobby</div>
-          </div>
-        </div>
-        <div class="topbar-divider"></div>
         <div class="session-group" id="sessionModeIndicator" aria-label="Session mode indicator">
           <span class="sg-chip" id="sessionModeLocal">Local</span>
           <span class="sg-chip" id="sessionModeOnline">Online</span>
