@@ -735,22 +735,7 @@ export function createLobbyUI(
       name.className = "map-picker-name";
       name.textContent = map.name;
 
-      const desc = document.createElement("div");
-      desc.className = "map-picker-desc";
-      desc.textContent = map.description;
-
-      const badge = document.createElement("span");
-      badge.className = "map-picker-badge";
-      if (mapId === 0) {
-        badge.classList.add("rotation");
-        badge.textContent = "Rotation";
-      } else {
-        badge.textContent = "Fixed";
-      }
-
       meta.appendChild(name);
-      meta.appendChild(desc);
-      meta.appendChild(badge);
       card.appendChild(preview);
       card.appendChild(meta);
 
@@ -998,9 +983,10 @@ export function createLobbyUI(
     feedback.button();
     ensureMapPickerCards();
     updateMapPickerState(game.getMapId());
-    renderMapPickerPreviews();
     elements.mapPickerModal.classList.add("active");
     elements.mapPickerBackdrop.classList.add("active");
+    // Render after modal is visible so getBoundingClientRect returns real canvas dimensions
+    requestAnimationFrame(() => renderMapPickerPreviews());
   });
 
   elements.mapPickerClose.addEventListener("click", (event) => {

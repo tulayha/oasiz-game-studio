@@ -36,14 +36,19 @@ function getCanvasDimensions(canvas: HTMLCanvasElement): {
   return { width, height };
 }
 
-function resizeCanvas(canvas: HTMLCanvasElement): void {
+function resizeCanvas(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+): void {
   const { width, height } = getCanvasDimensions(canvas);
-  if (canvas.width !== width) {
-    canvas.width = width;
+  const dpr = window.devicePixelRatio || 1;
+  const targetW = Math.round(width * dpr);
+  const targetH = Math.round(height * dpr);
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
   }
-  if (canvas.height !== height) {
-    canvas.height = height;
-  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
 export function renderMapPreviewOnCanvas(
@@ -53,16 +58,17 @@ export function renderMapPreviewOnCanvas(
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  resizeCanvas(canvas);
+  resizeCanvas(canvas, ctx);
 
   const context: CanvasRenderingContext2D = ctx;
+  const dpr = window.devicePixelRatio || 1;
 
   function getCanvasWidth(): number {
-    return canvas.width;
+    return canvas.width / dpr;
   }
 
   function getCanvasHeight(): number {
-    return canvas.height;
+    return canvas.height / dpr;
   }
 
   function scaleX(x: number): number {
@@ -253,10 +259,21 @@ export function renderMapPreviewOnCanvas(
     }
   }
 
+  function drawBackground(): void {
+    const width = getCanvasWidth();
+    const height = getCanvasHeight();
+    context.fillStyle = "#050b14";
+    context.fillRect(0, 0, width, height);
+    // subtle gold border
+    context.strokeStyle = "rgba(217,119,6,0.12)";
+    context.lineWidth = 1;
+    context.strokeRect(1, 1, width - 2, height - 2);
+  }
+
   function drawClassicRotationPreview(): void {
     const width = getCanvasWidth();
     const height = getCanvasHeight();
-    context.clearRect(0, 0, width, height);
+    drawBackground();
     drawGrid();
 
     const cx = width / 2;
@@ -269,6 +286,12 @@ export function renderMapPreviewOnCanvas(
     context.arc(cx, cy, radius, 0, Math.PI * 2);
     context.stroke();
 
+    context.strokeStyle = "rgba(0, 240, 255, 0.18)";
+    context.lineWidth = Math.max(0.8, width * 0.005);
+    context.beginPath();
+    context.arc(cx, cy, radius * 0.5, 0, Math.PI * 2);
+    context.stroke();
+
     context.fillStyle = "rgba(255, 255, 255, 0.85)";
     context.font =
       "700 " +
@@ -277,13 +300,6 @@ export function renderMapPreviewOnCanvas(
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillText("?", cx, cy);
-
-    context.fillStyle = "rgba(0, 240, 255, 0.85)";
-    context.font =
-      "600 " +
-      Math.max(8, Math.round(height * 0.09)).toString() +
-      "px Orbitron, sans-serif";
-    context.fillText("ROTATES", cx, cy + radius + Math.max(10, height * 0.08));
   }
 
   function drawMap(): void {
@@ -293,7 +309,7 @@ export function renderMapPreviewOnCanvas(
     }
 
     const map = getMapDefinition(mapId);
-    context.clearRect(0, 0, getCanvasWidth(), getCanvasHeight());
+    drawBackground();
     drawGrid();
     drawRepulsionZones(map.repulsionZones);
     drawCenterHoles(map.centerHoles);
@@ -301,7 +317,6 @@ export function renderMapPreviewOnCanvas(
     drawYellowBlocks(map.yellowBlocks);
     drawAsteroidConfig(map.asteroidConfig);
     drawTurret(map.hasTurret);
-    drawSpawnPoints();
   }
 
   drawMap();
