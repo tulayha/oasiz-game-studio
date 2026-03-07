@@ -31,6 +31,61 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-08 - Lobby name alignment correction for larger layouts
+
+- Scope:
+  - Restored filled-card name alignment for desktop/iPad while preserving phone-compact behavior.
+  - File: `index.html`.
+- Key changes:
+  - Base lobby card name row now left-aligned (`justify-content: flex-start`).
+  - Phone compact media query (`(pointer: coarse) and (max-height: 600px)`) explicitly keeps centered name row.
+- Validation:
+  - `bun run typecheck`: clean.
+  - `bun run build`: clean.
+- Outcome:
+  - Desktop/iPad no longer show centered name above bottom action button; compact phone layout remains unchanged.
+- Architecture outcome:
+  - no change required.
+
+## 2026-03-08 - Lobby top-corner ownership swap (slot left, cross right)
+
+- Scope:
+  - Swapped top-corner ownership in lobby filled cards so slot label is always left and compact remove/kick icon is right.
+  - Files: `src/ui/lobby.ts`, `index.html`.
+- Key changes:
+  - `card-meta` markup changed:
+    - left rail (`card-meta-left`): host crown + `P1..P4` slot label.
+    - right rail (`card-meta-right`): compact cross action button (when phone compact layout and host can act).
+  - Update path selectors swapped accordingly to keep dynamic host/corner-action updates correct when lobby role state changes.
+  - CSS ownership swapped for `card-meta-left`/`card-meta-right` layout behavior.
+- Validation:
+  - `bun run typecheck`: clean.
+  - `bun run build`: clean.
+- Outcome:
+  - `P1..P4` label now anchors top-left regardless of device; compact cross action anchors top-right when present.
+- Architecture outcome:
+  - no change required.
+
+## 2026-03-08 - Lobby action control responsive split (phone icon vs iPad/desktop text)
+
+- Scope:
+  - Adjusted host remove/kick control ergonomics by viewport class without changing behavior.
+  - Files: `src/ui/lobby.ts`, `index.html`.
+- Key changes:
+  - Added responsive action layout gate in lobby cards:
+    - phone landscape coarse (`(pointer: coarse) and (max-height: 600px)`): keep compact top-corner cross icon.
+    - larger layouts (iPad/desktop): use bottom text button (`Remove`/`Kick`).
+  - Reintroduced bottom footer action rendering/styling for non-phone cards (`.card-footer`, `.card-footer-actions`, `.card-act--text`).
+  - Kept host-only visibility and existing delegated action payloads (`data-action`, `data-player-id`).
+- Validation:
+  - `bun run typecheck`: clean.
+  - `bun run build`: clean.
+- Outcome:
+  - Phone layout keeps the compact icon look.
+  - iPad/desktop no longer rely on tiny corner icon; action affordance is legible again.
+- Architecture outcome:
+  - no change required.
+
 ## 2026-03-08 - Main-screen ghost opacity + lobby card action compact pass
 
 - Scope:

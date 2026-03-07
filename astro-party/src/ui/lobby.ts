@@ -41,6 +41,9 @@ export function createLobbyUI(
   let addingBot = false;
   let addButtonGuardUntilMs = 0;
   const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const phoneCardActionLayoutQuery = window.matchMedia(
+    "(pointer: coarse) and (max-height: 600px)",
+  );
   const tapGuardUntilByKey = new Map<string, number>();
   const ADD_BUTTON_TAP_GUARD_MS = 450;
   const TAP_GUARD_MS = 340;
@@ -305,10 +308,28 @@ export function createLobbyUI(
     return cardSlotEls;
   }
 
-  function buildCardActionButton(playerId: string, botType: string | null): string {
+  function useCompactCardActionLayout(): boolean {
+    return phoneCardActionLayoutQuery.matches;
+  }
+
+  function getCardActionMeta(botType: string | null): {
+    action: "remove" | "kick";
+    label: string;
+  } {
     const action = botType === "ai" || botType === "local" ? "remove" : "kick";
-    const actionLabel = action === "remove" ? "Remove player" : "Kick player";
+    const label = action === "remove" ? "Remove" : "Kick";
+    return { action, label };
+  }
+
+  function buildCardActionIconButton(playerId: string, botType: string | null): string {
+    const { action, label } = getCardActionMeta(botType);
+    const actionLabel = label + " player";
     return `<button class="card-act card-act--icon" type="button" data-action="${action}" data-player-id="${playerId}" aria-label="${actionLabel}" title="${actionLabel}"><span class="card-act-icon" aria-hidden="true">&times;</span></button>`;
+  }
+
+  function buildCardActionTextButton(playerId: string, botType: string | null): string {
+    const { action, label } = getCardActionMeta(botType);
+    return `<button class="card-act card-act--text" type="button" data-action="${action}" data-player-id="${playerId}">${label}</button>`;
   }
 
   function buildFilledCardHTML(
@@ -321,17 +342,22 @@ export function createLobbyUI(
     botType: string | null,
     color: string,
   ): string {
+    const useCompactActions = useCompactCardActionLayout();
     const canCycleSkin = isSelf || (botType === "local" && canAct);
-    const cornerAction = !isSelf && canAct
-      ? buildCardActionButton(player.id, botType)
+    const cornerAction = !isSelf && canAct && useCompactActions
+      ? buildCardActionIconButton(player.id, botType)
       : "";
+    const footerContent = !isSelf && canAct && !useCompactActions
+      ? `<div class="card-footer-actions">${buildCardActionTextButton(player.id, botType)}</div>`
+      : '<span class="card-footer-spacer"></span>';
+    const footerBlock = useCompactActions ? "" : `<div class="card-footer">${footerContent}</div>`;
     return `<div class="card-glow"></div>
           <div class="card-meta">
-            <div class="card-meta-left">${cornerAction}</div>
-            <div class="card-meta-right">
+            <div class="card-meta-left">
               ${isLeaderPlayer ? `<span class="meta-host" title="Host" aria-label="Host">${CROWN_SVG}</span>` : ""}
               <span class="card-slot">${SLOTS[slotIdx]}</span>
             </div>
+            <div class="card-meta-right">${cornerAction}</div>
           </div>
           <div class="card-scene">
             <div class="card-vp-wrap">
@@ -344,6 +370,7 @@ export function createLobbyUI(
           </div>
           <div class="card-info">
             <div class="card-name"><span class="card-name-text">${escapeHtml(player.name)}</span>${isSelf ? '<span class="card-name-you">[YOU]</span>' : ""}</div>
+            ${footerBlock}
           </div>`;
   }
 
@@ -412,6 +439,7 @@ export function createLobbyUI(
         const isLeaderPlayer = leaderId ? player.id === leaderId : false;
         const canAct = isLeader && !isSelf;
         const botType = game.getPlayerBotType(player.id);
+        const useCompactActions = useCompactCardActionLayout();
 
         let type: "you" | "ai" | "local" | "online";
         if (isSelf) type = "you";
@@ -454,11 +482,11 @@ export function createLobbyUI(
           }
 
           // Host pip in meta rail
-          const metaRight = card.querySelector<HTMLElement>(".card-meta-right");
-          if (metaRight) {
-            const hostPip = metaRight.querySelector(".meta-host");
+          const metaLeft = card.querySelector<HTMLElement>(".card-meta-left");
+          if (metaLeft) {
+            const hostPip = metaLeft.querySelector(".meta-host");
             if (isLeaderPlayer && !hostPip) {
-              metaRight.insertAdjacentHTML(
+              metaLeft.insertAdjacentHTML(
                 "afterbegin",
                 `<span class="meta-host" title="Host" aria-label="Host">${CROWN_SVG}</span>`,
               );
@@ -468,13 +496,33 @@ export function createLobbyUI(
           }
 
           // Corner action (host controls for remove/kick)
-          const metaLeft = card.querySelector<HTMLElement>(".card-meta-left");
-          if (metaLeft) {
-            const nextAction = !isSelf && canAct
-              ? buildCardActionButton(player.id, botType)
+          const metaRight = card.querySelector<HTMLElement>(".card-meta-right");
+          if (metaRight) {
+            const nextAction = !isSelf && canAct && useCompactActions
+              ? buildCardActionIconButton(player.id, botType)
               : "";
-            if (metaLeft.innerHTML !== nextAction) {
-              metaLeft.innerHTML = nextAction;
+            if (metaRight.innerHTML !== nextAction) {
+              metaRight.innerHTML = nextAction;
+            }
+          }
+
+          // Footer action (larger layouts only)
+          const cardInfo = card.querySelector<HTMLElement>(".card-info");
+          if (cardInfo) {
+            const footer = cardInfo.querySelector<HTMLElement>(".card-footer");
+            if (useCompactActions) {
+              if (footer) footer.remove();
+            } else {
+              const newFooter = !isSelf && canAct
+                ? `<div class="card-footer-actions">${buildCardActionTextButton(player.id, botType)}</div>`
+                : '<span class="card-footer-spacer"></span>';
+              if (footer) {
+                if (footer.innerHTML !== newFooter) {
+                  footer.innerHTML = newFooter;
+                }
+              } else {
+                cardInfo.insertAdjacentHTML("beforeend", `<div class="card-footer">${newFooter}</div>`);
+              }
             }
           }
 
