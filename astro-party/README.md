@@ -98,6 +98,8 @@ Process audio into runtime assets with:
 cd astro-party
 bun run ffmpeg:install
 bun run ffmpeg:check
+bun run ffprobe:install
+bun run ffprobe:check
 bun run process:audio
 ```
 

@@ -8,6 +8,8 @@
     "generate:ship-skins": "bun run scripts/generate-ship-skins.ts",
     "ffmpeg:install": "bun run scripts/install-ffmpeg.ts",
     "ffmpeg:check": "bun run scripts/check-ffmpeg.ts",
+    "ffprobe:install": "bun run scripts/install-ffprobe.ts",
+    "ffprobe:check": "bun run scripts/check-ffprobe.ts",
     "process:audio": "bun run scripts/process-audio-assets.ts",
     "sim:collision-matrix": "bun run scripts/run-sim-collision-matrix.ts",
     "generate:ship-skins:warn": "bun -e \"process.env.SHIP_SKIN_VALIDATION='warn'; await import('./scripts/generate-ship-skins.ts');\"",
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@types/matter-js": "^0.19.7",
     "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
     "prettier": "^3.7.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.0",

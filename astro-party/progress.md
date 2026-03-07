@@ -31,6 +31,53 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-07 - Gitignore cleanup for Astro Party local artifacts
+
+- Scope:
+  - Cleaned Astro Party-specific ignore coverage for local development artifacts.
+- Key changes:
+  - root `.gitignore`:
+    - grouped Astro Party local artifacts under one section.
+    - added ignores for:
+      - `astro-party/.claude/`
+      - `astro-party/docs/plans/`
+    - retained existing local binary/runtime ignores:
+      - `astro-party/.tools/ffmpeg/`
+      - `astro-party/server/observed-runs/*` with dashboard/index exceptions.
+- Validation:
+  - `git status --short` confirms `.claude/` and `docs/plans/` no longer appear as untracked noise.
+- Outcome:
+  - Astro Party workspace status is cleaner while keeping tracked docs and server dashboard artifacts intact.
+- Architecture outcome:
+  - no change required.
+
+## 2026-03-07 - FFprobe tooling wired alongside FFmpeg
+
+- Scope:
+  - Added an `ffprobe` install/check workflow mirroring existing `ffmpeg` tooling.
+- Key changes:
+  - `astro-party/package.json`:
+    - added scripts:
+      - `ffprobe:install`
+      - `ffprobe:check`
+    - added dev dependency: `ffprobe-static`.
+  - New scripts:
+    - `astro-party/scripts/ffprobe-path.ts` (CLI/env/local/PATH resolution)
+    - `astro-party/scripts/install-ffprobe.ts` (local binary install into `.tools/ffmpeg`)
+    - `astro-party/scripts/check-ffprobe.ts` (version/availability verification)
+  - Docs:
+    - `astro-party/README.md` audio commands updated with ffprobe steps.
+    - `astro-party/assets/audio-src/README.md` updated with ffprobe commands and resolution order.
+- Validation:
+  - `astro-party`: `bun run ffprobe:install` passed.
+  - `astro-party`: `bun run ffprobe:check` passed (verified local resolution after install).
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Project now has first-class `ffprobe` tooling wired in the same operational pattern as `ffmpeg`.
+- Architecture outcome:
+  - no change required.
+
 ## 2026-03-07 - Platform back/leave correction: start-only platform quit + yes/no modal flow
 
 - Scope:
