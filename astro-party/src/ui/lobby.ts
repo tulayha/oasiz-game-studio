@@ -452,7 +452,7 @@ export function createLobbyUI(
             }
             const youLabel = nameEl.querySelector(".card-name-you");
             if (isSelf && !youLabel) {
-              nameEl.insertAdjacentHTML("beforeend", '<span class="card-name-you">YOU</span>');
+              nameEl.insertAdjacentHTML("beforeend", '<span class="card-name-you">[YOU]</span>');
             } else if (!isSelf && youLabel) {
               youLabel.remove();
             }
