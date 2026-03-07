@@ -700,6 +700,69 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 - Outcome:
   - Start screen is clean title + tap hint / buttons only. Title stays visually stable across all state transitions.
 
+## 2026-03-07 - attractCover pre-reset + start screen flow dead code cleanup
+
+- Scope:
+  - Fixed attractCover state ownership so start screen always shows a clean dark background on re-entry, and removed dead/redundant code.
+- Key changes:
+  - `astro-party/src/main.ts`:
+    - `syncScreenToPhase` START case: instant attractCover opaque snap (transition bypass via inline style + offsetWidth reflow + rAF restore) before showScreen, so logo animation never exposes raw canvas.
+    - Removed redundant `screenController.showScreen("start")` at end of `startDemoSession()` — already called by `syncScreenToPhase` in all real paths.
+    - Updated stale comment on `classList.remove("revealed")` inside `startDemoSession()` to reflect it is now a safety guard, not the primary reset.
+  - `astro-party/src/demo/DemoOverlayUI.ts`:
+    - Removed dead `hidePanel()` private method — never called anywhere.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - Returning from lobby to start screen no longer flashes raw canvas under logo animation.
+- Architecture outcome:
+  - no change required.
+
+## 2026-03-07 - Audio-driven lobby enter/exit transition animation
+
+- Scope:
+  - Added directional slide motion to START↔LOBBY screen changes, synced to PAGE_INTRO_IN / PAGE_INTRO_OUT audio cues.
+- Key changes:
+  - `astro-party/index.html`:
+    - `#lobbyScreen.overlay`: added `transform: translateY(0)` and extended transition to include transform (0.35s ease) for exit slide.
+    - `#lobbyScreen.overlay.hidden`: added `transform: translateY(14px)` — lobby slides down on exit.
+    - `@keyframes lobbyRise` (430ms cubic-bezier): opacity 0→1, translateY(20px→0) — plays immediately on lobby show.
+    - `@keyframes lobbySettle` (200ms cubic-bezier, opacity-only micro-tick): fired by JS at PAGE_INTRO_IN audio beat.
+    - `.lobby-rising` and `.lobby-settled` animation classes.
+  - `astro-party/src/main.ts`:
+    - Module-level constants: `LOBBY_ENTER_DELAY_MS = 150` (clears sfxUiClickPositive at 133ms), `LOBBY_SETTLE_CUE_TIME_SEC = 0.45` (PAGE_INTRO_IN hard beat at ~460–500ms).
+    - `lobbySettleRafId` and `cancelLobbySettleLoop()` added to init scope.
+    - `case "LOBBY"` (from START): wraps all setup in 150ms setTimeout; applies `lobby-rising` class; starts rAF poll on `AudioManager.getCuePlaybackTime("PAGE_INTRO_IN")` to swap to `lobby-settled` at the audio beat.
+    - `case "LOBBY"` (from non-START): direct show, no animation.
+    - `case "START"`: cancel settle loop + strip animation classes before showing start screen.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+  - `astro-party`: `bun run build` passed.
+- Outcome:
+  - START→LOBBY: 150ms gap after button tap, then lobby rises over 430ms and snaps at the PAGE_INTRO_IN beat.
+  - LOBBY→START: lobby slides down 14px while fading (350ms), then start screen title animation plays.
+- Architecture outcome:
+  - no change required.
+
+## 2026-03-07 - attractCover timing race fix + graceful fade-out on button click
+
+- Scope:
+  - Fixed attractCover reveal not animating on mobile (instant jump instead of 0.75s fade); added smooth 150ms fade-out when player taps a start-screen action button without exposing the empty border map during teardown.
+- Key changes:
+  - `astro-party/src/main.ts`:
+    - `revealAttractCover()`: now explicitly clears any inline `transition` override before adding `.revealed`. Fixes race where `setAttractCoverOpaqueInstant()`'s rAF to restore the transition hadn't fired yet when `revealAttractCover()` was called (reproducible on mobile where `await startDemo()` resolves as a microtask before the next animation frame).
+    - `fadeAttractCoverToOpaque()`: new async helper returning `Promise<void>`. If cover is already opaque (attract not running), resolves immediately with zero latency. If revealed, applies 150ms ease fade and resolves only after the transition completes. Teardown (`activeDemoController.teardown()`) is awaited only after this promise resolves — ensuring the canvas never resets to the empty border map while the cover is partially transparent.
+    - `teardownDemoForAction()`: `await fadeAttractCoverToOpaque()` before proceeding with teardown.
+    - `teardownDemoAndShowMenu()` (tutorial leave path) keeps `setAttractCoverOpaqueInstant()` — returns directly to start screen with semi-transparent centre, instant snap required.
+- Validation:
+  - `astro-party`: `bun run typecheck` passed.
+- Outcome:
+  - Attract reveal (dark→canvas) animates correctly on mobile.
+  - On button click: attract game fades out over 150ms, canvas only resets after cover is fully opaque — empty border map never exposed.
+- Architecture outcome:
+  - no change required.
+
 ## 2026-03-07 - Attract teardown bleed-through + lobby transition shake fix
 
 - Scope:

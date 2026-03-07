@@ -259,8 +259,32 @@ async function init(): Promise<void> {
       cover.style.removeProperty("transition");
     });
   };
+  // Fade the attract cover to opaque and resolve only once the transition is
+  // done. Teardown must not start until this resolves — otherwise the canvas
+  // resets to the empty border map while the cover is still partially
+  // transparent. If the cover is already opaque (attract never ran), resolves
+  // immediately so there is no added latency on non-attract paths.
+  const fadeAttractCoverToOpaque = (): Promise<void> => {
+    const cover = getAttractCover();
+    if (!cover || !cover.classList.contains("revealed")) return Promise.resolve();
+    const durationMs = 150;
+    return new Promise((resolve) => {
+      cover.style.transition = `opacity ${durationMs}ms ease`;
+      cover.classList.remove("revealed");
+      setTimeout(() => {
+        cover.style.removeProperty("transition");
+        resolve();
+      }, durationMs + 20); // +20ms so final rendered frame lands before teardown
+    });
+  };
   const revealAttractCover = (): void => {
-    getAttractCover()?.classList.add("revealed");
+    const cover = getAttractCover();
+    if (!cover) return;
+    // Clear any inline transition override left by setAttractCoverOpaqueInstant so
+    // the CSS stylesheet transition (0.75s ease) is guaranteed to fire even if the
+    // rAF that was supposed to restore it hasn't run yet (mobile timing race).
+    cover.style.removeProperty("transition");
+    cover.classList.add("revealed");
   };
   const cancelLobbySettleLoop = (): void => {
     if (lobbySettleRafId !== 0) {
@@ -601,7 +625,7 @@ async function init(): Promise<void> {
     hideLiveMatchPlayerIntro();
     const activeDemoController = demoController;
     if (!activeDemoController?.isDemoActive()) return;
-    setAttractCoverOpaqueInstant();
+    await fadeAttractCoverToOpaque();
     await runWithSuppressedStartPhaseEffects(async () => {
       demoOverlay?.hideAll();
       await activeDemoController.teardown();
