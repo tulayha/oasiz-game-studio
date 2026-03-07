@@ -31,6 +31,29 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-08 - Modal layering hardening (global top-tier z-index)
+
+- Scope:
+  - Prevented any gameplay/tutorial/touch element from rendering above active modals.
+  - File: `index.html`.
+- Key changes:
+  - Added global modal layer tokens in `:root`:
+    - `--z-modal-backdrop: 12000`
+    - `--z-modal-panel: 12010`
+    - `--z-leave-backdrop: 12020`
+    - `--z-leave-panel: 12030`
+  - Migrated all shared modal/backdrop pairs to tokenized high layer values:
+    - `.settings-backdrop`, `.settings-modal` (covers settings, advanced settings, add-player, key-select).
+    - `#leaveBackdrop`, `#leaveModal`.
+    - `#lobbyScreen .modal-bg`, `#lobbyScreen .map-modal`.
+- Validation:
+  - `bun run typecheck`: clean.
+  - `bun run build`: clean.
+- Outcome:
+  - Active modals now render above tutorial pilot/dialogue and touch-pad overlays across flows.
+- Architecture outcome:
+  - no change required.
+
 ## 2026-03-08 - Lobby name alignment correction for larger layouts
 
 - Scope:

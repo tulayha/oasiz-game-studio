@@ -223,6 +223,10 @@
       --hud-bottom-gap: 0px;
       --hud-top-pad: 60px;
       --leave-btn-size: 42px;
+      --z-modal-backdrop: 12000;
+      --z-modal-panel: 12010;
+      --z-leave-backdrop: 12020;
+      --z-leave-panel: 12030;
     }
 
     #game-wrapper {
@@ -1722,7 +1726,7 @@
       border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 16px;
       padding: 1.5rem 2rem;
-      z-index: 420;
+      z-index: var(--z-modal-panel);
       min-width: 280px;
       max-width: calc(var(--box-width) - 40px);
       max-height: calc(var(--box-height) - 40px);
@@ -1743,7 +1747,7 @@
       width: 100%;
       height: 100%;
       background: rgba(0, 0, 0, 0.7);
-      z-index: 410;
+      z-index: var(--z-modal-backdrop);
       display: none;
     }
 
@@ -1832,11 +1836,11 @@
 
     /* Leave confirmation must stay above tutorial/demo overlays. */
     #leaveBackdrop {
-      z-index: 760;
+      z-index: var(--z-leave-backdrop);
     }
 
     #leaveModal {
-      z-index: 770;
+      z-index: var(--z-leave-panel);
     }
 
     #leaveModal .btn {
@@ -3852,7 +3856,7 @@
       position: fixed; inset: 0;
       background: rgba(4,8,18,0.82);
       backdrop-filter: blur(6px);
-      z-index: 200;
+      z-index: var(--z-modal-backdrop);
     }
     #lobbyScreen .modal-bg.active { display: block; }
     #lobbyScreen .map-modal {
@@ -3867,7 +3871,7 @@
       border: 1px solid var(--border2);
       border-radius: 0.875rem;
       padding: 1.5rem;
-      z-index: 201;
+      z-index: var(--z-modal-panel);
       box-shadow: 0 1.75rem 4.375rem rgba(0,0,0,0.88);
     }
     #lobbyScreen .map-modal.active { display: flex; flex-direction: column; }
