@@ -47,6 +47,22 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 - Outcome:
   - `+` icons align correctly on both surfaces; add-player modal buttons stay centered; tap-hint is clearly separated from the ship circle on large-screen cards.
 
+## 2026-03-08 - Corner touch zone assigned by spawn position not local-player index
+
+- Scope:
+  - Touch controls placed in wrong corners when a bot occupies a middle slot (e.g. P2=bot, P3+P4=local). Files: `src/managers/BotManager.ts`, `src/systems/input/MultiInputManager.ts`, `src/systems/input/touchZones.ts`.
+- Root cause:
+  - `createCornerLayout` used loop index `i` (0,1,2…local players only) to look up `CORNER_POSITIONS`, not the player's actual game position. A gap from a bot slot compressed the index, assigning P3→P2 corner, P4→P3 corner.
+- Key changes:
+  - `BotManager.updateTouchLayout`: builds `slotToCornerIndex: Map<number,number>` (key slot → player game position index in `orderedPlayers`).
+  - `MultiInputManager.setupTouchZones` + `TouchZoneManager.setupTouchZones`: added optional `slotToCornerIndex` parameter.
+  - `createCornerLayout`: uses `slotToCornerIndex.get(slot) ?? i` for `CORNER_POSITIONS` lookup.
+  - `buildSetupSignature`: includes corner index in signature so cache invalidates correctly.
+- Validation:
+  - `bun run typecheck`: clean.
+- Outcome:
+  - P3 local player's controls appear in the bottom-right corner, P4 in the bottom-left, regardless of whether P2 is a bot.
+
 ## 2026-03-08 - Local player "Player 1" name collision fix
 
 - Scope:

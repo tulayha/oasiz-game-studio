@@ -225,9 +225,13 @@ export class BotManager {
 
     const slotToColor = new Map<number, string>();
     const localSlotOrder: number[] = [];
+    // Maps key slot → player game position (0=P1, 1=P2, …) so corner
+    // layout can place each player's controls at their spawn corner.
+    const slotToCornerIndex = new Map<number, number>();
     const myId = this.network.getMyPlayerId();
 
-    for (const player of orderedPlayers) {
+    for (let playerIdx = 0; playerIdx < orderedPlayers.length; playerIdx++) {
+      const player = orderedPlayers[playerIdx];
       const isHostPlayer = myId !== null && player.id === myId;
       const botType = this.network.getPlayerBotType(player.id);
       const isLocal = isHostPlayer || botType === "local";
@@ -240,6 +244,7 @@ export class BotManager {
         localSlotOrder.push(slot);
       }
       slotToColor.set(slot, player.color.primary);
+      slotToCornerIndex.set(slot, playerIdx);
     }
 
     const localCount = localSlotOrder.length;
@@ -261,7 +266,7 @@ export class BotManager {
       this.multiInput.activateSlot(slot);
     }
 
-    this.multiInput.setupTouchZones(layout, localSlotOrder, slotToColor);
+    this.multiInput.setupTouchZones(layout, localSlotOrder, slotToColor, slotToCornerIndex);
     this.useTouchForHost = localSlotOrder.includes(0);
   }
 

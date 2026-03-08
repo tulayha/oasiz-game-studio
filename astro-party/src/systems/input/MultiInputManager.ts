@@ -77,8 +77,9 @@ export class MultiInputManager {
     layout: TouchLayout,
     localSlotOrder: number[],
     slotToColor: Map<number, string>,
+    slotToCornerIndex?: Map<number, number>,
   ): void {
-    this.touchZones.setupTouchZones(layout, localSlotOrder, slotToColor);
+    this.touchZones.setupTouchZones(layout, localSlotOrder, slotToColor, slotToCornerIndex);
   }
 
   destroyTouchZones(): void {

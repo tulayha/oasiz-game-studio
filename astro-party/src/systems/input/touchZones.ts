@@ -70,6 +70,7 @@ export class TouchZoneManager {
     layout: TouchLayout,
     localSlotOrder: number[],
     slotToColor: Map<number, string>,
+    slotToCornerIndex?: Map<number, number>,
   ): void {
     if (!this.isMobile || !this.touchZoneContainer) return;
     const bounds = this.getTouchZoneBounds();
@@ -78,6 +79,7 @@ export class TouchZoneManager {
       localSlotOrder,
       slotToColor,
       bounds,
+      slotToCornerIndex,
     );
     if (
       setupSignature === this.lastSetupSignature &&
@@ -99,7 +101,7 @@ export class TouchZoneManager {
         this.createDualLayout(localSlotOrder, slotToColor);
         break;
       case "corner":
-        this.createCornerLayout(localSlotOrder, slotToColor);
+        this.createCornerLayout(localSlotOrder, slotToColor, slotToCornerIndex);
         break;
     }
     this.lastSetupSignature = setupSignature;
@@ -272,6 +274,7 @@ export class TouchZoneManager {
   private createCornerLayout(
     localSlotOrder: number[],
     slotToColor: Map<number, string>,
+    slotToCornerIndex?: Map<number, number>,
   ): void {
     const count = Math.min(localSlotOrder.length, 4);
     const bounds = this.getTouchZoneBounds();
@@ -309,7 +312,11 @@ export class TouchZoneManager {
 
     for (let i = 0; i < count; i++) {
       const slot = localSlotOrder[i] ?? i;
-      const corner = CORNER_POSITIONS[i];
+      // Use the player's game position (spawn corner) not the sequential
+      // local-player index, so a bot gap (e.g. P2=bot, P3+P4=local) puts
+      // controls in the correct corners rather than shifted up by one.
+      const cornerIdx = slotToCornerIndex?.get(slot) ?? i;
+      const corner = CORNER_POSITIONS[cornerIdx] ?? CORNER_POSITIONS[i];
       const fallbackColor = PLAYER_COLORS[i % PLAYER_COLORS.length].primary;
       const color = slotToColor.get(slot) ?? fallbackColor;
 
@@ -491,10 +498,12 @@ export class TouchZoneManager {
     localSlotOrder: number[],
     slotToColor: Map<number, string>,
     bounds: { width: number; height: number },
+    slotToCornerIndex?: Map<number, number>,
   ): string {
     const slotParts = localSlotOrder
       .map((slot) => {
-        return slot.toString() + ":" + (slotToColor.get(slot) ?? "");
+        const corner = slotToCornerIndex?.get(slot) ?? "";
+        return slot.toString() + ":" + (slotToColor.get(slot) ?? "") + ":" + corner.toString();
       })
       .join(",");
     const width = Math.round(bounds.width);
