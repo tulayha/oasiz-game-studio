@@ -135,6 +135,20 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 - Architecture outcome:
   - no change required.
 
+## 2026-03-08 - Lobby map picker modal scroll + canvas aspect ratio fix
+
+- Scope:
+  - Fixed map picker modal individual card clipping and non-scrolling grid. Files: `index.html`.
+- Key changes:
+  - Removed `overflow: hidden` from `.map-modal` container (was blocking child scroll context).
+  - Changed modal padding to `1.5rem 1.5rem 0` and moved bottom breathing room to grid `padding-bottom: 1.5rem` so it scrolls with content.
+  - Added `flex-shrink: 0` to `.modal-head` to prevent header compression.
+  - Changed `#lobbyScreen .map-picker-canvas` from fixed `height: 6.25rem` to `aspect-ratio: 3 / 2` — correctly matches arena proportions (ARENA_WIDTH 1200 × ARENA_HEIGHT 800 = 3:2); canvas now scales with column width without distortion.
+- Validation:
+  - `bun run typecheck`: clean.
+- Outcome:
+  - Modal grid now scrolls freely; preview cards are not clipped; canvas previews render at correct 3:2 arena proportions.
+
 ## 2026-03-08 - Lobby UX polish pass (post-pass-2 bug fixes + additions)
 
 - Scope:
