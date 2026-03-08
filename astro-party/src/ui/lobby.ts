@@ -380,14 +380,14 @@ export function createLobbyUI(
     canShowLocalAdd: boolean,
   ): string {
     const localBtn = canShowLocalAdd
-      ? `<button class="empty-btn" data-action="add-local"${canAdd ? "" : " disabled"}>+ Local</button>`
+      ? `<button class="empty-btn" data-action="add-local"${canAdd ? "" : " disabled"}><span class="eb-plus">+</span><span>Add Local</span></button>`
       : "";
     return `<div class="card-scene">
             <div class="empty-content">
               <div class="empty-icon">${PLUS_CIRCLE_SVG}</div>
               <div class="empty-label">${SLOTS[slotIdx]} \u2014 Empty</div>
               <div class="empty-btns">
-                <button class="empty-btn" data-action="add-ai"${canAdd ? "" : " disabled"}>+ Add AI</button>
+                <button class="empty-btn" data-action="add-ai"${canAdd ? "" : " disabled"}><span class="eb-plus">+</span><span>Add AI</span></button>
                 ${localBtn}
               </div>
               <div class="empty-tap-hint">Tap to add player</div>

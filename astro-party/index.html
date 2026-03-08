@@ -3623,6 +3623,16 @@
       padding: 0.3125rem 0.75rem;
       cursor: pointer;
       transition: all 0.12s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4em;
+    }
+    #lobbyScreen .eb-plus {
+      width: 0.85em;
+      text-align: center;
+      flex-shrink: 0;
+      opacity: 0.65;
     }
     #lobbyScreen .empty-btn:hover { color: var(--gold-lt); border-color: rgba(217,119,6,0.3); background: rgba(217,119,6,0.05); }
     #lobbyScreen .empty-btn:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -4193,7 +4203,7 @@
     <h3 class="settings-title">Add Player</h3>
     <div class="settings-actions">
       <button class="btn" id="addPlayerAIBtn">+ Add AI</button>
-      <button class="btn secondary" id="addPlayerLocalBtn">+ Local Player</button>
+      <button class="btn secondary" id="addPlayerLocalBtn">+ Add Local</button>
       <button class="btn tertiary settings-close" id="addPlayerCloseBtn">Cancel</button>
     </div>
   </div>
