@@ -21,13 +21,6 @@
       -webkit-user-select: none;
     }
 
-    #game {
-      display: block;
-      position: absolute;
-      top: 0; left: 0;
-      cursor: none;
-    }
-
     #phaser-container {
       position: absolute;
       inset: 0;
@@ -465,7 +458,6 @@
 </head>
 <body>
 
-  <canvas id="game"></canvas>
   <div id="phaser-container" class="hidden"></div>
 
   <!-- Custom cursor -->
@@ -491,21 +483,8 @@
     </div>
 
     <div class="physics-selector">
-      <div class="physics-mode-label">Select Physics Mode</div>
-      <div class="physics-cards">
-        <button class="physics-card" id="physics1-btn">
-          <div class="physics-card-title">VANILLA</div>
-          <div class="physics-card-desc">Click to grip<br>Mouse swings the axe</div>
-        </button>
-        <button class="physics-card" id="physics2-btn">
-          <div class="physics-card-title">MATTERJS</div>
-          <div class="physics-card-desc">Push into rocks to climb<br>Just move the mouse</div>
-        </button>
-        <button class="physics-card" id="physics3-btn">
-          <div class="physics-card-title">BOX2D</div>
-          <div class="physics-card-desc">Box2D v3 physics<br>Just move the mouse</div>
-        </button>
-      </div>
+      <button class="play-again-btn" id="play-btn" style="min-width: 200px;">START CLIMBING</button>
+      <div class="physics-mode-label" style="margin-top: 0.8rem;">Push into rocks to climb &mdash; just move the mouse</div>
     </div>
   </div>
 

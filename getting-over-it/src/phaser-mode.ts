@@ -770,29 +770,55 @@ class ClimbScene extends Phaser.Scene {
       drawKitchenItemGfx(gfx, cx, cy, w, h, kind);
     }
 
-    // ── 4. Hands (Hand.cs) ───────────────────────────────────────────────────
-    // ── 4. Toothpick + Hands (held naturally) ────────────────────────────────
+    // ── 4. Bottle opener (T-shape) + Hands ─────────────────────────────────
     const TR    = BODY_R + 5;
     const tAng  = Math.atan2(hy - by, hx - bx);
     const tDist = Math.hypot(hx - bx, hy - by) || 1;
 
-    gfx.lineStyle(3, 0xD4A574);
+    // Perpendicular direction for the T-bar
+    const perpX = -Math.sin(tAng);
+    const perpY =  Math.cos(tAng);
+
+    // Handle (shaft) — metallic silver
+    gfx.lineStyle(4, 0x9CA3AF);
     gfx.lineBetween(bx, by, hx, hy);
-    gfx.lineStyle(1, 0xB08040, 0.6);
-    gfx.lineBetween(bx + 1, by + 1, hx + 1, hy + 1);
-    const tipX = hx + Math.cos(tAng) * 7;
-    const tipY = hy + Math.sin(tAng) * 7;
-    gfx.fillStyle(0xA06828);
-    gfx.fillTriangle(
-      hx + Math.cos(tAng - 1.3) * 3, hy + Math.sin(tAng - 1.3) * 3,
-      hx + Math.cos(tAng + 1.3) * 3, hy + Math.sin(tAng + 1.3) * 3,
-      tipX, tipY,
-    );
+    // Highlight line on handle
+    gfx.lineStyle(1.5, 0xD1D5DB, 0.5);
+    gfx.lineBetween(bx + perpX * 1.2, by + perpY * 1.2, hx + perpX * 1.2, hy + perpY * 1.2);
+
+    // T-bar at hammer head — perpendicular to the shaft
+    const barHalf = 14;  // half-width of the T-bar
+    const barLx = hx + perpX * barHalf;
+    const barLy = hy + perpY * barHalf;
+    const barRx = hx - perpX * barHalf;
+    const barRy = hy - perpY * barHalf;
+
+    // T-bar thick line
+    gfx.lineStyle(6, hammerOnRock ? 0xEAB308 : 0x6B7280);
+    gfx.lineBetween(barLx, barLy, barRx, barRy);
+    // T-bar highlight
+    gfx.lineStyle(2, hammerOnRock ? 0xFDE68A : 0x9CA3AF, 0.6);
+    gfx.lineBetween(barLx, barLy, barRx, barRy);
+
+    // Rounded caps at T-bar ends
+    gfx.fillStyle(hammerOnRock ? 0xEAB308 : 0x6B7280);
+    gfx.fillCircle(barLx, barLy, 3.5);
+    gfx.fillCircle(barRx, barRy, 3.5);
+
+    // Hook/lip under the T-bar (the opener part) — a small curved notch
+    const hookFwd = 6;  // how far the hook extends past the T-bar
+    const hookTipX = hx + Math.cos(tAng) * hookFwd;
+    const hookTipY = hy + Math.sin(tAng) * hookFwd;
+    gfx.lineStyle(3, hammerOnRock ? 0xD97706 : 0x4B5563);
+    gfx.lineBetween(barLx, barLy, hookTipX + perpX * 4, hookTipY + perpY * 4);
+    gfx.lineBetween(barRx, barRy, hookTipX - perpX * 4, hookTipY - perpY * 4);
+
+    // Contact glow
     if (hammerOnRock) {
-      gfx.fillStyle(0xFEF08A, 0.35);
-      gfx.fillCircle(hx, hy, 16);
-      gfx.lineStyle(1, 0xEAB308, 0.55);
-      gfx.strokeCircle(hx, hy, 20);
+      gfx.fillStyle(0xFEF08A, 0.3);
+      gfx.fillCircle(hx, hy, 18);
+      gfx.lineStyle(1, 0xEAB308, 0.45);
+      gfx.strokeCircle(hx, hy, 22);
     }
 
     // Hands grip the shaft at two points — drawn on top of stick
