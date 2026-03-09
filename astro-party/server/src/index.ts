@@ -15,7 +15,7 @@ import {
 } from "./http/roomCodeRegistry.js";
 
 const port = Number.parseInt(process.env.PORT ?? "2567", 10);
-const corsOrigin = process.env.CORS_ORIGIN ?? "*";
+const corsOriginRaw = process.env.CORS_ORIGIN ?? "*";
 const maxPlayers = Number.parseInt(process.env.MAX_PLAYERS ?? "4", 10);
 const simTickHz = Number.parseInt(process.env.SIM_TICK_HZ ?? "60", 10);
 const wsMaxPayloadBytes = Number.parseInt(
@@ -39,6 +39,7 @@ const bootStartedAtIso = new Date(bootStartedAtMs).toISOString();
 const bootId =
   process.env.SERVER_BOOT_ID ??
   process.pid.toString() + "-" + bootStartedAtMs.toString();
+const corsAllowedOrigins = parseCorsAllowedOrigins(corsOriginRaw);
 
 if (
   monitorEnabled &&
@@ -80,6 +81,55 @@ function normalizeOpsPath(rawValue: string | undefined): string {
   if (trimmed.length <= 0) return "/ops/stats";
   if (trimmed.startsWith("/")) return trimmed;
   return "/" + trimmed;
+}
+
+type CorsStaticOrigin = boolean | string | RegExp | Array<boolean | string | RegExp>;
+type CorsOriginCallback = (err: Error | null, origin?: CorsStaticOrigin) => void;
+
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function parseCorsAllowedOrigins(rawValue: string): string[] | null {
+  const parts = rawValue
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  if (parts.length <= 0) {
+    return [];
+  }
+
+  if (parts.includes("*")) {
+    return null;
+  }
+
+  const normalized = parts.map((entry) => normalizeOrigin(entry));
+  return Array.from(new Set(normalized));
+}
+
+function createCorsOriginMatcher(
+  allowedOrigins: string[] | null,
+): (
+  requestOrigin: string | undefined,
+  callback: CorsOriginCallback,
+) => void {
+  if (allowedOrigins === null) {
+    return (_requestOrigin, callback) => {
+      callback(null, true);
+    };
+  }
+
+  const allowedOriginSet = new Set(allowedOrigins);
+  return (requestOrigin, callback) => {
+    if (!requestOrigin) {
+      callback(null, true);
+      return;
+    }
+
+    const normalizedOrigin = normalizeOrigin(requestOrigin);
+    callback(null, allowedOriginSet.has(normalizedOrigin));
+  };
 }
 
 function createBasicAuthMiddleware(
@@ -191,7 +241,7 @@ process.on("exit", (code) => {
 });
 
 const app = express();
-app.use(cors({ origin: corsOrigin }));
+app.use(cors({ origin: createCorsOriginMatcher(corsAllowedOrigins) }));
 app.use(express.json());
 
 const httpServer = createServer(app);

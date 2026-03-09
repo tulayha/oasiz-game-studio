@@ -1757,3 +1757,25 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
   - `astro-party`: `bun run build` passed.
 - Architecture outcome:
   - no change required.
+
+## 2026-03-09 - Server CORS allowlist: multiple origins via `CORS_ORIGIN`
+
+- Scope:
+  - Added support for multiple allowed CORS domains in server env config.
+- Key changes:
+  - `astro-party/server/src/index.ts`:
+    - replaced single-string `corsOrigin` usage with parsed `corsOriginRaw`.
+    - added `parseCorsAllowedOrigins` to accept comma-separated domains.
+    - added normalized origin matching (trim, trailing-slash removal, lowercase).
+    - added `createCorsOriginMatcher` to allow:
+      - `*` (allow all)
+      - one origin
+      - many origins in one env var.
+    - wired Express CORS middleware to custom matcher.
+- Usage:
+  - `CORS_ORIGIN=https://domain1.com,https://domain2.com,https://domain3.com`
+- Validation:
+  - `astro-party/server`: `npm run typecheck` passed.
+  - `astro-party/server`: `npm run build` passed.
+- Architecture outcome:
+  - no change required.
