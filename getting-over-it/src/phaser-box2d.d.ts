@@ -46,5 +46,7 @@ declare module 'phaser-box2d' {
   export function b2Body_ApplyForceToCenter(bodyId: any, force: b2Vec2, wake: boolean): void;
   export function b2Body_ApplyForce(bodyId: any, force: b2Vec2, point: b2Vec2, wake: boolean): void;
   export function b2Body_GetAngle(bodyId: any): number;
+  export function b2Body_SetTransform(bodyId: any, position: b2Vec2, rotation?: any): void;
+  export function b2MakeRot(angle: number): any;
   export function b2DestroyWorld(worldId: any): void;
 }

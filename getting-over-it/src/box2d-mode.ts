@@ -11,6 +11,7 @@ import {
   CreateCircle, CreatePolygon, CreateBoxPolygon,
   b2Body_GetPosition, b2Body_GetLinearVelocity,
   b2Body_SetLinearVelocity, b2Body_ApplyForceToCenter,
+  b2Body_SetTransform, b2MakeRot,
   STATIC, DYNAMIC,
   b2Vec2, b2DefaultWorldDef, b2DefaultBodyDef,
 } from 'phaser-box2d';
@@ -279,6 +280,25 @@ function buildRockLayout(): RockData[] {
 
 const ROCKS = buildRockLayout();
 
+// ─── Section teleport targets (screen-space) ────────────────────────────────
+// Each target is slightly above the first rock of that section so the player
+// drops onto it naturally.
+interface TeleportTarget { label: string; x: number; y: number; }
+const TELEPORT_TARGETS: TeleportTarget[] = [
+  { label: 'Spawn',           x: SPAWN_X,     y: SPAWN_Y },
+  { label: 'Trash Pile',      x: ROCKS[1 + SEC0_COUNT].cx,           y: ROCKS[1 + SEC0_COUNT].cy - 40 },
+  { label: 'Rest 1',          x: ROCKS[1 + SEC0_COUNT + SEC1_COUNT].cx, y: ROCKS[1 + SEC0_COUNT + SEC1_COUNT].cy - 40 },
+  { label: 'Chimney',         x: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1].cx, y: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1].cy - 40 },
+  { label: 'Rest 2',          x: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT].cx, y: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT].cy - 40 },
+  { label: 'Orange Hell',     x: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT + 1].cx, y: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT + 1].cy - 40 },
+  { label: 'Rest 3',          x: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT + 1 + SEC3_COUNT].cx, y: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT + 1 + SEC3_COUNT].cy - 40 },
+  { label: "Devil's Chimney", x: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT + 1 + SEC3_COUNT + 1].cx, y: ROCKS[1 + SEC0_COUNT + SEC1_COUNT + 1 + SEC2_COUNT + 1 + SEC3_COUNT + 1].cy - 40 },
+  { label: 'Summit',          x: ROCKS[ROCKS.length - 1].cx, y: ROCKS[ROCKS.length - 1].cy - 40 },
+];
+
+// Callback set by the scene so the dev panel can teleport the player
+let teleportPlayer: ((x: number, y: number) => void) | null = null;
+
 // ─── Altitude callback ───────────────────────────────────────────────────────
 let onAltitudeUpdate: ((m: number) => void) | null = null;
 export function setAltitudeCallback(cb: (m: number) => void): void {
@@ -425,6 +445,26 @@ function createDevPanel(): HTMLElement {
   note.className = 'dp-note';
   note.textContent = 'Gravity & damping apply on next session';
   body.appendChild(note);
+
+  // ── Teleport section ────────────────────────────────────────────────────
+  const tpLabel = document.createElement('div');
+  tpLabel.style.cssText = 'margin-top: 12px; padding-top: 8px; border-top: 1px solid rgba(110,169,200,0.2); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; margin-bottom: 6px;';
+  tpLabel.textContent = 'TELEPORT';
+  body.appendChild(tpLabel);
+
+  const tpGrid = document.createElement('div');
+  tpGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 4px;';
+  for (const target of TELEPORT_TARGETS) {
+    const btn = document.createElement('div');
+    btn.className = 'dp-btn';
+    btn.textContent = target.label;
+    btn.style.fontSize = '9px';
+    btn.addEventListener('click', () => {
+      if (teleportPlayer) teleportPlayer(target.x, target.y);
+    });
+    tpGrid.appendChild(btn);
+  }
+  body.appendChild(tpGrid);
 
   btns.querySelector('#dp-copy-b2d')!.addEventListener('click', () => {
     navigator.clipboard.writeText(JSON.stringify(cfg, null, 2));
@@ -853,6 +893,21 @@ class Box2DClimbScene extends Phaser.Scene {
       this.mouseScreen.x = (ptr.x / this.scale.width)  * 2 - 1;
       this.mouseScreen.y = (ptr.y / this.scale.height) * 2 - 1;
     });
+
+    // Wire up teleport callback for dev panel
+    teleportPlayer = (sx: number, sy: number) => {
+      if (!this.playerBodyId) return;
+      // Set Box2D body position (screen → Box2D coords: Y flip)
+      b2Body_SetTransform(this.playerBodyId, new b2Vec2(sx / PPM, -sy / PPM), b2MakeRot(0));
+      b2Body_SetLinearVelocity(this.playerBodyId, new b2Vec2(0, 0));
+      // Reset hammer to just above the new position
+      this.hammerPos.x = sx;
+      this.hammerPos.y = sy - 40;
+      // Snap camera immediately
+      const cam = this.cameras.main;
+      cam.scrollX = sx - cam.width / 2;
+      cam.scrollY = sy - cam.height * 0.6;
+    };
   }
 
   update(_time: number, delta: number): void {
@@ -1256,6 +1311,7 @@ export function launchBox2DGame(container: HTMLElement): Phaser.Game {
 
 export function destroyBox2DGame(game: Phaser.Game): void {
   onAltitudeUpdate = null;
+  teleportPlayer   = null;
   destroyDevPanel();
   game.destroy(true);
 }
