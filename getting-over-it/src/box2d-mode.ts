@@ -70,111 +70,209 @@ function generateRock(
   return { cx, cy, verts };
 }
 
-// ─── Procedural messy-pile map ────────────────────────────────────────────────
-// Each rock is placed relative to the PREVIOUS rock (incremental), not a global
-// formula.  Y advances by (TREND_UP + large noise), then clamped so no single
-// step is ever unclimbable.  X advances by a variable amount to create both
-// tight "pile" clusters and occasional gaps.
+// ─── Map layout ──────────────────────────────────────────────────────────────
+// Inspired by Getting Over It's progression:
 //
-// Spawn safety: slope starts at x = 530, well to the right of SPAWN_X = 400,
-// so no rock can ever overlap the spawn position.
-const PILE_START_X    = 530;  // first slope rock — right of spawn (x=400) so no overlap
-const PILE_START_Y    = 552;  // near ground level
-const PILE_COUNT      = 22;   // number of rocks on the pile
-const PILE_TREND_UP   = 32;   // average upward step per rock (px)  — gentle overall slope
-const PILE_NOISE_AMP  = 58;   // ±px of random deviation   — large = messy-pile feel
-const PILE_MAX_UP     = 66;   // clamp: maximum single step upward   (keeps it climbable)
-const PILE_MAX_DOWN   = 20;   // clamp: maximum single step downward (pile can dip a bit)
-const PILE_STEP_BASE  = 88;   // nominal horizontal distance between rock centres
-const PILE_STEP_NOISE = 36;   // ±px horizontal noise (clusters some rocks, gaps others)
+//   Section 0 : GROUND / TUTORIAL  — big forgiving platforms, learn controls
+//   Section 1 : TRASH PILE         — messy dense cluster, teaches momentum
+//   Section 2 : THE CHIMNEY        — vertical channel with walls, precise lever work
+//   Section 3 : ORANGE HELL        — thin ledges, wide gaps, overhangs; one slip = big fall
+//   Section 4 : DEVIL'S CHIMNEY    — near-vertical with tiny holds, brutal
+//   Section 5 : SUMMIT             — final reward
+//
+// KEY DESIGN: sections overlap in X so a fall from section 3 drops you into
+// section 1, and a fall from section 4 can drop you all the way to the ground.
+// This is what makes GOIB devastating — progress is never safe.
+
+// Section counts (used by rendering to pick kitchen item styles)
+const SEC0_COUNT = 5;   // tutorial platforms
+const SEC1_COUNT = 16;  // trash pile
+const SEC2_COUNT = 10;  // chimney
+const SEC3_COUNT = 12;  // orange hell
+const SEC4_COUNT = 8;   // devil's chimney
 
 function buildRockLayout(): RockData[] {
   const rocks: RockData[] = [];
 
-  // ── Wide flat base — player spawns at (400, 460) and falls onto this ──────
-  rocks.push(generateRock(300, 562, 295, 24, 6, 1.1));
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 0 : GROUND / TUTORIAL  (rocks 0..5)
+  // Big platforms, close together, gentle rise. Impossible to fail.
+  // Teaches: move mouse to aim hammer → push into rock → body moves opposite.
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  // ── Incremental messy-pile loop ───────────────────────────────────────────
-  let px = PILE_START_X;
-  let py = PILE_START_Y;
+  // Wide flat spawn platform
+  rocks.push(generateRock(300, 562, 295, 26, 6, 1.1));
 
-  for (let i = 0; i < PILE_COUNT; i++) {
-    // 1. Raw vertical step = upward trend + large noise
-    const noise  = (seeded(i * 4.1 + 2.7) - 0.5) * 2 * PILE_NOISE_AMP;
-    const rawDy  = PILE_TREND_UP + noise;
+  // Tutorial stepping stones — big, close, gentle upward slope
+  const tut = [
+    { cx: 520, cy: 538, rx: 80, ry: 35, n: 6, s: 2.3 },   // easy step right
+    { cx: 430, cy: 498, rx: 90, ry: 32, n: 7, s: 3.1 },   // step left & up
+    { cx: 560, cy: 455, rx: 85, ry: 38, n: 6, s: 1.7 },   // step right & up
+    { cx: 460, cy: 405, rx: 95, ry: 30, n: 7, s: 4.2 },   // left again
+    { cx: 550, cy: 350, rx: 88, ry: 34, n: 6, s: 0.8 },   // right — top of tutorial
+  ];
+  for (const t of tut) rocks.push(generateRock(t.cx, t.cy, t.rx, t.ry, t.n, t.s));
 
-    // 2. Clamp so the step is never a cliff (too high) or a slide (too low).
-    //    This is what makes every step climbable while still feeling chaotic.
-    const stepDy = Math.max(-PILE_MAX_DOWN, Math.min(PILE_MAX_UP, rawDy));
-    const cy     = py - stepDy;   // subtract because screen Y goes downward
-
-    // 3. Variable X step — tighter = cluster/pile, wider = exposed gap
-    const dxNoise = (seeded(i * 8.3 + 4.1) - 0.5) * 2 * PILE_STEP_NOISE;
-    const dx      = Math.max(62, Math.round(PILE_STEP_BASE + dxNoise));
-
-    // 4. Rock shape variety: wide+flat OR rounder, with different vertex counts
-    const rx = 50 + seeded(i * 5.3 + 1.9) * 42;  // 50 – 92 px  (radius)
-    const ry = 20 + seeded(i * 7.7 + 3.5) * 28;  // 20 – 48 px
-    const n  = 6  + Math.floor(seeded(i * 13.1 + 5.3) * 2);
-
-    rocks.push(generateRock(px, cy, rx, ry, n, i * 1.73 + 0.9));
-
-    px += dx;
-    py  = cy;  // next rock departs from this one's Y, not from a global formula
-  }
-
-  // ── Section 1 summit — rest point before the hard part ───────────────────
-  const sumCx = px + 65;
-  const sumCy = py - 42;
-  rocks.push(generateRock(sumCx, sumCy, 108, 22, 6, 38.5));
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Section 2 : Zigzag path — flat slabs alternating LEFT ↔ RIGHT
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 1 : TRASH PILE  (rocks 6..21)
+  // Dense messy cluster that rises upward. Rocks overlap in X, creating a
+  // chaotic pile that's forgiving (many surfaces to grab) but teaches
+  // momentum and lever technique. Falling here only loses a few rocks.
   //
-  // Rules:
-  //   • X jumps by PATH_LATERAL (±noise) to one side, then flips.
-  //   • Y rises by PATH_RISE (±noise) per step — purely upward, no dips.
-  //   • Rocks are thin slabs (large rx, tiny ry) so balance is harder.
-  //   • Lateral offset (150-200 px) forces the player to swing and commit;
-  //     it's within reach of the 120 px hammer + 14 px proximity zone
-  //     when the player leans toward the target rock.
-  //   • Seeds are offset by 200 to keep shapes independent of Section 1.
-  // ─────────────────────────────────────────────────────────────────────────
-  const PATH_COUNT         = 14;
-  const PATH_LATERAL_BASE  = 158;  // base lateral jump left or right (px)
-  const PATH_LATERAL_NOISE = 40;   // ±px variation on lateral jump
-  const PATH_RISE_BASE     = 58;   // base upward step per slab (px)
-  const PATH_RISE_NOISE    = 28;   // ±px variation on upward step
+  // The pile is centred around X=480 so it sits ABOVE the tutorial area.
+  // A fall from higher sections can land you back in this pile.
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    let px = 480;
+    let py = 330;  // starts just above tutorial top
 
-  let zpx  = sumCx;
-  let zpy  = sumCy;
-  let side = 1;  // +1 = right, -1 = left; flips every rock
+    for (let i = 0; i < SEC1_COUNT; i++) {
+      const s = i + 10;
+      // Gentle upward trend with noise — pile feel
+      const noise  = (seeded(s * 4.1 + 2.7) - 0.5) * 2 * 45;
+      const stepDy = Math.max(-15, Math.min(55, 28 + noise));
+      const cy     = py - stepDy;
 
-  for (let i = 0; i < PATH_COUNT; i++) {
-    const s = i + 200;  // seed offset — independent shapes from pile section
+      // X zigzags tightly — pile clusters together (±60px from centre)
+      const xNoise = (seeded(s * 7.3 + 5.1) - 0.5) * 2 * 75;
+      const cx     = 480 + xNoise;
 
-    // Lateral: always jumps to the current side, then flips
-    const lateral = PATH_LATERAL_BASE + (seeded(s * 3.7 + 10) - 0.5) * 2 * PATH_LATERAL_NOISE;
-    // Rise: always upward (no clamp downward — path must never dip back)
-    const rise    = PATH_RISE_BASE    + (seeded(s * 4.3 + 20) - 0.5) * 2 * PATH_RISE_NOISE;
+      // Medium-large rocks, varied shapes
+      const rx = 45 + seeded(s * 5.3 + 1.9) * 40;   // 45–85
+      const ry = 22 + seeded(s * 7.7 + 3.5) * 22;   // 22–44
+      const n  = 5 + Math.floor(seeded(s * 13.1 + 5.3) * 3); // 5–7
 
-    const cx = zpx + side * lateral;
-    const cy = zpy - Math.max(30, rise);  // guarantee at least 30 px upward
-
-    // Thin flat slabs — wide enough to hook onto, thin enough to fall off of
-    const rx = 52 + seeded(s * 5.1 + 30) * 32;  // 52 – 84 px
-    const ry =  8 + seeded(s * 3.9 + 40) * 10;  //  8 – 18 px  ← thin!
-    const n  =  5 + Math.floor(seeded(s * 11.3 + 50) * 2);  // 5 or 6 verts
-
-    rocks.push(generateRock(cx, cy, rx, ry, n, s * 1.73 + 0.9));
-
-    zpx   = cx;
-    zpy   = cy;
-    side *= -1;  // flip to opposite side every step
+      rocks.push(generateRock(cx, cy, rx, ry, n, s * 1.73 + 0.9));
+      py = cy;
+    }
   }
 
-  // ── Final summit of the zigzag path — the true top ────────────────────────
-  rocks.push(generateRock(zpx, zpy - 55, 130, 20, 6, 99.9));
+  // ── Rest ledge 1 — wide safe platform after the pile ──────────────────────
+  const rest1Y = rocks[rocks.length - 1].cy - 50;
+  rocks.push(generateRock(490, rest1Y, 120, 22, 6, 38.5));
+  const REST1_RI = rocks.length - 1;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 2 : THE CHIMNEY  (rocks after rest1)
+  // Vertical channel — rocks on alternating sides form a narrow "chimney".
+  // Player must lever back and forth between left wall and right wall.
+  // Rocks get progressively smaller and further apart.
+  //
+  // Centred at X=490, walls at ±100px. Fall = back to the pile.
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    let cy = rest1Y - 55;
+    const chimneyX = 490;
+
+    for (let i = 0; i < SEC2_COUNT; i++) {
+      const s = i + 100;
+      const side = (i % 2 === 0) ? -1 : 1;
+
+      // Lateral position: alternating sides, getting wider as you go up
+      const spread = 70 + i * 8;  // 70 → 150 px from centre
+      const cx = chimneyX + side * (spread + (seeded(s * 3.1) - 0.5) * 20);
+
+      // Rise per step: starts comfortable (50px), gets tighter
+      const rise = 50 + i * 3 + (seeded(s * 4.7) - 0.5) * 16;
+      cy -= Math.max(40, rise);
+
+      // Rocks shrink as you go up: big ledges → small holds
+      const rxBase = 65 - i * 3;                              // 65 → 35
+      const rx = Math.max(30, rxBase + seeded(s * 5.1) * 15); // min 30px
+      const ry = 15 + seeded(s * 3.9) * 12;                   // 15–27 (always thin-ish)
+      const n  = 5 + Math.floor(seeded(s * 11.3) * 2);
+
+      rocks.push(generateRock(cx, cy, rx, ry, n, s * 1.73 + 0.9));
+    }
+  }
+
+  // ── Rest ledge 2 — deceptive safety after the chimney ─────────────────────
+  const rest2Y = rocks[rocks.length - 1].cy - 55;
+  rocks.push(generateRock(500, rest2Y, 100, 18, 6, 55.3));
+  const REST2_RI = rocks.length - 1;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 3 : ORANGE HELL  (rocks after rest2)
+  // Thin ledges with wide gaps and some overhangs. This is where most
+  // players get stuck. Rocks are small, gaps are large, and the path
+  // zigzags widely — requiring committed swings.
+  //
+  // CRITICAL: the X range overlaps sections 1 and 2 below, so a fall here
+  // drops you ALL the way down through the chimney into the pile.
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    let zpx = 500;
+    let zpy = rest2Y - 50;
+    let side = 1;
+
+    for (let i = 0; i < SEC3_COUNT; i++) {
+      const s = i + 300;
+
+      // Wide lateral jumps — forces full-commit swings
+      const lateral = 120 + i * 6 + (seeded(s * 3.7 + 10) - 0.5) * 2 * 35;
+      // Rise gets steeper as you go
+      const rise = 45 + i * 4 + (seeded(s * 4.3 + 20) - 0.5) * 2 * 20;
+
+      const cx = zpx + side * Math.max(100, lateral);
+      const cy = zpy - Math.max(35, rise);
+
+      // THIN slabs — wide enough to hook, thin enough to slide off
+      const rx = 40 + seeded(s * 5.1 + 30) * 28;  // 40–68
+      const ry = 6 + seeded(s * 3.9 + 40) * 8;    // 6–14  ← very thin!
+      const n  = 5 + Math.floor(seeded(s * 11.3 + 50) * 2);
+
+      rocks.push(generateRock(cx, cy, rx, ry, n, s * 1.73 + 0.9));
+
+      zpx   = cx;
+      zpy   = cy;
+      side *= -1;
+    }
+  }
+
+  // ── Rest ledge 3 — the "false summit" ──────────────────────────────────────
+  const rest3Y = rocks[rocks.length - 1].cy - 50;
+  rocks.push(generateRock(480, rest3Y, 90, 16, 6, 77.1));
+  const REST3_RI = rocks.length - 1;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 4 : DEVIL'S CHIMNEY  (rocks after rest3)
+  // Near-vertical ascent with TINY holds. The path goes almost straight up
+  // with minimal horizontal offset. Requires pixel-perfect lever control.
+  // Rocks are small and round (hardest shape to grip).
+  //
+  // A fall here is catastrophic — straight down through orange hell,
+  // through the chimney, into the pile. 5+ minutes of progress lost.
+  // This is the GOIB "snake" / "ice" equivalent.
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    let cy = rest3Y - 60;
+    const centreX = 480;
+
+    for (let i = 0; i < SEC4_COUNT; i++) {
+      const s = i + 500;
+
+      // Tight lateral oscillation — barely any horizontal movement
+      const cx = centreX + (seeded(s * 3.1 + 7) - 0.5) * 2 * 55;
+
+      // Steep rise — 60–90px per step
+      const rise = 60 + i * 5 + (seeded(s * 4.7 + 13) - 0.5) * 20;
+      cy -= Math.max(55, rise);
+
+      // TINY round rocks — hardest to grip and balance on
+      const rx = 22 + seeded(s * 5.1 + 30) * 18;  // 22–40
+      const ry = 16 + seeded(s * 3.9 + 40) * 14;  // 16–30 (rounder = harder)
+      const n  = 5 + Math.floor(seeded(s * 11.3 + 50) * 2);
+
+      rocks.push(generateRock(cx, cy, rx, ry, n, s * 1.73 + 0.9));
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5 : SUMMIT
+  // Wide golden platter — the reward. Reaching this feels incredible.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const summitY = rocks[rocks.length - 1].cy - 65;
+  rocks.push(generateRock(480, summitY, 140, 22, 6, 99.9));
 
   return rocks;
 }
@@ -912,10 +1010,26 @@ class Box2DClimbScene extends Phaser.Scene {
     gfx.lineBetween(cL, GROUND_Y + 3,  cL + cW, GROUND_Y + 3);
 
     // ── 3. Kitchen items (rocks) ──────────────────────────────────────────────
-    // Index map:  0=base, 1..22=pile, 23=pile summit, 24..37=path slabs, 38=final
-    const PILE_SUMMIT_RI = PILE_COUNT + 1;   // 23
-    const PATH_START_RI  = PILE_COUNT + 2;   // 24
-    const FINAL_RI       = ROCKS.length - 1; // 38
+    // Section boundaries (by rock index):
+    //   0           = spawn platform (board)
+    //   1..5        = tutorial (SEC0)
+    //   6..21       = trash pile (SEC1)
+    //   22          = rest ledge 1
+    //   23..32      = chimney (SEC2)
+    //   33          = rest ledge 2
+    //   34..45      = orange hell (SEC3)
+    //   46          = rest ledge 3 (false summit)
+    //   47..54      = devil's chimney (SEC4)
+    //   55          = summit (platter)
+    const SEC0_END  = 1 + SEC0_COUNT;                          // 6
+    const SEC1_END  = SEC0_END + SEC1_COUNT;                   // 22
+    const REST1     = SEC1_END;                                // 22
+    const SEC2_END  = REST1 + 1 + SEC2_COUNT;                  // 33
+    const REST2     = SEC2_END;                                // 33
+    const SEC3_END  = REST2 + 1 + SEC3_COUNT;                  // 46
+    const REST3     = SEC3_END;                                // 46
+    const SEC4_END  = REST3 + 1 + SEC4_COUNT;                  // 55
+    const FINAL_RI  = ROCKS.length - 1;
 
     const cullL = cam.scrollX - 150, cullR = cam.scrollX + cam.width  + 150;
     const cullT = cam.scrollY - 150, cullB = cam.scrollY + cam.height + 150;
@@ -935,19 +1049,28 @@ class Box2DClimbScene extends Phaser.Scene {
         if (p.y > vMaxY) vMaxY = p.y;
       }
 
-      // ── Assign kitchen item type ──────────────────────────────────────────
+      // ── Assign kitchen item type per section ──────────────────────────────
+      // Tutorial & pile = heavy kitchen items (plates, pots, bowls, pans, boards)
+      // Chimney         = boards and mugs (vertical feel)
+      // Orange hell     = knives and spoons (thin, dangerous)
+      // Devil's chimney = mugs and bowls (small, round, precarious)
+      // Rest ledges     = plates (safe, flat)
+      // Summit          = golden platter (reward)
       type KItem = 'board'|'plate'|'pot'|'bowl'|'mug'|'pan'|'knife'|'spoon'|'platter';
       let kind: KItem = 'plate';
       if (ri === 0) {
-        kind = 'board';
-      } else if (ri >= PATH_START_RI && ri < FINAL_RI) {
-        kind = ri % 2 === 0 ? 'knife' : 'spoon';
+        kind = 'board';                            // spawn platform
       } else if (ri === FINAL_RI) {
-        kind = 'platter';
-      } else if (ri === PILE_SUMMIT_RI) {
-        kind = 'plate';
-      } else {
-        switch ((ri - 1) % 6) {
+        kind = 'platter';                          // summit reward
+      } else if (ri === REST1 || ri === REST2 || ri === REST3) {
+        kind = 'plate';                            // rest ledges — safe flat plates
+      } else if (ri < SEC0_END) {
+        // Tutorial: big friendly items
+        const items: KItem[] = ['plate', 'pot', 'bowl', 'board', 'pan'];
+        kind = items[(ri - 1) % items.length];
+      } else if (ri < SEC1_END) {
+        // Trash pile: all item types, messy variety
+        switch ((ri - SEC0_END) % 6) {
           case 0: kind = 'plate'; break;
           case 1: kind = 'pot';   break;
           case 2: kind = 'bowl';  break;
@@ -955,6 +1078,15 @@ class Box2DClimbScene extends Phaser.Scene {
           case 4: kind = 'mug';   break;
           case 5: kind = 'pan';   break;
         }
+      } else if (ri < SEC2_END) {
+        // Chimney: boards (flat ledges on walls) and mugs
+        kind = (ri % 2 === 0) ? 'board' : 'mug';
+      } else if (ri < SEC3_END) {
+        // Orange hell: knives and spoons (thin, scary)
+        kind = (ri % 2 === 0) ? 'knife' : 'spoon';
+      } else if (ri < SEC4_END) {
+        // Devil's chimney: mugs and bowls (small, round)
+        kind = (ri % 2 === 0) ? 'mug' : 'bowl';
       }
 
       const cx = rock.cx, cy = rock.cy;
