@@ -48,9 +48,11 @@ import {
   createRunObstacleOrder,
   updateWaveObstacleAnimation as updateWaveObstacleAnimationData,
   type BouncyPadObstacle,
+  type FallingPlatformObstacle,
   type ObstacleKind,
   type PinballBouncerObstacle,
   type RotatorXObstacle,
+  type SwingingHammerObstacle,
   type WaveObstacleKind,
 } from "./obstacles";
 import {
@@ -191,6 +193,16 @@ class MarbleMadnessStarter {
   private readonly bouncyPadSweepAmplitude = 1.18;
   private readonly bouncyPadSweepSpeedBase = 3.4;
   private readonly bouncyPadLaunchImpulse = 10.5;
+  private readonly swingingHammerLength = 4.2;
+  private readonly swingingHammerPivotHeight = 3.5;
+  private readonly swingingHammerSweepAmplitude = 1.05;
+  private readonly swingingHammerSweepSpeedBase = 2.8;
+  private readonly swingingHammerKnockbackImpulse = 15;
+  private readonly fallingPlatformLength = 4.5;
+  private readonly fallingPlatformWidth = 16.5;
+  private readonly fallingPlatformFallDelay = 2.0;
+  private readonly fallingPlatformFallDuration = 1.5;
+  private readonly fallingPlatformFallDistance = 20;
   private readonly platformUvScaleV = 0.035;
   private readonly endlessMode = true;
   private readonly trackSamples: TrackSample[] = [];
@@ -231,6 +243,8 @@ class MarbleMadnessStarter {
   private rotatorObstacles: RotatorXObstacle[] = [];
   private pinballBouncers: PinballBouncerObstacle[] = [];
   private bouncyPads: BouncyPadObstacle[] = [];
+  private swingingHammers: SwingingHammerObstacle[] = [];
+  private fallingPlatforms: FallingPlatformObstacle[] = [];
   private obstacleMeshById = new Map<string, THREE.Object3D>();
   private bouncyPadPaddleById = new Map<string, THREE.Object3D>();
   private bouncerCapById = new Map<string, THREE.Mesh>();
@@ -318,6 +332,8 @@ class MarbleMadnessStarter {
   private rotatorTouchingById = new Map<string, boolean>();
   private bouncyPadHitAtById = new Map<string, number>();
   private bouncyPadTouchingById = new Map<string, boolean>();
+  private hammerHitAtById = new Map<string, number>();
+  private hammerTouchingById = new Map<string, boolean>();
   private blockerHitAtByIndex = new Map<number, number>();
   private blockerTouchingByIndex = new Map<number, boolean>();
   private debugTrackWireframeEnabled = false;
@@ -1131,6 +1147,8 @@ class MarbleMadnessStarter {
       rotatorObstacles: this.rotatorObstacles,
       pinballBouncers: this.pinballBouncers,
       bouncyPads: this.bouncyPads,
+      swingingHammers: this.swingingHammers,
+      fallingPlatforms: this.fallingPlatforms,
       obstacleMeshById: this.obstacleMeshById,
       bouncyPadPaddleById: this.bouncyPadPaddleById,
       bouncerCapById: this.bouncerCapById,
@@ -2085,6 +2103,8 @@ class MarbleMadnessStarter {
       rotatorObstacles: this.rotatorObstacles,
       pinballBouncers: this.pinballBouncers,
       bouncyPads: this.bouncyPads,
+      swingingHammers: this.swingingHammers,
+      fallingPlatforms: this.fallingPlatforms,
       buildPhysicsRuns: () => this.getFloorRuns(),
       getHalfPipeHeightAtOffset: (xOffsetAbs, width) =>
         this.getHalfPipeHeightAtOffset(xOffsetAbs, width),
@@ -2440,6 +2460,8 @@ class MarbleMadnessStarter {
     this.rotatorTouchingById.clear();
     this.bouncyPadHitAtById.clear();
     this.bouncyPadTouchingById.clear();
+    this.hammerHitAtById.clear();
+    this.hammerTouchingById.clear();
     const activeKinds = this.getActiveObstacleKinds();
     const includeBlockers = activeKinds.includes("horizontal_blocker");
     const isSingleTypeFocus = (this.forcedRunObstacleOrder?.length ?? 0) === 1;
@@ -2459,6 +2481,8 @@ class MarbleMadnessStarter {
       this.rotatorObstacles = [];
       this.pinballBouncers = [];
       this.bouncyPads = [];
+      this.swingingHammers = [];
+      this.fallingPlatforms = [];
       return;
     }
 
@@ -2490,6 +2514,16 @@ class MarbleMadnessStarter {
       bouncyPadSweepAmplitude: this.bouncyPadSweepAmplitude,
       bouncyPadSweepSpeedBase: this.bouncyPadSweepSpeedBase,
       bouncyPadLaunchImpulse: this.bouncyPadLaunchImpulse,
+      swingingHammerLength: this.swingingHammerLength,
+      swingingHammerPivotHeight: this.swingingHammerPivotHeight,
+      swingingHammerSweepAmplitude: this.swingingHammerSweepAmplitude,
+      swingingHammerSweepSpeedBase: this.swingingHammerSweepSpeedBase,
+      swingingHammerKnockbackImpulse: this.swingingHammerKnockbackImpulse,
+      fallingPlatformLength: this.fallingPlatformLength,
+      fallingPlatformWidth: this.fallingPlatformWidth,
+      fallingPlatformFallDelay: this.fallingPlatformFallDelay,
+      fallingPlatformFallDuration: this.fallingPlatformFallDuration,
+      fallingPlatformFallDistance: this.fallingPlatformFallDistance,
       marbleRadius: this.marbleRadius,
       horizontalBlockers: this.horizontalBlockers,
       hasFloorAtArcLength: (s) => this.hasFloorAtArcLength(s),
@@ -2505,6 +2539,8 @@ class MarbleMadnessStarter {
     this.rotatorObstacles = rebuiltObstacles.rotatorObstacles;
     this.pinballBouncers = rebuiltObstacles.pinballBouncers;
     this.bouncyPads = rebuiltObstacles.bouncyPads;
+    this.swingingHammers = rebuiltObstacles.swingingHammers;
+    this.fallingPlatforms = rebuiltObstacles.fallingPlatforms;
   }
 
   private updateDesignerRepeatMeta(): void {
@@ -3795,10 +3831,14 @@ class MarbleMadnessStarter {
             rotatorObstacles: this.rotatorObstacles,
             bouncyPads: this.bouncyPads,
             pinballBouncers: this.pinballBouncers,
+            swingingHammers: this.swingingHammers,
+            fallingPlatforms: this.fallingPlatforms,
             rotatorHitAtById: this.rotatorHitAtById,
             rotatorTouchingById: this.rotatorTouchingById,
             bouncyPadHitAtById: this.bouncyPadHitAtById,
             bouncyPadTouchingById: this.bouncyPadTouchingById,
+            hammerHitAtById: this.hammerHitAtById,
+            hammerTouchingById: this.hammerTouchingById,
             horizontalBlockers: this.horizontalBlockers,
             blockerHitAtByIndex: this.blockerHitAtByIndex,
             blockerTouchingByIndex: this.blockerTouchingByIndex,
@@ -3815,6 +3855,9 @@ class MarbleMadnessStarter {
             onPinballBouncerHit: () => {
               this.soundManager.playBouncerBoing();
             },
+            onSwingingHammerHit: (impact) => {
+              this.playObstacleThud(impact, "swinging_hammer");
+            },
           });
           updateWaveObstacleAnimationData({
             fixedStep: this.fixedStep,
@@ -3822,6 +3865,8 @@ class MarbleMadnessStarter {
             rotatorObstacles: this.rotatorObstacles,
             pinballBouncers: this.pinballBouncers,
             bouncyPads: this.bouncyPads,
+            swingingHammers: this.swingingHammers,
+            fallingPlatforms: this.fallingPlatforms,
             obstacleMeshById: this.obstacleMeshById,
             bouncyPadPaddleById: this.bouncyPadPaddleById,
             bouncerCapById: this.bouncerCapById,
@@ -3958,8 +4003,8 @@ class MarbleMadnessStarter {
     const forward = this.getTrackForwardDirectionAtArcLength(nearest.s);
     const followTarget = targetPosition
       .clone()
-      .add(new THREE.Vector3(0, 6.3, 0))
-      .add(forward.clone().multiplyScalar(-7.95));
+      .add(new THREE.Vector3(0, 8.5, 0))
+      .add(forward.clone().multiplyScalar(-12));
     const lookTarget = targetPosition
       .clone()
       .add(new THREE.Vector3(0, 0.2, 0))
