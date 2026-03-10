@@ -120,6 +120,7 @@ class MarbleMadnessStarter {
   private cameraFollowAnchor = new THREE.Vector3();
   private cameraLookAnchor = new THREE.Vector3();
   private cameraAnchorsInitialized = false;
+  private cameraFinishZoomActive = false;
 
   private runTimeSeconds = 0;
   private finishedTimeSeconds = 0;
@@ -194,7 +195,7 @@ class MarbleMadnessStarter {
   private readonly bouncyPadSweepSpeedBase = 3.4;
   private readonly bouncyPadLaunchImpulse = 10.5;
   private readonly swingingHammerLength = 4.2;
-  private readonly swingingHammerPivotHeight = 3.5;
+  private readonly swingingHammerPivotHeight = 5.2;
   private readonly swingingHammerSweepAmplitude = 1.05;
   private readonly swingingHammerSweepSpeedBase = 2.8;
   private readonly swingingHammerKnockbackImpulse = 15;
@@ -361,8 +362,8 @@ class MarbleMadnessStarter {
   private readonly swipeMaxDurationMs = 1000;
   private readonly swipeVelocityForMaxPxPerSec = 2000;
   private readonly swipePerMoveDistanceForMaxPx = 96;
-  private readonly swipeBurstMinImpulse = 1.35;
-  private readonly swipeBurstMaxImpulse = 10.5;
+  private readonly swipeBurstMinImpulse = 2.0;
+  private readonly swipeBurstMaxImpulse = 16.0;
   private readonly swipeBurstStrengthExponent = 0.95;
 
   private soundManager: SoundManager;
@@ -376,7 +377,9 @@ class MarbleMadnessStarter {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#8fd3ff");
 
-    this.camera = new THREE.PerspectiveCamera(52, 1, 0.1, 1400);
+    // Wider FOV on mobile to see fireworks at track edges
+    const fov = this.isMobile ? 65 : 52;
+    this.camera = new THREE.PerspectiveCamera(fov, 1, 0.1, 1400);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
@@ -2127,7 +2130,7 @@ class MarbleMadnessStarter {
   }
 
   private initializeDesignerUi(): void {
-    if (this.isMobile || !this.designerList) {
+    if (!this.designerList) {
       return;
     }
 
@@ -2197,7 +2200,7 @@ class MarbleMadnessStarter {
   }
 
   private initializeDesignerRepeatUi(): void {
-    if (this.isMobile || !this.designerRepeatSelect) {
+    if (!this.designerRepeatSelect) {
       return;
     }
     while (this.designerRepeatSelect.firstChild) {
@@ -2225,7 +2228,7 @@ class MarbleMadnessStarter {
   }
 
   private initializeObstacleFocusUi(): void {
-    if (this.isMobile || !this.obstacleFocusSelect) {
+    if (!this.obstacleFocusSelect) {
       return;
     }
     this.obstacleFocusSelect.value = this.designerObstacleFocus;
@@ -2553,9 +2556,9 @@ class MarbleMadnessStarter {
 
   private setSettingsTab(tab: SettingsTab): void {
     this.activeSettingsTab = tab;
-    const showDesigner = tab === "designer" && !this.isMobile;
-    const showRepeat = tab === "repeat" && !this.isMobile;
-    const showObstacles = tab === "obstacles" && !this.isMobile;
+    const showDesigner = tab === "designer";
+    const showRepeat = tab === "repeat";
+    const showObstacles = tab === "obstacles";
     const showDebug = tab === "debug" && !this.isMobile;
     const showAudio = !showDesigner && !showRepeat && !showObstacles && !showDebug;
     this.settingsPaneAudio.classList.toggle("hidden", !showAudio);
@@ -2589,9 +2592,6 @@ class MarbleMadnessStarter {
   }
 
   private spawnDesignedLevel(): void {
-    if (this.isMobile) {
-      return;
-    }
     const designed = this.readDesignerMiddleTypes();
     if (designed.length === 0) {
       return;
@@ -2610,15 +2610,14 @@ class MarbleMadnessStarter {
   }
 
   private spawnObstacleFocusLevel(): void {
-    if (this.isMobile) {
-      return;
-    }
     const selected = this.obstacleFocusSelect?.value ?? this.designerObstacleFocus;
     if (
       selected === "horizontal_blocker" ||
       selected === "rotator_x" ||
       selected === "pinball_bouncer" ||
-      selected === "bouncy_pad"
+      selected === "bouncy_pad" ||
+      selected === "swinging_hammer" ||
+      selected === "falling_platform"
     ) {
       this.designerObstacleFocus = selected;
     }
@@ -2637,9 +2636,6 @@ class MarbleMadnessStarter {
   }
 
   private spawnRepeatedDesignedLevel(): void {
-    if (this.isMobile) {
-      return;
-    }
     const selected = this.designerRepeatSelect?.value ?? this.designerRepeatType;
     if (this.isDesignerSelectableType(selected)) {
       this.designerRepeatType = selected;
@@ -2663,9 +2659,6 @@ class MarbleMadnessStarter {
   }
 
   private spawnDebugCubeLevel(): void {
-    if (this.isMobile) {
-      return;
-    }
     const middleTypes: PlatformType[] = [
       "flat",
       "slope_down_steep",
@@ -2996,6 +2989,7 @@ class MarbleMadnessStarter {
 
     this.clearDebugMovementKeys();
     this.cameraAnchorsInitialized = false;
+    this.cameraFinishZoomActive = false;
     this.updateCamera(1);
     this.updateDebugPlatformLabelVisibility();
     console.log("[ToggleDebugFlyMode]", "Disabled debug fly camera");
@@ -3368,6 +3362,7 @@ class MarbleMadnessStarter {
     this.setupSceneVisuals();
     this.createTrackPhysics();
     this.cameraAnchorsInitialized = false;
+    this.cameraFinishZoomActive = false;
     for (const row of this.fireworkRows) {
       row.triggered = false;
     }
@@ -3394,6 +3389,7 @@ class MarbleMadnessStarter {
     this.runTimeSeconds = 0;
     this.finishedTimeSeconds = 0;
     this.loopsCompleted = 0;
+    this.cameraFinishZoomActive = false;
     this.lastObstacleThudRunTime = -999;
     this.rotatorHitAtById.clear();
     this.rotatorTouchingById.clear();
@@ -3438,6 +3434,7 @@ class MarbleMadnessStarter {
     this.setupSceneVisuals();
     this.createTrackPhysics();
     this.cameraAnchorsInitialized = false;
+    this.cameraFinishZoomActive = false;
     for (const row of this.fireworkRows) {
       row.triggered = false;
     }
@@ -3560,6 +3557,7 @@ class MarbleMadnessStarter {
     this.setupSceneVisuals();
     this.createTrackPhysics();
     this.cameraAnchorsInitialized = false;
+    this.cameraFinishZoomActive = false;
     this.resetSwipeInput(true);
     this.resetMarble();
     this.updateLevelProgressUi();
@@ -3644,12 +3642,10 @@ class MarbleMadnessStarter {
     this.settingsModal.classList.toggle("hidden", !visible);
     this.syncGameplayActivity();
     if (visible) {
-      this.setSettingsTab(this.isMobile ? "audio" : this.activeSettingsTab);
-      if (!this.isMobile) {
-        this.designedMiddleTypes = this.readDesignerMiddleTypes();
-        this.updateDesignerMeta();
-        this.updateDesignerRepeatMeta();
-      }
+      this.setSettingsTab(this.activeSettingsTab);
+      this.designedMiddleTypes = this.readDesignerMiddleTypes();
+      this.updateDesignerMeta();
+      this.updateDesignerRepeatMeta();
     }
   }
 
@@ -4001,14 +3997,53 @@ class MarbleMadnessStarter {
     const targetPosition = this.marbleMesh.position;
     const nearest = this.getNearestTrackSample(targetPosition.x, targetPosition.z);
     const forward = this.getTrackForwardDirectionAtArcLength(nearest.s);
-    const followTarget = targetPosition
-      .clone()
-      .add(new THREE.Vector3(0, 8.5, 0))
-      .add(forward.clone().multiplyScalar(-12));
-    const lookTarget = targetPosition
-      .clone()
-      .add(new THREE.Vector3(0, 0.2, 0))
-      .add(forward.clone().multiplyScalar(4.8));
+
+    // Calculate marble speed for dynamic camera
+    const velocity = this.marbleBody?.linvel();
+    const speed = velocity
+      ? Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
+      : 0;
+
+    // Detect when approaching finish line and activate finish zoom
+    const distanceToFinish = targetPosition.z - this.finishZ;
+    if (distanceToFinish < 30 && this.gameState === "playing") {
+      this.cameraFinishZoomActive = true;
+    }
+
+    let followTarget: THREE.Vector3;
+    let lookTarget: THREE.Vector3;
+
+    if (this.cameraFinishZoomActive) {
+      // Finish zoom: pull back and up 2x to show the fireworks
+      const fireworkCenterX = this.sampleTrackX(this.fireworkTriggerZ);
+      const fireworkSurfaceY = this.getTrackSurfaceY(this.fireworkTriggerZ);
+
+      followTarget = new THREE.Vector3(
+        fireworkCenterX,
+        fireworkSurfaceY + 24.0, // 2x higher up
+        this.fireworkTriggerZ + 50.0 // 2x further back
+      );
+
+      lookTarget = new THREE.Vector3(
+        fireworkCenterX,
+        fireworkSurfaceY + 3.0, // Look at firework spawn height
+        this.fireworkTriggerZ
+      );
+    } else {
+      // Normal speed-based camera
+      const baseDistance = 7.95 * (this.isMobile ? 1.15 : 1.0);
+      const speedFactor = THREE.MathUtils.clamp(speed / 20, 0, 1);
+      const cameraDistance = baseDistance * (2 - speedFactor); // Lerp from 2x to 1x
+
+      followTarget = targetPosition
+        .clone()
+        .add(new THREE.Vector3(0, 6.3, 0))
+        .add(forward.clone().multiplyScalar(-cameraDistance));
+      lookTarget = targetPosition
+        .clone()
+        .add(new THREE.Vector3(0, 0.2, 0))
+        .add(forward.clone().multiplyScalar(4.8));
+    }
 
     if (!this.cameraAnchorsInitialized) {
       this.cameraFollowAnchor.copy(followTarget);
@@ -4016,8 +4051,11 @@ class MarbleMadnessStarter {
       this.cameraAnchorsInitialized = true;
     }
 
-    // Delayed camera anchors smooth small physics jitters.
-    const followSmooth = Math.min(1, delta * 2.2);
+    // Slower follow during finish zoom for cinematic effect
+    const baseFollowSpeed = this.cameraFinishZoomActive ? 0.8 : 1.0;
+    const speedFactor = THREE.MathUtils.clamp(speed / 20, 0, 1);
+    const followSpeed = baseFollowSpeed + speedFactor * 2.0;
+    const followSmooth = Math.min(1, delta * followSpeed);
     const lookSmooth = Math.min(1, delta * 2.6);
     this.cameraFollowAnchor.lerp(followTarget, followSmooth);
     this.cameraLookAnchor.lerp(lookTarget, lookSmooth);
