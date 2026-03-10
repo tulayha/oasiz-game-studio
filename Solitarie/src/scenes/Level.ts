@@ -549,7 +549,6 @@ export default class Level extends Phaser.Scene {
         const y = Math.max(24, topSafe - 15);
 
         const w = this.scale.width;
-        const h = this.scale.height;
         const mobile = this.isMobile();
         const statsY = Math.max(20, y - (mobile ? 32 : 28));
         const statsGap = mobile ? Math.min(112, w * 0.22) : Math.min(150, w * 0.16);
@@ -568,6 +567,8 @@ export default class Level extends Phaser.Scene {
         const settingsX = w - rightInset - buttonWidth;
         const hintX = settingsX - buttonGap - buttonWidth;
         const newX = hintX - buttonGap - buttonWidth;
+        const infoButtonSize = 38;
+        const infoX = newX - buttonGap - infoButtonSize;
 
         this.makeTopButton(newX, y, buttonWidth, buttonHeight, "New game", () => {
             this.triggerHaptic("light");
@@ -596,8 +597,8 @@ export default class Level extends Phaser.Scene {
             hintButtonX: hintX + buttonWidth / 2,
             settingsButtonX: settingsX + buttonWidth / 2,
             buttonCenterY: y + buttonHeight / 2 - 1,
-            infoButtonX: mobile ? 30 : 28,
-            infoButtonY: h - (mobile ? 104 : 30)
+            infoButtonX: infoX + infoButtonSize / 2,
+            infoButtonY: y + buttonHeight / 2 - 1
         };
         this.showGameplayHtml();
         this.updateHUD();
@@ -1861,9 +1862,9 @@ export default class Level extends Phaser.Scene {
             text: "I",
             x: this.gameplayHtmlLayout.infoButtonX,
             y: this.gameplayHtmlLayout.infoButtonY,
-            width: 40,
-            height: 40,
-            radius: 20,
+            width: 38,
+            height: 38,
+            radius: 19,
             fontSize: 22,
             theme: "orange",
             onClick: () => {
