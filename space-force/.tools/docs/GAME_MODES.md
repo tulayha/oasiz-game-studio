@@ -79,8 +79,8 @@ Winner semantics:
 - Session-end snapshot triggers must be explicit in implementation design.
 
 Map support policy:
-- Endless mode excludes the block-centric map variant.
-- Mode implementation must maintain an explicit map whitelist for this ruleset.
+- All maps are available in endless mode (no per-ruleset exclusions).
+- Map rotation pool (`CLASSIC_ROTATION_MAP_IDS`) applies uniformly across rulesets.
 
 ## Experience Context Definitions
 

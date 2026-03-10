@@ -139,6 +139,12 @@ Platform back-navigation contract:
 - In platform runtime, lobby/game top leave controls are hidden and leave flow is driven by platform back + central modal.
 - Endless leader `End Match` action is folded into match-leave confirmation flow (single leave surface).
 
+Platform invite contract:
+- `platform/oasizBridge.ts` owns invite bridge surface (`shareRoomCode` with `inviteOverride: true`, `openInviteModal`).
+- `shareRoomCode` always passes `inviteOverride: true` — platform hides its own invite pill; game owns the invite entry point.
+- `ui/lobby.ts` owns invite button visibility (`canShowInviteOption`: online + platform runtime, slots available) and opens platform invite sheet via `openInviteModal`.
+- Invite is not leader-gated — any player may invite as long as open slots exist.
+
 ## Asset Mapping + URL Contract
 
 Runtime URL contract:
