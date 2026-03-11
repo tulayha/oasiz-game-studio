@@ -139,10 +139,15 @@ function renderCards() {
 
   const cards = [
     { label: "VERDICT", value: primary.verdict || "REVIEW" },
-    { label: "HARD CAP", value: formatNumber(primary.hardCapacity) },
-    { label: "PROD CAP", value: formatNumber(primary.prodCapacity) },
+    { label: "HARD CAP", value: formatNumber(primary.hardCapacity) + " users" },
+    { label: "PROD CAP", value: formatNumber(primary.prodCapacity) + " users" },
     { label: "FULL ROOMS", value: formatNumber(primary.fullRoomsCapacity) },
-    { label: "RTT P95 MAX", value: formatNumber(primary.rttP95MaxMs) + " ms" },
+    {
+      label: "RTT P95 MAX",
+      value: primary.rttP95MaxMs != null
+        ? formatNumber(primary.rttP95MaxMs) + " ms"
+        : "n/a (no OPS_STATS_URL)",
+    },
   ];
 
   container.innerHTML = cards
@@ -212,6 +217,16 @@ function renderComparisonTable() {
   tbody.innerHTML = rows.join("");
 }
 
+function stageJoinRate(stage) {
+  if (stage.joined != null && stage.expected != null && stage.expected > 0) {
+    return stage.joined / stage.expected;
+  }
+  if (stage.failedJoins != null && stage.clients > 0) {
+    return Math.max(0, (stage.clients - stage.failedJoins) / stage.clients);
+  }
+  return stage.passLoadtest === true ? 1 : 0;
+}
+
 function drawStageChart() {
   const canvas = document.getElementById("stage-chart");
   const meta = document.getElementById("chart-meta");
@@ -233,12 +248,12 @@ function drawStageChart() {
   }
 
   const stages = [...primary.stageResults].sort((a, b) => a.clients - b.clients);
-  const maxClients = Math.max(...stages.map((row) => row.clients), 1);
-  const pad = { left: 40, right: 10, top: 12, bottom: 34 };
+  const pad = { left: 44, right: 10, top: 12, bottom: 34 };
   const innerW = widthCss - pad.left - pad.right;
   const innerH = heightCss - pad.top - pad.bottom;
   const barW = innerW / stages.length;
 
+  // axes
   ctx.strokeStyle = "#c8d7e8";
   ctx.beginPath();
   ctx.moveTo(pad.left, pad.top);
@@ -246,26 +261,53 @@ function drawStageChart() {
   ctx.lineTo(pad.left + innerW, pad.top + innerH);
   ctx.stroke();
 
+  // y-axis labels (0%, 50%, 100%)
+  ctx.fillStyle = "#4a607a";
+  ctx.font = "10px IBM Plex Sans, sans-serif";
+  ctx.textAlign = "right";
+  ["100%", "50%", "0%"].forEach((label, i) => {
+    const y = pad.top + (i * innerH) / 2;
+    ctx.fillText(label, pad.left - 4, y + 4);
+    if (i > 0) {
+      ctx.strokeStyle = "#e8eef4";
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(pad.left + innerW, y);
+      ctx.stroke();
+    }
+  });
+  ctx.textAlign = "left";
+
+  // bars
   stages.forEach((stage, index) => {
-    const x = pad.left + index * barW + 4;
-    const ratio = Math.max(0, Math.min(1, stage.clients / maxClients));
-    const h = ratio * (innerH - 6);
+    const rate = stageJoinRate(stage);
+    const h = Math.max(2, rate * (innerH - 2));
+    const x = pad.left + index * barW + 3;
     const y = pad.top + innerH - h;
     const fill = stage.passLoadtest === true ? "#2da86d" : "#e18c33";
 
     ctx.fillStyle = fill;
-    ctx.fillRect(x, y, Math.max(4, barW - 8), h);
+    ctx.fillRect(x, y, Math.max(4, barW - 6), h);
 
-    const label = String(stage.clients);
+    // join rate % inside/above bar
+    const pct = Math.round(rate * 100) + "%";
+    ctx.fillStyle = "#102136";
+    ctx.font = "10px IBM Plex Sans, sans-serif";
+    ctx.textAlign = "center";
+    const labelX = x + Math.max(4, barW - 6) / 2;
+    ctx.fillText(pct, labelX, Math.max(pad.top + 10, y - 3));
+
+    // client count on x-axis
     ctx.fillStyle = "#4a607a";
-    ctx.font = "11px IBM Plex Sans, sans-serif";
-    ctx.fillText(label, x, pad.top + innerH + 13);
+    ctx.fillText(String(stage.clients), labelX, pad.top + innerH + 13);
   });
+  ctx.textAlign = "left";
 
+  const hardCap = primary.hardCapacity;
   meta.textContent =
-    "Primary run " +
-    primary.runId +
-    " | bars show stage client count, green=pass, orange=review/fail.";
+    "Run " + primary.runId +
+    " | bar height = join success rate, green = pass, orange = fail" +
+    (hardCap != null ? " | hard cap: " + hardCap + " clients" : "");
 }
 
 function renderArtifactLinks() {

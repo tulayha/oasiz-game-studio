@@ -355,8 +355,15 @@ function runLoadtestStage(
 
     const child = spawn(npmCommand, args, {
       cwd: process.cwd(),
-      stdio: "inherit",
+      stdio: ["inherit", "pipe", "pipe"],
       shell: false,
+    });
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      process.stdout.write(chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      process.stdout.write(chunk);
     });
 
     child.on("error", (error) => {

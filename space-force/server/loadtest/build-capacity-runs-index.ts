@@ -9,6 +9,8 @@ interface CliOptions {
 interface CapacityStageResult {
   stageIndex: number;
   clients: number;
+  joined: number | null;
+  expected: number | null;
   passLoadtest: boolean | null;
   loadtestExitCode: number | null;
   failedJoins: number | null;
@@ -154,6 +156,8 @@ function parseStageResultsFromReport(
     return {
       stageIndex: parseInteger(stageRow.stageIndex) ?? 0,
       clients: parseInteger(stageRow.clients) ?? 0,
+      joined: parseInteger(stageRow.joined),
+      expected: parseInteger(stageRow.expected),
       passLoadtest:
         typeof stageRow.passLoadtest === "boolean" ? stageRow.passLoadtest : null,
       loadtestExitCode: parseInteger(stageRow.loadtestExitCode),
@@ -194,6 +198,8 @@ function parseStageResultsFromSummary(
     return {
       stageIndex: parseInteger(stageRow.stageIndex) ?? 0,
       clients: parseInteger(stageRow.clients) ?? 0,
+      joined: parseInteger(parsedResult?.joined),
+      expected: parseInteger(parsedResult?.expected),
       passLoadtest,
       loadtestExitCode,
       failedJoins,
