@@ -279,10 +279,13 @@ install_capacity_runner() {
   fi
 
   local host_runner="${server_dir}/loadtest/run-capacity-host.sh"
+  local combined_runner="${server_dir}/loadtest/run-capacity-with-dashboard.sh"
   local report_builder="${server_dir}/loadtest/build-capacity-report.mjs"
   [ -f "${host_runner}" ] || fail "Missing host runner: ${host_runner}"
+  [ -f "${combined_runner}" ] || fail "Missing combined runner: ${combined_runner}"
   [ -f "${report_builder}" ] || fail "Missing report builder: ${report_builder}"
   chmod +x "${host_runner}"
+  chmod +x "${combined_runner}"
 
   cat > "${CAPACITY_RUNNER_PATH}" <<'RUNNER_EOF'
 #!/usr/bin/env bash
@@ -309,39 +312,33 @@ RUNNER_EOF
 }
 
 install_capacity_dashboard_runner() {
+  local server_dir="$1"
   if ! is_true "${INSTALL_CAPACITY_DASHBOARD_RUNNER}"; then
     return
   fi
 
+  # Combined runner: starts the HTTP dashboard server and runs the sweep in one command.
   cat > "${CAPACITY_DASHBOARD_RUNNER_PATH}" <<'DASHBOARD_EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-RUNS_ROOT="${RUNS_ROOT:-/root/space-force-loadtest-runs}"
-PORT="${PORT:-8787}"
-HOST="${HOST:-0.0.0.0}"
+DEFAULT_SERVER_DIR="__SERVER_DIR__"
+DEFAULT_ENV_FILE="__LOADTEST_ENV_FILE__"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "[space-force-capacity-dashboard] ERROR: python3 is required" >&2
-  exit 1
-fi
+export SERVER_DIR="${SERVER_DIR:-${DEFAULT_SERVER_DIR}}"
+export ENV_FILE="${ENV_FILE:-${DEFAULT_ENV_FILE}}"
 
-if [ ! -f "${RUNS_ROOT}/dashboard/index.html" ]; then
-  echo "[space-force-capacity-dashboard] ERROR: dashboard not found at ${RUNS_ROOT}/dashboard/index.html" >&2
-  echo "[space-force-capacity-dashboard] Run one capacity sweep first to generate dashboard assets." >&2
-  exit 1
-fi
-
-echo "[space-force-capacity-dashboard] Serving ${RUNS_ROOT} on http://${HOST}:${PORT}/dashboard/"
-exec python3 -m http.server "${PORT}" --bind "${HOST}" --directory "${RUNS_ROOT}"
+exec "${SERVER_DIR}/loadtest/run-capacity-with-dashboard.sh" "$@"
 DASHBOARD_EOF
 
+  sed -i "s|__SERVER_DIR__|${server_dir}|g" "${CAPACITY_DASHBOARD_RUNNER_PATH}"
+  sed -i "s|__LOADTEST_ENV_FILE__|${LOADTEST_ENV_FILE}|g" "${CAPACITY_DASHBOARD_RUNNER_PATH}"
   chmod +x "${CAPACITY_DASHBOARD_RUNNER_PATH}"
-  log "Installed dashboard runner ${CAPACITY_DASHBOARD_RUNNER_PATH}"
+  log "Installed combined capacity+dashboard runner ${CAPACITY_DASHBOARD_RUNNER_PATH}"
 
   if is_true "${INSTALL_CAPACITY_DASHBOARD_SYMLINK}"; then
     ln -sf "${CAPACITY_DASHBOARD_RUNNER_PATH}" "${CAPACITY_DASHBOARD_SYMLINK_PATH}"
-    log "Installed dashboard command ${CAPACITY_DASHBOARD_SYMLINK_PATH}"
+    log "Installed convenience command ${CAPACITY_DASHBOARD_SYMLINK_PATH}"
   fi
 }
 
@@ -352,8 +349,10 @@ print_next_steps() {
 
 Frictionless run flow:
   1) Edit ${LOADTEST_ENV_FILE} and set VITE_COLYSEUS_WS_URL.
-  2) Run: ${CAPACITY_SYMLINK_PATH}
-  3) Open dashboard: ${CAPACITY_DASHBOARD_SYMLINK_PATH}
+  2) Run: ${CAPACITY_DASHBOARD_SYMLINK_PATH}
+     This starts the HTTP dashboard server AND the capacity sweep in one command.
+     Open http://<server-ip>:8787/dashboard/ — it auto-refreshes every 15s.
+  (Advanced) Sweep only, no dashboard server: ${CAPACITY_SYMLINK_PATH}
 
 Artifacts are written under OUT_ROOT/<runId> and include:
   - loadtest summary files
@@ -386,7 +385,7 @@ main() {
   sync_observer_script "${server_dir}"
   install_loadtest_env_template
   install_capacity_runner "${server_dir}"
-  install_capacity_dashboard_runner
+  install_capacity_dashboard_runner "${server_dir}"
   print_next_steps
 }
 

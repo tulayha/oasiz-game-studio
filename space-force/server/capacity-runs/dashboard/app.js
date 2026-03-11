@@ -331,3 +331,4 @@ window.addEventListener("resize", () => {
 });
 
 void loadDashboard();
+setInterval(() => { void loadDashboard(); }, 15000);

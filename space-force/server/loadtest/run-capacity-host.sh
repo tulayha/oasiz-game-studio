@@ -97,6 +97,7 @@ stop_pid() {
 HOST_METRICS_PID=""
 OPS_METRICS_PID=""
 PROGRESS_ECHO_PID=""
+LIVE_INDEX_PID=""
 HOST_IFACE=""
 LOCK_ACQUIRED="false"
 
@@ -104,6 +105,7 @@ cleanup() {
   stop_pid "${HOST_METRICS_PID}"
   stop_pid "${OPS_METRICS_PID}"
   stop_pid "${PROGRESS_ECHO_PID}"
+  stop_pid "${LIVE_INDEX_PID}"
   if [ "${LOCK_ACQUIRED}" = "true" ]; then
     flock -u 9 >/dev/null 2>&1 || true
     LOCK_ACQUIRED="false"
@@ -310,6 +312,19 @@ start_progress_echo_loop() {
   PROGRESS_ECHO_PID="$!"
 }
 
+start_live_index_loop() {
+  (
+    while true; do
+      sleep 15
+      (
+        cd "${SERVER_DIR}"
+        npm run capacity:index -- --runsDir "${OUT_ROOT}"
+      ) >/dev/null 2>&1 || true
+    done
+  ) &
+  LIVE_INDEX_PID="$!"
+}
+
 STARTED_AT_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 log "Run ID ${RUN_ID}"
@@ -320,6 +335,7 @@ log "Runner ${RUNNER} stages=${STAGES} usersPerRoom=${USERS_PER_ROOM} durationSe
 start_host_metrics_loop
 start_ops_poller
 start_progress_echo_loop
+start_live_index_loop
 
 if [ -n "${INPUT_DEBOUNCE_MS}" ]; then
   export LOADTEST_INPUT_DEBOUNCE_MS="${INPUT_DEBOUNCE_MS}"

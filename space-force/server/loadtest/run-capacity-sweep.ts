@@ -631,6 +631,28 @@ function stageCsvLine(stage: StageSummary): string {
   ].join(",");
 }
 
+function flushSummary(config: SweepConfig, summaries: StageSummary[]): void {
+  const summaryPath = path.join(config.outputDir, "capacity-summary.json");
+  fs.writeFileSync(
+    summaryPath,
+    JSON.stringify(
+      {
+        generatedAtIso: new Date().toISOString(),
+        config,
+        stages: summaries,
+      },
+      null,
+      2,
+    ),
+  );
+
+  const csvPath = path.join(config.outputDir, "capacity-summary.csv");
+  const csvHeader =
+    "stageIndex,clients,loadtestExitCode,startedAtIso,endedAtIso,joined,expected,failedJoins,disconnected,serverDisconnects,inputsSent,topLeaveCodes";
+  const csvLines = [csvHeader, ...summaries.map(stageCsvLine)];
+  fs.writeFileSync(csvPath, csvLines.join("\n"));
+}
+
 async function main(): Promise<void> {
   const config = resolveConfig();
   const doMetricsEnabled = Boolean(config.doToken && config.doDropletId);
@@ -768,6 +790,7 @@ async function main(): Promise<void> {
     }
 
     summaries.push(stageSummary);
+    flushSummary(config, summaries);
 
     console.log(
       "[LoadTest.capacity]",
@@ -792,26 +815,10 @@ async function main(): Promise<void> {
     }
   }
 
+  flushSummary(config, summaries);
+
   const summaryPath = path.join(config.outputDir, "capacity-summary.json");
-  fs.writeFileSync(
-    summaryPath,
-    JSON.stringify(
-      {
-        generatedAtIso: new Date().toISOString(),
-        config,
-        stages: summaries,
-      },
-      null,
-      2,
-    ),
-  );
-
   const csvPath = path.join(config.outputDir, "capacity-summary.csv");
-  const csvHeader =
-    "stageIndex,clients,loadtestExitCode,startedAtIso,endedAtIso,joined,expected,failedJoins,disconnected,serverDisconnects,inputsSent,topLeaveCodes";
-  const csvLines = [csvHeader, ...summaries.map(stageCsvLine)];
-  fs.writeFileSync(csvPath, csvLines.join("\n"));
-
   console.log("[LoadTest.capacity]", "Wrote summary json " + summaryPath);
   console.log("[LoadTest.capacity]", "Wrote summary csv " + csvPath);
 }
