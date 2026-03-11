@@ -370,7 +370,8 @@ function runLoadtestStage(
 }
 
 function parseNumberField(line: string, key: string): number | null {
-  const regex = new RegExp(key + "=([0-9]+)");
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escapedKey + "\\s*(?:=|:)\\s*([0-9]+)");
   const match = line.match(regex);
   if (!match) return null;
   const parsed = Number.parseInt(match[1] ?? "", 10);
@@ -395,12 +396,32 @@ function parseLoadtestResult(logPath: string): ParsedLoadtestResult {
 
   let resultLine: string | null = null;
   let summaryLine: string | null = null;
+  let lobbyfillSummaryLine: string | null = null;
+  let successfulConnectionsLine: string | null = null;
+  let failedConnectionsLine: string | null = null;
+  let leaveCodesLine: string | null = null;
   for (const line of lines) {
     if (line.includes("joined=") && line.includes("failedJoins=")) {
       resultLine = line;
     }
     if (line.includes("serverDisconnects=") && line.includes("inputsSent=")) {
       summaryLine = line;
+    }
+    if (
+      line.includes("[LoadTest.lobbyfill.summary]") &&
+      line.includes("attempted=") &&
+      line.includes("joined=")
+    ) {
+      lobbyfillSummaryLine = line;
+    }
+    if (line.includes("Successful connections:")) {
+      successfulConnectionsLine = line;
+    }
+    if (line.includes("Failed connections:")) {
+      failedConnectionsLine = line;
+    }
+    if (line.includes("leaveCodes=") || line.includes("disconnectCodes=")) {
+      leaveCodesLine = line;
     }
   }
 
@@ -426,10 +447,70 @@ function parseLoadtestResult(logPath: string): ParsedLoadtestResult {
     }
   }
 
-  const serverDisconnects =
+  if (joined === null || failedJoins === null || expected === null) {
+    const successfulConnections =
+      successfulConnectionsLine !== null
+        ? parseNumberField(successfulConnectionsLine, "Successful connections")
+        : null;
+    const failedConnections =
+      failedConnectionsLine !== null
+        ? parseNumberField(failedConnectionsLine, "Failed connections")
+        : null;
+
+    if (joined === null && successfulConnections !== null) {
+      joined = successfulConnections;
+    }
+    if (failedJoins === null && failedConnections !== null) {
+      failedJoins = failedConnections;
+    }
+    if (
+      expected === null &&
+      successfulConnections !== null &&
+      failedConnections !== null
+    ) {
+      expected = successfulConnections + failedConnections;
+    }
+  }
+
+  if (lobbyfillSummaryLine !== null) {
+    if (joined === null) {
+      joined = parseNumberField(lobbyfillSummaryLine, "joined");
+    }
+    if (expected === null) {
+      expected = parseNumberField(lobbyfillSummaryLine, "attempted");
+    }
+    if (failedJoins === null) {
+      failedJoins = parseNumberField(lobbyfillSummaryLine, "failed");
+    }
+    if (disconnected === null) {
+      disconnected = parseNumberField(lobbyfillSummaryLine, "disconnected");
+    }
+  }
+
+  if (topLeaveCodes === null && leaveCodesLine !== null) {
+    const leaveMatch = leaveCodesLine.match(/(?:leaveCodes|disconnectCodes)=([^'"\r\n]+)/);
+    if (leaveMatch && typeof leaveMatch[1] === "string") {
+      topLeaveCodes = leaveMatch[1].trim();
+    }
+  }
+
+  const serverDisconnectsRaw =
     summaryLine !== null ? parseNumberField(summaryLine, "serverDisconnects") : null;
-  const inputsSent =
+  const inputsSentRaw =
     summaryLine !== null ? parseNumberField(summaryLine, "inputsSent") : null;
+
+  const serverDisconnects =
+    serverDisconnectsRaw !== null
+      ? serverDisconnectsRaw
+      : lobbyfillSummaryLine !== null
+        ? parseNumberField(lobbyfillSummaryLine, "disconnected")
+        : null;
+  const inputsSent =
+    inputsSentRaw !== null
+      ? inputsSentRaw
+      : lobbyfillSummaryLine !== null
+        ? parseNumberField(lobbyfillSummaryLine, "inputsSent")
+        : null;
 
   return {
     joined,
