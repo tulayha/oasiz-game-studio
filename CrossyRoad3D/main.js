@@ -966,7 +966,7 @@ function addLane(z, idx) {
   } else if (lane.hazard === 'trains') {
     const dir = Math.random() > 0.5 ? 1 : -1;
     const trainScale = 0.85 + Math.min((diff - 1) * 0.35, 0.55);
-    lane.channels.push(makeLaneChannel(z, dir * (3.5 + Math.random() * 1.0) * trainScale, 'train', 1, [5.4, 7.4], 9.2));
+    lane.channels.push(makeLaneChannel(z, dir * (3.5 + Math.random() * 1.0) * trainScale, 'train', 1, [8.0, 12.0], 60.0));
   } else if (lane.hazard === 'barrels') {
     lane.channels.push(
       makeLaneChannel(z - off, (1.2 + Math.random() * 0.7) * speedScale, 'barrel', 2, [1.3, 2.0], 2.8),
@@ -1178,26 +1178,26 @@ function spawnMover(lane, subSpeed, subZ, kindOverride) {
     h = 0.34;
     d = 0.92;
   } else if (moverKind === 'truck') {
-    w = 2.7 + Math.random() * 1.0;
-    h = 0.92;
-    d = laneDepth * 0.34;
+    w = 3.4 + Math.random() * 0.8;
+    h = 1.12;
+    d = laneDepth * 0.40;
   } else if (moverKind === 'bike') {
     w = 0.95 + Math.random() * 0.24;
     h = 0.52;
     d = laneDepth * 0.18;
   } else if (moverKind === 'train') {
-    w = 6.7 + Math.random() * 2.2;
-    h = 1.24;
-    d = laneDepth * 0.46;
+    w = 140.0 + Math.random() * 40.0;
+    h = 1.5;
+    d = laneDepth * 0.52;
   } else if (moverKind === 'barrel') {
     w = 0.64 + Math.random() * 0.14;
     h = 0.62 + Math.random() * 0.14;
     d = w;
     spinRate = spd * 3.1;
   } else {
-    w = 1.45 + Math.random() * 0.66;
-    h = 0.74 + Math.random() * 0.1;
-    d = laneDepth * 0.32;
+    w = 2.1 + Math.random() * 0.25;
+    h = 0.88 + Math.random() * 0.08;
+    d = laneDepth * 0.38;
   }
 
   const mover = new THREE.Group();
@@ -1258,15 +1258,36 @@ function spawnMover(lane, subSpeed, subZ, kindOverride) {
       seat.position.set(-w * 0.08, h * 0.8, 0);
       mover.add(seat);
     } else {
-      const cabinBase = new THREE.Mesh(new THREE.BoxGeometry(w * (moverKind === 'truck' ? 0.46 : 0.62), h * (moverKind === 'train' ? 0.28 : 0.36), d * 0.88), paint);
-      cabinBase.position.set(moverKind === 'truck' ? w * 0.18 : -w * 0.03, h * 0.94, 0);
-      cabinBase.castShadow = true;
-      mover.add(cabinBase);
-
-      const cabin = new THREE.Mesh(new THREE.BoxGeometry(w * (moverKind === 'truck' ? 0.34 : 0.56), h * (moverKind === 'train' ? 0.26 : 0.32), d * 0.84), MAT.carGlass);
-      cabin.position.set(moverKind === 'truck' ? w * 0.18 : -w * 0.03, h * (moverKind === 'train' ? 1.0 : 1.02), 0);
-      cabin.castShadow = true;
-      mover.add(cabin);
+      if (moverKind === 'train') {
+        // front locomotive cabin
+        const locoW = 5.0;
+        const frontCabBase = new THREE.Mesh(new THREE.BoxGeometry(locoW, h * 0.38, d * 0.88), paint);
+        frontCabBase.position.set(w * 0.46, h * 0.94, 0);
+        frontCabBase.castShadow = true;
+        mover.add(frontCabBase);
+        const frontCab = new THREE.Mesh(new THREE.BoxGeometry(locoW * 0.8, h * 0.32, d * 0.84), MAT.carGlass);
+        frontCab.position.set(w * 0.46, h * 1.08, 0);
+        frontCab.castShadow = true;
+        mover.add(frontCab);
+        // rear locomotive cabin
+        const rearCabBase = new THREE.Mesh(new THREE.BoxGeometry(locoW, h * 0.38, d * 0.88), paint);
+        rearCabBase.position.set(-w * 0.46, h * 0.94, 0);
+        rearCabBase.castShadow = true;
+        mover.add(rearCabBase);
+        const rearCab = new THREE.Mesh(new THREE.BoxGeometry(locoW * 0.8, h * 0.32, d * 0.84), MAT.carGlass);
+        rearCab.position.set(-w * 0.46, h * 1.08, 0);
+        rearCab.castShadow = true;
+        mover.add(rearCab);
+      } else {
+        const cabinBase = new THREE.Mesh(new THREE.BoxGeometry(w * (moverKind === 'truck' ? 0.46 : 0.62), h * 0.36, d * 0.88), paint);
+        cabinBase.position.set(moverKind === 'truck' ? w * 0.18 : -w * 0.03, h * 0.94, 0);
+        cabinBase.castShadow = true;
+        mover.add(cabinBase);
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(w * (moverKind === 'truck' ? 0.34 : 0.56), h * 0.32, d * 0.84), MAT.carGlass);
+        cabin.position.set(moverKind === 'truck' ? w * 0.18 : -w * 0.03, h * 1.02, 0);
+        cabin.castShadow = true;
+        mover.add(cabin);
+      }
     }
 
     if (moverKind !== 'train') {
@@ -1275,7 +1296,7 @@ function spawnMover(lane, subSpeed, subZ, kindOverride) {
       mover.add(hood);
     }
 
-    wheelRadius = moverKind === 'truck' ? 0.16 : moverKind === 'bike' ? 0.11 : moverKind === 'train' ? 0.14 : 0.13;
+    wheelRadius = moverKind === 'truck' ? 0.19 : moverKind === 'bike' ? 0.11 : moverKind === 'train' ? 0.17 : 0.15;
     const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, moverKind === 'bike' ? 0.12 : 0.16, 12);
     const wx = moverKind === 'train' ? w * 0.42 : w * (moverKind === 'bike' ? 0.34 : 0.28);
     const wz = moverKind === 'bike' ? d * 0.55 : d * 0.42;
@@ -1291,10 +1312,27 @@ function spawnMover(lane, subSpeed, subZ, kindOverride) {
     }
 
     if (moverKind === 'train') {
+      const wagonLen = 8.0;
+      const gapMat = new THREE.MeshStandardMaterial({ color: 0x0a0c0f, roughness: 0.9 });
       for (let x = -w * 0.36; x <= w * 0.36; x += 0.8) {
         const windowBox = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.24, d * 0.72), MAT.carGlass);
         windowBox.position.set(x, h * 0.94, 0);
         mover.add(windowBox);
+      }
+      // wagon separators
+      for (let x = -w * 0.4 + wagonLen; x < w * 0.4; x += wagonLen) {
+        const sep = new THREE.Mesh(new THREE.BoxGeometry(0.18, h * 1.05, d * 1.02), gapMat);
+        sep.position.set(x, h * 0.52, 0);
+        sep.castShadow = true;
+        mover.add(sep);
+        // extra wheels at each wagon joint
+        for (const sz of [-1, 1]) {
+          const jw = new THREE.Mesh(wheelGeo, MAT.carWheel);
+          jw.rotation.z = Math.PI * 0.5;
+          jw.position.set(x, 0.19, sz * wz);
+          mover.add(jw);
+          wheelMeshes.push(jw);
+        }
       }
     } else {
       const frontLightL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), MAT.carHeadlight);

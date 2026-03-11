@@ -182,3 +182,86 @@ Original prompt: oyunu daha çok crossy roada brnzet harita görsellerini
 - Test: `node --check --input-type=module < main.js` basarili.
 - Test notu: `http-server` uzerinden run'da `Failed to resolve module specifier "three"` pageerror'u alindi (Vite gerekli).
 - Test: Vite URL ile Playwright run (`output/web-game-death-pixel-sfx-vite-click/state-0.json`) `mode:"playing"` ve errors-*.json yok; screenshot alindi.
+- Follow-up prompt 26: CrossyRoad iyilestirmeleri (tap-forward, tile-fit/hitbox, hizlar, train warning, log spawn, gorsel asset onerileri).
+- Uygulama: ileri/geri hareket adimi `forwardStep = laneDepth` yapildi; karakter artik yarim lane yerine tam lane merkezlerine iniyor (tile-fit).
+- Uygulama: tap ile ileri hareket eklendi; pointer drag/swipe halen yon hareketi veriyor, drag yoksa tek tap `up` hamlesi atiyor.
+- Uygulama: menu click'inin yanlislikla hamle tetiklememesi icin pointer hareketi yalnizca `active` oyunda isleniyor.
+- Uygulama: oyuncu carpisma olcusu tek kaynaga cekildi (`PLAYER_HITBOX`); grass obstacle, car/barrel/truck/train carpisma ve river log temas hesaplari bu ortak hitbox ile yapiliyor (tum skinlerde tutarli).
+- Uygulama: car/bike/barrel/truck/train hizlari yeniden dengelendi; `cars` belirgin hizlandirildi, `train` taban hizi ciddi arttirildi.
+- Uygulama: train icin Crossy benzeri pre-warning sistemi eklendi (`TRAIN_WARNING_LEAD_S`): rayda yanip sonen warning materyali + yakinlikta periyodik uyari bip'i + spawn oncesi bekleme.
+- Uygulama: `logs` spawn seyrekligi azaltildi (daha sik): cooldown araligi kisaltildi, max ve spawnGap degerleri guncellendi, pre-seed sayisi artirildi.
+- Uygulama: lane/channel spawn akisinda ortak `canSpawnInChannel/trySpawnInChannel` kullanildi; train warning akisi `updateTrainChannel` ile ayrildi.
+- Uygulama: `render_game_to_text` alanlari genisletildi (`forward_step`, `player_hitbox`, train channel warning state/timer) test gozlemi kolaylasti.
+- Test: `node --check --input-type=module < src/main.js` basarili (birden fazla tur).
+- Test: Playwright gameplay akisi (output/web-game-crossy-improvements-v4) basarili; mode=gameover state ve mover hizlari dogrulandi, errors-*.json yok.
+- Test: Playwright oynanir bekleme akisi (output/web-game-crossy-improvements-v7) basarili; mode=playing, score=0, menu-click yan etki regresyonu yok, errors-*.json yok.
+- Test: Playwright tap-forward dogrulama (output/web-game-crossy-improvements-tap-v2) basarili; tek tap sonrasi `player.z=-4.4`, `score=1`, errors-*.json yok.
+- Test: Playwright train warning state dogrulama (output/web-game-crossy-improvements-v6/state-2.json) `warning_active:true` goruldu; train hizlari ~8.6+ olarak state'te dogrulandi.
+- Not: Itch queue baglantilari (password/query URL) anonim erisimde icerik dondurmuyor; login gerektiriyor.
+- Not: Acik kaynak asset fiyat arastirmasi yapildi (DevilsWorkshop vehicles $4, AtomicRealm roads free/$4.99/$5.99, Unity Hyper Casual Trains €9.19 goruntulendi).
+- TODO: Harici assetlerin (FBX/Unitypackage) projeye import/pivot/scale/material atlas uyumu ve lisans attribution metni bir sonraki adimda eklenmeli.
+- Follow-up prompt 27: Referans verilen assetlerin stilini baz alip benzerlerini oyunda ozgun olarak tasarla.
+- Uygulama: lane texture atlaslari (grass/road/mud/rail/river) daha zengin modular/pixel detaylarla yeniden tasarlandi (panel/cizgi/catlak/parlama varyasyonlari).
+- Uygulama: materyal katmanina yeni arac trim/metal paleti eklendi (`carTrim`, `carMetal`) ve arac renk secimi palette tabanli hale getirildi (`VEHICLE_COLOR_FAMILIES`, `pickVehicleColor`).
+- Uygulama: agac/rock/bush modelleri tek bloktan cikartilip varyasyonlu low-poly setlere cevrildi (cok katmanli canopy, kaya parcalari/highlight, bush lob + cicek).
+- Uygulama: `spawnMover` modelleri yeniden tasarlandi; car/truck/bike/train/log/barrel tiplerinde ek geometri detaylari (roof/trim/bumper/rack/cargo/nose/stripe/plank/spike vb.) eklendi.
+- Uygulama: road lane icin modul hissini guclendiren tekrarli curb cap detaylari eklendi.
+- Test: `node --check --input-type=module < src/main.js` basarili.
+- Test: Playwright bekleme akisi (`output/web-game-assetstyle-play-v2`) basarili; yeni gorseller screenshotlarda dogrulandi, errors-*.json yok.
+- Test: Playwright hareket akisi (`output/web-game-assetstyle-move-v1`) basarili; gameplay/gameover akisinda yeni arac/zemin gorselleri dogrulandi, errors-*.json yok.
+- Follow-up prompt: Sandallarin ustune cikinca icinden gecip suya dusme bugi.
+- Uygulama: `findSupportingLog` kontrolu merkez-nokta yerine oyuncu hitbox overlap'i kullanacak sekilde genisletildi (`+ PLAYER_HITBOX.halfX/halfZ`). Bu sayede log ustunde gorunurken yanlislikla `river` olum tetiklenmesi azaltildi.
+- Test: develop-web-game Playwright client ile nehir senaryosu denendi (`output/web-game-river-log-fix-v1/v2/v3`); menu `PLAY` butonu animasyon stabilite problemi nedeniyle otomatik tiklama basarisiz/etkisiz kaldi (state `mode: menu`).
+- Test: Uretilen screenshot acilip manuel kontrol edildi (v2: menu/river/log gorunumu dogru), yeni console error dosyasi olusmadi.
+- TODO: Playwright client icin menu baslatma adimini selector-force click veya menuden bagimsiz start hook ile daha stabil hale getir.
+- Ek duzeltme: nehir/sandal temasinda tek-frame kacislar icin `RIVER_SUPPORT_GRACE_S=0.22` eklendi; log ustunde iken grace yenileniyor, nehirde log bir an kaybolsa bile aninda su olumune dusmuyor.
+- Ek duzeltme: log destek toleransi gorsel/model uyumsuzluklarini absorbe edecek sekilde arttirildi (`LOG_SUPPORT_EXTRA_X=0.14`, `LOG_SUPPORT_EXTRA_Z=0.2`).
+- Dogrulama: `npm run build` basarili.
+- Follow-up prompt: "isınlanma olmasin, yurume animasyonu olsun; nehirde log varsa ustune binsin, yoksa baksin".
+- Uygulama: oyuncu hareketi `lerp+jump` modelinden step-interpolation (tile-to-tile yürüme) modeline tasindi.
+- Uygulama: yeni player state alanlari eklendi (`isMoving`, `moveFrom/To`, `moveT`, `moveDuration`, `queuedMoveDir`); hareket bitmeden gelen input bir sonraki adim icin kuyruga alinıyor.
+- Uygulama: nehirde log ustundeyken oyuncu logla beraber drift ediyor; drift, hareket segmentine de uygulanıyor (segment endpointleri kaydırılıyor).
+- Uygulama: nehir olum kontrolu hareket halindeyken bastirildi; tile adimi tamamlandiginda log yoksa su olumu devreye giriyor.
+- Uygulama: ölüm ve eagle başlangıcında `targetX/targetZ` zorla snap davranışı kaldırıldı; oyuncu mevcut konumundan devam ediyor.
+- Not: Kullanici istegi geregi bu adımda otomasyon/manual test komutu calistirilmadi.
+- Follow-up prompt 28: oyundaki araba modellerini verilen DevilsWorkshop assetleriyle degistir.
+- Uygulama: `public/assets/devilsworkshop-cars/` altina car01/car02/car03/carPolice/pickupTruck01/pickupTruck02/bus OBJ+PNG dosyalari kopyalandi.
+- Uygulama: `src/main.js` icine OBJLoader tabanli vehicle asset preload sistemi eklendi; modeller otomatik center/scale/shadow ayariyla normalize ediliyor ve `car`/`truck` mover'lari bu template'lerden clone ediliyor.
+- Uygulama: asset yukleme basarisiz olursa eski procedural arac olusturucu fallback olarak korunuyor; oyun akisi bu yuzden kirilmiyor.
+- Test: `node --check --input-type=module < src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game Playwright menu render kontrolu (`output/web-game-vehicle-models-menu-v1/shot-0.png`) ile yeni araba/pickup modelleri sahnede dogrulandi; error dosyasi olusmadi.
+- Test: ek menu screenshotlari (`output/web-game-vehicle-models-play-v1/shot-0.png`, `output/web-game-vehicle-models-play-v2/shot-0.png`) farkli varyantlarin (police/sedan/pickup) yon/oturus kontrolu icin acilip incelendi; error dosyasi olusmadi.
+- Not: `#startBtn` Playwright click'i menu pulse animasyonu nedeniyle hala stabil degil; state ciktilari menu modunda kaldi, fakat arac modeli render dogrulamasi screenshot uzerinden yapildi.
+- Follow-up prompt 29: yukari dogru cikan arabalar ters duruyor.
+- Uygulama: imported DevilsWorkshop arac template taban yaw'i `-PI/2` -> `+PI/2` cevrildi; spawn anindaki `headingYaw` ile ayni eksende dogru yone bakiyorlar.
+- Test: `node --check --input-type=module < src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game menu screenshot (`output/web-game-vehicle-direction-fix-v1/shot-0.png`) acilip incelendi; imported sedan/pickup/police araclar ters yone bakmiyor, error dosyasi olusmadi.
+- Follow-up prompt 30: tren hizini 3 kat arttir, tren rayinin ortasindaki yanip sonen cizgiyi kaldir.
+- Uygulama: `TRAIN_SPEED_BOOST = 3` eklendi; train lane olusurken taban hiz 3x carpiliyor.
+- Uygulama: rail warning sistemindeki orta `warningBar` mesh'i kaldirildi; yan uyarilar/material pulse sistemi korunuyor.
+- Test: `node --check --input-type=module < src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game beklemeli run (`output/web-game-train-speed-warning-fix-v1/state-0.json`) train hizlarini ~31-32 bandinda gosterdi (onceki ~10-11 bandinin yaklasik 3 kati); error dosyasi olusmadi.
+- Follow-up prompt 31: arabalari zorunlu tamamen yeni model yapma; otobusleri daha buyuk yap.
+- Uygulama: imported vehicle kullanimi oran bazli karisik hale getirildi (`car: 0.45`, `truck: 0.65`); kalan spawn'lar procedural fallback olarak kaliyor.
+- Uygulama: bus asset target/hitbox degerleri ciddi buyutuldu (`x: 4.85`, `hitbox.x: 4.7`) ve agirlik artirildi; ekranda pickup'tan belirgin buyuk gorunuyor.
+- Uygulama: buyuyen bus icin live spawn overlap tahmini `estimateMoverHalfX('truck')` 2.35'e cekildi.
+- Test: `node --check --input-type=module < src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game menu screenshotlari (`output/web-game-bus-scale-mix-v1/shot-0.png`, `shot-1.png`) incelendi; bus buyuk gorunuyor ve error dosyasi olusmadi.
+- Follow-up prompt 32: hayir, oyundaki hepsi yeni model olsun.
+- Uygulama: imported vehicle kullanim oran mantigi kaldirildi; `car` ve `truck` lane'lerinde asset varsa tekrar her spawn yeni DevilsWorkshop modelinden geliyor.
+- Uygulama: buyutulmus bus olcegi aynen korundu.
+- Test: `node --check --input-type=module < src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game menu screenshot (`output/web-game-all-imported-vehicles-v1/shot-0.png`) acilip incelendi; car/truck trafik yeniden full imported, bus buyuk, error dosyasi olusmadi.
+- Follow-up prompt 33: treni 2 vagon yap birleşik.
+- Uygulama: train procedural mesh'i ayri helper'a tasindi; artik tek uzun blok yerine birbirine bagli 2 vagon (lokomotif + arka vagon) olarak uretiliyor.
+- Uygulama: iki vagon arasina baglanti korugu/tabani ve ic kapilar eklendi; bogie/wheel dizilimi vagon bazli kuruldu, train daha net tek kompozisyon gibi gorunuyor.
+- Uygulama: train spawn uzunlugu sabit 2-vagon oranina cekildi (`w = 8.4`); yeni burun/far cikintilari icin train collision/spawn halfX degeri `4.3` yapildi.
+- Test: `node --check --input-type=module < src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game Playwright smoke akisi (`output/web-game-train-2wagon-smoke-v2`) basarili; menu/canvas capture calisti.
+- Test: ozel Playwright proof akisi ile oyuncu ray sonrasi guvenli cimene tasinip aktif train gorunumu yakalandi (`output/web-game-train-2wagon-active-proof-v2/shot-final.png`); state'te `type:"train"` ve `half_x:4.3` dogrulandi.

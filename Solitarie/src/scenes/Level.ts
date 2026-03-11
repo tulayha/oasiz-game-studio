@@ -56,13 +56,29 @@ interface TopButtonControl {
     setEnabled: (enabled: boolean) => void;
 }
 
+interface UndoSnapshot {
+    stockIds: string[];
+    wasteIds: string[];
+    foundationIds: string[][];
+    tableauIds: string[][];
+    faceUpById: Record<string, boolean>;
+    moveCount: number;
+    hintsRemaining: number;
+    madeProgressThisStockCycle: boolean;
+}
+
 interface GameplayHtmlLayout {
     scoreX: number;
     movesX: number;
     timeX: number;
     statsY: number;
+    buttonWidth: number;
+    buttonHeight: number;
+    undoButtonWidth: number;
+    infoButtonSize: number;
     newButtonX: number;
     hintButtonX: number;
+    undoButtonX: number;
     settingsButtonX: number;
     buttonCenterY: number;
     infoButtonX: number;
@@ -158,9 +174,13 @@ export default class Level extends Phaser.Scene {
     private moveCount = 0;
     private elapsedSeconds = 0;
     private hintsRemaining = 5;
+    private reversesRemaining = 3;
     private madeProgressThisStockCycle = false;
     private isShuttingDown = false;
     private howToPageIndex = 0;
+    private lastHintRequestAt = 0;
+    private lastUndoRequestAt = 0;
+    private undoHistory: UndoSnapshot[] = [];
     private readonly handleResize = () => {
         this.redrawTable();
         this.layoutAll();
@@ -560,14 +580,16 @@ export default class Level extends Phaser.Scene {
         this.movesText = this.add.text(w * 0.5, statsY, "", statsStyle).setOrigin(0.5).setDepth(2001).setAlpha(0);
         this.timeText = this.add.text(w * 0.5 + statsGap, statsY, "", statsStyle).setOrigin(0.5).setDepth(2001).setAlpha(0);
 
-        const buttonWidth = 104;
-        const buttonHeight = 38;
-        const buttonGap = 10;
-        const rightInset = mobile ? 14 : 18;
+        const buttonWidth = mobile ? 86 : 112;
+        const buttonHeight = mobile ? 40 : 42;
+        const undoButtonWidth = mobile ? 72 : 96;
+        const buttonGap = mobile ? 4 : 10;
+        const infoButtonSize = mobile ? 36 : 40;
+        const rightInset = mobile ? 8 : 18;
         const settingsX = w - rightInset - buttonWidth;
-        const hintX = settingsX - buttonGap - buttonWidth;
+        const undoX = settingsX - buttonGap - undoButtonWidth;
+        const hintX = undoX - buttonGap - buttonWidth;
         const newX = hintX - buttonGap - buttonWidth;
-        const infoButtonSize = 38;
         const infoX = newX - buttonGap - infoButtonSize;
 
         this.makeTopButton(newX, y, buttonWidth, buttonHeight, "New game", () => {
@@ -593,8 +615,13 @@ export default class Level extends Phaser.Scene {
             movesX: w * 0.5,
             timeX: w * 0.5 + statsGap,
             statsY,
+            buttonWidth,
+            buttonHeight,
+            undoButtonWidth,
+            infoButtonSize,
             newButtonX: newX + buttonWidth / 2,
             hintButtonX: hintX + buttonWidth / 2,
+            undoButtonX: undoX + undoButtonWidth / 2,
             settingsButtonX: settingsX + buttonWidth / 2,
             buttonCenterY: y + buttonHeight / 2 - 1,
             infoButtonX: infoX + infoButtonSize / 2,
@@ -602,6 +629,7 @@ export default class Level extends Phaser.Scene {
         };
         this.showGameplayHtml();
         this.updateHUD();
+        this.updateUndoButton();
     }
 
     private makeTopButton(
@@ -785,6 +813,10 @@ export default class Level extends Phaser.Scene {
         this.moveCount = 0;
         this.elapsedSeconds = 0;
         this.hintsRemaining = 5;
+        this.reversesRemaining = 3;
+        this.lastHintRequestAt = 0;
+        this.lastUndoRequestAt = 0;
+        this.undoHistory = [];
         this.madeProgressThisStockCycle = false;
         if (this.activeScoreCelebration) {
             this.tweens.killTweensOf(this.activeScoreCelebration.list);
@@ -823,6 +855,7 @@ export default class Level extends Phaser.Scene {
         this.layoutAll();
         this.endOverlay?.setVisible(false);
         this.updateHintButton();
+        this.updateUndoButton();
         this.updateHUD();
     }
 
@@ -974,6 +1007,7 @@ export default class Level extends Phaser.Scene {
                 this.triggerHaptic("error");
                 return;
             }
+            this.pushUndoSnapshot();
             while (this.waste.length) {
                 const c = this.waste.pop()!;
                 c.data.faceUp = false;
@@ -981,12 +1015,14 @@ export default class Level extends Phaser.Scene {
             }
             this.madeProgressThisStockCycle = false;
             this.layoutStockWaste();
+            this.updateUndoButton();
             return;
         }
 
         const count = Math.min(this.drawCount, this.stock.length);
         const startWasteCount = this.waste.length;
         const drawnCards: CardGO[] = [];
+        this.pushUndoSnapshot();
         this.moveCount += 1;
 
         for (let i = 0; i < count; i++) {
@@ -1000,6 +1036,7 @@ export default class Level extends Phaser.Scene {
         }
 
         this.drawAnimating = true;
+        this.updateUndoButton();
         this.layoutStockWaste();
         this.playShuffleDraw();
         this.triggerHaptic("light");
@@ -1068,6 +1105,7 @@ export default class Level extends Phaser.Scene {
             this.drawAnimating = false;
             this.layoutStockWaste();
             this.updateHUD();
+            this.updateUndoButton();
             if (this.stockSlot.input) {
                 this.stockSlot.input.enabled = true;
             }
@@ -1120,6 +1158,7 @@ export default class Level extends Phaser.Scene {
 
         const foundationHit = this.foundationPos.findIndex(p => this.pointInCard(x, y, p.x, p.y));
         if (foundationHit >= 0 && this.dragGroup.length === 1 && this.canMoveToFoundation(first, foundationHit)) {
+            this.pushUndoSnapshot();
             if (!this.removeFromSource(this.dragGroup, source)) return this.restoreDragGroup();
             this.foundations[foundationHit].push(first);
             const awardedPoints = 10;
@@ -1133,6 +1172,7 @@ export default class Level extends Phaser.Scene {
             const burstTarget = destCol.length
                 ? { x: destCol[destCol.length - 1].container.x, y: destCol[destCol.length - 1].container.y }
                 : { x: this.tableauPos[tableauHit].x, y: this.tableauPos[tableauHit].y };
+            this.pushUndoSnapshot();
             if (!this.removeFromSource(this.dragGroup, source)) return this.restoreDragGroup();
             this.tableau[tableauHit].push(...this.dragGroup);
             this.afterMove(false, burstTarget, 0);
@@ -1432,9 +1472,9 @@ export default class Level extends Phaser.Scene {
             fontSize: this.isMobile() ? 17 : 19,
             letterSpacing: 0.5,
             multicolor: false,
-            color: "#FFFFFF",
-            strokeColor: "#111111",
-            strokeWidth: 1.5
+            color: "#111111",
+            strokeColor: "#FFFFFF",
+            strokeWidth: 1
         });
         showHtmlText("hud-moves", {
             text: `Moves: ${this.moveCount}`,
@@ -1443,9 +1483,9 @@ export default class Level extends Phaser.Scene {
             fontSize: this.isMobile() ? 17 : 19,
             letterSpacing: 0.5,
             multicolor: false,
-            color: "#FFFFFF",
-            strokeColor: "#111111",
-            strokeWidth: 1.5
+            color: "#111111",
+            strokeColor: "#FFFFFF",
+            strokeWidth: 1
         });
         showHtmlText("hud-time", {
             text: `Time: ${this.formatElapsedTime(this.elapsedSeconds)}`,
@@ -1454,9 +1494,9 @@ export default class Level extends Phaser.Scene {
             fontSize: this.isMobile() ? 17 : 19,
             letterSpacing: 0.5,
             multicolor: false,
-            color: "#FFFFFF",
-            strokeColor: "#111111",
-            strokeWidth: 1.5
+            color: "#111111",
+            strokeColor: "#FFFFFF",
+            strokeWidth: 1
         });
     }
 
@@ -1480,6 +1520,88 @@ export default class Level extends Phaser.Scene {
 
     private getHintButtonLabel(): string {
         return `Hint ${this.hintsRemaining}`;
+    }
+
+    private getUndoButtonLabel(): string {
+        return `Undo ${this.reversesRemaining}`;
+    }
+
+    private getAllCards(): CardGO[] {
+        return [...this.stock, ...this.waste, ...this.foundations.flat(), ...this.tableau.flat()];
+    }
+
+    private createUndoSnapshot(): UndoSnapshot {
+        const faceUpById: Record<string, boolean> = {};
+        this.getAllCards().forEach((card) => {
+            faceUpById[card.data.id] = card.data.faceUp;
+        });
+        return {
+            stockIds: this.stock.map((card) => card.data.id),
+            wasteIds: this.waste.map((card) => card.data.id),
+            foundationIds: this.foundations.map((pile) => pile.map((card) => card.data.id)),
+            tableauIds: this.tableau.map((col) => col.map((card) => card.data.id)),
+            faceUpById,
+            moveCount: this.moveCount,
+            hintsRemaining: this.hintsRemaining,
+            madeProgressThisStockCycle: this.madeProgressThisStockCycle
+        };
+    }
+
+    private pushUndoSnapshot(): void {
+        this.undoHistory.push(this.createUndoSnapshot());
+        if (this.undoHistory.length > 3) {
+            this.undoHistory.shift();
+        }
+        this.updateUndoButton();
+    }
+
+    private restoreUndoSnapshot(snapshot: UndoSnapshot): void {
+        const cardById = new Map(this.getAllCards().map((card) => [card.data.id, card] as const));
+        this.getAllCards().forEach((card) => {
+            this.tweens.killTweensOf(card.container);
+            card.container.setVisible(true);
+            if (card.hitZone.input) {
+                card.hitZone.input.enabled = true;
+            }
+        });
+        this.clearActiveHint();
+        this.dragGroup = [];
+        this.dragStart = [];
+        this.returningCards.clear();
+        this.drawAnimating = false;
+        this.stock = snapshot.stockIds.map((id) => cardById.get(id)!).filter(Boolean);
+        this.waste = snapshot.wasteIds.map((id) => cardById.get(id)!).filter(Boolean);
+        this.foundations = snapshot.foundationIds.map((pile) => pile.map((id) => cardById.get(id)!).filter(Boolean));
+        this.tableau = snapshot.tableauIds.map((col) => col.map((id) => cardById.get(id)!).filter(Boolean));
+        this.getAllCards().forEach((card) => {
+            card.data.faceUp = snapshot.faceUpById[card.data.id] ?? false;
+        });
+        this.moveCount = snapshot.moveCount;
+        this.hintsRemaining = snapshot.hintsRemaining;
+        this.madeProgressThisStockCycle = snapshot.madeProgressThisStockCycle;
+        this.layoutAll();
+        this.updateHintButton();
+        this.updateUndoButton();
+    }
+
+    private undoLastMove(): void {
+        if (!this.gameStarted || this.drawAnimating) return;
+        const now = Date.now();
+        if (now - this.lastUndoRequestAt < 350) return;
+        this.lastUndoRequestAt = now;
+        if (this.reversesRemaining <= 0) {
+            this.showStatusMessage("No reverses left this round.");
+            return;
+        }
+        const snapshot = this.undoHistory.pop();
+        if (!snapshot) {
+            this.showStatusMessage("Nothing to reverse right now.");
+            this.updateUndoButton();
+            return;
+        }
+        this.reversesRemaining -= 1;
+        this.restoreUndoSnapshot(snapshot);
+        this.showStatusMessage(`Reverse ${this.reversesRemaining} left.`);
     }
 
     private showLevelSettingsHtml(panelTop: number, panelBottom: number, rowBaseY: number): void {
@@ -1567,9 +1689,9 @@ export default class Level extends Phaser.Scene {
             maxWidth: 312,
             variant: "modal",
             multicolor: false,
-            color: "#BDC3C7",
-            strokeColor: "#111111",
-            strokeWidth: 1.2
+            color: "#B3131B",
+            strokeColor: "#B3131B",
+            strokeWidth: 0
         });
         hideHtmlText("level-settings-close");
         showHtmlButton("level-settings-close-button", {
@@ -1731,7 +1853,9 @@ export default class Level extends Phaser.Scene {
             maxWidth: 390,
             letterSpacing: 0.1,
             multicolor: false,
-            strokeWidth: 1.1
+            color: "#111111",
+            strokeColor: "#111111",
+            strokeWidth: 0
         });
         showHtmlText("level-howto-page-indicator", {
             text: `${this.howToPageIndex + 1} / ${HOW_TO_PLAY_PAGES.length}`,
@@ -1832,8 +1956,8 @@ export default class Level extends Phaser.Scene {
             text: "New game",
             x: this.gameplayHtmlLayout.newButtonX,
             y: this.gameplayHtmlLayout.buttonCenterY + 1,
-            width: 104,
-            height: 38,
+            width: this.gameplayHtmlLayout.buttonWidth,
+            height: this.gameplayHtmlLayout.buttonHeight,
             radius: 10,
             fontSize: 15,
             theme: "red",
@@ -1847,8 +1971,8 @@ export default class Level extends Phaser.Scene {
             text: "Settings",
             x: this.gameplayHtmlLayout.settingsButtonX,
             y: this.gameplayHtmlLayout.buttonCenterY + 1,
-            width: 104,
-            height: 38,
+            width: this.gameplayHtmlLayout.buttonWidth,
+            height: this.gameplayHtmlLayout.buttonHeight,
             radius: 10,
             fontSize: 15,
             theme: "blue",
@@ -1862,9 +1986,9 @@ export default class Level extends Phaser.Scene {
             text: "I",
             x: this.gameplayHtmlLayout.infoButtonX,
             y: this.gameplayHtmlLayout.infoButtonY,
-            width: 38,
-            height: 38,
-            radius: 19,
+            width: this.gameplayHtmlLayout.infoButtonSize,
+            height: this.gameplayHtmlLayout.infoButtonSize,
+            radius: Math.floor(this.gameplayHtmlLayout.infoButtonSize / 2),
             fontSize: 22,
             theme: "orange",
             onClick: () => {
@@ -1873,6 +1997,7 @@ export default class Level extends Phaser.Scene {
                 this.openHowToOverlay();
             }
         });
+        this.updateUndoButton();
     }
 
     private hideGameplayHtml(): void {
@@ -1884,6 +2009,7 @@ export default class Level extends Phaser.Scene {
         hideHtmlText("game-btn-settings");
         hideHtmlButton("game-btn-new-button");
         hideHtmlButton("game-btn-hint-button");
+        hideHtmlButton("game-btn-undo-button");
         hideHtmlButton("game-btn-settings-button");
         hideHtmlButton("game-btn-info-button");
     }
@@ -1898,17 +2024,41 @@ export default class Level extends Phaser.Scene {
             text: this.getHintButtonLabel(),
             x: this.gameplayHtmlLayout.hintButtonX,
             y: this.gameplayHtmlLayout.buttonCenterY + 1,
-            width: 104,
-            height: 38,
+            width: this.gameplayHtmlLayout.buttonWidth,
+            height: this.gameplayHtmlLayout.buttonHeight,
             radius: 10,
             fontSize: 15,
             theme: "green",
             enabled,
             opacity: enabled ? 1 : 0.82,
+            debounceMs: 300,
             onClick: () => {
                 this.triggerHaptic("light");
                 this.playButton();
                 this.provideHint();
+            }
+        });
+    }
+
+    private updateUndoButton(): void {
+        if (!this.gameplayHtmlLayout) return;
+        const enabled = this.reversesRemaining > 0 && this.undoHistory.length > 0 && !this.drawAnimating;
+        showHtmlButton("game-btn-undo-button", {
+            text: this.getUndoButtonLabel(),
+            x: this.gameplayHtmlLayout.undoButtonX,
+            y: this.gameplayHtmlLayout.buttonCenterY + 1,
+            width: this.gameplayHtmlLayout.undoButtonWidth,
+            height: this.gameplayHtmlLayout.buttonHeight,
+            radius: 10,
+            fontSize: this.isMobile() ? 13 : 15,
+            theme: "purple",
+            enabled,
+            opacity: enabled ? 1 : 0.82,
+            debounceMs: 300,
+            onClick: () => {
+                this.triggerHaptic("light");
+                this.playButton();
+                this.undoLastMove();
             }
         });
     }
@@ -1945,6 +2095,9 @@ export default class Level extends Phaser.Scene {
 
     private provideHint() {
         if (!this.gameStarted) return;
+        const now = Date.now();
+        if (now - this.lastHintRequestAt < 350) return;
+        this.lastHintRequestAt = now;
         if (this.hintsRemaining <= 0) {
             this.showStatusMessage("No hints left this round.");
             return;

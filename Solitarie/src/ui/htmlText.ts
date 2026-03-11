@@ -60,9 +60,12 @@ export function showHtmlText(id: HtmlTextId, options: HtmlTextOptions): void {
     const element = getTextElement(id);
     if (!layer || !element) return;
 
-    const color = "#111111";
+    const color = options.color ?? "#111111";
     const multicolor = options.multicolor ?? true;
-    const resolvedStrokeWidth = Math.max(0.8, (options.strokeWidth ?? 1.5) - 0.45);
+    const resolvedStrokeWidth = options.strokeWidth === 0
+        ? 0
+        : Math.max(0.8, (options.strokeWidth ?? 1.5) - 0.45);
+    const strokeColor = options.strokeColor ?? "#FFFFFF";
     const viewportWidth = typeof window === "undefined" ? 720 : window.innerWidth;
     const modalSafeWidth = Math.max(180, Math.min(420, viewportWidth - 112));
     const resolvedMaxWidth = options.maxWidth
@@ -81,7 +84,7 @@ export function showHtmlText(id: HtmlTextId, options: HtmlTextOptions): void {
     element.style.width = resolvedMaxWidth ? `${Math.round(resolvedMaxWidth)}px` : "auto";
     element.style.paddingInline = options.variant === "modal" ? "12px" : "0px";
     element.style.boxSizing = "border-box";
-    element.style.setProperty("--solitaire-html-stroke-color", "#FFFFFF");
+    element.style.setProperty("--solitaire-html-stroke-color", strokeColor);
     element.style.setProperty("--solitaire-html-stroke-width", `${resolvedStrokeWidth}px`);
     element.style.opacity = `${options.opacity ?? 1}`;
     element.innerHTML = renderLetters(options.text, multicolor, color);

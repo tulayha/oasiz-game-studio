@@ -1,6 +1,6 @@
 type HtmlButtonId = string;
 
-type HtmlButtonTheme = "orange" | "blue" | "red" | "green";
+type HtmlButtonTheme = "orange" | "blue" | "red" | "green" | "purple";
 
 interface HtmlButtonOptions {
     text: string;
@@ -13,6 +13,7 @@ interface HtmlButtonOptions {
     theme: HtmlButtonTheme;
     enabled?: boolean;
     opacity?: number;
+    debounceMs?: number;
     onClick?: () => void;
 }
 
@@ -20,7 +21,8 @@ const BUTTON_THEMES: Record<HtmlButtonTheme, { main: string; rim: string }> = {
     orange: { main: "#F08C24", rim: "#8C4A08" },
     blue: { main: "#1F3D7A", rim: "#10254A" },
     red: { main: "#B3131B", rim: "#111111" },
-    green: { main: "#1E8449", rim: "#0E4B28" }
+    green: { main: "#1E8449", rim: "#0E4B28" },
+    purple: { main: "#6C4BCF", rim: "#3A2872" }
 };
 
 function getLayer(): HTMLElement | null {
@@ -56,6 +58,7 @@ export function showHtmlButton(id: HtmlButtonId, options: HtmlButtonOptions): vo
 
     const theme = BUTTON_THEMES[options.theme];
     const enabled = options.enabled ?? true;
+    const debounceMs = options.debounceMs ?? 0;
 
     layer.classList.remove("hidden");
     element.classList.remove("hidden");
@@ -78,6 +81,14 @@ export function showHtmlButton(id: HtmlButtonId, options: HtmlButtonOptions): vo
         event.preventDefault();
         event.stopPropagation();
         if (!enabled) return;
+        if (debounceMs > 0) {
+            const now = Date.now();
+            const lastClickAt = Number(element.dataset.lastClickAt ?? "0");
+            if (now - lastClickAt < debounceMs) {
+                return;
+            }
+            element.dataset.lastClickAt = `${now}`;
+        }
         options.onClick?.();
     };
     element.onpointerdown = (event) => {
