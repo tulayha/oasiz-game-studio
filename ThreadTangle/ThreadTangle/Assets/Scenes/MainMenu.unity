@@ -1254,7 +1254,7 @@ MonoBehaviour:
   pulseSmall: 0.18
   pulseMedium: 0.28
   pulseBig: 0.45
-  baseBloom: 0.5
+  baseBloom: 0.2
   baseCA: 0.02
   baseVignette: 0.18
   baseGrain: 0.25

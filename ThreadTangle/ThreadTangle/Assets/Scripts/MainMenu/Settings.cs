@@ -50,8 +50,8 @@ namespace MainMenu
     
         public static void TryVibrate()
         {
-            if (PlayerPrefs.GetInt(K_HAP, 1) == 1)
-                Handheld.Vibrate(); // iOS/Android basit haptic
+            //if (PlayerPrefs.GetInt(K_HAP, 1) == 1)
+                //Handheld.Vibrate(); // iOS/Android basit haptic
         }
     }
 }

@@ -218,6 +218,13 @@ Original prompt: oyunu daha çok crossy roada brnzet harita görsellerini
 - Ek duzeltme: log destek toleransi gorsel/model uyumsuzluklarini absorbe edecek sekilde arttirildi (`LOG_SUPPORT_EXTRA_X=0.14`, `LOG_SUPPORT_EXTRA_Z=0.2`).
 - Dogrulama: `npm run build` basarili.
 - Follow-up prompt: "isınlanma olmasin, yurume animasyonu olsun; nehirde log varsa ustune binsin, yoksa baksin".
+- Follow-up prompt 28: yollaru bu görseldeki gibi yap.
+- Uygulama: `src/main.js` icindeki `road` lane texture mavi-gri low-poly pist asfaltina cevrildi; koyu omuz bantlari ve daha uzun beyaz yol cizgileriyle Atomic Realm benzeri bir yol paleti kuruldu.
+- Uygulama: `roadRumble` texture/material eklendi; `addLane` road kolu artik lane icinde acik gri shoulder + kirmizi/beyaz curb strip + yeni ic kenar cizgileri uretiyor.
+- Test: `node --check /Users/yakuperdem19/Desktop/CrossyRoad3D/src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game Playwright client ile menu/gorsel kontrolu (`output/web-game-road-reference-v1`) ve aktif oyun kontrolu (`output/web-game-road-reference-v2`) alindi; yeni yol stili screenshotlarda dogrulandi, ilgili klasorlerde `errors-*.json` olusmadi.
+- Test notu: `#startBtn` icin `--click-selector` animasyon/stability nedeniyle timeout verdi; workaround olarak click adimi `actions-json` icine yerlestirilerek aktif oyun screenshot'i alindi.
 - Uygulama: oyuncu hareketi `lerp+jump` modelinden step-interpolation (tile-to-tile yürüme) modeline tasindi.
 - Uygulama: yeni player state alanlari eklendi (`isMoving`, `moveFrom/To`, `moveT`, `moveDuration`, `queuedMoveDir`); hareket bitmeden gelen input bir sonraki adim icin kuyruga alinıyor.
 - Uygulama: nehirde log ustundeyken oyuncu logla beraber drift ediyor; drift, hareket segmentine de uygulanıyor (segment endpointleri kaydırılıyor).
@@ -258,6 +265,17 @@ Original prompt: oyunu daha çok crossy roada brnzet harita görsellerini
 - Test: `npm run build` basarili.
 - Test: develop-web-game menu screenshot (`output/web-game-all-imported-vehicles-v1/shot-0.png`) acilip incelendi; car/truck trafik yeniden full imported, bus buyuk, error dosyasi olusmadi.
 - Follow-up prompt 33: treni 2 vagon yap birleşik.
+- Follow-up prompt 34: `bike` lane'indeki motorsikletimsi araci da gercek arac yap; kullanilmayan model kullansin.
+- Uygulama (WIP): `bike` icin DevilsWorkshop `modLights/modPipes/modSpoiler/modEngine` assetleri compact-car profiliyle tanimlandi.
+- Uygulama (WIP): `spawnMover` artik `bike` tipinde de once imported vehicle deniyor; asset varsa procedural bike yerine kullanilmayan modlu araba modeli spawn oluyor.
+- Test: `node --check /Users/yakuperdem19/Desktop/CrossyRoad3D/src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game Playwright gameplay akisi (`output/web-game-bike-model-v1`) basarili; `state-0.json` icinde `bike` mover'lar compact hitbox ile gorundu ve `shot-0.png` ekraninda unused modlu kucuk araba modeli dogrulandi, errors-*.json olusmadi.
+- Follow-up fix: `bike` icin secilen mod assetleri sahnede bos/soluk gorundugu icin kaldirildi.
+- Uygulama (WIP): `bike` lane'i artik `car01/car02/car03/carPolice` gorunur sedan modellerini compact olcekte kullaniyor; spawn tahmini icin `estimateMoverHalfX('bike')` 0.8'e cekildi.
+- Test: `node --check /Users/yakuperdem19/Desktop/CrossyRoad3D/src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game Playwright gameplay akisi (`output/web-game-bike-model-visible-v1`) basarili; `state-0.json` icinde `bike` mover'lar `half_x: 0.77` ile compact araba olcusunde goruldu ve `shot-0.png` ekraninda bos mod asset yerine gorunur sedan/police model dokulari kullanildi, errors-*.json olusmadi.
 - Uygulama: train procedural mesh'i ayri helper'a tasindi; artik tek uzun blok yerine birbirine bagli 2 vagon (lokomotif + arka vagon) olarak uretiliyor.
 - Uygulama: iki vagon arasina baglanti korugu/tabani ve ic kapilar eklendi; bogie/wheel dizilimi vagon bazli kuruldu, train daha net tek kompozisyon gibi gorunuyor.
 - Uygulama: train spawn uzunlugu sabit 2-vagon oranina cekildi (`w = 8.4`); yeni burun/far cikintilari icin train collision/spawn halfX degeri `4.3` yapildi.

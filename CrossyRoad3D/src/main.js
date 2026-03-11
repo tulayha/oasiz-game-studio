@@ -211,41 +211,51 @@ function makeLaneTexture(type, shifted = false) {
       ctx.fillRect(x + 3, 3, 2, 2);
     }
   } else if (type === 'road') {
-    // Base asphalt - dark gray
-    ctx.fillStyle = '#3a3a3a';
+    ctx.fillStyle = '#233146';
     ctx.fillRect(0, 0, 144, 24);
-    // Asphalt grain variation - subtle random-looking patches
-    for (let col = 0; col < 18; col++) {
-      for (let row = 0; row < 3; row++) {
-        const seed = (col * 7 + row * 13 + (shifted ? 5 : 0)) % 6;
-        const colors = ['#383838', '#3c3c3c', '#353535', '#404040', '#373737', '#3e3e3e'];
-        ctx.fillStyle = colors[seed];
-        ctx.fillRect(col * 8, row * 8, 8, 8);
-      }
+    for (let col = 0; col < 12; col++) {
+      const palette = shifted
+        ? ['#2a3950', '#31445e', '#253247', '#394d68']
+        : ['#2f3f58', '#364962', '#28374c', '#3b506b'];
+      ctx.fillStyle = palette[col % palette.length];
+      ctx.fillRect(col * 12, 0, 12, 24);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fillRect(col * 12 + 1, 3, 10, 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.14)';
+      ctx.fillRect(col * 12, 0, 1, 24);
     }
-    // Subtle darker patches for worn asphalt look
-    for (let i = 0; i < 8; i++) {
-      const px = ((i * 19 + (shifted ? 7 : 0)) % 144);
-      const py = ((i * 11 + (shifted ? 3 : 0)) % 20);
-      ctx.fillStyle = 'rgba(0,0,0,0.12)';
-      ctx.fillRect(px, py, 6, 4);
-    }
-    // Fine aggregate texture - tiny light speckles
+    ctx.fillStyle = '#1b2636';
+    ctx.fillRect(0, 0, 144, 4);
+    ctx.fillRect(0, 20, 144, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(0, 4, 144, 1);
+    ctx.fillRect(0, 19, 144, 1);
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    for (let i = 0; i < 20; i++) {
-      const sx = ((i * 23 + (shifted ? 11 : 0)) % 142);
-      const sy = ((i * 17 + (shifted ? 5 : 0)) % 22);
-      ctx.fillRect(sx, sy, 2, 1);
+    for (let i = 0; i < 18; i++) {
+      const sx = ((i * 17 + (shifted ? 9 : 0)) % 140);
+      const sy = ((i * 11 + (shifted ? 3 : 0)) % 18) + 3;
+      ctx.fillRect(sx, sy, 3, 1);
     }
-    // Road edge lines - solid white at top and bottom
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillRect(0, 0, 144, 1);
-    ctx.fillRect(0, 23, 144, 1);
-    // White dashed center lane marking
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    for (let x = shifted ? 10 : 0; x < 144; x += 24) {
-      ctx.fillRect(x, 11, 14, 2);
+    ctx.fillStyle = '#f4f7fb';
+    for (let x = shifted ? 8 : 0; x < 144; x += 24) {
+      ctx.fillRect(x + 2, 11, 16, 2);
     }
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    for (let x = shifted ? 3 : 11; x < 144; x += 24) {
+      ctx.fillRect(x, 10, 3, 4);
+    }
+  } else if (type === 'roadRumble') {
+    for (let col = 0; col < 24; col++) {
+      const isRed = (col + (shifted ? 1 : 0)) % 2 === 0;
+      ctx.fillStyle = isRed ? '#ef5247' : '#f4f6f8';
+      ctx.fillRect(col * 6, 0, 6, 24);
+      ctx.fillStyle = isRed ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+      ctx.fillRect(col * 6 + 1, 2, 4, 4);
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    ctx.fillRect(0, 0, 144, 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.14)';
+    ctx.fillRect(0, 22, 144, 2);
   } else if (type === 'mud') {
     for (let row = 0; row < 2; row++) {
       for (let col = 0; col < 12; col++) {
@@ -325,8 +335,8 @@ function makeLaneTexture(type, shifted = false) {
 const MAT = {
   grassA: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('grass', false), roughness: 1 }),
   grassB: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('grass', true), roughness: 1 }),
-  roadA: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('road', false), roughness: 0.92 }),
-  roadB: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('road', true), roughness: 0.92 }),
+  roadA: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('road', false), roughness: 0.9 }),
+  roadB: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('road', true), roughness: 0.9 }),
   mudA: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('mud', false), roughness: 0.96 }),
   mudB: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('mud', true), roughness: 0.96 }),
   railA: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('rail', false), roughness: 0.9 }),
@@ -335,12 +345,15 @@ const MAT = {
   riverB: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('river', true), roughness: 0.42, metalness: 0.08, emissive: 0x083d54, emissiveIntensity: 0.08 }),
   grassEdge: new THREE.MeshStandardMaterial({ color: 0x3f8f3b, roughness: 1 }),
   curb: new THREE.MeshStandardMaterial({ color: 0xbebebe, roughness: 0.92 }),
+  roadShoulder: new THREE.MeshStandardMaterial({ color: 0xc7d0da, roughness: 0.88, metalness: 0.06 }),
+  roadRumbleA: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('roadRumble', false), roughness: 0.82 }),
+  roadRumbleB: new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeLaneTexture('roadRumble', true), roughness: 0.82 }),
   bank: new THREE.MeshStandardMaterial({ color: 0x9a7a48, roughness: 1 }),
   railMetal: new THREE.MeshStandardMaterial({ color: 0xd6dde8, roughness: 0.45, metalness: 0.42 }),
   railSleeper: new THREE.MeshStandardMaterial({ color: 0x6f4f30, roughness: 0.95 }),
   mudPuddle: new THREE.MeshStandardMaterial({ color: 0x6d5438, roughness: 0.68 }),
-  roadStripe: new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.78 }),
-  roadLine: new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: 0.82 }),
+  roadStripe: new THREE.MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.72 }),
+  roadLine: new THREE.MeshStandardMaterial({ color: 0xe3ebf5, roughness: 0.78 }),
   foam: new THREE.MeshStandardMaterial({ color: 0xdbf4ff, roughness: 0.65 }),
   trunk: new THREE.MeshStandardMaterial({ color: 0x8f6038, roughness: 1 }),
   leaf: new THREE.MeshStandardMaterial({ color: 0x4daa4a, roughness: 1 }),
@@ -425,6 +438,39 @@ const DEVILSWORKSHOP_VEHICLE_ASSETS = [
     targetSize: { x: 4.85, y: 2.08, z: 1.54 },
     hitbox: { x: 4.7, z: 1.46 },
     weight: 1.45,
+  },
+  {
+    id: 'bikeCar01',
+    kinds: ['bike'],
+    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car01.obj',
+    texture: '/assets/devilsworkshop-cars/textures/car01.png',
+    targetSize: { x: 1.52, y: 0.88, z: 0.92 },
+    hitbox: { x: 1.54, z: 0.94 },
+  },
+  {
+    id: 'bikeCar02',
+    kinds: ['bike'],
+    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car02.obj',
+    texture: '/assets/devilsworkshop-cars/textures/car02.png',
+    targetSize: { x: 1.52, y: 0.88, z: 0.92 },
+    hitbox: { x: 1.54, z: 0.94 },
+  },
+  {
+    id: 'bikeCar03',
+    kinds: ['bike'],
+    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car03.obj',
+    texture: '/assets/devilsworkshop-cars/textures/car03.png',
+    targetSize: { x: 1.52, y: 0.88, z: 0.92 },
+    hitbox: { x: 1.54, z: 0.94 },
+  },
+  {
+    id: 'bikeCarPolice',
+    kinds: ['bike'],
+    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_carPolice.obj',
+    texture: '/assets/devilsworkshop-cars/textures/carPolice.png',
+    targetSize: { x: 1.56, y: 0.94, z: 0.92 },
+    hitbox: { x: 1.58, z: 0.96 },
+    weight: 0.7,
   },
 ];
 
@@ -1332,31 +1378,34 @@ function addLane(z, idx) {
   lane.decorMeshes.push(edgeL, edgeR);
 
   if (lane.type === 'road') {
-    // Solid white edge lines at both sides of the road
-    const sideA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 0.35, 0.015, 0.08), MAT.roadLine);
+    const shoulderA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 0.45, 0.03, 0.24), MAT.roadShoulder);
+    const shoulderB = shoulderA.clone();
+    shoulderA.position.set(0, 0.145, z - laneDepth * 0.37);
+    shoulderB.position.set(0, 0.145, z + laneDepth * 0.37);
+    scene.add(shoulderA, shoulderB);
+    lane.decorMeshes.push(shoulderA, shoulderB);
+
+    const rumbleMat = idx % 2 === 0 ? MAT.roadRumbleA : MAT.roadRumbleB;
+    const rumbleA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 0.08, 0.06, 0.28), rumbleMat);
+    const rumbleB = rumbleA.clone();
+    rumbleA.position.set(0, 0.165, z - laneDepth * 0.455);
+    rumbleB.position.set(0, 0.165, z + laneDepth * 0.455);
+    scene.add(rumbleA, rumbleB);
+    lane.decorMeshes.push(rumbleA, rumbleB);
+
+    const sideA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 1.4, 0.015, 0.05), MAT.roadLine);
     const sideB = sideA.clone();
-    sideA.position.set(0, 0.135, z - laneDepth * 0.42);
-    sideB.position.set(0, 0.135, z + laneDepth * 0.42);
+    sideA.position.set(0, 0.15, z - laneDepth * 0.29);
+    sideB.position.set(0, 0.15, z + laneDepth * 0.29);
     scene.add(sideA, sideB);
     lane.decorMeshes.push(sideA, sideB);
 
-    // White dashed center lane markings
-    for (let x = -laneWidth * 0.46; x <= laneWidth * 0.46; x += 3.0) {
-      const dash = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.012, 0.07), MAT.roadStripe);
+    for (let x = -laneWidth * 0.44; x <= laneWidth * 0.44; x += 4.2) {
+      const dash = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.012, 0.08), MAT.roadStripe);
       dash.position.set(x, 0.135, z);
       dash.receiveShadow = true;
       scene.add(dash);
       lane.decorMeshes.push(dash);
-    }
-
-    // Raised curb edges
-    for (let x = -laneWidth * 0.44; x <= laneWidth * 0.44; x += 4.0) {
-      const curbCapA = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.14), MAT.curb);
-      const curbCapB = curbCapA.clone();
-      curbCapA.position.set(x, 0.155, z - laneDepth * 0.44);
-      curbCapB.position.set(x, 0.155, z + laneDepth * 0.44);
-      scene.add(curbCapA, curbCapB);
-      lane.decorMeshes.push(curbCapA, curbCapB);
     }
   } else if (lane.type === 'river') {
     const foamL = new THREE.Mesh(new THREE.BoxGeometry(laneWidth, 0.02, 0.08), MAT.foam);
@@ -1931,7 +1980,7 @@ function spawnMover(lane, subSpeed, subZ, kindOverride) {
       mover.add(spike);
     }
   } else {
-    const importedVehicle = moverKind === 'car' || moverKind === 'truck'
+    const importedVehicle = moverKind === 'car' || moverKind === 'truck' || moverKind === 'bike'
       ? createImportedVehicleInstance(moverKind)
       : null;
     if (importedVehicle) {
@@ -2029,7 +2078,7 @@ function estimateMoverHalfX(kind) {
   if (kind === 'train') return 4.3;
   if (kind === 'truck') return 2.35;
   if (kind === 'log') return 2.1;
-  if (kind === 'bike') return 0.6;
+  if (kind === 'bike') return 0.8;
   if (kind === 'barrel') return 0.4;
   return 1.06; // car
 }
