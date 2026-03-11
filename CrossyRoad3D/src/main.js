@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import bgMusicUrl from './bgMusic.mp3';
+import { DEVILSWORKSHOP_VEHICLE_FILES } from './devilsworkshopVehicleAssets.js';
 
 function makeSkyTexture() {
   const canvas = document.createElement('canvas');
@@ -50,12 +51,22 @@ camera.position.set(16, 16, 16);
 camera.lookAt(0, 0, 0);
 
 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia('(pointer: coarse)').matches;
-const renderer = new THREE.WebGLRenderer({ antialias: !isMobile });
-renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.0 : 2));
+const PERFORMANCE = {
+  fixedStep: 1 / 60,
+  maxFrameDelta: 0.05,
+  maxSubSteps: 3,
+  mainPixelRatio: isMobile ? 0.85 : 1.15,
+  previewPixelRatio: isMobile ? 0.85 : 0.95,
+  shadowMapSize: isMobile ? 384 : 768,
+};
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, PERFORMANCE.mainPixelRatio));
 renderer.setSize(innerWidth, innerHeight);
 renderer.domElement.style.touchAction = 'none';
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = isMobile ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.BasicShadowMap;
+renderer.shadowMap.autoUpdate = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = isMobile ? THREE.LinearToneMapping : THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
@@ -66,7 +77,7 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff4dc, 1.45);
 sun.position.set(34, 44, 16);
 sun.castShadow = true;
-const shadowRes = isMobile ? 512 : 2048;
+const shadowRes = PERFORMANCE.shadowMapSize;
 sun.shadow.mapSize.set(shadowRes, shadowRes);
 const shadowFrustum = isMobile ? 30 : 60;
 sun.shadow.camera.left = -shadowFrustum;
@@ -84,9 +95,12 @@ const laneWidth = 60;
 const xStep = 1.8;
 const forwardStep = laneDepth; // ileri/geri adımı lane merkezinde biter
 const sideLimit = 16.2; // 2x wider playable map
+const leftBlockLimit = 7;
+const playerLeftLimit = xStep * leftBlockLimit;
 const trafficSpawnX = laneWidth * 0.5 + 1.4;
 const trafficDespawnX = laneWidth * 0.5 + 2.8;
-const PLAYER_HITBOX = { halfX: 0.34, halfZ: 0.34 };
+const PLAYER_HITBOX = { halfX: 0.25, halfZ: 0.25 };
+const PLAYER_MOVE_DURATION_S = 0.12;
 const TRAIN_WARNING_LEAD_S = 1.5;
 const TRAIN_SPEED_BOOST = 3;
 const LOG_RIDE_Y_OFFSET = 0.42;
@@ -100,7 +114,7 @@ const cameraRig = {
   height: 16,
   diagX: 16,       // fixed X offset (never changes)
   diagZ: 16,       // fixed Z offset from look target
-  lookAhead: 4,
+  lookAhead: 5.5,
 };
 
 function refreshCameraRig() {
@@ -120,6 +134,22 @@ function refreshCameraRig() {
 }
 
 refreshCameraRig();
+
+function requestShadowRefresh() {
+  renderer.shadowMap.needsUpdate = true;
+}
+
+function setMeshShadowFlags(root, castShadow, receiveShadow) {
+  root.traverse((node) => {
+    if (!node.isMesh) return;
+    node.castShadow = castShadow;
+    node.receiveShadow = receiveShadow;
+  });
+}
+
+function clampPlayerX(x) {
+  return THREE.MathUtils.clamp(x, -playerLeftLimit, sideLimit);
+}
 
 const lanes = [];
 const movers = [];
@@ -143,7 +173,7 @@ let active = false;
 let score = 0;
 let bestForward = 0;
 let dead = false;
-const MOVE_INPUT_COOLDOWN_S = 0.2;
+const MOVE_INPUT_COOLDOWN_S = 0.12;
 let lastMoveAtS = -Infinity;
 let elapsedGameTime = 0;
 let deathAnim = { type: 'none', time: 0, done: false };
@@ -240,10 +270,6 @@ function makeLaneTexture(type, shifted = false) {
     for (let x = shifted ? 8 : 0; x < 144; x += 24) {
       ctx.fillRect(x + 2, 11, 16, 2);
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    for (let x = shifted ? 3 : 11; x < 144; x += 24) {
-      ctx.fillRect(x, 10, 3, 4);
-    }
   } else if (type === 'roadRumble') {
     for (let col = 0; col < 24; col++) {
       const isRed = (col + (shifted ? 1 : 0)) % 2 === 0;
@@ -328,6 +354,11 @@ function makeLaneTexture(type, shifted = false) {
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
   texture.generateMipmaps = false;
+  // Correct aspect ratio: canvas is 144x24 but geometry is 60x4.4
+  const aspectCorrection = (laneWidth / laneDepth) * (canvas.height / canvas.width);
+  texture.repeat.set(aspectCorrection, 1);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
   texture.needsUpdate = true;
   return texture;
 }
@@ -368,6 +399,255 @@ const MAT = {
   carTaillight: new THREE.MeshStandardMaterial({ color: 0xff5f63, emissive: 0xff4d4d, emissiveIntensity: 0.35 }),
 };
 
+const POOL_DIMENSION_STEP = 0.02;
+const pooledMeshes = new Map();
+const pooledGroups = new Map();
+const cachedBoxGeometries = new Map();
+const cachedCylinderGeometries = new Map();
+const cachedTorusGeometries = new Map();
+const cachedMaterials = new Map();
+
+function snapPooledDimension(value) {
+  return Math.max(0.01, Math.round(value / POOL_DIMENSION_STEP) * POOL_DIMENSION_STEP);
+}
+
+function toPoolScalar(value) {
+  return Number(value.toFixed(3));
+}
+
+function makePoolKey(prefix, values) {
+  return `${prefix}:${values.map((value) => (
+    typeof value === 'number' ? toPoolScalar(value) : value
+  )).join(':')}`;
+}
+
+function getCachedBoxGeometry(width, height, depth) {
+  const w = snapPooledDimension(width);
+  const h = snapPooledDimension(height);
+  const d = snapPooledDimension(depth);
+  const key = makePoolKey('box-geo', [w, h, d]);
+  let geometry = cachedBoxGeometries.get(key);
+  if (!geometry) {
+    geometry = new THREE.BoxGeometry(w, h, d);
+    cachedBoxGeometries.set(key, geometry);
+  }
+  return geometry;
+}
+
+function getCachedCylinderGeometry(radiusTop, radiusBottom, height, radialSegments = 8) {
+  const rt = snapPooledDimension(radiusTop);
+  const rb = snapPooledDimension(radiusBottom);
+  const h = snapPooledDimension(height);
+  const key = makePoolKey('cyl-geo', [rt, rb, h, radialSegments]);
+  let geometry = cachedCylinderGeometries.get(key);
+  if (!geometry) {
+    geometry = new THREE.CylinderGeometry(rt, rb, h, radialSegments);
+    cachedCylinderGeometries.set(key, geometry);
+  }
+  return geometry;
+}
+
+function getCachedTorusGeometry(radius, tube, radialSegments = 8, tubularSegments = 16) {
+  const r = snapPooledDimension(radius);
+  const t = snapPooledDimension(tube);
+  const key = makePoolKey('torus-geo', [r, t, radialSegments, tubularSegments]);
+  let geometry = cachedTorusGeometries.get(key);
+  if (!geometry) {
+    geometry = new THREE.TorusGeometry(r, t, radialSegments, tubularSegments);
+    cachedTorusGeometries.set(key, geometry);
+  }
+  return geometry;
+}
+
+function getCachedStandardMaterial(key, params) {
+  let material = cachedMaterials.get(key);
+  if (!material) {
+    material = new THREE.MeshStandardMaterial(params);
+    cachedMaterials.set(key, material);
+  }
+  return material;
+}
+
+const POOL_MAT = {
+  stoneHighlight: getCachedStandardMaterial('stone-highlight', { color: 0xe6eef7, roughness: 0.7 }),
+  bushFlower: getCachedStandardMaterial('bush-flower', { color: 0xffc5d8, roughness: 0.82 }),
+  trainWarningSign: getCachedStandardMaterial('train-warning-sign', { color: 0xeef3fb, roughness: 0.62, metalness: 0.08 }),
+  trainWarningStripe: getCachedStandardMaterial('train-warning-stripe', { color: 0xd64040, roughness: 0.65, metalness: 0.04 }),
+  trainFrame: getCachedStandardMaterial('train-frame', { color: 0x1e2228, roughness: 0.86 }),
+  trainConnector: getCachedStandardMaterial('train-connector', { color: 0x434951, roughness: 0.78, metalness: 0.14 }),
+  trainDoor: getCachedStandardMaterial('train-door', { color: 0xe8edf5, roughness: 0.54, metalness: 0.12 }),
+  vehicleUnder: getCachedStandardMaterial('vehicle-under', { color: 0x252a31, roughness: 0.84 }),
+  truckCargo: getCachedStandardMaterial('truck-cargo', { color: 0xf4efe2, roughness: 0.82 }),
+  logBody: getCachedStandardMaterial('log-body', { color: 0x8d5d37, roughness: 0.96, metalness: 0.02 }),
+  logDeck: getCachedStandardMaterial('log-deck', { color: 0xa47345, roughness: 0.9 }),
+  barrelRing: getCachedStandardMaterial('barrel-ring', { color: 0x4d341f, roughness: 0.88 }),
+  barrelSpike: getCachedStandardMaterial('barrel-spike', { color: 0x5f3f25, roughness: 0.92 }),
+};
+const pooledTrainWarningMaterials = [];
+
+function acquireTrainWarningMaterial() {
+  const material = pooledTrainWarningMaterials.pop() ?? new THREE.MeshStandardMaterial({
+    color: 0x5a3a3a,
+    emissive: 0x251010,
+    emissiveIntensity: 0.08,
+    roughness: 0.5,
+    metalness: 0.22,
+  });
+  material.color.setHex(0x5a3a3a);
+  material.emissive.setHex(0x251010);
+  material.emissiveIntensity = 0.08;
+  return material;
+}
+
+function releaseTrainWarningMaterial(material) {
+  if (!material) return;
+  material.color.setHex(0x5a3a3a);
+  material.emissive.setHex(0x251010);
+  material.emissiveIntensity = 0.08;
+  pooledTrainWarningMaterials.push(material);
+}
+
+function getVehiclePaintMaterial(kind, color) {
+  const colorKey = color.toString(16);
+  return getCachedStandardMaterial(`vehicle-paint:${kind}:${colorKey}`, {
+    color,
+    roughness: kind === 'bike' ? 0.38 : 0.3,
+    metalness: kind === 'bike' ? 0.2 : 0.24,
+  });
+}
+
+function resetPooledObjectTransform(object) {
+  object.position.set(0, 0, 0);
+  object.rotation.set(0, 0, 0);
+  object.scale.set(1, 1, 1);
+  object.visible = true;
+}
+
+function acquirePooledMesh(poolKey, geometry, material) {
+  const bucket = pooledMeshes.get(poolKey);
+  const mesh = bucket?.pop() ?? new THREE.Mesh(geometry, material);
+  mesh.geometry = geometry;
+  mesh.material = material;
+  resetPooledObjectTransform(mesh);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.userData.pooledMeshKey = poolKey;
+  return mesh;
+}
+
+function acquireBoxMesh(width, height, depth, material) {
+  const w = snapPooledDimension(width);
+  const h = snapPooledDimension(height);
+  const d = snapPooledDimension(depth);
+  const poolKey = makePoolKey(`box:${material.uuid}`, [w, h, d]);
+  return acquirePooledMesh(poolKey, getCachedBoxGeometry(w, h, d), material);
+}
+
+function acquireCylinderMesh(radiusTop, radiusBottom, height, radialSegments, material) {
+  const rt = snapPooledDimension(radiusTop);
+  const rb = snapPooledDimension(radiusBottom);
+  const h = snapPooledDimension(height);
+  const poolKey = makePoolKey(`cyl:${material.uuid}`, [rt, rb, h, radialSegments]);
+  return acquirePooledMesh(poolKey, getCachedCylinderGeometry(rt, rb, h, radialSegments), material);
+}
+
+function acquireTorusMesh(radius, tube, radialSegments, tubularSegments, material) {
+  const r = snapPooledDimension(radius);
+  const t = snapPooledDimension(tube);
+  const poolKey = makePoolKey(`torus:${material.uuid}`, [r, t, radialSegments, tubularSegments]);
+  return acquirePooledMesh(poolKey, getCachedTorusGeometry(r, t, radialSegments, tubularSegments), material);
+}
+
+function addTrackedObject(parent, trackList, object) {
+  parent.add(object);
+  if (trackList) trackList.push(object);
+  return object;
+}
+
+function acquirePooledGroup(poolKey) {
+  const bucket = pooledGroups.get(poolKey);
+  const group = bucket?.pop() ?? new THREE.Group();
+  resetPooledObjectTransform(group);
+  group.userData.pooledGroupKey = poolKey;
+  if (!group.userData.managedChildren) group.userData.managedChildren = [];
+  group.userData.managedChildren.length = 0;
+  return group;
+}
+
+function trackManagedChild(group, child) {
+  group.userData.managedChildren.push(child);
+  group.add(child);
+  return child;
+}
+
+function releasePooledMesh(mesh) {
+  if (!mesh) return;
+  if (mesh.parent) mesh.parent.remove(mesh);
+  resetPooledObjectTransform(mesh);
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  const poolKey = mesh.userData?.pooledMeshKey;
+  if (!poolKey) return;
+  if (!pooledMeshes.has(poolKey)) pooledMeshes.set(poolKey, []);
+  pooledMeshes.get(poolKey).push(mesh);
+}
+
+function releaseManagedGroup(group) {
+  if (!group) return;
+  const managedChildren = group.userData?.managedChildren ?? [];
+  while (managedChildren.length) {
+    releaseSceneObject(managedChildren.pop());
+  }
+  while (group.children.length) group.remove(group.children[0]);
+  if (group.parent) group.parent.remove(group);
+  resetPooledObjectTransform(group);
+  const poolKey = group.userData?.pooledGroupKey;
+  if (!poolKey) return;
+  if (!pooledGroups.has(poolKey)) pooledGroups.set(poolKey, []);
+  pooledGroups.get(poolKey).push(group);
+}
+
+function releaseSceneObject(object) {
+  if (!object) return;
+  if (object.userData?.pooledGroupKey) {
+    releaseManagedGroup(object);
+    return;
+  }
+  if (object.userData?.pooledMeshKey) {
+    releasePooledMesh(object);
+    return;
+  }
+  if (object.userData?.importedVehiclePoolKey) {
+    releaseImportedVehicleInstance(object);
+    return;
+  }
+  if (object.parent) object.parent.remove(object);
+}
+
+function countPooledObjects(pool) {
+  let total = 0;
+  for (const bucket of pool.values()) total += bucket.length;
+  return total;
+}
+
+function releaseLane(lane) {
+  releaseSceneObject(lane.mesh);
+  for (const mesh of lane.decorMeshes) releaseSceneObject(mesh);
+  for (const channel of lane.channels) {
+    if (!channel.warningMaterials?.length) continue;
+    for (const warningMaterial of channel.warningMaterials) releaseTrainWarningMaterial(warningMaterial);
+    channel.warningMaterials.length = 0;
+  }
+  lane.decorMeshes.length = 0;
+  lane.obstacles.length = 0;
+  lane.channels.length = 0;
+  lane.mesh = null;
+}
+
+function releaseMover(mover) {
+  releaseSceneObject(mover.mesh);
+}
+
 const VEHICLE_COLOR_FAMILIES = {
   car: [0x2f79d5, 0xd54f3a, 0xf0b83f, 0x43a865, 0x8b68de, 0xf26d96, 0x3ea5a8],
   truck: [0x3f67c7, 0xd26444, 0x4da282, 0x8b78cf, 0xc94f58],
@@ -384,106 +664,94 @@ const DEVILSWORKSHOP_VEHICLE_ASSETS = [
   {
     id: 'car01',
     kinds: ['car'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car01.obj',
-    texture: '/assets/devilsworkshop-cars/textures/car01.png',
-    targetSize: { x: 1.88, y: 1.08, z: 1.14 },
-    hitbox: { x: 1.9, z: 1.16 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.car01,
+    targetSize: { x: 3.2, y: 1.84, z: 1.94 },
+    hitbox: { x: 3.23, z: 1.97 },
   },
   {
     id: 'car02',
     kinds: ['car'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car02.obj',
-    texture: '/assets/devilsworkshop-cars/textures/car02.png',
-    targetSize: { x: 1.88, y: 1.08, z: 1.14 },
-    hitbox: { x: 1.9, z: 1.16 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.car02,
+    targetSize: { x: 3.2, y: 1.84, z: 1.94 },
+    hitbox: { x: 3.23, z: 1.97 },
   },
   {
     id: 'car03',
     kinds: ['car'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car03.obj',
-    texture: '/assets/devilsworkshop-cars/textures/car03.png',
-    targetSize: { x: 1.88, y: 1.08, z: 1.14 },
-    hitbox: { x: 1.9, z: 1.16 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.car03,
+    targetSize: { x: 3.2, y: 1.84, z: 1.94 },
+    hitbox: { x: 3.23, z: 1.97 },
   },
   {
     id: 'carPolice',
     kinds: ['car'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_carPolice.obj',
-    texture: '/assets/devilsworkshop-cars/textures/carPolice.png',
-    targetSize: { x: 1.94, y: 1.18, z: 1.14 },
-    hitbox: { x: 1.96, z: 1.18 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.carPolice,
+    targetSize: { x: 3.3, y: 2.0, z: 1.94 },
+    hitbox: { x: 3.33, z: 2.0 },
     weight: 0.7,
   },
   {
     id: 'pickupTruck01',
     kinds: ['truck'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_pickupTruck01.obj',
-    texture: '/assets/devilsworkshop-cars/textures/pickupTruck01.png',
-    targetSize: { x: 2.38, y: 1.12, z: 1.22 },
-    hitbox: { x: 2.42, z: 1.24 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.pickupTruck01,
+    targetSize: { x: 4.05, y: 1.9, z: 2.07 },
+    hitbox: { x: 4.11, z: 2.1 },
   },
   {
     id: 'pickupTruck02',
     kinds: ['truck'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_pickupTruck02.obj',
-    texture: '/assets/devilsworkshop-cars/textures/pickupTruck02.png',
-    targetSize: { x: 2.38, y: 1.12, z: 1.22 },
-    hitbox: { x: 2.42, z: 1.24 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.pickupTruck02,
+    targetSize: { x: 4.05, y: 1.9, z: 2.07 },
+    hitbox: { x: 4.11, z: 2.1 },
   },
   {
     id: 'bus',
     kinds: ['truck'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_bus.obj',
-    texture: '/assets/devilsworkshop-cars/textures/bus01.png',
-    targetSize: { x: 4.85, y: 2.08, z: 1.54 },
-    hitbox: { x: 4.7, z: 1.46 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.bus,
+    targetSize: { x: 8.25, y: 3.54, z: 2.62 },
+    hitbox: { x: 7.99, z: 2.48 },
     weight: 1.45,
   },
   {
     id: 'bikeCar01',
     kinds: ['bike'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car01.obj',
-    texture: '/assets/devilsworkshop-cars/textures/car01.png',
-    targetSize: { x: 1.52, y: 0.88, z: 0.92 },
-    hitbox: { x: 1.54, z: 0.94 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.car01,
+    targetSize: { x: 2.58, y: 1.5, z: 1.56 },
+    hitbox: { x: 2.62, z: 1.6 },
   },
   {
     id: 'bikeCar02',
     kinds: ['bike'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car02.obj',
-    texture: '/assets/devilsworkshop-cars/textures/car02.png',
-    targetSize: { x: 1.52, y: 0.88, z: 0.92 },
-    hitbox: { x: 1.54, z: 0.94 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.car02,
+    targetSize: { x: 2.58, y: 1.5, z: 1.56 },
+    hitbox: { x: 2.62, z: 1.6 },
   },
   {
     id: 'bikeCar03',
     kinds: ['bike'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_car03.obj',
-    texture: '/assets/devilsworkshop-cars/textures/car03.png',
-    targetSize: { x: 1.52, y: 0.88, z: 0.92 },
-    hitbox: { x: 1.54, z: 0.94 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.car03,
+    targetSize: { x: 2.58, y: 1.5, z: 1.56 },
+    hitbox: { x: 2.62, z: 1.6 },
   },
   {
     id: 'bikeCarPolice',
     kinds: ['bike'],
-    obj: '/assets/devilsworkshop-cars/obj/Low_Poly_Vehicles_carPolice.obj',
-    texture: '/assets/devilsworkshop-cars/textures/carPolice.png',
-    targetSize: { x: 1.56, y: 0.94, z: 0.92 },
-    hitbox: { x: 1.58, z: 0.96 },
+    ...DEVILSWORKSHOP_VEHICLE_FILES.carPolice,
+    targetSize: { x: 2.65, y: 1.6, z: 1.56 },
+    hitbox: { x: 2.69, z: 1.63 },
     weight: 0.7,
   },
 ];
 
 const vehicleAssetLibrary = new Map();
+const importedVehicleInstancePools = new Map();
 const vehicleObjLoader = new OBJLoader();
 const vehicleTextureLoader = new THREE.TextureLoader();
 const maxVehicleTextureAnisotropy = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
 
 async function loadDevilsworkshopVehicleAsset(config) {
-  const [obj, texture] = await Promise.all([
-    vehicleObjLoader.loadAsync(config.obj),
-    vehicleTextureLoader.loadAsync(config.texture),
-  ]);
+  const obj = vehicleObjLoader.parse(config.objSource);
+  const texture = await vehicleTextureLoader.loadAsync(config.textureUrl);
 
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = maxVehicleTextureAnisotropy;
@@ -504,8 +772,8 @@ async function loadDevilsworkshopVehicleAsset(config) {
     if (!node.isMesh) return;
     if (typeof node.geometry?.computeVertexNormals === 'function') node.geometry.computeVertexNormals();
     node.material = material;
-    node.castShadow = true;
-    node.receiveShadow = true;
+    node.castShadow = false;
+    node.receiveShadow = false;
   });
   root.add(source);
 
@@ -567,12 +835,26 @@ function createImportedVehicleInstance(kind) {
   const entry = pickImportedVehicleEntry(kind);
   if (!entry) return null;
 
+  const poolKey = entry.config.id;
+  const bucket = importedVehicleInstancePools.get(poolKey);
+  const mesh = bucket?.pop() ?? entry.template.clone(true);
+  mesh.userData.importedVehiclePoolKey = poolKey;
+
   return {
-    mesh: entry.template.clone(true),
+    mesh,
     hitboxX: entry.config.hitbox.x,
     hitboxZ: entry.config.hitbox.z,
     height: entry.config.targetSize.y,
   };
+}
+
+function releaseImportedVehicleInstance(root) {
+  if (!root) return;
+  if (root.parent) root.parent.remove(root);
+  const poolKey = root.userData?.importedVehiclePoolKey ?? root.userData?.assetId;
+  if (!poolKey) return;
+  if (!importedVehicleInstancePools.has(poolKey)) importedVehicleInstancePools.set(poolKey, []);
+  importedVehicleInstancePools.get(poolKey).push(root);
 }
 
 for (const riverMat of [MAT.riverA, MAT.riverB]) {
@@ -593,12 +875,23 @@ function normalizeCharacterId(id) {
 
 function finalizeCharacter(id, group) {
   group.rotation.y = Math.PI;
-  group.traverse((node) => {
-    if (!node.isMesh) return;
-    node.castShadow = true;
-    node.receiveShadow = true;
-  });
-  return { id, group, jump: 0, targetRotY: Math.PI, targetX: 0, targetZ: 0, riverSupportGraceS: 0 };
+  setMeshShadowFlags(group, false, true);
+  return {
+    id,
+    group,
+    jump: 0,
+    targetRotY: Math.PI,
+    targetX: 0,
+    targetZ: 0,
+    moving: false,
+    moveTime: 0,
+    moveDuration: PLAYER_MOVE_DURATION_S,
+    moveFromX: 0,
+    moveFromZ: 0,
+    moveToX: 0,
+    moveToZ: 0,
+    riverSupportGraceS: 0,
+  };
 }
 
 function createRabbit() {
@@ -672,6 +965,7 @@ function createRabbit() {
     pawL, pawR, pawFrontL, pawFrontR,
     tail
   );
+  group.scale.setScalar(1 / 1.35);
   return finalizeCharacter('rabbit', group);
 }
 
@@ -992,8 +1286,8 @@ function setupCharacterPreviews() {
     floor.position.y = -0.05;
     previewScene.add(floor);
 
-    const previewRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'low-power' });
-    previewRenderer.setPixelRatio(Math.min(devicePixelRatio, 1.4));
+    const previewRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, powerPreference: 'low-power' });
+    previewRenderer.setPixelRatio(Math.min(devicePixelRatio, PERFORMANCE.previewPixelRatio));
     previewRenderer.outputColorSpace = THREE.SRGBColorSpace;
     previewRenderer.toneMapping = THREE.ACESFilmicToneMapping;
     previewRenderer.toneMappingExposure = 1.06;
@@ -1041,6 +1335,13 @@ function setCharacter(id) {
   next.targetZ = player.targetZ;
   next.targetRotY = player.targetRotY;
   next.jump = player.jump;
+  next.moving = player.moving;
+  next.moveTime = player.moveTime;
+  next.moveDuration = player.moveDuration;
+  next.moveFromX = player.moveFromX;
+  next.moveFromZ = player.moveFromZ;
+  next.moveToX = player.moveToX;
+  next.moveToZ = player.moveToZ;
   next.riverSupportGraceS = player.riverSupportGraceS;
   next.group.visible = player.group.visible;
   scene.remove(player.group);
@@ -1147,6 +1448,7 @@ function createEagle() {
   group.add(body, belly, head, beak, eyeL, eyeR, wingL, wingR,
             legL, legR, talonL, talonR, clawL, clawR, clawCL, clawCR);
   group.scale.set(1.2, 1.2, 1.2);
+  setMeshShadowFlags(group, false, false);
   return group;
 }
 
@@ -1354,7 +1656,7 @@ function addLane(z, idx) {
         : lane.type === 'rail'
           ? (idx % 2 === 0 ? MAT.railA : MAT.railB)
           : (idx % 2 === 0 ? MAT.mudA : MAT.mudB);
-  const laneMesh = new THREE.Mesh(new THREE.BoxGeometry(laneWidth, 0.24, laneDepth), mat);
+  const laneMesh = acquireBoxMesh(laneWidth, 0.24, laneDepth, mat);
   laneMesh.position.set(0, 0, z);
   laneMesh.receiveShadow = true;
   scene.add(laneMesh);
@@ -1369,108 +1671,89 @@ function addLane(z, idx) {
         : MAT.grassEdge;
   const shoulderW = lane.type === 'road' ? 0.26 : 0.2;
   const shoulderH = lane.type === 'road' ? 0.32 : 0.27;
-  const edgeL = new THREE.Mesh(new THREE.BoxGeometry(shoulderW, shoulderH, laneDepth), shoulderMat);
-  const edgeR = edgeL.clone();
+  const edgeL = acquireBoxMesh(shoulderW, shoulderH, laneDepth, shoulderMat);
+  const edgeR = acquireBoxMesh(shoulderW, shoulderH, laneDepth, shoulderMat);
   edgeL.position.set(-laneWidth * 0.5 - shoulderW * 0.5, shoulderH * 0.5 - 0.03, z);
   edgeR.position.set(laneWidth * 0.5 + shoulderW * 0.5, shoulderH * 0.5 - 0.03, z);
   edgeL.receiveShadow = edgeR.receiveShadow = true;
-  scene.add(edgeL, edgeR);
-  lane.decorMeshes.push(edgeL, edgeR);
+  addTrackedObject(scene, lane.decorMeshes, edgeL);
+  addTrackedObject(scene, lane.decorMeshes, edgeR);
 
   if (lane.type === 'road') {
-    const shoulderA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 0.45, 0.03, 0.24), MAT.roadShoulder);
-    const shoulderB = shoulderA.clone();
+    const shoulderA = acquireBoxMesh(laneWidth - 0.45, 0.03, 0.24, MAT.roadShoulder);
+    const shoulderB = acquireBoxMesh(laneWidth - 0.45, 0.03, 0.24, MAT.roadShoulder);
     shoulderA.position.set(0, 0.145, z - laneDepth * 0.37);
     shoulderB.position.set(0, 0.145, z + laneDepth * 0.37);
-    scene.add(shoulderA, shoulderB);
-    lane.decorMeshes.push(shoulderA, shoulderB);
+    addTrackedObject(scene, lane.decorMeshes, shoulderA);
+    addTrackedObject(scene, lane.decorMeshes, shoulderB);
 
     const rumbleMat = idx % 2 === 0 ? MAT.roadRumbleA : MAT.roadRumbleB;
-    const rumbleA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 0.08, 0.06, 0.28), rumbleMat);
-    const rumbleB = rumbleA.clone();
+    const rumbleA = acquireBoxMesh(laneWidth - 0.08, 0.06, 0.28, rumbleMat);
+    const rumbleB = acquireBoxMesh(laneWidth - 0.08, 0.06, 0.28, rumbleMat);
     rumbleA.position.set(0, 0.165, z - laneDepth * 0.455);
     rumbleB.position.set(0, 0.165, z + laneDepth * 0.455);
-    scene.add(rumbleA, rumbleB);
-    lane.decorMeshes.push(rumbleA, rumbleB);
+    addTrackedObject(scene, lane.decorMeshes, rumbleA);
+    addTrackedObject(scene, lane.decorMeshes, rumbleB);
 
-    const sideA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 1.4, 0.015, 0.05), MAT.roadLine);
-    const sideB = sideA.clone();
+    const sideA = acquireBoxMesh(laneWidth - 1.4, 0.015, 0.05, MAT.roadLine);
+    const sideB = acquireBoxMesh(laneWidth - 1.4, 0.015, 0.05, MAT.roadLine);
     sideA.position.set(0, 0.15, z - laneDepth * 0.29);
     sideB.position.set(0, 0.15, z + laneDepth * 0.29);
-    scene.add(sideA, sideB);
-    lane.decorMeshes.push(sideA, sideB);
+    addTrackedObject(scene, lane.decorMeshes, sideA);
+    addTrackedObject(scene, lane.decorMeshes, sideB);
 
-    for (let x = -laneWidth * 0.44; x <= laneWidth * 0.44; x += 4.2) {
-      const dash = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.012, 0.08), MAT.roadStripe);
-      dash.position.set(x, 0.135, z);
-      dash.receiveShadow = true;
-      scene.add(dash);
-      lane.decorMeshes.push(dash);
-    }
   } else if (lane.type === 'river') {
-    const foamL = new THREE.Mesh(new THREE.BoxGeometry(laneWidth, 0.02, 0.08), MAT.foam);
-    const foamR = foamL.clone();
+    const foamL = acquireBoxMesh(laneWidth, 0.02, 0.08, MAT.foam);
+    const foamR = acquireBoxMesh(laneWidth, 0.02, 0.08, MAT.foam);
     foamL.position.set(0, 0.14, z - laneDepth * 0.45);
     foamR.position.set(0, 0.14, z + laneDepth * 0.45);
-    scene.add(foamL, foamR);
-    lane.decorMeshes.push(foamL, foamR);
+    addTrackedObject(scene, lane.decorMeshes, foamL);
+    addTrackedObject(scene, lane.decorMeshes, foamR);
   } else if (lane.type === 'rail') {
-    const railA = new THREE.Mesh(new THREE.BoxGeometry(laneWidth - 0.45, 0.08, 0.09), MAT.railMetal);
-    const railB = railA.clone();
+    const railA = acquireBoxMesh(laneWidth - 0.45, 0.08, 0.09, MAT.railMetal);
+    const railB = acquireBoxMesh(laneWidth - 0.45, 0.08, 0.09, MAT.railMetal);
     railA.position.set(0, 0.17, z - laneDepth * 0.18);
     railB.position.set(0, 0.17, z + laneDepth * 0.18);
-    scene.add(railA, railB);
-    lane.decorMeshes.push(railA, railB);
+    addTrackedObject(scene, lane.decorMeshes, railA);
+    addTrackedObject(scene, lane.decorMeshes, railB);
     for (let x = -laneWidth * 0.45; x <= laneWidth * 0.45; x += 1.3) {
-      const sleeper = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, laneDepth * 0.72), MAT.railSleeper);
+      const sleeper = acquireBoxMesh(0.28, 0.04, laneDepth * 0.72, MAT.railSleeper);
       sleeper.position.set(x, 0.135, z);
       sleeper.receiveShadow = true;
-      scene.add(sleeper);
-      lane.decorMeshes.push(sleeper);
+      addTrackedObject(scene, lane.decorMeshes, sleeper);
     }
     if (lane.hazard === 'trains') {
       for (const channel of lane.channels) {
-        const warningMat = new THREE.MeshStandardMaterial({
-          color: 0x5a3a3a,
-          emissive: 0x251010,
-          emissiveIntensity: 0.08,
-          roughness: 0.5,
-          metalness: 0.22,
-        });
-
-        const signMat = new THREE.MeshStandardMaterial({ color: 0xeef3fb, roughness: 0.62, metalness: 0.08 });
-        const signStripeMat = new THREE.MeshStandardMaterial({ color: 0xd64040, roughness: 0.65, metalness: 0.04 });
+        const warningMat = acquireTrainWarningMaterial();
         for (let x = -laneWidth * 0.38; x <= laneWidth * 0.38; x += 6.4) {
           for (const edge of [-1, 1]) {
             const edgeZ = channel.z + edge * laneDepth * 0.44;
-            const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.08), MAT.carMetal);
+            const post = acquireBoxMesh(0.08, 0.42, 0.08, MAT.carMetal);
             post.position.set(x, 0.22, edgeZ);
-            const sign = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 0.05), signMat);
+            const sign = acquireBoxMesh(0.34, 0.24, 0.05, POOL_MAT.trainWarningSign);
             sign.position.set(x, 0.47, edgeZ);
-            const stripeA = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.04, 0.01), signStripeMat);
-            const stripeB = stripeA.clone();
+            const stripeA = acquireBoxMesh(0.24, 0.04, 0.01, POOL_MAT.trainWarningStripe);
+            const stripeB = acquireBoxMesh(0.24, 0.04, 0.01, POOL_MAT.trainWarningStripe);
             stripeA.position.set(x, 0.47, edgeZ + 0.03);
             stripeB.position.set(x, 0.47, edgeZ - 0.03);
             stripeA.rotation.z = Math.PI * 0.25;
             stripeB.rotation.z = -Math.PI * 0.25;
-            const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), warningMat);
+            const lamp = acquireBoxMesh(0.12, 0.12, 0.12, warningMat);
             lamp.position.set(x, 0.65, edgeZ);
             for (const mesh of [post, sign, stripeA, stripeB, lamp]) {
               mesh.castShadow = true;
               mesh.receiveShadow = true;
-              scene.add(mesh);
-              lane.decorMeshes.push(mesh);
+              addTrackedObject(scene, lane.decorMeshes, mesh);
             }
           }
         }
 
         for (const side of [-1, 1]) {
-          const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.26), warningMat);
+          const lamp = acquireBoxMesh(0.34, 0.26, 0.26, warningMat);
           lamp.position.set(side * (sideLimit + 0.82), 0.34, channel.z);
           lamp.castShadow = true;
           lamp.receiveShadow = true;
-          scene.add(lamp);
-          lane.decorMeshes.push(lamp);
+          addTrackedObject(scene, lane.decorMeshes, lamp);
         }
 
         channel.warningMaterials.push(warningMat);
@@ -1480,10 +1763,9 @@ function addLane(z, idx) {
   } else if (lane.type === 'mud') {
     for (let x = -laneWidth * 0.42; x <= laneWidth * 0.42; x += 3.1) {
       if (Math.random() < 0.75) {
-        const puddle = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.03, 0.42), MAT.mudPuddle);
+        const puddle = acquireBoxMesh(1.2, 0.03, 0.42, MAT.mudPuddle);
         puddle.position.set(x + randomRange(-0.3, 0.3), 0.135, z + randomRange(-0.7, 0.7));
-        scene.add(puddle);
-        lane.decorMeshes.push(puddle);
+        addTrackedObject(scene, lane.decorMeshes, puddle);
       }
     }
   }
@@ -1494,27 +1776,28 @@ function addLane(z, idx) {
   }
 
   lanes.push(lane);
+  requestShadowRefresh();
 }
 
 function spawnTree(lane, x, z, isObstacle) {
   const pieces = [];
   const variant = Math.random();
   if (variant < 0.5) {
-    const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.5, 0.22), MAT.trunk);
-    const leafBase = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.58, 0.88), MAT.leaf);
-    const leafMid = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.4, 0.7), MAT.leafDark);
-    const leafTop = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.3, 0.46), MAT.leaf);
+    const trunk = acquireBoxMesh(0.22, 0.5, 0.22, MAT.trunk);
+    const leafBase = acquireBoxMesh(0.88, 0.58, 0.88, MAT.leaf);
+    const leafMid = acquireBoxMesh(0.7, 0.4, 0.7, MAT.leafDark);
+    const leafTop = acquireBoxMesh(0.46, 0.3, 0.46, MAT.leaf);
     trunk.position.set(x, 0.26, z);
     leafBase.position.set(x, 0.72, z);
     leafMid.position.set(x + randomRange(-0.04, 0.04), 1.07, z + randomRange(-0.04, 0.04));
     leafTop.position.set(x, 1.38, z);
     pieces.push(trunk, leafBase, leafMid, leafTop);
   } else {
-    const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.56, 0.2), MAT.trunk);
-    const tierA = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.3, 0.86), MAT.leafDark);
-    const tierB = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.28, 0.62), MAT.leaf);
-    const tierC = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.24, 0.42), MAT.leafDark);
-    const crown = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.2), MAT.leaf);
+    const trunk = acquireBoxMesh(0.2, 0.56, 0.2, MAT.trunk);
+    const tierA = acquireBoxMesh(0.86, 0.3, 0.86, MAT.leafDark);
+    const tierB = acquireBoxMesh(0.62, 0.28, 0.62, MAT.leaf);
+    const tierC = acquireBoxMesh(0.42, 0.24, 0.42, MAT.leafDark);
+    const crown = acquireBoxMesh(0.2, 0.16, 0.2, MAT.leaf);
     trunk.position.set(x, 0.29, z);
     tierA.position.set(x, 0.72, z);
     tierB.position.set(x, 0.99, z);
@@ -1526,17 +1809,16 @@ function spawnTree(lane, x, z, isObstacle) {
   for (const piece of pieces) {
     piece.castShadow = true;
     piece.receiveShadow = true;
-    scene.add(piece);
+    addTrackedObject(scene, lane.decorMeshes, piece);
   }
-  lane.decorMeshes.push(...pieces);
   if (isObstacle) lane.obstacles.push({ x, z, halfX: 0.48, halfZ: 0.48, kind: 'tree' });
 }
 
 function spawnRock(lane, x, z, isObstacle) {
-  const base = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.3, 0.64), MAT.stone);
-  const side = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.24), MAT.stone);
-  const top = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.44), MAT.stone);
-  const highlight = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.08, 0.18), new THREE.MeshStandardMaterial({ color: 0xe6eef7, roughness: 0.7 }));
+  const base = acquireBoxMesh(0.68, 0.3, 0.64, MAT.stone);
+  const side = acquireBoxMesh(0.28, 0.16, 0.24, MAT.stone);
+  const top = acquireBoxMesh(0.46, 0.24, 0.44, MAT.stone);
+  const highlight = acquireBoxMesh(0.24, 0.08, 0.18, POOL_MAT.stoneHighlight);
   base.position.set(x, 0.16, z);
   side.position.set(x - 0.18, 0.22, z + 0.16);
   top.position.set(x + randomRange(-0.06, 0.06), 0.42, z + randomRange(-0.05, 0.05));
@@ -1544,21 +1826,17 @@ function spawnRock(lane, x, z, isObstacle) {
   for (const mesh of [base, side, top, highlight]) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    scene.add(mesh);
+    addTrackedObject(scene, lane.decorMeshes, mesh);
   }
-  lane.decorMeshes.push(base, side, top, highlight);
   if (isObstacle) lane.obstacles.push({ x, z, halfX: 0.38, halfZ: 0.36, kind: 'rock' });
 }
 
 function spawnBush(lane, x, z, isObstacle) {
-  const core = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.34, 0.64), MAT.bush);
-  const sideL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.28), MAT.leaf);
-  const sideR = sideL.clone();
-  const top = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.26, 0.46), MAT.leafDark);
-  const flower = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.08, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0xffc5d8, roughness: 0.82 })
-  );
+  const core = acquireBoxMesh(0.74, 0.34, 0.64, MAT.bush);
+  const sideL = acquireBoxMesh(0.28, 0.22, 0.28, MAT.leaf);
+  const sideR = acquireBoxMesh(0.28, 0.22, 0.28, MAT.leaf);
+  const top = acquireBoxMesh(0.52, 0.26, 0.46, MAT.leafDark);
+  const flower = acquireBoxMesh(0.1, 0.08, 0.1, POOL_MAT.bushFlower);
   core.position.set(x, 0.2, z);
   sideL.position.set(x - 0.22, 0.24, z + 0.06);
   sideR.position.set(x + 0.22, 0.24, z - 0.04);
@@ -1567,9 +1845,8 @@ function spawnBush(lane, x, z, isObstacle) {
   for (const mesh of [core, sideL, sideR, top, flower]) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    scene.add(mesh);
+    addTrackedObject(scene, lane.decorMeshes, mesh);
   }
-  lane.decorMeshes.push(core, sideL, sideR, top, flower);
   if (isObstacle) lane.obstacles.push({ x, z, halfX: 0.36, halfZ: 0.34, kind: 'bush' });
 }
 
@@ -1622,60 +1899,41 @@ function spawnOpenGrassDecor(lane) {
 }
 
 function buildProceduralTrainMover(mover, w, h, d, wheelMeshes) {
-  const paint = new THREE.MeshStandardMaterial({
-    color: pickVehicleColor('train'),
-    roughness: 0.28,
-    metalness: 0.26,
-  });
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x1e2228, roughness: 0.86 });
-  const connectorMat = new THREE.MeshStandardMaterial({ color: 0x434951, roughness: 0.78, metalness: 0.14 });
-  const doorMat = new THREE.MeshStandardMaterial({ color: 0xe8edf5, roughness: 0.54, metalness: 0.12 });
+  const paint = getVehiclePaintMaterial('train', pickVehicleColor('train'));
+  const frameMat = POOL_MAT.trainFrame;
+  const connectorMat = POOL_MAT.trainConnector;
+  const doorMat = POOL_MAT.trainDoor;
   const carGap = 0.24;
   const carLen = (w - carGap) * 0.5;
   const centerOffset = (carLen + carGap) * 0.5;
   const carCenters = [-centerOffset, centerOffset];
   const wheelRadius = 0.14;
-  const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 0.16, 14);
 
   for (const carCenter of carCenters) {
-    const base = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.98, h * 0.24, d * 0.96), frameMat);
+    const base = trackManagedChild(mover, acquireBoxMesh(carLen * 0.98, h * 0.24, d * 0.96, frameMat));
     base.position.set(carCenter, h * 0.18, 0);
-    base.castShadow = true;
-    base.receiveShadow = true;
 
-    const lowerBody = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.96, h * 0.4, d * 0.94), paint);
+    const lowerBody = trackManagedChild(mover, acquireBoxMesh(carLen * 0.96, h * 0.4, d * 0.94, paint));
     lowerBody.position.set(carCenter, h * 0.44, 0);
-    lowerBody.castShadow = true;
-    lowerBody.receiveShadow = true;
 
-    const upperBody = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.82, h * 0.28, d * 0.86), paint);
+    const upperBody = trackManagedChild(mover, acquireBoxMesh(carLen * 0.82, h * 0.28, d * 0.86, paint));
     upperBody.position.set(carCenter, h * 0.77, 0);
-    upperBody.castShadow = true;
-    upperBody.receiveShadow = true;
 
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.76, h * 0.08, d * 0.72), MAT.carTrim);
+    const roof = trackManagedChild(mover, acquireBoxMesh(carLen * 0.76, h * 0.08, d * 0.72, MAT.carTrim));
     roof.position.set(carCenter, h * 0.97, 0);
-    roof.castShadow = true;
 
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.92, h * 0.08, d * 0.88), MAT.carTrim);
+    const stripe = trackManagedChild(mover, acquireBoxMesh(carLen * 0.92, h * 0.08, d * 0.88, MAT.carTrim));
     stripe.position.set(carCenter, h * 0.63, 0);
-    stripe.castShadow = true;
-
-    mover.add(base, lowerBody, upperBody, roof, stripe);
 
     const bogieCenters = [carCenter - carLen * 0.28, carCenter + carLen * 0.28];
     for (const bogieX of bogieCenters) {
-      const bogie = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.16, h * 0.1, d * 0.74), frameMat);
+      const bogie = trackManagedChild(mover, acquireBoxMesh(carLen * 0.16, h * 0.1, d * 0.74, frameMat));
       bogie.position.set(bogieX, h * 0.12, 0);
-      bogie.castShadow = true;
-      bogie.receiveShadow = true;
-      mover.add(bogie);
 
       for (const side of [-1, 1]) {
-        const wheel = new THREE.Mesh(wheelGeo, MAT.carWheel);
+        const wheel = trackManagedChild(mover, acquireCylinderMesh(wheelRadius, wheelRadius, 0.16, 14, MAT.carWheel));
         wheel.rotation.z = Math.PI * 0.5;
         wheel.position.set(bogieX, 0.16, side * d * 0.33);
-        mover.add(wheel);
         wheelMeshes.push(wheel);
       }
     }
@@ -1683,68 +1941,46 @@ function buildProceduralTrainMover(mover, w, h, d, wheelMeshes) {
     for (let i = 0; i < 3; i++) {
       const t = i / 2;
       const x = THREE.MathUtils.lerp(carCenter - carLen * 0.2, carCenter + carLen * 0.2, t);
-      const windowBox = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.16, h * 0.18, d * 0.72), MAT.carGlass);
+      const windowBox = trackManagedChild(mover, acquireBoxMesh(carLen * 0.16, h * 0.18, d * 0.72, MAT.carGlass));
       windowBox.position.set(x, h * 0.82, 0);
-      windowBox.castShadow = true;
-      mover.add(windowBox);
     }
   }
 
-  const connectorBase = new THREE.Mesh(new THREE.BoxGeometry(carGap * 1.2, h * 0.1, d * 0.34), frameMat);
+  const connectorBase = trackManagedChild(mover, acquireBoxMesh(carGap * 1.2, h * 0.1, d * 0.34, frameMat));
   connectorBase.position.set(0, h * 0.16, 0);
-  connectorBase.castShadow = true;
-  connectorBase.receiveShadow = true;
 
-  const connectorBoot = new THREE.Mesh(new THREE.BoxGeometry(carGap * 0.9, h * 0.32, d * 0.76), connectorMat);
+  const connectorBoot = trackManagedChild(mover, acquireBoxMesh(carGap * 0.9, h * 0.32, d * 0.76, connectorMat));
   connectorBoot.position.set(0, h * 0.58, 0);
-  connectorBoot.castShadow = true;
-  connectorBoot.receiveShadow = true;
 
-  const connectorRoof = new THREE.Mesh(new THREE.BoxGeometry(carGap * 0.82, h * 0.06, d * 0.64), MAT.carTrim);
+  const connectorRoof = trackManagedChild(mover, acquireBoxMesh(carGap * 0.82, h * 0.06, d * 0.64, MAT.carTrim));
   connectorRoof.position.set(0, h * 0.9, 0);
-  connectorRoof.castShadow = true;
 
-  const innerDoorLeft = new THREE.Mesh(new THREE.BoxGeometry(carGap * 0.32, h * 0.34, d * 0.62), doorMat);
-  const innerDoorRight = innerDoorLeft.clone();
+  const innerDoorLeft = trackManagedChild(mover, acquireBoxMesh(carGap * 0.32, h * 0.34, d * 0.62, doorMat));
+  const innerDoorRight = trackManagedChild(mover, acquireBoxMesh(carGap * 0.32, h * 0.34, d * 0.62, doorMat));
   innerDoorLeft.position.set(-carGap * 0.52, h * 0.58, 0);
   innerDoorRight.position.set(carGap * 0.52, h * 0.58, 0);
-  innerDoorLeft.castShadow = true;
-  innerDoorRight.castShadow = true;
-  innerDoorLeft.receiveShadow = true;
-  innerDoorRight.receiveShadow = true;
 
-  mover.add(connectorBase, connectorBoot, connectorRoof, innerDoorLeft, innerDoorRight);
-
-  const frontNose = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.18, h * 0.34, d * 0.84), paint);
+  const frontNose = trackManagedChild(mover, acquireBoxMesh(carLen * 0.18, h * 0.34, d * 0.84, paint));
   frontNose.position.set(centerOffset + carLen * 0.43, h * 0.66, 0);
-  frontNose.castShadow = true;
-  frontNose.receiveShadow = true;
 
-  const frontCab = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.22, h * 0.2, d * 0.66), MAT.carGlass);
+  const frontCab = trackManagedChild(mover, acquireBoxMesh(carLen * 0.22, h * 0.2, d * 0.66, MAT.carGlass));
   frontCab.position.set(centerOffset + carLen * 0.26, h * 0.9, 0);
-  frontCab.castShadow = true;
 
-  const frontSkirt = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.14, h * 0.12, d * 0.7), MAT.carMetal);
+  const frontSkirt = trackManagedChild(mover, acquireBoxMesh(carLen * 0.14, h * 0.12, d * 0.7, MAT.carMetal));
   frontSkirt.position.set(centerOffset + carLen * 0.49, h * 0.34, 0);
-  frontSkirt.castShadow = true;
-  frontSkirt.receiveShadow = true;
 
-  const rearCap = new THREE.Mesh(new THREE.BoxGeometry(carLen * 0.1, h * 0.28, d * 0.84), MAT.carMetal);
+  const rearCap = trackManagedChild(mover, acquireBoxMesh(carLen * 0.1, h * 0.28, d * 0.84, MAT.carMetal));
   rearCap.position.set(-(centerOffset + carLen * 0.49), h * 0.6, 0);
-  rearCap.castShadow = true;
-  rearCap.receiveShadow = true;
 
-  const frontLightL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), MAT.carHeadlight);
-  const frontLightR = frontLightL.clone();
+  const frontLightL = trackManagedChild(mover, acquireBoxMesh(0.12, 0.12, 0.12, MAT.carHeadlight));
+  const frontLightR = trackManagedChild(mover, acquireBoxMesh(0.12, 0.12, 0.12, MAT.carHeadlight));
   frontLightL.position.set(centerOffset + carLen * 0.51, h * 0.6, -d * 0.22);
   frontLightR.position.set(centerOffset + carLen * 0.51, h * 0.6, d * 0.22);
 
-  const rearLightL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), MAT.carTaillight);
-  const rearLightR = rearLightL.clone();
+  const rearLightL = trackManagedChild(mover, acquireBoxMesh(0.1, 0.1, 0.1, MAT.carTaillight));
+  const rearLightR = trackManagedChild(mover, acquireBoxMesh(0.1, 0.1, 0.1, MAT.carTaillight));
   rearLightL.position.set(-(centerOffset + carLen * 0.53), h * 0.56, -d * 0.2);
   rearLightR.position.set(-(centerOffset + carLen * 0.53), h * 0.56, d * 0.2);
-
-  mover.add(frontNose, frontCab, frontSkirt, rearCap, frontLightL, frontLightR, rearLightL, rearLightR);
 
   return wheelRadius;
 }
@@ -1753,143 +1989,92 @@ function buildProceduralVehicleMover(mover, moverKind, w, h, d, wheelMeshes) {
   if (moverKind === 'train') return buildProceduralTrainMover(mover, w, h, d, wheelMeshes);
 
   const paintColor = pickVehicleColor(moverKind);
-  const paint = new THREE.MeshStandardMaterial({
-    color: paintColor,
-    roughness: moverKind === 'bike' ? 0.38 : 0.3,
-    metalness: moverKind === 'bike' ? 0.2 : 0.24,
-  });
-  const under = moverKind === 'train'
-    ? new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.26, d * 0.96), new THREE.MeshStandardMaterial({ color: 0x1e2228, roughness: 0.86 }))
-    : new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.38, d * 0.98), new THREE.MeshStandardMaterial({ color: 0x252a31, roughness: 0.84 }));
+  const paint = getVehiclePaintMaterial(moverKind, paintColor);
+  const under = trackManagedChild(mover, acquireBoxMesh(w, h * 0.38, d * 0.98, POOL_MAT.vehicleUnder));
   under.position.y = h * 0.24;
-  under.castShadow = true;
-  under.receiveShadow = true;
-  mover.add(under);
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w * 0.96, h * (moverKind === 'bike' ? 0.42 : 0.72), d * 0.96), paint);
+  const body = trackManagedChild(mover, acquireBoxMesh(w * 0.96, h * (moverKind === 'bike' ? 0.42 : 0.72), d * 0.96, paint));
   body.position.y = h * (moverKind === 'bike' ? 0.52 : 0.56) + 0.04;
-  body.castShadow = true;
-  body.receiveShadow = true;
-  mover.add(body);
 
   if (moverKind === 'bike') {
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(w * 0.36, h * 0.18, d * 0.82), paint);
+    const seat = trackManagedChild(mover, acquireBoxMesh(w * 0.36, h * 0.18, d * 0.82, paint));
     seat.position.set(-w * 0.06, h * 0.8, 0);
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(w * 0.1, h * 0.34, d * 0.9), MAT.carMetal);
+    const handle = trackManagedChild(mover, acquireBoxMesh(w * 0.1, h * 0.34, d * 0.9, MAT.carMetal));
     handle.position.set(w * 0.22, h * 0.94, 0);
-    const fork = new THREE.Mesh(new THREE.BoxGeometry(w * 0.06, h * 0.4, d * 0.84), MAT.carMetal);
+    const fork = trackManagedChild(mover, acquireBoxMesh(w * 0.06, h * 0.4, d * 0.84, MAT.carMetal));
     fork.position.set(w * 0.31, h * 0.57, 0);
-    mover.add(seat, handle, fork);
   } else {
-    const cabinBase = new THREE.Mesh(
-      new THREE.BoxGeometry(w * (moverKind === 'truck' ? 0.46 : moverKind === 'train' ? 0.78 : 0.62), h * (moverKind === 'train' ? 0.3 : 0.36), d * 0.88),
+    const cabinCenterX = moverKind === 'truck' ? w * 0.2 : -w * 0.02;
+    const cabinBase = trackManagedChild(mover, acquireBoxMesh(
+      w * (moverKind === 'truck' ? 0.46 : 0.62),
+      h * 0.36,
+      d * 0.88,
       paint
-    );
-    cabinBase.position.set(moverKind === 'truck' ? w * 0.2 : moverKind === 'train' ? -w * 0.14 : -w * 0.02, h * 0.94, 0);
-    cabinBase.castShadow = true;
-    mover.add(cabinBase);
+    ));
+    cabinBase.position.set(cabinCenterX, h * 0.94, 0);
 
-    const cabin = new THREE.Mesh(
-      new THREE.BoxGeometry(w * (moverKind === 'truck' ? 0.34 : moverKind === 'train' ? 0.66 : 0.56), h * (moverKind === 'train' ? 0.24 : 0.32), d * 0.8),
+    const cabin = trackManagedChild(mover, acquireBoxMesh(
+      w * (moverKind === 'truck' ? 0.34 : 0.56),
+      h * 0.32,
+      d * 0.8,
       MAT.carGlass
-    );
-    cabin.position.set(moverKind === 'truck' ? w * 0.2 : moverKind === 'train' ? -w * 0.14 : -w * 0.02, h * (moverKind === 'train' ? 1.02 : 1.02), 0);
-    cabin.castShadow = true;
-    mover.add(cabin);
+    ));
+    cabin.position.set(cabinCenterX, h * 1.02, 0);
 
-    const roof = new THREE.Mesh(
-      new THREE.BoxGeometry(w * (moverKind === 'truck' ? 0.34 : moverKind === 'train' ? 0.7 : 0.4), h * 0.1, d * (moverKind === 'train' ? 0.74 : 0.62)),
+    const roof = trackManagedChild(mover, acquireBoxMesh(
+      w * (moverKind === 'truck' ? 0.34 : 0.4),
+      h * 0.1,
+      d * 0.62,
       MAT.carTrim
-    );
-    roof.position.set(cabin.position.x, h * (moverKind === 'train' ? 1.18 : 1.16), 0);
-    mover.add(roof);
+    ));
+    roof.position.set(cabin.position.x, h * 1.16, 0);
 
     if (moverKind === 'truck') {
-      const cargo = new THREE.Mesh(new THREE.BoxGeometry(w * 0.44, h * 0.5, d * 0.84), new THREE.MeshStandardMaterial({ color: 0xf4efe2, roughness: 0.82 }));
+      const cargo = trackManagedChild(mover, acquireBoxMesh(w * 0.44, h * 0.5, d * 0.84, POOL_MAT.truckCargo));
       cargo.position.set(-w * 0.2, h * 0.76, 0);
-      mover.add(cargo);
-    } else if (moverKind === 'train') {
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(w * 0.18, h * 0.46, d * 0.84), paint);
-      nose.position.set(w * 0.42, h * 0.82, 0);
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(w * 0.94, h * 0.08, d * 0.86), MAT.carTrim);
-      stripe.position.set(0, h * 0.72, 0);
-      mover.add(nose, stripe);
     } else if (Math.random() < 0.55) {
-      const rack = new THREE.Mesh(new THREE.BoxGeometry(w * 0.32, h * 0.09, d * 0.64), MAT.carMetal);
+      const rack = trackManagedChild(mover, acquireBoxMesh(w * 0.32, h * 0.09, d * 0.64, MAT.carMetal));
       rack.position.set(0, h * 1.18, 0);
-      mover.add(rack);
     }
   }
 
-  if (moverKind !== 'train') {
-    const hood = new THREE.Mesh(new THREE.BoxGeometry(w * 0.26, h * 0.18, d * 0.82), paint);
-    hood.position.set(w * 0.32, h * 0.78, 0);
-    mover.add(hood);
-  }
+  const hood = trackManagedChild(mover, acquireBoxMesh(w * 0.26, h * 0.18, d * 0.82, paint));
+  hood.position.set(w * 0.32, h * 0.78, 0);
 
-  const bumperF = new THREE.Mesh(new THREE.BoxGeometry(w * 0.1, h * 0.18, d * 0.9), MAT.carMetal);
-  const bumperR = bumperF.clone();
+  const bumperF = trackManagedChild(mover, acquireBoxMesh(w * 0.1, h * 0.18, d * 0.9, MAT.carMetal));
+  const bumperR = trackManagedChild(mover, acquireBoxMesh(w * 0.1, h * 0.18, d * 0.9, MAT.carMetal));
   bumperF.position.set(w * 0.5, h * 0.42, 0);
   bumperR.position.set(-w * 0.5, h * 0.42, 0);
-  mover.add(bumperF, bumperR);
 
   if (moverKind !== 'bike') {
-    const sideTrimL = new THREE.Mesh(new THREE.BoxGeometry(w * 0.7, h * 0.06, 0.05), MAT.carTrim);
-    const sideTrimR = sideTrimL.clone();
+    const sideTrimL = trackManagedChild(mover, acquireBoxMesh(w * 0.7, h * 0.06, 0.05, MAT.carTrim));
+    const sideTrimR = trackManagedChild(mover, acquireBoxMesh(w * 0.7, h * 0.06, 0.05, MAT.carTrim));
     sideTrimL.position.set(0, h * 0.6, -d * 0.47);
     sideTrimR.position.set(0, h * 0.6, d * 0.47);
-    mover.add(sideTrimL, sideTrimR);
   }
 
-  const wheelRadius = moverKind === 'truck' ? 0.16 : moverKind === 'bike' ? 0.11 : moverKind === 'train' ? 0.14 : 0.13;
-  const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, moverKind === 'bike' ? 0.12 : 0.16, 14);
-  if (moverKind === 'train') {
-    for (let x = -w * 0.36; x <= w * 0.36; x += 0.74) {
-      for (const side of [-1, 1]) {
-        const wheel = new THREE.Mesh(wheelGeo, MAT.carWheel);
-        wheel.rotation.z = Math.PI * 0.5;
-        wheel.position.set(x, 0.2, side * d * 0.34);
-        mover.add(wheel);
-        wheelMeshes.push(wheel);
-      }
-    }
-  } else {
-    const wx = w * (moverKind === 'bike' ? 0.34 : 0.28);
-    const wz = moverKind === 'bike' ? d * 0.55 : d * 0.42;
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        if (moverKind === 'bike' && sx === -1) continue;
-        const wheel = new THREE.Mesh(wheelGeo, MAT.carWheel);
-        wheel.rotation.z = Math.PI * 0.5;
-        wheel.position.set(moverKind === 'bike' ? 0 : sx * wx, moverKind === 'bike' ? 0.16 : 0.19, sz * wz);
-        mover.add(wheel);
-        wheelMeshes.push(wheel);
-      }
+  const wheelRadius = moverKind === 'truck' ? 0.16 : moverKind === 'bike' ? 0.11 : 0.13;
+  const wheelWidth = moverKind === 'bike' ? 0.12 : 0.16;
+  const wx = w * (moverKind === 'bike' ? 0.34 : 0.28);
+  const wz = moverKind === 'bike' ? d * 0.55 : d * 0.42;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      if (moverKind === 'bike' && sx === -1) continue;
+      const wheel = trackManagedChild(mover, acquireCylinderMesh(wheelRadius, wheelRadius, wheelWidth, 14, MAT.carWheel));
+      wheel.rotation.z = Math.PI * 0.5;
+      wheel.position.set(moverKind === 'bike' ? 0 : sx * wx, moverKind === 'bike' ? 0.16 : 0.19, sz * wz);
+      wheelMeshes.push(wheel);
     }
   }
 
-  if (moverKind === 'train') {
-    for (let x = -w * 0.36; x <= w * 0.36; x += 0.8) {
-      const windowBox = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.24, d * 0.68), MAT.carGlass);
-      windowBox.position.set(x, h * 0.94, 0);
-      mover.add(windowBox);
-    }
-    const frontLightL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), MAT.carHeadlight);
-    const frontLightR = frontLightL.clone();
-    frontLightL.position.set(w * 0.5, h * 0.74, -d * 0.2);
-    frontLightR.position.set(w * 0.5, h * 0.74, d * 0.2);
-    mover.add(frontLightL, frontLightR);
-  } else {
-    const frontLightL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), MAT.carHeadlight);
-    const frontLightR = frontLightL.clone();
-    frontLightL.position.set(w * 0.51, h * 0.63, -d * 0.24);
-    frontLightR.position.set(w * 0.51, h * 0.63, d * 0.24);
-    const rearLightL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), MAT.carTaillight);
-    const rearLightR = rearLightL.clone();
-    rearLightL.position.set(-w * 0.51, h * 0.63, -d * 0.24);
-    rearLightR.position.set(-w * 0.51, h * 0.63, d * 0.24);
-    mover.add(frontLightL, frontLightR, rearLightL, rearLightR);
-  }
+  const frontLightL = trackManagedChild(mover, acquireBoxMesh(0.08, 0.08, 0.08, MAT.carHeadlight));
+  const frontLightR = trackManagedChild(mover, acquireBoxMesh(0.08, 0.08, 0.08, MAT.carHeadlight));
+  frontLightL.position.set(w * 0.51, h * 0.63, -d * 0.24);
+  frontLightR.position.set(w * 0.51, h * 0.63, d * 0.24);
+  const rearLightL = trackManagedChild(mover, acquireBoxMesh(0.08, 0.08, 0.08, MAT.carTaillight));
+  const rearLightR = trackManagedChild(mover, acquireBoxMesh(0.08, 0.08, 0.08, MAT.carTaillight));
+  rearLightL.position.set(-w * 0.51, h * 0.63, -d * 0.24);
+  rearLightR.position.set(-w * 0.51, h * 0.63, d * 0.24);
 
   return wheelRadius;
 }
@@ -1909,75 +2094,64 @@ function spawnMover(lane, subSpeed, subZ, kindOverride) {
   const headingYaw = spd < 0 ? Math.PI : 0;
 
   if (moverKind === 'log') {
-    w = 1.9 + Math.random() * 2.3;
+    w = snapPooledDimension(1.9 + Math.random() * 2.3);
     h = 0.34;
     d = 0.92;
   } else if (moverKind === 'truck') {
-    w = 2.7 + Math.random() * 1.0;
+    w = snapPooledDimension(2.7 + Math.random() * 1.0);
     h = 0.92;
-    d = laneDepth * 0.34;
+    d = snapPooledDimension(laneDepth * 0.34);
   } else if (moverKind === 'bike') {
-    w = 0.95 + Math.random() * 0.24;
+    w = snapPooledDimension(0.95 + Math.random() * 0.24);
     h = 0.52;
-    d = laneDepth * 0.18;
+    d = snapPooledDimension(laneDepth * 0.18);
   } else if (moverKind === 'train') {
     w = 8.4;
     h = 1.24;
-    d = laneDepth * 0.46;
+    d = snapPooledDimension(laneDepth * 0.46);
   } else if (moverKind === 'barrel') {
-    w = 0.64 + Math.random() * 0.14;
-    h = 0.62 + Math.random() * 0.14;
+    w = snapPooledDimension(0.64 + Math.random() * 0.14);
+    h = snapPooledDimension(0.62 + Math.random() * 0.14);
     d = w;
     spinRate = spd * 3.1;
   } else {
-    w = 1.45 + Math.random() * 0.66;
-    h = 0.74 + Math.random() * 0.1;
-    d = laneDepth * 0.32;
+    w = snapPooledDimension(1.45 + Math.random() * 0.66);
+    h = snapPooledDimension(0.74 + Math.random() * 0.1);
+    d = snapPooledDimension(laneDepth * 0.32);
   }
 
-  const mover = new THREE.Group();
+  const mover = acquirePooledGroup(`mover:${moverKind}`);
   mover.position.set(spd > 0 ? -trafficSpawnX : trafficSpawnX, 0, posZ);
   if (moverKind === 'log') mover.position.y = -0.14;
 
   if (moverKind === 'log') {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x8d5d37, roughness: 0.96, metalness: 0.02 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(w * 0.88, h * 0.3, d * 0.76), new THREE.MeshStandardMaterial({ color: 0xa47345, roughness: 0.9 }));
-    const capL = new THREE.Mesh(new THREE.BoxGeometry(0.12, h * 0.92, d * 0.92), MAT.trunk);
-    const capR = capL.clone();
+    const body = trackManagedChild(mover, acquireBoxMesh(w, h, d, POOL_MAT.logBody));
+    const deck = trackManagedChild(mover, acquireBoxMesh(w * 0.88, h * 0.3, d * 0.76, POOL_MAT.logDeck));
+    const capL = trackManagedChild(mover, acquireBoxMesh(0.12, h * 0.92, d * 0.92, MAT.trunk));
+    const capR = trackManagedChild(mover, acquireBoxMesh(0.12, h * 0.92, d * 0.92, MAT.trunk));
     body.position.y = h * 0.5 + 0.06;
     deck.position.y = h * 0.72 + 0.06;
     capL.position.set(-w * 0.5, h * 0.52 + 0.06, 0);
     capR.position.set(w * 0.5, h * 0.52 + 0.06, 0);
-    for (const piece of [body, deck, capL, capR]) {
-      piece.castShadow = true;
-      piece.receiveShadow = true;
-    }
-    mover.add(body, deck, capL, capR);
     for (let x = -w * 0.34; x <= w * 0.34; x += 0.54) {
-      const plank = new THREE.Mesh(new THREE.BoxGeometry(0.08, h * 0.34, d * 0.7), MAT.trunk);
+      const plank = trackManagedChild(mover, acquireBoxMesh(0.08, h * 0.34, d * 0.7, MAT.trunk));
       plank.position.set(x, h * 0.69 + 0.06, 0);
-      mover.add(plank);
     }
   } else if (moverKind === 'barrel') {
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.5, w * 0.5, d * 0.92, 14), MAT.trunk);
+    const barrel = trackManagedChild(mover, acquireCylinderMesh(w * 0.5, w * 0.5, d * 0.92, 14, MAT.trunk));
     barrel.rotation.x = Math.PI * 0.5;
     barrel.position.y = h * 0.5 + 0.06;
-    barrel.castShadow = true;
-    barrel.receiveShadow = true;
-    const ringL = new THREE.Mesh(new THREE.TorusGeometry(w * 0.34, 0.04, 8, 16), new THREE.MeshStandardMaterial({ color: 0x4d341f, roughness: 0.88 }));
-    const ringR = ringL.clone();
+    const ringL = trackManagedChild(mover, acquireTorusMesh(w * 0.34, 0.04, 8, 16, POOL_MAT.barrelRing));
+    const ringR = trackManagedChild(mover, acquireTorusMesh(w * 0.34, 0.04, 8, 16, POOL_MAT.barrelRing));
     ringL.rotation.y = Math.PI * 0.5;
     ringR.rotation.y = Math.PI * 0.5;
     ringL.position.set(0, h * 0.5 + 0.06, -d * 0.19);
     ringR.position.set(0, h * 0.5 + 0.06, d * 0.19);
-    mover.add(barrel, ringL, ringR);
     for (let i = 0; i < 6; i++) {
-      const spike = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.04), new THREE.MeshStandardMaterial({ color: 0x5f3f25, roughness: 0.92 }));
+      const spike = trackManagedChild(mover, acquireBoxMesh(0.28, 0.04, 0.04, POOL_MAT.barrelSpike));
       const angle = (Math.PI * 2 * i) / 6;
       spike.position.set(Math.cos(angle) * w * 0.46, h * 0.5 + 0.06, Math.sin(angle) * d * 0.23);
       spike.rotation.y = angle;
-      mover.add(spike);
     }
   } else {
     const importedVehicle = moverKind === 'car' || moverKind === 'truck' || moverKind === 'bike'
@@ -1987,12 +2161,13 @@ function spawnMover(lane, subSpeed, subZ, kindOverride) {
       w = importedVehicle.hitboxX;
       d = importedVehicle.hitboxZ;
       h = Math.max(h, importedVehicle.height);
-      mover.add(importedVehicle.mesh);
+      trackManagedChild(mover, importedVehicle.mesh);
     } else {
       wheelRadius = buildProceduralVehicleMover(mover, moverKind, w, h, d, wheelMeshes);
     }
   }
 
+  setMeshShadowFlags(mover, false, false);
   mover.rotation.y = headingYaw;
   scene.add(mover);
   movers.push({
@@ -2110,10 +2285,9 @@ function pickNonOverlappingSeedX(lane, channel, mover) {
 
 function resetWorld() {
   for (const l of lanes) {
-    scene.remove(l.mesh);
-    for (const m of l.decorMeshes) scene.remove(m);
+    releaseLane(l);
   }
-  for (const m of movers) scene.remove(m.mesh);
+  for (const m of movers) releaseMover(m);
   for (const d of decor) scene.remove(d);
   lanes.length = 0;
   movers.length = 0;
@@ -2130,6 +2304,13 @@ function resetWorld() {
   player.group.rotation.set(0, Math.PI, 0);
   player.targetX = 0;
   player.targetZ = 0;
+  player.moving = false;
+  player.moveTime = 0;
+  player.moveDuration = PLAYER_MOVE_DURATION_S;
+  player.moveFromX = 0;
+  player.moveFromZ = 0;
+  player.moveToX = 0;
+  player.moveToZ = 0;
   player.jump = 0;
   player.riverSupportGraceS = 0;
   player.group.visible = true;
@@ -2174,6 +2355,7 @@ function resetWorld() {
       }
     }
   }
+  requestShadowRefresh();
 }
 
 function movePlayer(dir) {
@@ -2190,7 +2372,7 @@ function movePlayer(dir) {
   if (dir === 'up') nextZ -= forwardStep;
   if (dir === 'down') nextZ += forwardStep;
 
-  nextX = THREE.MathUtils.clamp(nextX, -sideLimit, sideLimit);
+  nextX = clampPlayerX(nextX);
   nextZ = Math.round(nextZ / forwardStep) * forwardStep;
   if (hitsGrassObstacle(nextX, nextZ)) {
     blip(220, 0.04, 0.018, 'square');
@@ -2198,8 +2380,15 @@ function movePlayer(dir) {
     return;
   }
 
+  player.moveFromX = player.group.position.x;
+  player.moveFromZ = player.group.position.z;
   player.targetX = nextX;
   player.targetZ = nextZ;
+  player.moveToX = nextX;
+  player.moveToZ = nextZ;
+  player.moveDuration = PLAYER_MOVE_DURATION_S;
+  player.moveTime = 0;
+  player.moving = true;
   player.jump = 0.001;
   lastMoveAtS = nowS;
 
@@ -2368,7 +2557,7 @@ function update(dt) {
     const m = movers[i];
     animateMover(m, dt);
     if (Math.abs(m.mesh.position.x) > trafficDespawnX) {
-      scene.remove(m.mesh);
+      releaseMover(m);
       movers.splice(i, 1);
     }
   }
@@ -2376,9 +2565,21 @@ function update(dt) {
   // Player logic — only when game is active
   if (active) {
     player.riverSupportGraceS = Math.max(0, player.riverSupportGraceS - dt);
-    const moveAlpha = 1 - Math.exp(-dt * 16);
-    player.group.position.x += (player.targetX - player.group.position.x) * moveAlpha;
-    player.group.position.z += (player.targetZ - player.group.position.z) * moveAlpha;
+    if (player.moving) {
+      player.moveTime = Math.min(player.moveTime + dt, player.moveDuration);
+      const t = THREE.MathUtils.clamp(player.moveTime / Math.max(player.moveDuration, 0.001), 0, 1);
+      const eased = t * t * (3 - 2 * t);
+      player.group.position.x = THREE.MathUtils.lerp(player.moveFromX, player.moveToX, eased);
+      player.group.position.z = THREE.MathUtils.lerp(player.moveFromZ, player.moveToZ, eased);
+      if (t >= 1) {
+        player.moving = false;
+        player.group.position.x = player.moveToX;
+        player.group.position.z = player.moveToZ;
+      }
+    } else {
+      player.group.position.x = player.targetX;
+      player.group.position.z = player.targetZ;
+    }
 
     let groundY = 0.12;
     // Use target position for log detection so jumping onto a river lane works reliably
@@ -2394,20 +2595,26 @@ function update(dt) {
         const drift = log.speed * dt;
         player.targetX += drift;
         player.group.position.x += drift;
+        player.moveFromX += drift;
+        player.moveToX += drift;
         const rideHalfX = Math.max(0.16, log.halfX - PLAYER_HITBOX.halfX * 0.2);
         const left = log.mesh.position.x - rideHalfX;
         const right = log.mesh.position.x + rideHalfX;
         player.targetX = THREE.MathUtils.clamp(player.targetX, left, right);
         player.group.position.x = THREE.MathUtils.clamp(player.group.position.x, left, right);
+        player.moveFromX = THREE.MathUtils.clamp(player.moveFromX, left, right);
+        player.moveToX = THREE.MathUtils.clamp(player.moveToX, left, right);
         groundY = Math.max(0.12, log.mesh.position.y + LOG_RIDE_Y_OFFSET);
       }
     }
 
-    player.targetX = THREE.MathUtils.clamp(player.targetX, -sideLimit, sideLimit);
-    player.group.position.x = THREE.MathUtils.clamp(player.group.position.x, -sideLimit, sideLimit);
+    player.targetX = clampPlayerX(player.targetX);
+    player.group.position.x = clampPlayerX(player.group.position.x);
+    player.moveFromX = clampPlayerX(player.moveFromX);
+    player.moveToX = clampPlayerX(player.moveToX);
 
     if (player.jump > 0) {
-      player.jump += dt * 4.5;
+      player.jump += dt * 3.8;
       const t = Math.min(player.jump, 1);
       player.group.position.y = groundY + Math.sin(t * Math.PI) * 0.62;
       const sq = 1 + Math.sin(t * Math.PI) * 0.18;
@@ -2423,7 +2630,7 @@ function update(dt) {
 
     let rotDiff = player.targetRotY - player.group.rotation.y;
     rotDiff = ((rotDiff % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
-    player.group.rotation.y += rotDiff * Math.min(dt * 18, 1);
+    player.group.rotation.y += rotDiff * Math.min(dt * 12, 1);
 
     const deathType = eagle.active ? null : checkDeath();
     if (deathType) {
@@ -2432,6 +2639,7 @@ function update(dt) {
       deathAnim.type = deathType;
       deathAnim.time = 0;
       deathAnim.done = false;
+      player.moving = false;
       player.group.position.x = player.targetX;
       player.group.position.z = player.targetZ;
       player.group.position.y = 0.12;
@@ -2448,6 +2656,7 @@ function update(dt) {
       eagle.phase = 1;
       eagle.time = 0;
       eagle.mesh.visible = true;
+      player.moving = false;
       player.group.position.x = player.targetX;
       player.group.position.z = player.targetZ;
       player.group.position.y = 0.12;
@@ -2549,9 +2758,9 @@ function update(dt) {
   }
 
   // Camera — follows player when active, stays on player when dead, demoZ in menu
-  const refZ = active ? player.group.position.z : demoZ;
+  const refZ = active ? player.targetZ : demoZ;
   if (active) {
-    camSmoothZ += (player.group.position.z - camSmoothZ) * (1 - Math.exp(-dt * 18));
+    camSmoothZ += (player.targetZ - camSmoothZ) * (1 - Math.exp(-dt * 6));
   } else if (!dead) {
     camSmoothZ = demoZ;
   }
@@ -2564,18 +2773,21 @@ function update(dt) {
   sun.target.updateMatrixWorld();
 
   // Lane management based on refZ
+  let worldChanged = false;
   while (lanes.length && lanes[lanes.length - 1].z > refZ - 16 * laneDepth) {
     const nextIndex = lanes[lanes.length - 1].idx - 1;
     addLane(lanes[lanes.length - 1].z - laneDepth, nextIndex);
+    worldChanged = true;
   }
   while (lanes.length && lanes[0].z > refZ + 8 * laneDepth) {
     const old = lanes.shift();
-    scene.remove(old.mesh);
-    for (const m of old.decorMeshes) scene.remove(m);
+    releaseLane(old);
     for (let i = movers.length - 1; i >= 0; i--) {
-      if (movers[i].lane === old) { scene.remove(movers[i].mesh); movers.splice(i, 1); }
+      if (movers[i].lane === old) { releaseMover(movers[i]); movers.splice(i, 1); }
     }
+    worldChanged = true;
   }
+  if (worldChanged) requestShadowRefresh();
 }
 
 document.addEventListener('keydown', (e) => {
@@ -2752,6 +2964,7 @@ function applyViewport() {
   dragControl.threshold = window.matchMedia('(pointer:coarse)').matches ? 28 : 22;
   renderer.setSize(innerWidth, innerHeight);
   refreshCharacterPreviewSizes();
+  requestShadowRefresh();
 }
 
 addEventListener('resize', applyViewport);
@@ -2883,6 +3096,11 @@ function renderGameToText() {
     },
     lane_here: laneAt(playerZ)?.type ?? null,
     hazard_here: laneAt(playerZ)?.hazard ?? null,
+    pool_stats: {
+      cached_meshes: countPooledObjects(pooledMeshes),
+      cached_groups: countPooledObjects(pooledGroups),
+      cached_warning_materials: pooledTrainWarningMaterials.length,
+    },
     nearby_lanes: nearbyLanes,
     train_channels: trainChannels,
     movers: nearbyMovers,
@@ -2893,11 +3111,10 @@ function renderGameToText() {
 window.render_game_to_text = renderGameToText;
 
 window.advanceTime = (ms = 1000 / 60) => {
-  const stepMs = 1000 / 60;
+  const stepMs = PERFORMANCE.fixedStep * 1000;
   let remaining = Math.max(stepMs, ms);
   while (remaining > 0) {
-    const dt = Math.min(stepMs, remaining) / 1000;
-    update(dt);
+    update(PERFORMANCE.fixedStep);
     remaining -= stepMs;
   }
   renderer.render(scene, camera);
@@ -2905,12 +3122,22 @@ window.advanceTime = (ms = 1000 / 60) => {
 };
 
 let last = performance.now();
+let accumulator = 0;
 function loop(now) {
-  const dt = Math.min((now - last) / 1000, 0.033);
+  const dt = Math.min((now - last) / 1000, PERFORMANCE.maxFrameDelta);
   last = now;
-  update(dt);
+  accumulator += dt;
+  let steps = 0;
+  while (accumulator >= PERFORMANCE.fixedStep && steps < PERFORMANCE.maxSubSteps) {
+    update(PERFORMANCE.fixedStep);
+    accumulator -= PERFORMANCE.fixedStep;
+    steps += 1;
+  }
+  if (steps === PERFORMANCE.maxSubSteps) accumulator = 0;
   renderer.render(scene, camera);
-  if (shouldRenderCharacterPreviews()) renderCharacterPreviews(dt);
+  if (shouldRenderCharacterPreviews()) {
+    renderCharacterPreviews(Math.max(dt, Math.max(steps, 1) * PERFORMANCE.fixedStep));
+  }
   requestAnimationFrame(loop);
 }
 

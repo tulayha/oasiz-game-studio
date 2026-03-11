@@ -283,3 +283,49 @@ Original prompt: oyunu daha çok crossy roada brnzet harita görsellerini
 - Test: `npm run build` basarili.
 - Test: develop-web-game Playwright smoke akisi (`output/web-game-train-2wagon-smoke-v2`) basarili; menu/canvas capture calisti.
 - Test: ozel Playwright proof akisi ile oyuncu ray sonrasi guvenli cimene tasinip aktif train gorunumu yakalandi (`output/web-game-train-2wagon-active-proof-v2/shot-final.png`); state'te `type:"train"` ve `half_x:4.3` dogrulandi.
+- Follow-up prompt 35: "sv aç ip ver acil"
+- Ops: 2026-03-11 tarihinde Vite dev server `npm run dev -- --host 0.0.0.0 --clearScreen false` ile baslatildi.
+- Ops: Yerel dogrulama `curl -I --max-time 5 http://127.0.0.1:5173` => HTTP 200.
+- Ops: LAN erisim adresi `http://192.168.1.8:5173/`.
+- Ops: Ek dogrulama `curl -I --max-time 5 http://192.168.1.8:5173` => HTTP 200; `netstat -an` cikisinda `*.5173 LISTEN` goruldu.
+- Follow-up prompt 36: Oasiz app icinde imported 3D araba modelleri gelmiyor; repo incelenip kok sebep cozuldu.
+- Kok sebep: Oasiz repo kokundeki `upload.ts` yalnizca `dist/index.html` HTML string'ini API'ye gonderiyor; `dist/assets/**` klasoru upload edilmiyor. Bu yuzden runtime'da `/assets/...` URL ile istenen OBJ/PNG dosyalari Oasiz app/WebView icinde fiziksel olarak bulunmuyor. Procedural veya kod-ici/self-drawn modeller etkilenmiyor.
+- Uygulama: DevilsWorkshop arac assetleri `public/assets` runtime fetch modelinden cikartilip `src/assets/devilsworkshop-cars/**` altina kopyalandi; yeni `src/devilsworkshopVehicleAssets.js` ile OBJ'ler `?raw`, texture'lar bundler import'u olarak source bundle'a alindi.
+- Uygulama: `src/main.js` vehicle preload hattinda `OBJLoader.loadAsync('/assets/...')` yerine `OBJLoader.parse(config.objSource)` ve imported texture URL kullanildi; boylece build tek HTML icine gomulebilir hale geldi.
+- Test: `node --check src/devilsworkshopVehicleAssets.js` basarili.
+- Test: `node --check src/main.js` basarili.
+- Test: `npm run build` basarili; `dist/` artik sadece `dist/index.html` iceriyor, `dist/index.html` icinde `/assets/devilsworkshop-cars` referansi kalmadi.
+- Test: develop-web-game Playwright menu kontrolu (`/tmp/webgame-test-inline/shot-0.png`) acilip incelendi; imported bus/car modelleri menude gorunuyor, `state-0.json` icinde `car/bike/truck` mover'lari mevcut, errors dosyasi yok.
+- Test: develop-web-game Playwright aktif oyun kontrolu (`/tmp/webgame-test-inline-play/shot-1.png`) acilip incelendi; score ilerlerken imported bus modeli sahnede gorunuyor, `state-0.json`/`state-1.json` playing modunda imported mover'lari raporluyor, errors dosyasi yok.
+- Not: Oasiz'in genel cozum noktasi kok `upload.ts` olsa da bu workspace tarafinda kalici ve guvenli fix self-contained bundle uretmek oldu; bu sayede app sadece HTML yuklese bile arac modelleri kaybolmuyor.
+- Follow-up prompt 37: oyun akici hissettirmiyor, FPS/smoothness iyilestir.
+- Uygulama: ana renderer performans profili eklendi; main pixel ratio dusuruldu (`desktop ~1.35`, `mobile ~0.9`), `powerPreference: 'high-performance'` verildi ve antialias kapatildi. Bu low-poly stil icin kabul edilebilir gorunumu korurken fill-rate maliyetini azaltti.
+- Uygulama: shadow pipeline hafifletildi; shadow map tipi `BasicShadowMap` oldu, boyut `desktop 1024 / mobile 512`'ye cekildi ve `renderer.shadowMap.autoUpdate = false` ile live shadow re-render her frame yerine ihtiyac anina indirildi.
+- Uygulama: imported vehicle, mover ve eagle mesh'lerinde dynamic cast/receive shadow kapatildi; static dunya/shadow haritasi `requestShadowRefresh()` ile lane ekleme/silme, world reset ve viewport resize gibi olaylarda yenileniyor.
+- Uygulama: live game loop fixed-step accumulator modeline cekildi (`1/60`, max 3 substep); degisken frame dt kaynakli mikro-titreme ve hissedilen pacing bozuklugu azaltildi.
+- Uygulama: karakter preview renderer'i de daha hafif ayarlara cekildi (daha dusuk pixel ratio, antialias kapali) ki menu acikken bosuna GPU tuketmesin.
+- Test: `node --check src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game menu smoke (`/tmp/webgame-fps-menu/shot-0.png`, `state-0.json`) basarili; error dosyasi yok.
+- Test: develop-web-game gameplay smoke (`/tmp/webgame-fps-play/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`) basarili; oyun akisi ve arac gorunurlugu korundu, errors-*.json olusmadi.
+- Follow-up prompt 38: sola gidis 7 blokla sinirlansin, oynayis daha smooth olsun.
+- Uygulama: oyuncu yatay clamp'i artik ayri helper ile yonetiliyor; sol limit `7 blok = 12.6 world unit` olacak sekilde `clampPlayerX()` eklendi. Sag limit mevcut genis dunya kapsamasini koruyor.
+- Uygulama: ana performans profili bir kademe daha agresiflestirildi (`desktop pixel ratio ~1.15`, `mobile ~0.85`, preview daha dusuk, shadow map 768/384) ki agir cihazlarda frame pacing daha iyi olsun.
+- Uygulama: oyuncu hareketi exponential-target kayma modelinden sabit sureli tile-step segmentine tasindi (`PLAYER_MOVE_DURATION_S = 0.12`). Her yeni input mevcut gorunur pozisyonu `moveFrom` alarak yeni hedefe akiyor; bu hem daha yumusak hem daha kontrollu hissediliyor.
+- Uygulama: input cooldown `0.16` -> `0.12` cekildi; boylece step animasyonla daha uyumlu ve daha cevabi bir hareket hissi veriyor.
+- Uygulama: log uzerinde drift olurken aktif hareket segmentinin `moveFromX/moveToX` endpointleri de kaydiriliyor; nehir ustunde hareket akisi bozulmuyor.
+- Test: `node --check src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game limit testi (`/tmp/webgame-left-limit-road-v1/state-0.json`) basarili; oyuncu yol seridinde art arda sola input sonrasi `player.x = -12.6` ile tam 7 blokta durdu, errors dosyasi olusmadi.
+- Test: ilgili screenshot (`/tmp/webgame-left-limit-road-v1/shot-0.png`) acilip incelendi; gameplay aciliyor ve yeni hareket/limit davranisi gorsel olarak tutarli.
+- Follow-up prompt 39: harita uretimi tamamen optimize edilsin, mesh pooling eklensin.
+- Uygulama: `src/main.js` icine agresif reuse katmani eklendi; box/cylinder/torus geometri cache'leri, mesh pool, mover group pool ve imported vehicle clone pool devreye alindi. Rastgele boyutlar pool hit rate artsin diye hafif quantize ediliyor.
+- Uygulama: lane olusumu (`addLane`) artik yol/nehir/rail/mud/dekor parcalarini `acquireBoxMesh()` uzerinden aliyor; lane cikarken `scene.remove` yerine `releaseLane()` ile mesh'ler havuza donuyor.
+- Uygulama: grass dekor spawn'lari (`spawnTree/spawnRock/spawnBush`) pooled mesh ve cached material kullaniyor; bush flower / rock highlight gibi once lane basina yeniden uretilen materyaller sabitlendi.
+- Uygulama: mover uretimi de pool'a tasindi; procedural log/barrel/vehicle/train parcalari pooled mesh'lerden kuruluyor, dis OBJ arac klonlari da `importedVehicleInstancePools` ile tekrar kullaniliyor, despawn/reset sirasinda `releaseMover()` ile geri donuyor.
+- Uygulama: train warning lamp materyalleri icin ayri pool eklendi; aksi halde her train lane removal sonrasinda unique material birikimi olusuyordu. Yeni `pool_stats` alani `render_game_to_text` icinde cached mesh/group/material sayilarini raporluyor.
+- Test: `node --check src/main.js` basarili.
+- Test: `npm run build` basarili.
+- Test: develop-web-game menu demo akisi (`/tmp/webgame-pooling-menu-v1/state-0.json`, `/tmp/webgame-pooling-menu-v1/shot-0.png`) basarili; `pool_stats` icinde `cached_meshes:328`, `cached_groups:8`, `cached_warning_materials:1` goruldu, errors dosyasi olusmadi.
+- Test: develop-web-game aktif oyun akisi (`/tmp/webgame-pooling-play-v3/state-0.json`, `/tmp/webgame-pooling-play-v3/shot-0.png`) basarili; oyun `mode:"playing"` durumunda, sola bir adim input sonrasi `player.x:-1.8`, pooled cache sayilari doluyor, errors dosyasi olusmadi.
+- Not: skill client'ta `--click` ile `--actions-json` ayni anda verilince `--click` yok sayiliyor; aktif oyun testi bunun yerine ilk action step'inde `left_mouse_button` kullanilarak stabil sekilde kosuldu.
