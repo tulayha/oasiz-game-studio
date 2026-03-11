@@ -13,8 +13,10 @@ fi
 
 # Keep remote console output plain and avoid control-sequence redraws.
 export NO_COLOR=1
+export TERM=dumb
 export npm_config_progress=false
 export npm_config_color=false
+export npm_config_foreground_scripts=true
 
 if [ -s "${NVM_DIR}/nvm.sh" ]; then
   # shellcheck disable=SC1090
