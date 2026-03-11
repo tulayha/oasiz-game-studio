@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space Force Capacity Runs Dashboard</title>
+    <style>
+      :root {
+        --bg: #f3f7fb;
+        --panel: #ffffff;
+        --line: #d4deea;
+        --ink: #102136;
+        --ink-soft: #4a607a;
+        --ok: #1d8f4d;
+        --review: #ce7a16;
+        --fail: #c4382f;
+        --accent: #007fa8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Trebuchet MS", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 0% 0%, #d9ebff 0%, transparent 42%),
+          radial-gradient(circle at 100% 0%, #d8fff0 0%, transparent 34%),
+          var(--bg);
+      }
+
+      .layout {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 360px 1fr;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(4px);
+        padding: 14px;
+        overflow-y: auto;
+      }
+
+      .main {
+        padding: 14px;
+        overflow-y: auto;
+      }
+
+      h1 {
+        margin: 0 0 6px 0;
+        font-size: 22px;
+        letter-spacing: 0.2px;
+      }
+
+      h2 {
+        margin: 0 0 10px 0;
+        font-size: 16px;
+      }
+
+      .subtle {
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
+      .run-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .run-item {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+        padding: 10px;
+      }
+
+      .run-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .run-select {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .run-id {
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      .badge {
+        font-size: 11px;
+        border-radius: 999px;
+        padding: 2px 8px;
+        border: 1px solid var(--line);
+      }
+
+      .badge.ok {
+        border-color: #5ec58d;
+        color: var(--ok);
+      }
+
+      .badge.review {
+        border-color: #f0c57f;
+        color: var(--review);
+      }
+
+      .badge.fail {
+        border-color: #e5938e;
+        color: var(--fail);
+      }
+
+      .run-meta {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--ink-soft);
+        line-height: 1.35;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 12px;
+        margin-bottom: 12px;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(110px, 1fr));
+        gap: 10px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        background: linear-gradient(180deg, #ffffff, #f7fafc);
+      }
+
+      .card .label {
+        font-size: 11px;
+        color: var(--ink-soft);
+      }
+
+      .card .value {
+        margin-top: 6px;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        padding: 8px 6px;
+      }
+
+      .chart-canvas {
+        width: 100%;
+        height: 200px;
+        display: block;
+      }
+
+      .links {
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      @media (max-width: 1150px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          max-height: 42vh;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .cards {
+          grid-template-columns: repeat(2, minmax(110px, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <h1>Capacity Runs</h1>
+        <div id="index-meta" class="subtle">Loading index...</div>
+        <div id="run-list" class="run-list"></div>
+      </aside>
+      <main class="main">
+        <section class="panel">
+          <h2>Selected Run Snapshot</h2>
+          <div id="cards" class="cards"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Run Comparison</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Start</th>
+                  <th>Verdict</th>
+                  <th>Hard</th>
+                  <th>Prod</th>
+                  <th>Rooms</th>
+                  <th>rttP95 max</th>
+                  <th>leftUnconsented Δ</th>
+                  <th>Exit</th>
+                </tr>
+              </thead>
+              <tbody id="comparison-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Primary Run Stage Chart</h2>
+          <div id="chart-meta" class="subtle"></div>
+          <canvas id="stage-chart" class="chart-canvas"></canvas>
+        </section>
+
+        <section class="panel">
+          <h2>Primary Run Artifacts</h2>
+          <div id="artifact-links" class="links"></div>
+        </section>
+      </main>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>

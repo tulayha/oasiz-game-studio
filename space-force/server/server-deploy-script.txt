@@ -1,201 +1,397 @@
-cat >/root/deploy-space-force.sh <<'EOF'
+cat >/root/setup-space-force-loadtest.sh <<'SETUP_SCRIPT_EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
 BRANCH="${BRANCH:-space-force-dev}"
-PM2_NAME="${PM2_NAME:-space-force-colyseus}"
-LOCAL_HEALTH_URL="${LOCAL_HEALTH_URL:-http://127.0.0.1:2567/healthz}"
-PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://api.aiisourdaddy.com/healthz}"
-OPS_STATS_URL="${OPS_STATS_URL:-http://127.0.0.1:2567/ops/stats}"
-OPS_STATS_TOKEN="${OPS_STATS_TOKEN:-}"
-OPS_STATS_REQUIRED="${OPS_STATS_REQUIRED:-false}"
-HEALTH_RETRIES="${HEALTH_RETRIES:-30}"
-HEALTH_SLEEP_SEC="${HEALTH_SLEEP_SEC:-1}"
+REPO_URL="${REPO_URL:-}"
+REPO_DIR="${REPO_DIR:-/root/space-force}"
+FALLBACK_REPO_DIR="/root/space-force-repo"
 NPM_INSTALL_MODE="${NPM_INSTALL_MODE:-auto}" # auto|ci|install
+INSTALL_SYSTEM_PACKAGES="${INSTALL_SYSTEM_PACKAGES:-true}"
+INSTALL_NVM_IF_MISSING="${INSTALL_NVM_IF_MISSING:-true}"
+NODE_VERSION_OVERRIDE="${NODE_VERSION_OVERRIDE:-}"
+NPM_VERSION="${NPM_VERSION:-11.6.0}"
+INSTALL_PM2="${INSTALL_PM2:-false}"
+PM2_VERSION="${PM2_VERSION:-latest}"
+SYNC_OBSERVER_SCRIPT="${SYNC_OBSERVER_SCRIPT:-true}"
+OBSERVER_TARGET_PATH="${OBSERVER_TARGET_PATH:-/root/space-force-observe.sh}"
+INSTALL_CAPACITY_RUNNER="${INSTALL_CAPACITY_RUNNER:-true}"
+CAPACITY_RUNNER_PATH="${CAPACITY_RUNNER_PATH:-/root/run-space-force-capacity.sh}"
+INSTALL_CAPACITY_SYMLINK="${INSTALL_CAPACITY_SYMLINK:-true}"
+CAPACITY_SYMLINK_PATH="${CAPACITY_SYMLINK_PATH:-/usr/local/bin/space-force-capacity}"
+INSTALL_CAPACITY_DASHBOARD_RUNNER="${INSTALL_CAPACITY_DASHBOARD_RUNNER:-true}"
+CAPACITY_DASHBOARD_RUNNER_PATH="${CAPACITY_DASHBOARD_RUNNER_PATH:-/root/run-space-force-capacity-dashboard.sh}"
+INSTALL_CAPACITY_DASHBOARD_SYMLINK="${INSTALL_CAPACITY_DASHBOARD_SYMLINK:-true}"
+CAPACITY_DASHBOARD_SYMLINK_PATH="${CAPACITY_DASHBOARD_SYMLINK_PATH:-/usr/local/bin/space-force-capacity-dashboard}"
+LOADTEST_ENV_FILE="${LOADTEST_ENV_FILE:-/root/.space-force-loadtest.env}"
+OVERWRITE_LOADTEST_ENV_FILE="${OVERWRITE_LOADTEST_ENV_FILE:-false}"
 
-# Prefer /root/space-force (new), fallback to old /root/space-force-repo
-REPO_DIR="/root/space-force"
-if [ ! -d "${REPO_DIR}/.git" ]; then
-  REPO_DIR="/root/space-force-repo"
-fi
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
 log() {
-  echo "[deploy-space-force] $*"
+  echo "[setup-space-force-loadtest] $*"
+}
+
+warn() {
+  echo "[setup-space-force-loadtest] WARN: $*" >&2
+}
+
+fail() {
+  echo "[setup-space-force-loadtest] ERROR: $*" >&2
+  exit 1
+}
+
+is_true() {
+  case "${1,,}" in
+    1|true|yes|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 require_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing required command: $1" >&2
-    exit 1
+  command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+install_system_packages() {
+  if ! is_true "${INSTALL_SYSTEM_PACKAGES}"; then
+    log "Skipping apt package install (INSTALL_SYSTEM_PACKAGES=${INSTALL_SYSTEM_PACKAGES})"
+    return
+  fi
+
+  if ! command -v apt-get >/dev/null 2>&1; then
+    warn "apt-get not found, skipping package bootstrap"
+    return
+  fi
+
+  log "Installing base packages via apt-get"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y git curl ca-certificates build-essential jq tar unzip python3
+}
+
+resolve_repo_dir() {
+  if [ -d "${REPO_DIR}/.git" ]; then
+    echo "${REPO_DIR}"
+    return
+  fi
+
+  if [ -d "${FALLBACK_REPO_DIR}/.git" ]; then
+    echo "${FALLBACK_REPO_DIR}"
+    return
+  fi
+
+  if [ -z "${REPO_URL}" ]; then
+    fail "Repo not found in ${REPO_DIR} or ${FALLBACK_REPO_DIR}. Set REPO_URL to clone."
+  fi
+
+  log "Cloning repo into ${REPO_DIR}" >&2
+  git clone --filter=blob:none "${REPO_URL}" "${REPO_DIR}"
+  echo "${REPO_DIR}"
+}
+
+prepare_repo() {
+  local repo_path="$1"
+  cd "${repo_path}"
+
+  log "Fetching branch ${BRANCH}"
+  git fetch origin "${BRANCH}"
+
+  if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    git switch --discard-changes "${BRANCH}"
+  else
+    git switch -c "${BRANCH}" "origin/${BRANCH}"
+  fi
+
+  git reset --hard "origin/${BRANCH}"
+  git clean -fd
+  git sparse-checkout init --cone
+  git sparse-checkout set space-force/server space-force/shared
+  log "Using commit $(git rev-parse --short HEAD)"
+}
+
+load_nvm() {
+  # shellcheck disable=SC1090
+  . "${NVM_DIR}/nvm.sh"
+}
+
+ensure_nvm() {
+  if [ -s "${NVM_DIR}/nvm.sh" ]; then
+    load_nvm
+    return
+  fi
+
+  if ! is_true "${INSTALL_NVM_IF_MISSING}"; then
+    fail "nvm missing at ${NVM_DIR} and INSTALL_NVM_IF_MISSING=${INSTALL_NVM_IF_MISSING}"
+  fi
+
+  require_cmd curl
+  log "Installing nvm"
+  curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh" | bash
+  [ -s "${NVM_DIR}/nvm.sh" ] || fail "nvm install failed"
+  load_nvm
+}
+
+resolve_node_version() {
+  local server_dir="$1"
+  if [ -n "${NODE_VERSION_OVERRIDE}" ]; then
+    echo "${NODE_VERSION_OVERRIDE}"
+    return
+  fi
+
+  if [ -f "${server_dir}/.nvmrc" ]; then
+    local requested
+    requested="$(tr -d '[:space:]' < "${server_dir}/.nvmrc")"
+    if [ -n "${requested}" ]; then
+      echo "${requested}"
+      return
+    fi
+  fi
+
+  echo "22.19.0"
+}
+
+install_node_toolchain() {
+  local server_dir="$1"
+  local node_version
+
+  ensure_nvm
+  node_version="$(resolve_node_version "${server_dir}")"
+
+  log "Installing and using Node ${node_version}"
+  nvm install "${node_version}"
+  nvm use "${node_version}"
+
+  require_cmd node
+  require_cmd npm
+  npm install -g "npm@${NPM_VERSION}"
+  log "Node $(node --version)"
+  log "npm $(npm --version)"
+}
+
+install_optional_pm2() {
+  if ! is_true "${INSTALL_PM2}"; then
+    return
+  fi
+
+  log "Installing pm2@${PM2_VERSION}"
+  npm install -g "pm2@${PM2_VERSION}"
+}
+
+install_server_dependencies() {
+  local server_dir="$1"
+  cd "${server_dir}"
+  log "Installing dependencies in ${server_dir}"
+
+  if [ "${NPM_INSTALL_MODE}" = "ci" ]; then
+    npm ci
+    return
+  fi
+
+  if [ "${NPM_INSTALL_MODE}" = "install" ]; then
+    npm install --no-package-lock
+    return
+  fi
+
+  if [ -f package-lock.json ] && npm ci; then
+    log "npm ci succeeded"
+    return
+  fi
+
+  warn "Using npm install fallback"
+  npm install --no-package-lock
+}
+
+sync_observer_script() {
+  local server_dir="$1"
+  if ! is_true "${SYNC_OBSERVER_SCRIPT}"; then
+    return
+  fi
+
+  local source_path="${server_dir}/loadtest/space-force-observe.sh"
+  [ -f "${source_path}" ] || fail "Observer script missing: ${source_path}"
+
+  cp "${source_path}" "${OBSERVER_TARGET_PATH}"
+  chmod +x "${OBSERVER_TARGET_PATH}"
+  log "Synced observer helper to ${OBSERVER_TARGET_PATH}"
+}
+
+install_loadtest_env_template() {
+  if [ -f "${LOADTEST_ENV_FILE}" ] && ! is_true "${OVERWRITE_LOADTEST_ENV_FILE}"; then
+    log "Keeping existing env file ${LOADTEST_ENV_FILE}"
+    return
+  fi
+
+  cat > "${LOADTEST_ENV_FILE}" <<'ENV_EOF'
+# Space Force loadtest host configuration
+
+# Required target endpoint (Cloud Run websocket URL)
+VITE_COLYSEUS_WS_URL=wss://<your-cloud-run-url>
+
+# Optional: pull app-level metrics from target server if /ops/stats is exposed
+OPS_STATS_URL=
+OPS_STATS_TOKEN=
+
+# Sweep defaults
+RUNNER=lobbyfill
+STAGES=8,16,24,32,40,48,56,64
+USERS_PER_ROOM=4
+DURATION_SEC=300
+COOLDOWN_SEC=30
+DELAY_MS=20
+SUMMARY_INTERVAL_MS=5000
+REQUEST_TIMEOUT_MS=15000
+# INPUT_DEBOUNCE_MS=16.666
+
+# Automatic capacity verdict thresholds
+SLO_RTT_P95_MS=120
+MAX_LEFT_UNCONSENTED_DELTA=0
+HEADROOM_RATIO=0.70
+FAIL_ON_1006=false
+ENABLE_DASHBOARD=true
+
+# Optional lobbyfill fine-tuning
+# WAIT_FOR_GROUP_MS=30000
+# START_DELAY_MS=500
+# START_FALLBACK_MS=12000
+
+# Output + collector cadence
+OUT_ROOT=/root/space-force-loadtest-runs
+POLL_INTERVAL_SEC=2
+
+# Optional: capture host metrics from DigitalOcean API into capacity summary
+# DO_API_TOKEN=
+# DO_DROPLET_ID=
+# DO_DROPLET_INTERFACE=public
+ENV_EOF
+
+  chmod 600 "${LOADTEST_ENV_FILE}" || true
+  log "Wrote loadtest env template ${LOADTEST_ENV_FILE}"
+}
+
+install_capacity_runner() {
+  local server_dir="$1"
+  if ! is_true "${INSTALL_CAPACITY_RUNNER}"; then
+    return
+  fi
+
+  local host_runner="${server_dir}/loadtest/run-capacity-host.sh"
+  local report_builder="${server_dir}/loadtest/build-capacity-report.mjs"
+  [ -f "${host_runner}" ] || fail "Missing host runner: ${host_runner}"
+  [ -f "${report_builder}" ] || fail "Missing report builder: ${report_builder}"
+  chmod +x "${host_runner}"
+
+  cat > "${CAPACITY_RUNNER_PATH}" <<'RUNNER_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DEFAULT_SERVER_DIR="__SERVER_DIR__"
+DEFAULT_ENV_FILE="__LOADTEST_ENV_FILE__"
+
+export SERVER_DIR="${SERVER_DIR:-${DEFAULT_SERVER_DIR}}"
+export ENV_FILE="${ENV_FILE:-${DEFAULT_ENV_FILE}}"
+
+exec "${SERVER_DIR}/loadtest/run-capacity-host.sh" "$@"
+RUNNER_EOF
+
+  sed -i "s|__SERVER_DIR__|${server_dir}|g" "${CAPACITY_RUNNER_PATH}"
+  sed -i "s|__LOADTEST_ENV_FILE__|${LOADTEST_ENV_FILE}|g" "${CAPACITY_RUNNER_PATH}"
+  chmod +x "${CAPACITY_RUNNER_PATH}"
+  log "Installed capacity runner ${CAPACITY_RUNNER_PATH}"
+
+  if is_true "${INSTALL_CAPACITY_SYMLINK}"; then
+    ln -sf "${CAPACITY_RUNNER_PATH}" "${CAPACITY_SYMLINK_PATH}"
+    log "Installed convenience command ${CAPACITY_SYMLINK_PATH}"
   fi
 }
 
-require_cmd git
-require_cmd npm
-require_cmd pm2
-require_cmd curl
+install_capacity_dashboard_runner() {
+  if ! is_true "${INSTALL_CAPACITY_DASHBOARD_RUNNER}"; then
+    return
+  fi
 
-if [ ! -d "${REPO_DIR}/.git" ]; then
-  echo "Repo not found in /root/space-force or /root/space-force-repo" >&2
+  cat > "${CAPACITY_DASHBOARD_RUNNER_PATH}" <<'DASHBOARD_EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+RUNS_ROOT="${RUNS_ROOT:-/root/space-force-loadtest-runs}"
+PORT="${PORT:-8787}"
+HOST="${HOST:-0.0.0.0}"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[space-force-capacity-dashboard] ERROR: python3 is required" >&2
   exit 1
 fi
 
-cd "${REPO_DIR}"
-log "Fetching branch ${BRANCH}"
-
-# Clear any drift from previous deploy runs before switching branches.
-git reset --hard
-git clean -fd
-
-git fetch origin "${BRANCH}"
-
-if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
-  git switch --discard-changes "${BRANCH}"
-else
-  git switch -c "${BRANCH}" "origin/${BRANCH}"
-fi
-
-git reset --hard "origin/${BRANCH}"
-git clean -fd
-log "Using commit $(git rev-parse --short HEAD)"
-
-git sparse-checkout init --cone
-git sparse-checkout set space-force/server space-force/shared
-
-
-APP_DIR="${REPO_DIR}/space-force"
-SERVER_DIR="${APP_DIR}/server"
-
-if [ ! -d "${SERVER_DIR}" ]; then
-  echo "Server directory missing: ${SERVER_DIR}" >&2
+if [ ! -f "${RUNS_ROOT}/dashboard/index.html" ]; then
+  echo "[space-force-capacity-dashboard] ERROR: dashboard not found at ${RUNS_ROOT}/dashboard/index.html" >&2
+  echo "[space-force-capacity-dashboard] Run one capacity sweep first to generate dashboard assets." >&2
   exit 1
 fi
 
-log "Installing server deps"
-cd "${SERVER_DIR}"
-if [ "${NPM_INSTALL_MODE}" = "ci" ]; then
-  npm ci
-elif [ "${NPM_INSTALL_MODE}" = "install" ]; then
-  npm install --no-package-lock
-else
-  if [ -f package-lock.json ]; then
-    if npm ci; then
-      log "npm ci succeeded"
-    else
-      log "npm ci failed, falling back to npm install"
-      npm install --no-package-lock
-    fi
-  else
-    npm install --no-package-lock
+echo "[space-force-capacity-dashboard] Serving ${RUNS_ROOT} on http://${HOST}:${PORT}/dashboard/"
+exec python3 -m http.server "${PORT}" --bind "${HOST}" --directory "${RUNS_ROOT}"
+DASHBOARD_EOF
+
+  chmod +x "${CAPACITY_DASHBOARD_RUNNER_PATH}"
+  log "Installed dashboard runner ${CAPACITY_DASHBOARD_RUNNER_PATH}"
+
+  if is_true "${INSTALL_CAPACITY_DASHBOARD_SYMLINK}"; then
+    ln -sf "${CAPACITY_DASHBOARD_RUNNER_PATH}" "${CAPACITY_DASHBOARD_SYMLINK_PATH}"
+    log "Installed dashboard command ${CAPACITY_DASHBOARD_SYMLINK_PATH}"
   fi
-fi
+}
 
-log "Building server"
-npm run build
+print_next_steps() {
+  cat <<EOF
 
-# Recreate process so cwd/script always points to new server path
-if pm2 describe "${PM2_NAME}" >/dev/null 2>&1; then
-  log "Replacing pm2 process ${PM2_NAME}"
-  pm2 delete "${PM2_NAME}"
-fi
-pm2 start npm --name "${PM2_NAME}" --cwd "${SERVER_DIR}" -- start
-pm2 save
+[setup-space-force-loadtest] Setup complete. No game server was started.
 
-log "Waiting for backend to become healthy..."
-for i in $(seq 1 "${HEALTH_RETRIES}"); do
-  if curl -fsS "${LOCAL_HEALTH_URL}" >/dev/null 2>&1; then
-    break
-  fi
-  sleep "${HEALTH_SLEEP_SEC}"
-done
+Frictionless run flow:
+  1) Edit ${LOADTEST_ENV_FILE} and set VITE_COLYSEUS_WS_URL.
+  2) Run: ${CAPACITY_SYMLINK_PATH}
+  3) Open dashboard: ${CAPACITY_DASHBOARD_SYMLINK_PATH}
 
-if ! curl -fsS "${LOCAL_HEALTH_URL}" >/dev/null 2>&1; then
-  pm2 logs "${PM2_NAME}" --lines 80 --nostream || true
-  echo "Local health check failed: ${LOCAL_HEALTH_URL}" >&2
-  exit 1
-fi
+Artifacts are written under OUT_ROOT/<runId> and include:
+  - loadtest summary files
+  - host/ops metrics logs
+  - capacity-report.txt + capacity-report.json
+  - dashboard + index.json for run history
 
-if ! curl -fsS "${PUBLIC_HEALTH_URL}" >/dev/null 2>&1; then
-  log "Public health check failed (non-fatal): ${PUBLIC_HEALTH_URL}"
-fi
-
-if [ -n "${OPS_STATS_URL}" ]; then
-  log "Fetching ops stats snapshot from ${OPS_STATS_URL}"
-  set +e
-  if [ -n "${OPS_STATS_TOKEN}" ]; then
-    OPS_JSON="$(curl -fsS -H "x-ops-token: ${OPS_STATS_TOKEN}" "${OPS_STATS_URL}")"
-  else
-    OPS_JSON="$(curl -fsS "${OPS_STATS_URL}")"
-  fi
-  OPS_STATUS=$?
-  set -e
-
-  if [ "${OPS_STATUS}" -ne 0 ]; then
-    if [ "${OPS_STATS_REQUIRED}" = "true" ]; then
-      echo "Ops stats check failed: ${OPS_STATS_URL}" >&2
-      exit 1
-    fi
-    log "Ops stats check failed (non-fatal): ${OPS_STATS_URL}"
-  else
-    echo "${OPS_JSON}" | node -e '
-      let data = "";
-      process.stdin.setEncoding("utf8");
-      process.stdin.on("data", (chunk) => data += chunk);
-      process.stdin.on("end", () => {
-        try {
-          const parsed = JSON.parse(data);
-          const generatedAtIso = parsed?.generatedAtIso ?? "n/a";
-          const clients = parsed?.clients ?? {};
-          const rooms = parsed?.rooms ?? {};
-          const rtt = parsed?.rttMs ?? {};
-          const leaves = Array.isArray(clients.recentLeaves) ? clients.recentLeaves : [];
-          const lastUnconsented = [...leaves].reverse().find((e) => e && e.consented === false) ?? null;
-
-          console.log("[deploy-space-force] ops generatedAtIso=" + generatedAtIso);
-          console.log(
-            "[deploy-space-force] ops clients.active=" + (clients.active ?? "n/a") +
-            " joinedTotal=" + (clients.joinedTotal ?? "n/a") +
-            " leftTotal=" + (clients.leftTotal ?? "n/a") +
-            " leftConsentedTotal=" + (clients.leftConsentedTotal ?? "n/a") +
-            " leftUnconsentedTotal=" + (clients.leftUnconsentedTotal ?? "n/a")
-          );
-          console.log(
-            "[deploy-space-force] ops rooms.active=" + (rooms.active ?? "n/a") +
-            " createdTotal=" + (rooms.createdTotal ?? "n/a") +
-            " disposedTotal=" + (rooms.disposedTotal ?? "n/a")
-          );
-          console.log(
-            "[deploy-space-force] ops rtt.p95=" + (rtt.p95 ?? "n/a") +
-            "ms samples=" + (rtt.samples ?? "n/a")
-          );
-
-          if (lastUnconsented) {
-            console.log(
-              "[deploy-space-force] ops lastUnconsentedLeave at=" + (lastUnconsented.atIso ?? "n/a") +
-              " roomId=" + (lastUnconsented.roomId ?? "") +
-              " sessionId=" + (lastUnconsented.sessionId ?? "") +
-              " phase=" + (lastUnconsented.phase ?? "n/a")
-            );
-          } else {
-            console.log("[deploy-space-force] ops lastUnconsentedLeave none");
-          }
-        } catch (error) {
-          console.log("[deploy-space-force] ops parse failed: " + String(error));
-          process.exit(1);
-        }
-      });
-    ' || {
-      if [ "${OPS_STATS_REQUIRED}" = "true" ]; then
-        echo "Ops stats parse failed" >&2
-        exit 1
-      fi
-      log "Ops stats parse failed (non-fatal)"
-    }
-  fi
-fi
-
-log "Deploy OK"
 EOF
+}
 
-chmod +x /root/deploy-space-force.sh
-/root/deploy-space-force.sh
+main() {
+  install_system_packages
+  require_cmd git
+  require_cmd curl
+  require_cmd tar
+
+  local repo_path
+  repo_path="$(resolve_repo_dir | tail -n 1)"
+  [ -d "${repo_path}/.git" ] || fail "Invalid repo path: ${repo_path}"
+
+  prepare_repo "${repo_path}"
+
+  local app_dir="${repo_path}/space-force"
+  local server_dir="${app_dir}/server"
+  [ -d "${server_dir}" ] || fail "Server directory missing: ${server_dir}"
+
+  install_node_toolchain "${server_dir}"
+  install_optional_pm2
+  install_server_dependencies "${server_dir}"
+  sync_observer_script "${server_dir}"
+  install_loadtest_env_template
+  install_capacity_runner "${server_dir}"
+  install_capacity_dashboard_runner
+  print_next_steps
+}
+
+main "$@"
+SETUP_SCRIPT_EOF
+
+chmod +x /root/setup-space-force-loadtest.sh
+/root/setup-space-force-loadtest.sh
