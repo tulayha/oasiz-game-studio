@@ -24,3 +24,32 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# Unity - auto-generated folders (safe to regenerate)
+Unity/*/Library/
+Unity/*/Temp/
+Unity/*/Logs/
+Unity/*/obj/
+Unity/*/Build/
+Unity/*/Builds/
+Unity/*/UserSettings/
+Unity/*/.vs/
+
+# Unity - OS & editor artifacts inside Unity projects
+Unity/**/.DS_Store
+Unity/**/Thumbs.db
+Unity/**/*.pidb
+Unity/**/*.suo
+Unity/**/*.userprefs
+Unity/**/*.unityproj
+Unity/**/*.booproj
+
+# Unity - crash & sysinfo files
+Unity/**/crashlytics-build.properties
+Unity/**/sysinfo.txt
+
+# Unity - compiled output
+Unity/**/*.apk
+Unity/**/*.aab
+Unity/**/*.unitypackage
+Unity/**/*.app
+
