@@ -12,7 +12,6 @@ import type {
   SnapshotPayload,
 } from "../../../shared/sim/types.js";
 import { ASTEROID_COLLIDER_VERTEX_SCALE } from "../../../shared/sim/constants.js";
-import { unregisterRoomCodeByRoomId } from "../http/roomCodeRegistry.js";
 import { opsStats } from "../monitoring/OpsStats.js";
 import {
   SpaceForceRoomState,
@@ -121,6 +120,10 @@ export class SpaceForceRoom extends Room<SpaceForceRoomState> {
     this.state.roomCode = roomCode;
     this.state.debugToolsEnabled = debugToolsEnabled;
     opsStats.recordRoomCreated(this.roomId);
+
+    // Seed metadata immediately so matchMaker.query() can find this room by
+    // roomCode before the first onRoomMeta callback fires from the simulation.
+    await this.setMetadata({ roomCode });
 
     this.simulation = new SpaceForceSimulation(
       roomCode,
@@ -409,7 +412,7 @@ export class SpaceForceRoom extends Room<SpaceForceRoomState> {
     opsStats.recordRoomDisposed(this.roomId);
     this.asteroidColliderById.clear();
     this.asteroidColliderSentBySession.clear();
-    unregisterRoomCodeByRoomId(this.roomId);
+
   }
 
   private applyPlayerListState(payload: PlayerListPayload): void {

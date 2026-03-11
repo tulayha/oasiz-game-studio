@@ -88,8 +88,8 @@ Audio:
 ## Server Topology
 
 - `server/src/rooms/*`: authoritative Colyseus room/session behavior.
-- `server/src/index.ts`: server bootstrap, transport config, HTTP routes, Colyseus monitor mounting/auth gate, and ops stats endpoint wiring.
-- `server/src/http/roomCodeRegistry.ts`: process-local room-code lookup map (single-instance/sticky-routing assumption until externalized store is introduced).
+- `server/src/index.ts`: server bootstrap, transport config, HTTP routes, Colyseus monitor mounting/auth gate, and ops stats endpoint wiring. When `REDIS_URL` is set, wires `RedisPresence` + `RedisDriver` for multi-instance support.
+- `server/src/http/roomCodeRegistry.ts`: generates and normalizes room codes only — no in-process lookup map. Room code → room resolution uses `matchMaker.query()` against Colyseus presence (Redis or in-memory), which works across all instances.
 - `server/src/monitoring/*`: in-process operational counters/rate tracking and RTT summaries for `/ops/stats`.
 - `server/src/*` HTTP endpoints: matchmaking, health checks, and ops stats.
 - `server/loadtest/*`: synthetic client harnesses (`roomcode`, `lobbyfill`, capacity sweep orchestrator) and observed-run tooling (`run-observed-loadtest.ps1`, `space-force-observe.sh`, parser/index builder).

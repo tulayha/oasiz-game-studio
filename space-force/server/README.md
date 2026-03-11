@@ -15,6 +15,7 @@ Authoritative multiplayer backend for Space Force.
 - Node.js + TypeScript
 - Colyseus (`colyseus`, `@colyseus/ws-transport`)
 - Colyseus Monitor (`@colyseus/monitor`)
+- Redis presence + driver (`@colyseus/redis-presence`, `@colyseus/redis-driver`) — optional, enabled when `REDIS_URL` is set
 - Express (`/healthz`, `/match/create`, `/match/join`)
 
 ## Toolchain Baseline (Pinned)
@@ -375,6 +376,7 @@ Shell-provided environment variables still work and take precedence over `.env`.
 - `OPS_STATS_PATH` (default: `/ops/stats`)
 - `OPS_STATS_TOKEN` (optional; requires `x-ops-token` header when set)
 - `DEBUG_TOOLS_ENABLED` (default: `false`)
+- `REDIS_URL` (optional; when set, enables Redis-backed presence and room driver for multi-instance deployments — e.g. `redis://10.0.0.3:6379`)
 
 ## Debug tools
 
@@ -449,4 +451,5 @@ For container deploys (GCP VM/GKE/Cloud Run):
 - set `COLYSEUS_MONITOR_ENABLED=false` unless intentionally enabled
 - set `OPS_STATS_ENABLED=false` unless intentionally enabled
 - if `OPS_STATS_ENABLED=true`, set `OPS_STATS_TOKEN`
-- current room-code registry is process-local in-memory; run a single server instance (or sticky routing to one instance) until shared presence/room-code storage is introduced.
+- set `REDIS_URL` to a Cloud Memorystore Redis instance to enable multi-instance support (RedisPresence + RedisDriver). Room codes are resolved via `matchMaker.query()` across all instances — no per-instance registry.
+- without `REDIS_URL`, server falls back to in-memory presence/driver (single-instance only).

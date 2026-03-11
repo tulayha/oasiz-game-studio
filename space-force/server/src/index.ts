@@ -3,18 +3,19 @@ import express from "express";
 import { createServer } from "node:http";
 import { Server, matchMaker } from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
+import { RedisPresence } from "@colyseus/redis-presence";
+import { RedisDriver } from "@colyseus/redis-driver";
 import { monitor } from "@colyseus/monitor";
 import type { RequestHandler } from "express";
 import { SpaceForceRoom } from "./rooms/SpaceForceRoom.js";
 import { opsStats } from "./monitoring/OpsStats.js";
 import {
   generateUniqueRoomCode,
-  getRoomIdByCode,
   normalizeRoomCode,
-  registerRoomCode,
 } from "./http/roomCodeRegistry.js";
 
 const port = Number.parseInt(process.env.PORT ?? "2567", 10);
+const redisUrl = process.env.REDIS_URL ?? "";
 const corsOriginRaw = process.env.CORS_ORIGIN ?? "*";
 const maxPlayers = Number.parseInt(process.env.MAX_PLAYERS ?? "4", 10);
 const simTickHz = Number.parseInt(process.env.SIM_TICK_HZ ?? "60", 10);
@@ -262,6 +263,12 @@ const gameServer = new Server({
     perMessageDeflate: false,
     maxPayload: wsMaxPayloadBytes,
   }),
+  ...(redisUrl
+    ? {
+        presence: new RedisPresence(redisUrl),
+        driver: new RedisDriver(redisUrl),
+      }
+    : {}),
 });
 
 gameServer.define("space_force", SpaceForceRoom);
@@ -397,13 +404,18 @@ app.post("/match/create", async (req, res) => {
       typeof req.body?.playerShipSkinId === "string"
         ? req.body.playerShipSkinId
         : undefined;
-    const roomCode = generateUniqueRoomCode(roomCodeLength);
+    const activeListings = await matchMaker.query({ name: "space_force" });
+    const activeCodes = new Set(
+      activeListings
+        .map((l) => (l.metadata as { roomCode?: string } | null)?.roomCode)
+        .filter((c): c is string => typeof c === "string"),
+    );
+    const roomCode = generateUniqueRoomCode(roomCodeLength, activeCodes);
     const room = await matchMaker.createRoom("space_force", {
       roomCode,
       maxPlayers,
       simTickHz,
     });
-    registerRoomCode(room.roomId, roomCode);
     const seatReservation = await matchMaker.joinById(room.roomId, {
       playerName,
       playerShipSkinId,
@@ -438,17 +450,10 @@ app.post("/match/join", async (req, res) => {
       return;
     }
 
-    const roomId = getRoomIdByCode(code);
-    if (!roomId) {
-      res.json({
-        ok: false,
-        error: "NOT_FOUND",
-        message: "Room not found",
-      });
-      return;
-    }
-
-    const listing = (await matchMaker.query({ roomId }))[0];
+    const listings = await matchMaker.query({ name: "space_force" });
+    const listing = listings.find(
+      (l) => (l.metadata as { roomCode?: string } | null)?.roomCode === code,
+    );
     if (!listing) {
       res.json({
         ok: false,
@@ -472,7 +477,7 @@ app.post("/match/join", async (req, res) => {
       typeof req.body?.playerShipSkinId === "string"
         ? req.body.playerShipSkinId
         : undefined;
-    const seatReservation = await matchMaker.joinById(roomId, {
+    const seatReservation = await matchMaker.joinById(listing.roomId, {
       playerName,
       playerShipSkinId,
     });
@@ -480,7 +485,7 @@ app.post("/match/join", async (req, res) => {
     res.json({
       ok: true,
       roomCode: code,
-      roomId,
+      roomId: listing.roomId,
       seatReservation,
     });
   } catch (error) {
@@ -513,6 +518,7 @@ httpServer.listen(port, () => {
     monitorPath: monitorEnabled ? monitorPath : null,
     opsStatsEnabled,
     opsStatsPath: opsStatsEnabled ? opsStatsPath : null,
+    redisEnabled: Boolean(redisUrl),
   });
 });
 

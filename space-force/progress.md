@@ -31,6 +31,21 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-12 - Server: Redis presence + driver for multi-instance Cloud Run support
+
+- Scope: `server/src/index.ts`, `server/src/rooms/SpaceForceRoom.ts`, `server/src/http/roomCodeRegistry.ts`, `server/package.json`, `server/README.md`
+- What shipped:
+  - `@colyseus/redis-presence` + `@colyseus/redis-driver` added as explicit deps (were transitive). `Server` constructor now passes `RedisPresence` + `RedisDriver` when `REDIS_URL` env var is set; falls back to in-memory when unset — dev workflow unchanged.
+  - `/match/join` room lookup switched from in-memory `codeToRoomId` Map to `matchMaker.query({ name: "space_force" })` scanning `metadata.roomCode` — works cross-instance with Redis driver.
+  - `/match/create` no longer calls `registerRoomCode()` — not needed since metadata carries the code.
+  - `SpaceForceRoom.onCreate` now calls `await this.setMetadata({ roomCode })` immediately after state init, before simulation starts — ensures `matchMaker.query()` can find the room by code the instant `createRoom()` resolves, before `onRoomMeta` fires.
+  - `roomCodeRegistry.ts` slimmed to `generateUniqueRoomCode` + `normalizeRoomCode` only; Map-based register/unregister/get removed.
+  - `SpaceForceRoom.onDispose` no longer calls `unregisterRoomCodeByRoomId` (removed import too).
+  - `server/README.md`: Stack section updated, `REDIS_URL` env var documented, deploy note updated to reflect multi-instance capability.
+- Validation: `cd server && npm run typecheck`: clean.
+- GCP infra still needed to go live: Cloud Memorystore (Basic Redis), Serverless VPC Access connector, `REDIS_URL` + `--vpc-connector` set on Cloud Run service.
+- Outcome: Server is multi-instance ready on Cloud Run with `REDIS_URL` set. Single-instance / local dev behavior unchanged.
+
 ## 2026-03-11 - HUD redesign: minimal scoreboard, naked timer, transient combo, ping fix
 
 - Scope: `index.html`, `src/ui/screens.ts`
