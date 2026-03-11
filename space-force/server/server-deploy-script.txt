@@ -282,10 +282,13 @@ install_capacity_runner() {
   local combined_runner="${server_dir}/loadtest/run-capacity-with-dashboard.sh"
   local report_builder="${server_dir}/loadtest/build-capacity-report.mjs"
   [ -f "${host_runner}" ] || fail "Missing host runner: ${host_runner}"
-  [ -f "${combined_runner}" ] || fail "Missing combined runner: ${combined_runner}"
   [ -f "${report_builder}" ] || fail "Missing report builder: ${report_builder}"
   chmod +x "${host_runner}"
-  chmod +x "${combined_runner}"
+  if [ -f "${combined_runner}" ]; then
+    chmod +x "${combined_runner}"
+  else
+    warn "Combined runner not found at ${combined_runner} — skipping chmod (pull latest branch to enable)"
+  fi
 
   cat > "${CAPACITY_RUNNER_PATH}" <<'RUNNER_EOF'
 #!/usr/bin/env bash
