@@ -270,6 +270,7 @@ function getMimeType(filePath: string): string {
     ".ogg": "audio/ogg",
     ".mp4": "video/mp4",
     ".webm": "video/webm",
+    ".wasm": "application/wasm",
     ".json": "application/json",
     ".woff": "font/woff",
     ".woff2": "font/woff2",
