@@ -13,8 +13,10 @@ fi
 
 if [ -s "${NVM_DIR}/nvm.sh" ]; then
   # shellcheck disable=SC1090
+  set +u
   . "${NVM_DIR}/nvm.sh"
   nvm use >/dev/null 2>&1 || true
+  set -u
 fi
 
 ENDPOINT="${ENDPOINT:-${VITE_COLYSEUS_WS_URL:-}}"
