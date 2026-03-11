@@ -31,6 +31,24 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
 
 - None currently open. Add one thread when a planned prompt starts; remove it after milestone capture.
 
+## 2026-03-11 - HUD redesign: minimal scoreboard, naked timer, transient combo, ping fix
+
+- Scope: `index.html`, `src/ui/screens.ts`
+- What shipped and what had to be fixed:
+  - Removed `hud-top-row` flex wrapper. Each element independently positioned.
+  - Score track: no panel, `position: absolute` top-left in game box. Dot + fixed-width name (58px) + score indicator per row. Self dot glows. State via opacity only, no status text.
+  - **Issue 1**: score track used `calc(var(--safe-top) + 10px)` — wrong reference inside `.hud` which already starts at `box-top`. Fixed to `top: var(--hud-top-pad)` to clear platform overlay.
+  - **Issue 2**: name was `max-width` not fixed width — dots started at different horizontal positions per player. Fixed to `width: 58px; flex-shrink: 0`.
+  - **Issue 3**: endless stats showed `PTS 1234 K 5` — noisy. Fixed: score number only; kills shown only when kill limit set, smaller + lower opacity, no labels.
+  - Timer: naked Orbitron number, `top: var(--hud-top-pad)`, text-shadow only, warning/urgent states preserved.
+  - Combo: transient flash, `top: calc(var(--hud-top-pad) + 32px)`. `opacity` transition. Shows `COMBO` label + `×{n}` in player color on increment, auto-dismisses 1.5s. Initial implementation used plain `textContent` with no label — not intuitive. Fixed to `innerHTML` with `.hud-combo-tag` / `.hud-combo-val` structure.
+  - **Issue 4**: ping used `calc(var(--safe-top) + 48px)` — was under platform overlay and overlapping settings button. Multiple wrong fixes attempted (hud-top-pad based, then settings-button-offset based). Correct fix per user intent: `top: calc(var(--safe-top, 0px) + 12px); right: 12px` — own small padding from safe-area top, top-right corner, independent of other elements.
+- Validation: `bun run typecheck`: clean. `bun run build`: clean.
+- Outcome: No layout shifts. No opaque panels. Score list stable top-left. Timer naked center-top. Combo flashes briefly on increment with clear label. Ping top-right corner with its own padding.
+- Follow-up fixes same session:
+  - Ping moved to bottom-right anchor: `bottom: calc(var(--safe-bottom, 0px) + 12px); right: 12px` — was annoying and fighting with other top elements.
+  - Scoreboard hidden in local device multiplayer (`sessionMode === "local" && localPlayerCount > 1`) — was overlapping touch buttons. `updateScoreTrack` gates on this and clears + hides the element.
+
 ## 2026-03-11 - HUD polish: net stats trim, triangle inset shadow, touch zone icons
 
 - Scope:

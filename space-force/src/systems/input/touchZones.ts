@@ -140,7 +140,6 @@ export class TouchZoneManager {
     this.activeTouches.clear();
     this.currentLayout = null;
     this.lastSetupSignature = null;
-
     if (this.touchZoneContainer) {
       this.touchZoneContainer.classList.remove("active");
     }

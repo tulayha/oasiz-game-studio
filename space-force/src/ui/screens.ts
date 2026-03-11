@@ -119,6 +119,7 @@ export function createScreenController(
   const comboHintMultiplierByPlayerId = new Map<string, number>();
   let comboHintRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
   let comboHudPrevMultiplier = 1;
+  let comboFlashTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let activeScreen: Screen = "start";
   let systemMessageTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -307,6 +308,7 @@ export function createScreenController(
     if (activeScreen !== "game") {
       elements.comboHud.classList.remove("active");
       comboHudPrevMultiplier = 1;
+      if (comboFlashTimeoutId) { clearTimeout(comboFlashTimeoutId); comboFlashTimeoutId = null; }
       return;
     }
 
@@ -330,53 +332,26 @@ export function createScreenController(
     if (!isActive) {
       elements.comboHud.classList.remove("active");
       comboHudPrevMultiplier = 1;
+      if (comboFlashTimeoutId) { clearTimeout(comboFlashTimeoutId); comboFlashTimeoutId = null; }
       return;
     }
-
-    const pipCount = 6;
-    const ratio = Math.max(
-      0,
-      Math.min(1, comboRemainingMs / COMBAT_COMBO_RULES.durationMs),
-    );
-    const activePips = Math.max(
-      1,
-      Math.min(pipCount, Math.ceil(ratio * pipCount)),
-    );
 
     const isIncrement = self.comboMultiplier > comboHudPrevMultiplier + 0.01;
     comboHudPrevMultiplier = self.comboMultiplier;
 
-    elements.comboHud.style.setProperty("--combo-color", self.color.primary);
-    elements.comboHud.style.borderColor =
-      `color-mix(in srgb, ${self.color.primary} 45%, transparent)`;
-    elements.comboHud.style.boxShadow =
-      `0 0 14px color-mix(in srgb, ${self.color.primary} 28%, transparent)`;
-
-    elements.comboHud.classList.add("active");
-    elements.comboHud.innerHTML =
-      '<div class="hud-combo-header">' +
-      '<span class="hud-combo-label">Combo</span>' +
-      '<span class="hud-combo-value' +
-      (isIncrement ? " punch" : "") +
-      '">x' +
-      formatComboMultiplier(self.comboMultiplier) +
-      "</span>" +
-      "</div>" +
-      '<div class="hud-combo-pips">' +
-      Array.from(
-        { length: pipCount },
-        (_, i) =>
-          '<div class="hud-combo-pip' + (i < activePips ? " live" : "") + '"></div>',
-      ).join("") +
-      "</div>";
-
-    // Schedule next update at the next pip drop
-    const nextPipThresholdMs =
-      activePips > 1
-        ? (COMBAT_COMBO_RULES.durationMs * (activePips - 1)) / pipCount
-        : 0;
-    const msUntilNextPip = Math.max(0, comboRemainingMs - nextPipThresholdMs);
-    scheduleComboHintRefresh(Math.max(50, Math.ceil(msUntilNextPip)));
+    if (isIncrement) {
+      if (comboFlashTimeoutId) { clearTimeout(comboFlashTimeoutId); comboFlashTimeoutId = null; }
+      elements.comboHud.innerHTML =
+        '<div class="hud-combo-tag">combo</div>' +
+        '<div class="hud-combo-val">×' + formatComboMultiplier(self.comboMultiplier) + "</div>";
+      elements.comboHud.style.color = self.color.primary;
+      elements.comboHud.style.textShadow = `0 0 16px ${self.color.primary}`;
+      elements.comboHud.classList.add("active");
+      comboFlashTimeoutId = setTimeout(() => {
+        elements.comboHud.classList.remove("active");
+        comboFlashTimeoutId = null;
+      }, 1500);
+    }
   }
 
   function updateEndlessTimer(): void {
@@ -427,6 +402,15 @@ export function createScreenController(
   }
 
   function updateScoreTrack(players: PlayerData[]): void {
+    const isLocalMultiplayer =
+      game.getSessionMode() === "local" && game.getLocalPlayerCount() > 1;
+    if (isLocalMultiplayer) {
+      elements.scoreTrack.innerHTML = "";
+      elements.scoreTrack.style.display = "none";
+      return;
+    }
+    elements.scoreTrack.style.display = "";
+
     const myPlayerId = game.getMyPlayerId();
     const isEndless = game.getRuleset() === "ENDLESS_RESPAWN";
     const settings = game.getAdvancedSettings();
@@ -446,30 +430,19 @@ export function createScreenController(
           !isDeparted && isCombatPhase && player.state === "SPECTATING";
         const isEjected =
           !isDeparted && isCombatPhase && player.state === "EJECTED";
-        let statusLabel = "";
-        if (player.presence === "KICKED") {
-          statusLabel = " (Kicked)";
-        } else if (player.presence === "LEFT") {
-          statusLabel = " (Left)";
-        } else if (isEliminated) {
-          statusLabel = " (Out)";
-        } else if (isEjected) {
-          statusLabel = " (Ejected)";
-        }
-
         let statsMarkup: string;
         if (isEndless) {
           const killsHtml =
             killLimit !== null
-              ? '<div class="score-kills">K ' +
+              ? '<div class="score-kills">' +
                 player.kills.toString() +
                 '<span class="score-kills-limit">/' +
                 killLimit.toString() +
                 "</span></div>"
-              : '<div class="score-kills">K ' + player.kills.toString() + "</div>";
+              : "";
           statsMarkup =
             '<div class="score-row-stats">' +
-            '<div class="score-points">PTS ' +
+            '<div class="score-points">' +
             player.score.toString() +
             "</div>" +
             killsHtml +
@@ -499,11 +472,9 @@ export function createScreenController(
           '" style="color: ' +
           player.color.primary +
           '">' +
+          '<div class="score-player-dot"></div>' +
           '<span class="score-player-name">' +
           escapeHtml(player.name) +
-          '<span class="score-player-status">' +
-          escapeHtml(statusLabel) +
-          "</span>" +
           "</span>" +
           statsMarkup +
           "</div>"

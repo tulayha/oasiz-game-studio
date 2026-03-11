@@ -1191,98 +1191,70 @@
       display: block;
     }
 
-    .hud-top-row {
-      position: absolute;
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      align-items: flex-start;
-      gap: 6px;
-      pointer-events: none;
-    }
-
+    /* ── Player list (top-left) ──────────────────────────────────── */
     .score-track {
-      background: rgba(10, 10, 18, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 0.8rem 1.2rem;
+      position: absolute;
+      top: var(--hud-top-pad);
+      left: 12px;
       display: flex;
       flex-direction: column;
-      gap: 0.4rem;
+      gap: 5px;
+      pointer-events: none;
     }
 
     .score-row {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 5px;
     }
 
-    .score-row.departed {
-      opacity: 0.55;
+    .score-row.departed  { opacity: 0.45; }
+    .score-row.eliminated { opacity: 0.5; }
+    .score-row.ejected   { opacity: 0.72; }
+
+    .score-player-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+      opacity: 0.5;
     }
 
-    .score-row.departed .score-player-name {
-      text-decoration: line-through;
-    }
-
-    .score-row.eliminated {
-      opacity: 0.62;
-    }
-
-    .score-row.eliminated .score-player-name {
-      text-decoration: line-through;
-    }
-
-    .score-row.ejected {
-      opacity: 0.78;
+    .score-row.self .score-player-dot {
+      opacity: 1;
+      box-shadow: 0 0 5px currentColor;
     }
 
     .score-player-name {
-      font-size: 0.7rem;
+      font-size: 0.62rem;
       color: inherit;
-      width: 68px;
+      width: 58px;
+      flex-shrink: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      opacity: 0.75;
+      opacity: 0.72;
+      letter-spacing: 0.04em;
     }
 
-    .score-player-status {
-      opacity: 0.7;
-      font-size: 0.62rem;
-    }
-
-    .score-row.self {
-      position: relative;
-    }
-
-    .score-row.self::before {
-      content: '';
-      position: absolute;
-      left: -10px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-      background: currentColor;
-      box-shadow: 0 0 6px currentColor;
+    .score-row.self .score-player-name {
+      opacity: 1;
     }
 
     .score-dots {
       display: flex;
-      gap: 4px;
-      min-width: 56px;
-      justify-content: flex-end;
+      align-items: center;
+      gap: 3px;
     }
 
     .score-dot {
-      width: 12px;
-      height: 12px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
-      border: 2px solid currentColor;
-      opacity: 0.3;
+      border: 1.5px solid currentColor;
+      opacity: 0.28;
+      flex-shrink: 0;
     }
 
     .score-dot.filled {
@@ -1291,55 +1263,45 @@
     }
 
     .score-points {
-      min-width: 52px;
-      text-align: right;
       font-family: 'Orbitron', sans-serif;
-      font-size: 0.62rem;
-      letter-spacing: 0.08em;
-      color: rgba(255, 255, 255, 0.88);
+      font-size: 0.58rem;
+      letter-spacing: 0.06em;
+      color: inherit;
+      opacity: 0.88;
     }
 
     .score-kills {
-      min-width: 44px;
-      text-align: right;
       font-family: 'Orbitron', sans-serif;
-      font-size: 0.62rem;
-      letter-spacing: 0.08em;
-      color: rgba(255, 255, 255, 0.88);
+      font-size: 0.52rem;
+      letter-spacing: 0.04em;
+      color: inherit;
+      opacity: 0.5;
     }
 
     .score-kills-limit {
-      opacity: 0.5;
+      opacity: 0.6;
     }
 
     .score-row-stats {
       display: flex;
-      gap: 6px;
+      gap: 4px;
       align-items: center;
     }
 
-    @media (pointer: coarse) {
-      .score-track {
-        background: rgba(10, 10, 18, 0.5);
-      }
-
-      .score-player-name {
-        width: 74px;
-      }
-    }
-
-    /* ── Endless timer (left of scoreboard) ───────────────────────── */
+    /* ── Endless timer (top-center) ──────────────────────────────── */
     .hud-timer {
-      background: rgba(10, 10, 18, 0.65);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      padding: 7px 14px 8px;
+      position: absolute;
+      top: var(--hud-top-pad);
+      left: 50%;
+      transform: translateX(-50%);
       font-family: 'Orbitron', sans-serif;
-      font-size: 1.05rem;
+      font-size: 1.1rem;
       font-weight: 700;
-      letter-spacing: 0.1em;
-      color: rgba(255, 255, 255, 0.88);
+      letter-spacing: 0.12em;
+      color: rgba(255, 255, 255, 0.9);
+      text-shadow: 0 0 14px rgba(255, 255, 255, 0.2);
       pointer-events: none;
+      white-space: nowrap;
       display: none;
     }
 
@@ -1349,86 +1311,51 @@
 
     .hud-timer.warning {
       color: #ffa040;
-      border-color: rgba(255, 160, 64, 0.3);
+      text-shadow: 0 0 14px rgba(255, 160, 64, 0.45);
     }
 
     .hud-timer.urgent {
       color: #ff4444;
-      border-color: rgba(255, 68, 68, 0.4);
+      text-shadow: 0 0 14px rgba(255, 68, 68, 0.55);
       animation: timerUrgentPulse 0.9s ease-in-out infinite;
     }
 
     @keyframes timerUrgentPulse {
       0%, 100% { opacity: 1; }
-      50%       { opacity: 0.55; }
+      50%       { opacity: 0.5; }
     }
 
-    /* ── Combo HUD (right of scoreboard) ─────────────────────────── */
+    /* ── Combo flash (top-center, transient) ─────────────────────── */
     .hud-combo {
-      --combo-color: rgba(255, 255, 255, 0.75);
-      width: 108px;
-      background: rgba(6, 6, 15, 0.82);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      padding: 7px 11px 8px;
+      position: absolute;
+      top: calc(var(--hud-top-pad) + 32px);
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Orbitron', sans-serif;
+      text-align: center;
+      white-space: nowrap;
       pointer-events: none;
-      display: none;
+      opacity: 0;
+      transition: opacity 0.4s ease;
     }
 
     .hud-combo.active {
-      display: block;
+      opacity: 1;
     }
 
-    .hud-combo-header {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      margin-bottom: 5px;
-    }
-
-    .hud-combo-label {
-      font-family: 'Orbitron', sans-serif;
-      font-size: 0.5rem;
+    .hud-combo-tag {
+      font-size: 0.45rem;
       font-weight: 700;
-      letter-spacing: 0.13em;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--combo-color);
-      opacity: 0.75;
+      opacity: 0.7;
+      margin-bottom: 1px;
     }
 
-    .hud-combo-value {
-      font-family: 'Orbitron', sans-serif;
-      font-size: 1.0rem;
+    .hud-combo-val {
+      font-size: 0.9rem;
       font-weight: 900;
-      letter-spacing: 0.04em;
-      color: rgba(255, 255, 255, 0.95);
-    }
-
-    .hud-combo-value.punch {
-      animation: hudComboPunch 280ms cubic-bezier(0.14, 0.95, 0.35, 1);
-    }
-
-    @keyframes hudComboPunch {
-      0%   { transform: scale(0.68) translateY(2px); }
-      55%  { transform: scale(1.25) translateY(-1px); }
-      100% { transform: scale(1)    translateY(0); }
-    }
-
-    .hud-combo-pips {
-      display: flex;
-      gap: 3px;
-    }
-
-    .hud-combo-pip {
-      flex: 1;
-      height: 3px;
-      border-radius: 2px;
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    .hud-combo-pip.live {
-      background: var(--combo-color);
-      box-shadow: 0 0 5px var(--combo-color);
+      letter-spacing: 0.06em;
     }
 
     .round-result {
@@ -1576,8 +1503,8 @@
 
     .net-stats {
       position: fixed;
-      top: calc(var(--safe-top, 0px) + 48px);
-      right: 12px;
+      bottom: 12px;
+      right: 100px;
       z-index: 60;
       font-family: 'Orbitron', monospace;
       font-size: 10px;
@@ -4407,11 +4334,9 @@
 
   <!-- HUD -->
   <div class="hud" id="hud">
-    <div class="hud-top-row">
-      <div class="hud-timer" id="endlessTimer"></div>
-      <div class="score-track" id="scoreTrack"></div>
-      <div class="hud-combo" id="comboHud"></div>
-    </div>
+    <div class="score-track" id="scoreTrack"></div>
+    <div class="hud-timer" id="endlessTimer"></div>
+    <div class="hud-combo" id="comboHud"></div>
     <button class="leave-btn" id="leaveGameBtn" aria-label="Leave Match" title="Leave Match">
       <svg viewBox="0 0 24 24"><path d="M15.5 5.5L9 12l6.5 6.5-1.5 1.5L6 12l8-8 1.5 1.5z"/></svg>
     </button>
