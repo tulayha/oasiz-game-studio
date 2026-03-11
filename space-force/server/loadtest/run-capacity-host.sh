@@ -11,6 +11,11 @@ if [ -f "${ENV_FILE}" ]; then
   . "${ENV_FILE}"
 fi
 
+# Keep remote console output plain and avoid control-sequence redraws.
+export NO_COLOR=1
+export npm_config_progress=false
+export npm_config_color=false
+
 if [ -s "${NVM_DIR}/nvm.sh" ]; then
   # shellcheck disable=SC1090
   set +u
@@ -44,6 +49,7 @@ MAX_LEFT_UNCONSENTED_DELTA="${MAX_LEFT_UNCONSENTED_DELTA:-0}"
 HEADROOM_RATIO="${HEADROOM_RATIO:-0.70}"
 FAIL_ON_1006="${FAIL_ON_1006:-false}"
 ENABLE_DASHBOARD="${ENABLE_DASHBOARD:-true}"
+LOCK_FILE="${LOCK_FILE:-/tmp/space-force-capacity.lock}"
 
 log() {
   echo "[space-force-capacity] $*"
@@ -90,11 +96,18 @@ stop_pid() {
 
 HOST_METRICS_PID=""
 OPS_METRICS_PID=""
+PROGRESS_ECHO_PID=""
 HOST_IFACE=""
+LOCK_ACQUIRED="false"
 
 cleanup() {
   stop_pid "${HOST_METRICS_PID}"
   stop_pid "${OPS_METRICS_PID}"
+  stop_pid "${PROGRESS_ECHO_PID}"
+  if [ "${LOCK_ACQUIRED}" = "true" ]; then
+    flock -u 9 >/dev/null 2>&1 || true
+    LOCK_ACQUIRED="false"
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -112,6 +125,13 @@ require_cmd awk
 require_cmd curl
 require_cmd date
 require_cmd tee
+require_cmd flock
+
+exec 9>"${LOCK_FILE}"
+if ! flock -n 9; then
+  fail "Another capacity run is already in progress (lock ${LOCK_FILE})"
+fi
+LOCK_ACQUIRED="true"
 
 RUN_DIR="${OUT_ROOT}/${RUN_ID}"
 LOADTEST_OUTPUT_DIR="${RUN_DIR}/loadtest"
@@ -268,6 +288,28 @@ process.stdin.on("end", () => {
   OPS_METRICS_PID="$!"
 }
 
+start_progress_echo_loop() {
+  (
+    local last_line=""
+    while true; do
+      local latest_stage_log=""
+      local summary_line=""
+      latest_stage_log="$(ls -1t "${LOADTEST_OUTPUT_DIR}"/stage-*.log 2>/dev/null | head -n 1 || true)"
+      if [ -n "${latest_stage_log}" ] && [ -f "${latest_stage_log}" ]; then
+        summary_line="$(
+          grep -E "\[LoadTest\.(lobbyfill|roomcode)\.summary\]" "${latest_stage_log}" 2>/dev/null | tail -n 1 || true
+        )"
+        if [ -n "${summary_line}" ] && [ "${summary_line}" != "${last_line}" ]; then
+          log "Live $(basename "${latest_stage_log}"): ${summary_line}"
+          last_line="${summary_line}"
+        fi
+      fi
+      sleep 5
+    done
+  ) &
+  PROGRESS_ECHO_PID="$!"
+}
+
 STARTED_AT_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 log "Run ID ${RUN_ID}"
@@ -277,6 +319,7 @@ log "Runner ${RUNNER} stages=${STAGES} usersPerRoom=${USERS_PER_ROOM} durationSe
 
 start_host_metrics_loop
 start_ops_poller
+start_progress_echo_loop
 
 if [ -n "${INPUT_DEBOUNCE_MS}" ]; then
   export LOADTEST_INPUT_DEBOUNCE_MS="${INPUT_DEBOUNCE_MS}"
