@@ -109,7 +109,7 @@ export class PlayroomBridge {
     }
     const card = this.engine.drawCard();
     this.setHandCount(this.engine.handCount);
-    if (this.isHost()) this.decrementDeckCount();
+    this.decrementDeckCount();
     oasiz.triggerHaptic("medium");
     return card;
   }
@@ -123,7 +123,8 @@ export class PlayroomBridge {
     const card = this.engine.playCard(index);
     this.setHandCount(this.engine.handCount);
     this.setDiscardTop(card);
-    if (this.isHost()) this.advanceTurnFrom(this.getMyId());
+    // Signal turn done — host picks this up in poll() and advances for everyone.
+    this.pr?.setState("turnDoneBy", this.getMyId(), true);
     oasiz.triggerHaptic("medium");
     return card;
   }
@@ -172,13 +173,16 @@ export class PlayroomBridge {
 
   advanceTurnFrom(currentPlayerId: string): void {
     if (!this.pr || !this.pr.isHost()) return;
+    // Guard: bail if it's no longer this player's turn (prevents duplicate advances)
+    if ((this.pr.getState("currentTurn") as string) !== currentPlayerId) return;
     const idx = this.players.findIndex(p => p.id === currentPlayerId);
-    const next = this.players[(idx + 1) % Math.max(this.players.length, 1)];
+    if (idx === -1) return;
+    const next = this.players[(idx + 1) % this.players.length];
     if (next) this.pr.setState("currentTurn", next.id, true);
   }
 
   decrementDeckCount(): void {
-    if (!this.pr?.isHost()) return;
+    if (!this.pr) return;
     const cur = (this.pr.getState("deckCount") as number) ?? 0;
     this.pr.setState("deckCount", Math.max(0, cur - 1), true);
   }
@@ -219,6 +223,14 @@ export class PlayroomBridge {
     this.checkKey("discardTopCard", v => cb.onDiscardTopChange(v as CardFace | null));
     this.checkKey("deckCount", v => cb.onDeckCountChange(v as number));
     this.checkKey("gamePhase", v => cb.onGamePhaseChange(v as CardGamePhase));
+
+    // Host is the single authority on turn advancement.
+    // When any player signals "turnDoneBy", the host advances from that player.
+    this.checkKey("turnDoneBy", (v) => {
+      if (this.pr?.isHost()) {
+        this.advanceTurnFrom(v as string);
+      }
+    });
 
     // Per-player hand counts (skip self)
     const myId = this.pr.myPlayer().id;

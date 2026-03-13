@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * cards-main.ts
  * ─────────────
@@ -14,7 +15,21 @@ import { CardGameEngine } from "./cards-core/CardGameEngine";
 import { DEFAULT_TABLE_CONFIG } from "./cards-core/config";
 import type { TableConfig } from "./cards-core/types";
 import type { LocalCard } from "./cards-core/types";
-const { PixiCardGame } = await import("./pixi-cards/PixiCardGame");
+
+// ── Renderer feature flag ─────────────────────────────────────────────────────
+// Set VITE_USE_PHASER=true in env to use PhaserCardGame instead of PixiCardGame.
+// PhaserCardGame is implemented in src/phaser-cards/ (Phase 2+).
+const USE_PHASER = import.meta.env.VITE_USE_PHASER === "true";
+console.log("USE_PHASER", USE_PHASER);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let CardGameRenderer: new (...args: any[]) => { destroy(): void };
+if (USE_PHASER) {
+  const { PhaserCardGame } = await import("./phaser-cards/PhaserCardGame");
+  CardGameRenderer = PhaserCardGame;
+} else {
+  const { PixiCardGame } = await import("./pixi-cards/PixiCardGame");
+  CardGameRenderer = PixiCardGame;
+}
 
 // ── Pixi-only dummy mode (no multiplayer, no play/draw) ─────────────────────
 
@@ -222,16 +237,14 @@ function launchGame(): void {
   if (bridge.isHost()) {
     bridge.initializeDeck(config.deck.totalCount);
   }
-  (async () => {
-    activeRenderer = new PixiCardGame(
-      rendererMount,
-      config,
-      bridge,
-      engine!,
-      settings,
-      (phase) => { if (phase === "gameover") showScreen("gameover"); },
-    );
-  })();
+  activeRenderer = new CardGameRenderer(
+    rendererMount,
+    config,
+    bridge,
+    engine!,
+    settings,
+    (phase: string) => { if (phase === "gameover") showScreen("gameover"); },
+  );
   (oasiz as unknown as Record<string, () => void>).gameplayStart?.();
 }
 
@@ -250,16 +263,14 @@ function launchGameDummy(): void {
   const name = (startNameInput?.value ?? "").trim() || "You";
   const avatarUrl = selectedStartAvatarUrl;
   const dummyBridge = new DummyBridge(engine, name, avatarUrl);
-  (async () => {
-    activeRenderer = new PixiCardGame(
-      rendererMount,
-      config,
-      dummyBridge as unknown as PlayroomBridge,
-      engine!,
-      settings,
-      (phase) => { if (phase === "gameover") showScreen("gameover"); },
-    );
-  })();
+  activeRenderer = new CardGameRenderer(
+    rendererMount,
+    config,
+    dummyBridge as unknown as PlayroomBridge,
+    engine!,
+    settings,
+    (phase: string) => { if (phase === "gameover") showScreen("gameover"); },
+  );
   (oasiz as unknown as Record<string, () => void>).gameplayStart?.();
 }
 

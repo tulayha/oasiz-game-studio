@@ -56,7 +56,11 @@ card-template/
 │   ├── cards-animations.md             # Animation timing plan
 │   ├── cards-file-structure.md         # File structure guide for new games
 │   ├── cards-pixi-renderer.md          # PixiJS v8 renderer plan
-│   ├── cards-phaser-renderer.md        # Phaser 3 renderer plan (not yet built)
+│   ├── phaser/                         # Phaser 3 renderer plan (see phaser/README.md)
+│   │   ├── README.md                   # Index + reuse summary
+│   │   ├── architecture.md             # Data flow, constructor contract
+│   │   └── implementation.md           # Phased implementation steps
+│   ├── cards-phaser-renderer.md        # Legacy Phaser notes (superseded by phaser/)
 │   ├── cards-integrations.md           # Oasiz SDK + HTML shell + lobby flow
 │   └── cards-test-checklist.md         # QA test checklist
 │

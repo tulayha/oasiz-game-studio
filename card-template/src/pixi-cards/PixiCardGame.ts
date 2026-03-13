@@ -6,7 +6,7 @@
  * Wires PlayroomBridge callbacks to table, local fan, opponent fans, and turn HUD.
  */
 
-import { Application, Color, Container } from "pixi.js";
+import { Application, Assets, Color, Container, Graphics, Sprite } from "pixi.js";
 import { PlayroomBridge } from "../cards-core/PlayroomBridge";
 import { CardGameEngine } from "../cards-core/CardGameEngine";
 import type { TableConfig, TableZone } from "../cards-core/types";
@@ -28,6 +28,7 @@ export class PixiCardGame {
   private localFan!: PixiLocalFan;
   private opponentFans: PixiOpponentFan[] = [];
   private turnHUD!: PixiTurnHUD;
+  private backgroundLayer!: Container;
   private tableLayer!: Container;
   private opponentLayer!: Container;
   private localFanLayer!: Container;
@@ -82,18 +83,22 @@ export class PixiCardGame {
 
     this.mount.appendChild(this.app.canvas as HTMLCanvasElement);
 
+    this.backgroundLayer = new Container();
     this.tableLayer = new Container();
     this.opponentLayer = new Container();
     this.localFanLayer = new Container();
     this.flyLayer = new Container();
     this.hudLayer = new Container();
     this.app.stage.addChild(
+      this.backgroundLayer,
       this.tableLayer,
       this.opponentLayer,
       this.localFanLayer,
       this.flyLayer,
       this.hudLayer,
     );
+
+    await this.setupBackground(W, H);
 
     const layout = this.calcLayout(W, H);
     const zones = this.buildZones(layout);
@@ -114,9 +119,9 @@ export class PixiCardGame {
     };
     this.tableLayer.addChild(this.table);
 
-    const slotA = new PixiOpponentFan("A", layout.slotA_x, layout.slotA_y, this.config.visualConfig, this.app.ticker);
-    const slotB = new PixiOpponentFan("B", layout.slotB_x, layout.slotB_y, this.config.visualConfig, this.app.ticker);
-    const slotC = new PixiOpponentFan("C", layout.slotC_x, layout.slotC_y, this.config.visualConfig, this.app.ticker);
+    const slotA = new PixiOpponentFan("A", layout.slotA_x, layout.slotA_y, this.config.visualConfig);
+    const slotB = new PixiOpponentFan("B", layout.slotB_x, layout.slotB_y, this.config.visualConfig);
+    const slotC = new PixiOpponentFan("C", layout.slotC_x, layout.slotC_y, this.config.visualConfig);
     this.opponentFans = [slotA, slotB, slotC];
     this.opponentLayer.addChild(slotA, slotB, slotC);
 
@@ -125,7 +130,6 @@ export class PixiCardGame {
       layout.localFanY,
       layout.fanRadius,
       this.config.visualConfig,
-      this.app.ticker,
       this.flyLayer,
     );
     this.localFan.onCardTap = (index) => {
@@ -154,7 +158,7 @@ export class PixiCardGame {
       }
     }
 
-    this.turnHUD = new PixiTurnHUD(this.app.ticker);
+    this.turnHUD = new PixiTurnHUD();
     this.turnHUD.registerSlot("local", layout.localFanX, layout.localFanY + 24);
     this.turnHUD.registerSlot("A", layout.slotA_x, layout.slotA_y + 20);
     this.turnHUD.registerSlot("B", layout.slotB_x, layout.slotB_y + 20);
@@ -203,6 +207,44 @@ export class PixiCardGame {
     window.addEventListener("resize", this.onResize);
     window.addEventListener("cardsGame:pause", this.onPause);
     window.addEventListener("cardsGame:resume", this.onResume);
+  }
+
+  /** Try to load background from assets folder; fallback to gradient/solid. */
+  private async setupBackground(W: number, H: number): Promise<void> {
+    const base = "/assets";
+    const candidates = ["/background.png", "/background.jpg", "/background.webp"].map((p) => base + p);
+    let textureLoaded = false;
+    for (const url of candidates) {
+      try {
+        const texture = await Assets.load(url);
+        if (texture) {
+          const sprite = new Sprite({ texture });
+          sprite.width = W;
+          sprite.height = H;
+          sprite.position.set(0, 0);
+          this.backgroundLayer.addChild(sprite);
+          textureLoaded = true;
+          console.log("[PixiCardGame] Background loaded from", url);
+          break;
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+    if (!textureLoaded) {
+      const c = this.config.visualConfig.backgroundColor;
+      const r = Math.round(((c >> 16) & 0xff) * 0.5);
+      const g = Math.round(((c >> 8) & 0xff) * 0.5);
+      const b = Math.round((c & 0xff) * 0.5);
+      const darker = (r << 16) | (g << 8) | b;
+      const gfx = new Graphics();
+      gfx.rect(0, 0, W, H);
+      gfx.fill({ color: darker, alpha: 1 });
+      gfx.rect(0, 0, W, H * 0.6);
+      gfx.fill({ color: c, alpha: 0.95 });
+      this.backgroundLayer.addChild(gfx);
+      console.log("[PixiCardGame] Background: fallback gradient (no image in assets)");
+    }
   }
 
   /** Portrait-first layout: opponents high, table mid, local fan large and in front. */
@@ -323,6 +365,11 @@ export class PixiCardGame {
     const H = window.innerHeight;
     const isMobile = window.matchMedia("(pointer: coarse)").matches;
     this.app.renderer.resize(W, H);
+    const first = this.backgroundLayer.children[0];
+    if (first && "width" in first && "height" in first) {
+      (first as { width: number; height: number }).width = W;
+      (first as { width: number; height: number }).height = H;
+    }
     const layout = this.calcLayout(W, H);
     const zones = this.buildZones(layout);
     this.table.reposition(zones);

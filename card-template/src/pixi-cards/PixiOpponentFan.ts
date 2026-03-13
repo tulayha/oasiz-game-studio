@@ -3,10 +3,11 @@
  * ──────────────────
  * Face-down card fan for one opponent slot (A = top, B = left, C = right).
  * For all slots the fan opens downward so cards sit below the name/character.
- * Animates card additions/removals and re-layouts via the shared Ticker.
+ * Card add/remove animations driven by GSAP (no Pixi ticker).
  */
 
-import { Container, Graphics, Sprite, Text, TextStyle, type Ticker } from "pixi.js";
+import { Container, Graphics, Sprite, Text, TextStyle } from "pixi.js";
+import { gsap } from "gsap";
 import { loadAvatarTexture } from "./loadAvatarTexture";
 import type { CardVisualConfig } from "../cards-core/types";
 import { computeFanSlots, layoutCards } from "../cards-core/fanMath";
@@ -19,31 +20,28 @@ const SLOT_SCALE: Record<OpponentSlot, number> = { A: 0.5, B: 0.5, C: 0.5 };
 const OPPONENT_AVATAR_SIZE = 32;
 
 export class PixiOpponentFan extends Container {
-  private backCards: Container[] = [];
-  private nameLabel: Text;
-  private badgeText: Text;
+  private backCards:    Container[] = [];
+  private nameLabel:    Text;
+  private badgeText:    Text;
   private avatarSprite: Sprite | null = null;
-  private readonly slot: OpponentSlot;
-  private anchorX: number;
-  private anchorY: number;
-  private readonly scale_: number;
-  private readonly config: CardVisualConfig;
-  private readonly ticker: Ticker;
+  private readonly slot:    OpponentSlot;
+  private anchorX:      number;
+  private anchorY:      number;
+  private readonly scale_:  number;
+  private readonly config:  CardVisualConfig;
 
   constructor(
-    slot: OpponentSlot,
+    slot:    OpponentSlot,
     anchorX: number,
     anchorY: number,
-    config: CardVisualConfig,
-    ticker: Ticker,
+    config:  CardVisualConfig,
   ) {
     super();
-    this.slot = slot;
+    this.slot    = slot;
     this.anchorX = anchorX;
     this.anchorY = anchorY;
-    this.scale_ = SLOT_SCALE[slot];
-    this.config = config;
-    this.ticker = ticker;
+    this.scale_  = SLOT_SCALE[slot];
+    this.config  = config;
 
     this.nameLabel = this.buildLabel(11);
     this.badgeText = this.buildLabel(10);
@@ -64,14 +62,19 @@ export class PixiOpponentFan extends Container {
         c.alpha = 0;
         this.backCards.push(c);
         this.addChild(c);
-        this.fadeIn(c);
+        gsap.to(c, { alpha: 1, duration: 0.12, ease: "power2.out" });
       }
     } else if (n < prev) {
       for (let i = prev - 1; i >= n; i--) {
-        const c = this.backCards[i];
-        this.fadeOut(c, () => {
-          this.removeChild(c);
-          c.destroy();
+        const c = this.backCards[i]!;
+        gsap.to(c, {
+          alpha:      0,
+          duration:   0.15,
+          ease:       "power2.in",
+          onComplete: () => {
+            this.removeChild(c);
+            c.destroy();
+          },
         });
       }
       this.backCards.splice(n);
@@ -86,7 +89,7 @@ export class PixiOpponentFan extends Container {
     this.positionLabels();
   }
 
-  /** Load and show player avatar from URL (Playroom avatar). Hides if url is null. */
+  /** Load and show player avatar from URL. Hides if url is null. */
   setPlayerAvatar(url: string | null): void {
     if (this.avatarSprite) {
       this.removeChild(this.avatarSprite);
@@ -111,7 +114,7 @@ export class PixiOpponentFan extends Container {
   }
 
   showSlot(show: boolean): void {
-    this.visible = show;
+    this.visible       = show;
     this.nameLabel.visible = show;
     this.badgeText.visible = show;
     if (this.avatarSprite) this.avatarSprite.visible = show;
@@ -124,19 +127,23 @@ export class PixiOpponentFan extends Container {
     this.positionLabels();
   }
 
+  override destroy(): void {
+    gsap.killTweensOf(this.backCards);
+    super.destroy({ children: true });
+  }
+
   // ── Layout ──────────────────────────────────────────────────────────────────
 
   private relayout(): void {
-    const cardH = CARD_H * this.scale_;
+    const cardH  = CARD_H * this.scale_;
     const radius = cardH * 2.2;
-
-    const raw = computeFanSlots(this.backCards.length, this.anchorX, this.anchorY, radius);
-    const slots = layoutCards(raw, "opponent");
+    const raw    = computeFanSlots(this.backCards.length, this.anchorX, this.anchorY, radius);
+    const slots  = layoutCards(raw, "opponent");
 
     for (let i = 0; i < this.backCards.length; i++) {
       const s = slots[i];
       if (!s) continue;
-      const c = this.backCards[i];
+      const c = this.backCards[i]!;
       c.x = s.x;
       c.y = s.y;
       c.rotation = s.rotation;
@@ -145,7 +152,6 @@ export class PixiOpponentFan extends Container {
   }
 
   private positionLabels(): void {
-    /* Name/badge above anchor so fan sits below character for all slots. */
     const offsetY = -50;
     this.nameLabel.x = this.anchorX - this.nameLabel.width / 2;
     this.nameLabel.y = this.anchorY + offsetY;
@@ -153,28 +159,7 @@ export class PixiOpponentFan extends Container {
     this.badgeText.y = this.nameLabel.y + 14;
   }
 
-  // ── Animations ──────────────────────────────────────────────────────────────
-
-  private fadeIn(c: Container): void {
-    const tick = (delta: { deltaTime: number }) => {
-      c.alpha = Math.min(1, c.alpha + delta.deltaTime * 0.06);
-      if (c.alpha >= 1) this.ticker.remove(tick);
-    };
-    this.ticker.add(tick);
-  }
-
-  private fadeOut(c: Container, onDone: () => void): void {
-    const tick = (delta: { deltaTime: number }) => {
-      c.alpha = Math.max(0, c.alpha - delta.deltaTime * 0.1);
-      if (c.alpha <= 0) {
-        this.ticker.remove(tick);
-        onDone();
-      }
-    };
-    this.ticker.add(tick);
-  }
-
-  // ── Card drawing ────────────────────────────────────────────────────────────
+  // ── Card drawing ─────────────────────────────────────────────────────────────
 
   private buildBackCard(): Container {
     const c = new Container();
@@ -200,7 +185,7 @@ export class PixiOpponentFan extends Container {
 
   private buildLabel(size: number): Text {
     const t = new Text({
-      text: "",
+      text:  "",
       style: new TextStyle({ fontSize: size, fill: 0xffffff, fontFamily: "Arial" }),
     });
     t.alpha = 0.9;

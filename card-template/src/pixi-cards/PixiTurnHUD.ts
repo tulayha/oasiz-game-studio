@@ -2,32 +2,33 @@
  * PixiTurnHUD.ts
  * ──────────────
  * Name labels, card-count badges, turn glow ring, and player avatar for each slot.
+ * All animations driven by GSAP (no Pixi ticker).
  */
 
-import { Container, Graphics, Sprite, Text, TextStyle, type Ticker } from "pixi.js";
+import { Container, Graphics, Sprite, Text, TextStyle } from "pixi.js";
+import { gsap } from "gsap";
 import { loadAvatarTexture } from "./loadAvatarTexture";
+import { ANIM, EASE } from "./gsapPixi";
 
 type Slot = "local" | "A" | "B" | "C";
 
 const AVATAR_SIZE = 28;
 
 interface SlotInfo {
-  x:     number;
-  y:     number;
-  label: Text;
-  badge: Text;
-  glow:  Graphics;
+  x:            number;
+  y:            number;
+  label:        Text;
+  badge:        Text;
+  glow:         Graphics;
   avatarSprite: Sprite | null;
 }
 
 export class PixiTurnHUD extends Container {
-  private slots: Partial<Record<Slot, SlotInfo>> = {};
+  private slots:      Partial<Record<Slot, SlotInfo>> = {};
   private activeSlot: Slot | null = null;
-  private readonly ticker: Ticker;
 
-  constructor(ticker: Ticker) {
+  constructor() {
     super();
-    this.ticker = ticker;
   }
 
   // ── Setup ───────────────────────────────────────────────────────────────────
@@ -42,11 +43,10 @@ export class PixiTurnHUD extends Container {
     glow.position.set(x, y);
 
     this.addChild(glow, label, badge);
-
     this.slots[slot] = { x, y, label, badge, glow, avatarSprite: null };
   }
 
-  /** Load and show player avatar from URL (Playroom avatar). Hides if url is null. */
+  /** Load and show player avatar. Hides if url is null. */
   setPlayerAvatar(slot: Slot, url: string | null): void {
     const s = this.slots[slot];
     if (!s) return;
@@ -101,24 +101,42 @@ export class PixiTurnHUD extends Container {
     const prev = this.activeSlot;
     this.activeSlot = slot;
 
-    // Dim previous slot
+    // Dim the outgoing slot
     if (prev && prev !== slot) {
       const p = this.slots[prev];
-      if (p) this.tweenAlpha(p.label, 0.4, 300);
+      if (p) gsap.to(p.label, { alpha: 0.4, duration: ANIM.HUD_ALPHA, ease: EASE.OUT });
     }
 
-    // Pulse new slot
+    // Brighten + pulse the incoming slot
     const cur = this.slots[slot];
     if (cur) {
-      this.tweenAlpha(cur.label, 1.0, 200);
-      this.scalePulse(cur.label);
+      gsap.to(cur.label, { alpha: 1.0, duration: ANIM.HUD_ALPHA, ease: EASE.OUT });
+      gsap.fromTo(
+        cur.label.scale,
+        { x: 1,    y: 1    },
+        { x: 1.15, y: 1.15, duration: 0.25, ease: "power2.inOut", yoyo: true, repeat: 1 },
+      );
       this.showGlow(cur);
     }
 
-    // Hide glow on others
+    // Kill glow on all other slots
     for (const [key, s] of Object.entries(this.slots) as [Slot, SlotInfo][]) {
-      if (s && key !== slot) { s.glow.alpha = 0; s.glow.visible = false; }
+      if (s && key !== slot) {
+        gsap.killTweensOf(s.glow);
+        s.glow.alpha   = 0;
+        s.glow.visible = false;
+      }
     }
+  }
+
+  override destroy(): void {
+    for (const s of Object.values(this.slots) as (SlotInfo | undefined)[]) {
+      if (!s) continue;
+      gsap.killTweensOf(s.label);
+      gsap.killTweensOf(s.glow);
+      if (s.avatarSprite) gsap.killTweensOf(s.avatarSprite);
+    }
+    super.destroy({ children: true });
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -145,43 +163,17 @@ export class PixiTurnHUD extends Container {
     s.glow.visible = true;
     s.glow.x       = s.x;
     s.glow.y       = s.y - 16;
-
-    let t = 0;
-    const pulse = (delta: { deltaTime: number }) => {
-      t += delta.deltaTime * 0.04;
-      s.glow.alpha = 0.5 + 0.3 * Math.sin(t);
-      if (this.activeSlot !== (Object.entries(this.slots) as [Slot, SlotInfo][]).find(([, v]) => v === s)?.[0]) {
-        this.ticker.remove(pulse);
-      }
-    };
-    this.ticker.add(pulse);
-  }
-
-  private tweenAlpha(obj: { alpha: number }, target: number, durationMs: number): void {
-    const start = obj.alpha;
-    let elapsed = 0;
-    const tick  = (delta: { deltaTime: number }) => {
-      elapsed  += (delta.deltaTime / 60) * 1000;
-      const t   = Math.min(elapsed / durationMs, 1);
-      obj.alpha = lerp(start, target, t);
-      if (t >= 1) this.ticker.remove(tick);
-    };
-    this.ticker.add(tick);
-  }
-
-  private scalePulse(obj: { scale: { set(x: number, y: number): void } }): void {
-    let t = 0;
-    const tick = (delta: { deltaTime: number }) => {
-      t += delta.deltaTime * 0.04;
-      const s = 1 + 0.15 * Math.sin(t * Math.PI);
-      obj.scale.set(s, s);
-      if (t >= 1) {
-        obj.scale.set(1, 1);
-        this.ticker.remove(tick);
-      }
-    };
-    this.ticker.add(tick);
+    gsap.killTweensOf(s.glow);
+    // Fade in, then start infinite sine pulse
+    gsap.fromTo(s.glow, { alpha: 0 }, {
+      alpha:    0.8,
+      duration: 0.2,
+      ease:     EASE.OUT,
+      onComplete: () => {
+        if (s.glow.visible) {
+          gsap.to(s.glow, { alpha: 0.4, duration: ANIM.GLOW_PULSE, yoyo: true, repeat: -1, ease: EASE.SINE });
+        }
+      },
+    });
   }
 }
-
-function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
