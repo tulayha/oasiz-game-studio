@@ -16,19 +16,24 @@ import { DEFAULT_TABLE_CONFIG } from "./cards-core/config";
 import type { TableConfig } from "./cards-core/types";
 import type { LocalCard } from "./cards-core/types";
 
-// ── Renderer feature flag ─────────────────────────────────────────────────────
-// Set VITE_USE_PHASER=true in env to use PhaserCardGame instead of PixiCardGame.
-// PhaserCardGame is implemented in src/phaser-cards/ (Phase 2+).
-const USE_PHASER = import.meta.env.VITE_USE_PHASER === "true";
-console.log("USE_PHASER", USE_PHASER);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let CardGameRenderer: new (...args: any[]) => { destroy(): void };
-if (USE_PHASER) {
-  const { PhaserCardGame } = await import("./phaser-cards/PhaserCardGame");
-  CardGameRenderer = PhaserCardGame;
-} else {
+// ── Renderer choice (set on first screen: Phaser or Pixi) ─────────────────────
+type RendererChoice = "phaser" | "pixi";
+let chosenRenderer: RendererChoice | null = null;
+
+async function getRendererClass(): Promise<new (
+  mount: HTMLElement,
+  config: TableConfig,
+  bridge: PlayroomBridge,
+  engine: CardGameEngine,
+  settings: Settings,
+  onGamePhaseChange?: (phase: string) => void,
+) => { destroy(): void }> {
+  if (chosenRenderer === "phaser") {
+    const { PhaserCardGame } = await import("./phaser-cards/PhaserCardGame");
+    return PhaserCardGame as unknown as ReturnType<typeof getRendererClass>;
+  }
   const { PixiCardGame } = await import("./pixi-cards/PixiCardGame");
-  CardGameRenderer = PixiCardGame;
+  return PixiCardGame as unknown as ReturnType<typeof getRendererClass>;
 }
 
 // ── Pixi-only dummy mode (no multiplayer, no play/draw) ─────────────────────
@@ -100,6 +105,7 @@ let settings = loadSettings();
 
 // ── DOM ─────────────────────────────────────────────────────────────────────
 
+const rendererChoiceScreen = document.getElementById("renderer-choice-screen")!;
 const startScreen = document.getElementById("start-screen")!;
 const loadingScreen = document.getElementById("loading-screen")!;
 const lobbyScreen = document.getElementById("lobby-screen")!;
@@ -107,6 +113,8 @@ const gameContainer = document.getElementById("game-container")!;
 const gameoverOverlay = document.getElementById("gameover-overlay")!;
 const rendererMount = document.getElementById("renderer-mount")!;
 
+const btnRendererPhaser = document.getElementById("btn-renderer-phaser")!;
+const btnRendererPixi = document.getElementById("btn-renderer-pixi")!;
 const btnCreateRoom = document.getElementById("btn-create-room")!;
 const btnJoinRoom = document.getElementById("btn-join-room")!;
 const startNameInput = document.getElementById("start-name") as HTMLInputElement;
@@ -142,12 +150,14 @@ let activeRenderer: { destroy(): void } | null = null;
 // ── Screens ─────────────────────────────────────────────────────────────────
 
 function showScreen(id: string): void {
+  rendererChoiceScreen.classList.add("hidden");
   startScreen.classList.add("hidden");
   loadingScreen.classList.add("hidden");
   lobbyScreen.classList.add("hidden");
   gameContainer.classList.add("hidden");
   gameoverOverlay.classList.add("hidden");
-  if (id === "start") startScreen.classList.remove("hidden");
+  if (id === "renderer-choice") rendererChoiceScreen.classList.remove("hidden");
+  else if (id === "start") startScreen.classList.remove("hidden");
   else if (id === "loading") loadingScreen.classList.remove("hidden");
   else if (id === "lobby") lobbyScreen.classList.remove("hidden");
   else if (id === "game") gameContainer.classList.remove("hidden");
@@ -219,7 +229,8 @@ function escapeHtml(s: string): string {
 
 // ── Game launch ──────────────────────────────────────────────────────────────
 
-function launchGame(): void {
+async function launchGame(): Promise<void> {
+  if (chosenRenderer === null) chosenRenderer = "pixi";
   engine = new CardGameEngine(config);
   bridge.init(
     {
@@ -237,7 +248,8 @@ function launchGame(): void {
   if (bridge.isHost()) {
     bridge.initializeDeck(config.deck.totalCount);
   }
-  activeRenderer = new CardGameRenderer(
+  const RendererClass = await getRendererClass();
+  activeRenderer = new RendererClass(
     rendererMount,
     config,
     bridge,
@@ -256,14 +268,16 @@ function destroyGame(): void {
 }
 
 /** Launch game with dummy data only (no multiplayer, no play/draw). */
-function launchGameDummy(): void {
+async function launchGameDummy(): Promise<void> {
+  if (chosenRenderer === null) chosenRenderer = "pixi";
   engine = new CardGameEngine(config);
   const handSize = 10;
   for (let i = 0; i < handSize; i++) engine.drawCard();
   const name = (startNameInput?.value ?? "").trim() || "You";
   const avatarUrl = selectedStartAvatarUrl;
   const dummyBridge = new DummyBridge(engine, name, avatarUrl);
-  activeRenderer = new CardGameRenderer(
+  const RendererClass = await getRendererClass();
+  activeRenderer = new RendererClass(
     rendererMount,
     config,
     dummyBridge as unknown as PlayroomBridge,
@@ -275,6 +289,18 @@ function launchGameDummy(): void {
 }
 
 // ── Event listeners ──────────────────────────────────────────────────────────
+
+// Renderer choice (first screen): Phaser or Pixi → then show start screen
+btnRendererPhaser.addEventListener("click", () => {
+  chosenRenderer = "phaser";
+  if (settings.haptics) oasiz.triggerHaptic("light");
+  showScreen("start");
+});
+btnRendererPixi.addEventListener("click", () => {
+  chosenRenderer = "pixi";
+  if (settings.haptics) oasiz.triggerHaptic("light");
+  showScreen("start");
+});
 
 // Create Room: connect then lobby; Start Game launches with actual bridge
 btnCreateRoom.addEventListener("click", () => connect(null));
@@ -303,7 +329,7 @@ btnReady.addEventListener("click", (e: Event) => {
 });
 btnStartGame.addEventListener("click", () => {
   showScreen("game");
-  launchGame();
+  void launchGame();
 });
 btnLeaveLobby.addEventListener("click", () => {
   bridge.leaveRoom();
