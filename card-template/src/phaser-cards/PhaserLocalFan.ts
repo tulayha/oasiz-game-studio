@@ -43,6 +43,7 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
 
   private leftArrow!: Phaser.GameObjects.Container;
   private rightArrow!: Phaser.GameObjects.Container;
+  private _hintText!: Phaser.GameObjects.Text;
 
   /** Delayed-call handle for post-layout interactivity finalizer. */
   private _layoutTimer: Phaser.Time.TimerEvent | null = null;
@@ -107,85 +108,91 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
   private buildArrows(): void {
     this.leftArrow = this.makeArrow("left");
     this.rightArrow = this.makeArrow("right");
-    this.add([this.leftArrow, this.rightArrow]);
+
+    this._hintText = this.scene.add.text(0, 0, "Hold a card to reorder", {
+      fontSize: "11px",
+      color: "#ffffff",
+      fontFamily: "Arial",
+    });
+    this._hintText.setOrigin(0.5, 1);
+    this._hintText.setAlpha(0);
+
+    this.add([this.leftArrow, this.rightArrow, this._hintText]);
     this.syncArrows();
   }
 
   private makeArrow(side: "left" | "right"): Phaser.GameObjects.Container {
     const c = this.scene.add.container(0, 0);
+    const g = this.scene.add.graphics();
 
-    const bg = this.scene.add.graphics();
-    c.add(bg);
+    // Curved swipe arrow — drawn pointing right, flipped for left
+    const W = 40, H = 12, HEAD = 7;
+    // Manually sample a cubic bezier curve since Graphics has no bezierCurveTo
+    const x0 = -W / 2, y0 = 2, cx1 = -W / 4, cy1 = -H, cx2 = W / 4, cy2 = -H, x1 = W / 2, y1 = 2;
+    const pts: Phaser.Math.Vector2[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16, mt = 1 - t;
+      pts.push(new Phaser.Math.Vector2(
+        mt * mt * mt * x0 + 3 * mt * mt * t * cx1 + 3 * mt * t * t * cx2 + t * t * t * x1,
+        mt * mt * mt * y0 + 3 * mt * mt * t * cy1 + 3 * mt * t * t * cy2 + t * t * t * y1,
+      ));
+    }
+    g.lineStyle(2.5, 0xffffff, 1);
+    g.strokePoints(pts, false);
+    // Arrowhead triangle at the tip
+    g.fillStyle(0xffffff, 1);
+    g.fillTriangle(W / 2 + HEAD, 2, W / 2 - 1, -5, W / 2 - 1, 9);
 
-    const arrowText = this.scene.add.text(0, 0, side === "left" ? "<" : ">", {
-      fontSize: "13px", color: "#ffffff", fontFamily: "Arial", fontStyle: "bold",
-    });
-    arrowText.setOrigin(0.5, 0.5);
-    c.add(arrowText);
-
-    const countText = this.scene.add.text(0, 0, "0", {
-      fontSize: "11px", color: "#ffd700", fontFamily: "Arial", fontStyle: "bold",
-    });
-    countText.setOrigin(0.5, 0.5);
-    c.add(countText);
-
-    // Store refs as custom props for later update
-    (c as unknown as Record<string, unknown>)._bg = bg;
-    (c as unknown as Record<string, unknown>)._arrowText = arrowText;
-    (c as unknown as Record<string, unknown>)._countText = countText;
-
-    // No setInteractive — hit-tested manually in handlePointerDown()
+    if (side === "left") c.setScale(-1, 1);
+    c.add(g);
+    c.setVisible(false);
+    c.setAlpha(0);
     return c;
   }
 
-  private refreshArrow(
-    c: Phaser.GameObjects.Container,
-    side: "left" | "right",
-    count: number,
-  ): void {
-    c.setVisible(false);
-    if (count === 0) return;
-
-    const PILL_W = 52;
-    const PILL_H = 30;
-    const ARROW_OFF = 10;
-    const COUNT_OFF = 10;
-
-    const refs = c as unknown as {
-      _bg: Phaser.GameObjects.Graphics;
-      _arrowText: Phaser.GameObjects.Text;
-      _countText: Phaser.GameObjects.Text;
-    };
-
-    refs._bg.clear();
-    refs._bg.fillStyle(0x000000, 0.6);
-    refs._bg.fillRoundedRect(-PILL_W / 2, -PILL_H / 2, PILL_W, PILL_H, PILL_H / 2);
-    refs._bg.lineStyle(1.5, 0xffffff, 0.25);
-    refs._bg.strokeRoundedRect(-PILL_W / 2, -PILL_H / 2, PILL_W, PILL_H, PILL_H / 2);
-
-    if (side === "left") {
-      refs._arrowText.setPosition(-ARROW_OFF, 0);
-      refs._countText.setPosition(COUNT_OFF, 0);
-    } else {
-      refs._countText.setPosition(-COUNT_OFF, 0);
-      refs._arrowText.setPosition(ARROW_OFF, 0);
+  private refreshArrow(c: Phaser.GameObjects.Container, count: number): void {
+    this.scene.tweens.killTweensOf(c);
+    if (count === 0) {
+      c.setVisible(false);
+      c.setAlpha(0);
+      return;
     }
-    refs._countText.setText(String(count));
+    c.setVisible(true);
+    // Smooth looping pulse between low and medium opacity
+    this.scene.tweens.add({
+      targets: c,
+      alpha: { from: 0.2, to: 0.65 },
+      duration: 950,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
   }
 
   private syncArrows(): void {
     const leftCount = this.viewOffset;
     const rightCount = Math.max(0, this.cards.length - this.viewOffset - MAX_VISIBLE);
 
-    this.refreshArrow(this.leftArrow, "left", leftCount);
-    this.refreshArrow(this.rightArrow, "right", rightCount);
+    this.refreshArrow(this.leftArrow, leftCount);
+    this.refreshArrow(this.rightArrow, rightCount);
 
     const halfSpread = this.fanHalfSpread();
-    const MARGIN = 38;
+    const MARGIN = 32;
     const arrowY = this.centerY - CARD_H * 0.55;
 
     this.leftArrow.setPosition(this.centerX - halfSpread - MARGIN, arrowY);
     this.rightArrow.setPosition(this.centerX + halfSpread + MARGIN, arrowY);
+
+    // Hint text sits above the top of the tallest card in the fan
+    const showHint = this.cards.length >= 2;
+    this._hintText.setPosition(this.centerX, this.centerY - CARD_H - 10);
+    this.scene.tweens.killTweensOf(this._hintText);
+    this.scene.tweens.add({
+      targets: this._hintText,
+      alpha: showHint ? 0.45 : 0,
+      duration: 400,
+      ease: "Sine.easeInOut",
+    });
   }
 
   private fanHalfSpread(): number {
@@ -283,6 +290,8 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
     this._dragStartGlobalY = this._pointerDownY;
     card.setLifted(true);
     this._lastTempSlot = this.cards.map((_, i) => i - this.viewOffset);
+    this.scene.tweens.killTweensOf(this._hintText);
+    this.scene.tweens.add({ targets: this._hintText, alpha: 0, duration: 200, ease: "Sine.easeIn" });
     const visibleCount = Math.min(this.cards.length, MAX_VISIBLE);
     this.setDepthsBySlot(visibleCount);
     card.setDepth(DRAGGED_DEPTH);
@@ -633,6 +642,7 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
     this._layoutTimer?.remove(false);
     this._layoutTimer = null;
     this._cancelEdgeScroll();
+    this.scene?.tweens.killTweensOf(this._hintText);
     this.scene?.tweens.killTweensOf(this.cards);
     super.destroy(fromScene);
   }
