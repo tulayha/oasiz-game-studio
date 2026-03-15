@@ -19,6 +19,10 @@ export const ANIM = {
   HUD_ALPHA: 250,
   /** Each half of the card flip animation – squash + expand (ms). */
   FLIP_PHASE: 70,
+  /** Reorder: long-press to pick up card (ms). */
+  LONG_PRESS: 400,
+  /** Reorder: brief shake when a card is displaced (ms). */
+  SHAKE: 60,
 } as const;
 
 export const EASE = {

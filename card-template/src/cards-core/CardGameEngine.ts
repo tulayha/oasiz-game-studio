@@ -54,6 +54,15 @@ export class CardGameEngine {
     return card;
   }
 
+  /** Move the card at `fromIndex` to `toIndex` (reorder hand). */
+  reorderHand(fromIndex: number, toIndex: number): void {
+    if (fromIndex < 0 || fromIndex >= this.localHand.length) return;
+    if (toIndex < 0 || toIndex >= this.localHand.length) return;
+    if (fromIndex === toIndex) return;
+    const [card] = this.localHand.splice(fromIndex, 1);
+    this.localHand.splice(toIndex, 0, card!);
+  }
+
   reset(): void {
     this.localHand  = [];
     this.cardCounter = 0;
