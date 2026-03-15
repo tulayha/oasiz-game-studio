@@ -76,6 +76,12 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
   /** Last temp slot-in-view per card index (for shake when displaced). */
   private _lastTempSlot: number[] = [];
 
+  // ── Edge-scroll during reorder ────────────────────────────────────────────
+  private _edgeScrollDir: -1 | 0 | 1 = 0;
+  private _edgeScrollTimer: Phaser.Time.TimerEvent | null = null;
+  private readonly EDGE_SCROLL_DELAY = 900;
+  private readonly EDGE_SCROLL_INTERVAL = 550;
+
   constructor(
     scene: Phaser.Scene,
     centerX: number,
@@ -200,6 +206,66 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
     if (this._longPressTimer) {
       this._longPressTimer.remove(false);
       this._longPressTimer = null;
+    }
+  }
+
+  private _cancelEdgeScroll(): void {
+    if (this._edgeScrollTimer) {
+      this._edgeScrollTimer.remove(false);
+      this._edgeScrollTimer = null;
+    }
+    this._edgeScrollDir = 0;
+  }
+
+  private _scheduleEdgeScroll(dir: -1 | 1, delay: number): void {
+    this._edgeScrollTimer = this.scene.time.delayedCall(delay, () => {
+      this._edgeScrollTimer = null;
+      if (this._gestureMode !== "reorder" || this._edgeScrollDir !== dir) return;
+      this.scrollBy(dir);
+      // Reset temp-slot tracking so newly visible cards animate in correctly
+      this._lastTempSlot = this.cards.map((_, i) => i - this.viewOffset);
+      // After scroll, rebuild shift so the card and slots update immediately
+      if (this._draggingCard) {
+        const visibleCount = Math.min(this.cards.length, MAX_VISIBLE);
+        const slotPositions = this.getSlotPositions(visibleCount);
+        const dropIndex = this.slotIndexFromX(this._draggingCard.x, slotPositions);
+        this._reorderDropIndex = dropIndex;
+        this.updateReorderShift(slotPositions, visibleCount);
+      }
+      // Check if still at edge and continue
+      if (this._draggingCard) {
+        const visibleCount = Math.min(this.cards.length, MAX_VISIBLE);
+        const slotPositions = this.getSlotPositions(visibleCount);
+        const nextDir = this._edgeDir(slotPositions);
+        if (nextDir === dir) {
+          this._scheduleEdgeScroll(dir, this.EDGE_SCROLL_INTERVAL);
+        } else {
+          this._edgeScrollDir = 0;
+        }
+      }
+    });
+  }
+
+  private _edgeDir(slotPositions: SlotPos[]): -1 | 0 | 1 {
+    if (!this._draggingCard || slotPositions.length === 0) return 0;
+    const cardX = this._draggingCard.x;
+    const leftEdge = slotPositions[0]!.x;
+    const rightEdge = slotPositions[slotPositions.length - 1]!.x;
+    const threshold = CARD_W * 0.75;
+    const hasLeft = this.viewOffset > 0;
+    const hasRight = this.viewOffset < this.cards.length - MAX_VISIBLE;
+    if (cardX < leftEdge + threshold && hasLeft) return -1;
+    if (cardX > rightEdge - threshold && hasRight) return 1;
+    return 0;
+  }
+
+  private _checkEdgeScroll(slotPositions: SlotPos[]): void {
+    const dir = this._edgeDir(slotPositions);
+    if (dir === this._edgeScrollDir) return; // no change
+    this._cancelEdgeScroll();
+    if (dir !== 0) {
+      this._edgeScrollDir = dir;
+      this._scheduleEdgeScroll(dir, this.EDGE_SCROLL_DELAY);
     }
   }
 
@@ -371,6 +437,7 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
       const dropIndex = this.slotIndexFromX(this._draggingCard.x, slotPositions);
       this._reorderDropIndex = dropIndex;
       this.updateReorderShift(slotPositions, visibleCount);
+      this._checkEdgeScroll(slotPositions);
       return;
     }
     if (this._draggingCard) {
@@ -416,6 +483,7 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
   /** End drag: reorder commit, throw, or snap back / scroll. */
   endDrag(): void {
     this.cancelLongPress();
+    this._cancelEdgeScroll();
 
     if (this._gestureMode === "reorder" && this._draggingCard) {
       const card = this._draggingCard;
@@ -564,6 +632,7 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
   override destroy(fromScene?: boolean): void {
     this._layoutTimer?.remove(false);
     this._layoutTimer = null;
+    this._cancelEdgeScroll();
     this.scene?.tweens.killTweensOf(this.cards);
     super.destroy(fromScene);
   }
@@ -583,9 +652,11 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
   // ── Fan tween ───────────────────────────────────────────────────────────────
 
   /** Set each card's depth by its visible slot: leftmost = least z (behind), rightmost = most z (on top).
-   *  Also re-sorts container children since depth has no effect inside a Container. */
+   *  Also re-sorts container children since depth has no effect inside a Container.
+   *  Skips the dragged card so it keeps DRAGGED_DEPTH. */
   private setDepthsBySlot(visibleCount: number): void {
     for (let i = 0; i < this.cards.length; i++) {
+      if (this.cards[i] === this._draggingCard) continue;
       const vi = i - this.viewOffset;
       const depth = vi >= 0 && vi < visibleCount ? vi : 0;
       this.cards[i]?.setDepth(depth);
@@ -594,13 +665,15 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
   }
 
   tweenToLayout(count: number): void {
-    this.scene.tweens.killTweensOf(this.cards);
+    // Kill tweens only on non-dragged cards — the dragged card stays under pointer control
+    const nonDragged = this.cards.filter(c => c !== this._draggingCard);
+    this.scene.tweens.killTweensOf(nonDragged);
     this._layoutTimer?.remove(false);
     this._layoutTimer = null;
 
     const visibleCount = Math.min(count, MAX_VISIBLE);
     // Reset any stale lifted state before tweening so setLifted(false) can't desync y later
-    for (const card of this.cards) {
+    for (const card of nonDragged) {
       if (card.isLifted()) card.setLifted(false);
     }
     this._highlightedCard = null;
@@ -611,6 +684,9 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
     const offRight = this.centerX + window.innerWidth * 0.75;
 
     for (let i = 0; i < this.cards.length; i++) {
+      const card = this.cards[i]!;
+      // Never tween the held card — it follows the pointer directly
+      if (card === this._draggingCard) continue;
       const vi = i - this.viewOffset;
       const visible = vi >= 0 && vi < visibleCount;
       const tg = visible
@@ -618,7 +694,7 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
         : { x: i < this.viewOffset ? offLeft : offRight, y: this.centerY, rotation: 0, alpha: 0 };
 
       this.scene.tweens.add({
-        targets: this.cards[i],
+        targets: card,
         x: tg.x,
         y: tg.y,
         rotation: tg.rotation,
@@ -632,10 +708,12 @@ export class PhaserLocalFan extends Phaser.GameObjects.Container {
     this._layoutTimer = this.scene.time.delayedCall(ANIM.LAYOUT, () => {
       this._layoutTimer = null;
       for (let i = 0; i < this.cards.length; i++) {
+        const card = this.cards[i]!;
+        if (card === this._draggingCard) continue;
         const vi = i - this.viewOffset;
         const visible = vi >= 0 && vi < visibleCount;
-        this.cards[i]?.setInteractable(visible && this.interactable);
-        if (this.cards[i]) this.cards[i]!.setAlpha(visible ? 1 : 0);
+        card.setInteractable(visible && this.interactable);
+        card.setAlpha(visible ? 1 : 0);
       }
     });
   }
