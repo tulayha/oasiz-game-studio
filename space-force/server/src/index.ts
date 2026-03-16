@@ -129,7 +129,27 @@ function createCorsOriginMatcher(
     }
 
     const normalizedOrigin = normalizeOrigin(requestOrigin);
-    callback(null, allowedOriginSet.has(normalizedOrigin));
+    if (allowedOriginSet.has(normalizedOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    // Allow subdomains: check if origin ends with .<allowedOrigin>
+    // e.g. https://app.oasiz.gg matches https://oasiz.gg
+    const allowed = allowedOrigins.some((entry) => {
+      try {
+        const entryUrl = new URL(entry);
+        const reqUrl = new URL(normalizedOrigin);
+        return (
+          reqUrl.protocol === entryUrl.protocol &&
+          (reqUrl.hostname === entryUrl.hostname ||
+            reqUrl.hostname.endsWith("." + entryUrl.hostname))
+        );
+      } catch {
+        return false;
+      }
+    });
+    callback(null, allowed);
   };
 }
 

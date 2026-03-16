@@ -2048,3 +2048,12 @@ Condensed on 2026-03-04 to reduce milestone noise and restore high-signal scanni
   - `space-force/server`: `npm run build` passed.
 - Architecture outcome:
   - no change required.
+
+## 2026-03-13 - Server: CORS subdomain support
+
+- Scope: `server/src/index.ts`
+- What shipped:
+  - `createCorsOriginMatcher` updated to allow subdomains of any listed origin. After exact-match check fails, falls back to checking if the request origin's hostname ends with `.<allowedHostname>` and protocol matches.
+  - e.g. `CORS_ORIGIN=https://oasiz.gg` now also permits `https://app.oasiz.gg`, `https://anything.oasiz.gg`.
+- Validation: pending typecheck/build.
+- Outcome: Single env var entry covers a domain and all its subdomains.
